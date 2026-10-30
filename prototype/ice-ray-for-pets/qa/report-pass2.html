@@ -1,0 +1,120 @@
+<title>Ice Ray QA Pass 2</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<style>
+:root{--bg:#f3f2f7;--surface:#fff;--sunk:#eceaf3;--ink:#1b1726;--muted:#5d5870;--line:#d9d6e3;--accent:#5b3fc4;--gb:#b0172f;--high:#c9561a;--med:#a77800;--mod:#3f7f86;--low:#4b6e9c;--ok:#2f7f49;--head:"Barlow Semi Condensed","Arial Narrow",Arial,sans-serif;--body:"Atkinson Hyperlegible","Segoe UI",system-ui,sans-serif;--r:3px}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14121b;--surface:#1e1b28;--sunk:#181622;--ink:#ecebf2;--muted:#a6a2b8;--line:#34303f;--accent:#a08cff;--gb:#ff5a6e;--high:#ff9a52;--med:#f0c040;--mod:#6fd0d8;--low:#8cafe0;--ok:#62cf88;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#14121b;--surface:#1e1b28;--sunk:#181622;--ink:#ecebf2;--muted:#a6a2b8;--line:#34303f;--accent:#a08cff;--gb:#ff5a6e;--high:#ff9a52;--med:#f0c040;--mod:#6fd0d8;--low:#8cafe0;--ok:#62cf88;color-scheme:dark}
+*{box-sizing:border-box}body{background:var(--bg);color:var(--ink);font:16px/1.55 var(--body)}
+.wrap{max-width:1080px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 64px;display:grid;gap:34px}
+h1,h2,h3{font-family:var(--head);margin:0;line-height:1.15;text-wrap:balance}h1{font-size:clamp(30px,5vw,44px)}h2{font-size:25px}p{margin:0;max-width:72ch}
+section{display:grid;gap:12px;min-width:0}.lede{color:var(--muted)}.label{font-family:var(--head);font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.verdict,.tally,.filters{display:flex;flex-wrap:wrap;gap:10px}
+.vbox{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 16px;display:grid;gap:2px;min-width:0;flex:1 1 220px}
+.vbox .big{font-family:var(--head);font-size:34px;line-height:1}.vbox .why{font-size:13px;color:var(--muted)}
+.go{border-color:var(--ok)}.go .big{color:var(--ok)}.wait{border-color:var(--med)}.wait .big{color:var(--med)}
+.chip{display:inline-flex;gap:6px;font-family:var(--head);font-size:14px;letter-spacing:.04em;padding:3px 9px;border-radius:var(--r);border:1px solid currentColor;white-space:nowrap}
+.gb{color:var(--gb)}.high{color:var(--high)}.med{color:var(--med)}.mod{color:var(--mod)}.low{color:var(--low)}.ok{color:var(--ok)}
+.levels{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.lvl,.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;display:grid;gap:6px;min-width:0}
+.lvl .n{font-family:var(--head);font-size:26px}.lvl .was{font-size:13px;color:var(--muted)}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}.panel ul{margin:0;padding-left:20px;display:grid;gap:6px}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:15px}th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:var(--head);font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);background:var(--sunk);white-space:nowrap}tr:last-child td{border-bottom:0}
+ol.block{margin:0;padding:0;list-style:none;display:grid;gap:8px;counter-reset:b}
+ol.block li{counter-increment:b;display:grid;grid-template-columns:30px 1fr;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px}
+ol.block li::before{content:counter(b);font-family:var(--head);font-size:22px;color:var(--muted)}
+button.f{font:600 14px var(--head);letter-spacing:.04em;padding:6px 12px;min-height:36px;border-radius:var(--r);border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+button.f[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+.tickets{display:grid;gap:8px}.t{background:var(--surface);border:1px solid var(--line);border-left:5px solid currentColor;border-radius:var(--r);padding:10px 12px;display:grid;gap:4px}
+.t b{color:var(--ink)}.t p{color:var(--ink);font-size:15px}.t .meta{font-size:13px;color:var(--muted)}
+footer{font-size:14px;color:var(--muted);display:grid;gap:4px}
+</style>
+<div class="wrap">
+<header style="display:grid;gap:12px">
+  <div class="label">Ice Ray for Pets · prototype QA · pass 2 · 30 Oct 2026</div>
+  <h1>Prototype QA: pass 2</h1>
+  <p class="lede">HTML prototype: hub, Snowy Meadow and Pine Forest, 16 pets, the pen with Storage, coin gate, Super Freeze mock. Build: Halloween repo commit c5fa491, artifact version 7. Pass 1 (three reviewers) found 56 issues; pass 2 fixed them and re-ran the reviewers' test scripts. The melting change came after the last full re-check.</p>
+  <div class="verdict">
+    <div class="vbox go"><span class="label">Release (port to Roblox)</span><span class="big">GO</span><span class="why">0 open blockers. Pass 1: 6 blockers, all fixed and re-checked.</span></div>
+    <div class="vbox wait"><span class="label">Fun</span><span class="big">NOT SCORED</span><span class="why">The kid-lens review's 2 blockers are fixed, but nobody has replayed the new melting yet.</span></div>
+  </div>
+  <div class="tally"><span class="chip gb">Game-breaking 0 open</span><span class="chip high">High 1 open</span><span class="chip med">Medium 2 open</span><span class="chip mod">Moderate 1 open</span><span class="chip low">Low 1 open</span><span class="chip ok">Fixed 50+</span></div>
+</header>
+
+<section><h2>Fun levels</h2><p class="lede">Out of 10, by age group. Not scored this pass: the next play pass fills these in (QA Rules § 9).</p>
+<div class="levels"><div class="lvl"><span class="label">Ages 5-7</span><span class="n">–</span><span class="was">pass 1: not scored</span></div><div class="lvl"><span class="label">Ages 8-11</span><span class="n">–</span><span class="was">pass 1: not scored</span></div><div class="lvl"><span class="label">Ages 12-15</span><span class="n">–</span><span class="was">pass 1: not scored</span></div><div class="lvl"><span class="label">Ages 16-18</span><span class="n">–</span><span class="was">pass 1: not scored</span></div></div></section>
+
+<section><h2>Release blockers (pass 1, all fixed)</h2>
+<ol class="block">
+<li><span><b>The green arrow pointed away from the goal.</b> Turned a half turn; checked in screenshots. <span class="ok">Fixed</span></span></li>
+<li><span><b>A bought Super Freeze cube was lost if you left.</b> Saved with the purchase, back on your back after a rejoin. <span class="ok">Fixed</span></span></li>
+<li><span><b>Phones couldn't open Settings</b> (the coins covered the tile). The layout moves the tiles. <span class="ok">Fixed</span></span></li>
+<li><span><b>A gamepad couldn't open or close menus.</b> Start, d-pad, A, B and Y now work. <span class="ok">Fixed</span></span></li>
+<li><span><b>Stuck in the river when the ice bridge melted.</b> You land on the nearest bank. <span class="ok">Fixed</span></span></li>
+<li><span><b>Nothing could ever melt.</b> Ice Ray +2% a level, steep cube lives for rarer pets. <span class="med">Partly: tuned, not replayed</span></span></li>
+</ol></section>
+
+<section><h2>All tickets</h2>
+<div class="filters" role="group" aria-label="Filter tickets">
+<button class="f" data-f="all" aria-pressed="true">All</button><button class="f" data-f="open" aria-pressed="false">Open only</button><button class="f" data-f="new" aria-pressed="false">New this pass</button>
+<button class="f" data-f="high" aria-pressed="false">High</button><button class="f" data-f="med" aria-pressed="false">Medium</button><button class="f" data-f="mod" aria-pressed="false">Moderate</button><button class="f" data-f="low" aria-pressed="false">Low</button></div>
+<div class="tickets" id="tickets"></div></section>
+
+<section><h2>Economy</h2>
+<div class="scroll"><table><tr><th>What</th><th>Value</th><th>Evidence</th></tr>
+<tr><td>First freeze / first bank</td><td>1.3 s / 2.3 s bot (≈ 3 s / 6 s kid)</td><td>bot, 4 seeds</td></tr>
+<tr><td>First upgrade</td><td>13-21 s bot (≈ 0.5-0.9 min kid)</td><td>bot</td></tr>
+<tr><td>Pine Forest opens</td><td>1,000 coins: 118-144 s bot (≈ 5-6 min kid)</td><td>bot, 4 seeds; target 5-10 min</td></tr>
+<tr><td>Cube life (before heat)</td><td>Common 90 · Uncommon 70 · Rare 30 · Epic 22 · Legendary 16 · Mythic 12 · Secret 8 s</td><td>owner decision 30 Oct</td></tr>
+<tr><td>Ice Ray</td><td>+2% cube life, bigger cubes, +4 s bridge a level</td><td>was +20%, which made every cube safe</td></tr>
+<tr><td>Melting at kid pace</td><td>Commons 0 of 416 close to melting</td><td>bot × 2.5 (before the final Rare+ cut)</td></tr>
+<tr><td>Pen / Storage</td><td>10 earning slots, +5 per Pen upgrade; Storage 500</td><td>owner decision</td></tr>
+<tr><td>Away earnings</td><td>25% of income, up to 8 h</td><td>owner decision</td></tr>
+<tr><td>Super Freeze</td><td>15 R$ (mock), Rare+, once per run, no timer</td><td>Game Plan 15 guardrails, suite checks</td></tr>
+</table></div></section>
+
+<section><h2>Performance</h2>
+<div class="scroll"><table><tr><th>What</th><th>Measured</th><th>Note</th></tr>
+<tr><td>Frame rate</td><td>2-7 fps</td><td>software renderer in the cloud only; real phones not measured</td></tr>
+<tr><td>Console errors</td><td>0</td><td>every scripted run</td></tr>
+<tr><td>Memory over long runs</td><td>flat after the geometry fix</td><td>code auditor, 60 pets + 20 cubes</td></tr>
+</table></div></section>
+
+<section class="two">
+<div class="panel"><h3>What's good</h3><ul><li>Code auditor's exploit suite: 67 of 67 pass; built-in exploit test 0 FAIL.</li><li>Phone, tablet and PC layouts clean.</li><li>First reward in about 3 s of kid time; the pen, Storage and Equip best work.</li><li>Friendly, original pets; no threats, no emojis; failure is gentle (free re-zap).</li><li>All 8 analytics funnel steps and 7 events fire.</li></ul></div>
+<div class="panel"><h3>Not covered this pass</h3><ul><li>Fun scores by age and a scorecard against similar games (next play pass).</li><li>Real phone, tablet and controller.</li><li>Multi-player (Roblox Studio only).</li><li>The new melting, played by a reviewer.</li></ul></div>
+</section>
+
+<footer><span>Checklist: vault QA Rules. Previous pass: vault note "Prototype QA" (pass 1, NO-GO). Setup: headless Chromium with a software renderer, playtest bot (kid time = bot × 2.5), fresh saves.</span></footer>
+</div>
+<script>
+const T = [
+ ['QA-01','high','fixed',0,'Guide arrow pointed away from the goal','DR-01 · turned a half turn; screenshot check'],
+ ['QA-02','high','partly',0,'Nothing could ever melt','DR-02 · Ice Ray +2%, steep Rare+ cube lives; the new numbers not replayed by a reviewer yet'],
+ ['QA-03','high','fixed',0,'Bought Super Freeze cube lost on leave','CA-03 / PT-05 · saved with the purchase, back after a rejoin; suite check passes'],
+ ['QA-04','high','fixed',0,'Phone: coins covered the Settings tile','PT-01 · layout check 844×390 clean'],
+ ['QA-05','high','fixed',0,'Gamepad couldn’t open or close menus','PT-02 · every action passed in at least one of 3 runs (the test browser drops presses)'],
+ ['QA-06','high','fixed',0,'Stuck in the river when the ice bridge melted','PT-03 · pushed to the bank, can walk on'],
+ ['QA-07','med','fixed',0,'Speed hack: server trusted the client’s time step','CA-01 · movement budget on the server clock'],
+ ['QA-08','med','fixed',0,'Forest pets frozen through the closed gate','CA-02 · locked zones refuse the zap'],
+ ['QA-09','high','fixed',1,'Rubber-band at the free bridge’s corner','new in pass 2 · the client now checks moves the same way as the server'],
+ ['QA-10','med','fixed',0,'Pen full after 13 min was a dead end','DR-04 · Pen of 10 + Storage + Equip best'],
+ ['QA-11','med','fixed',0,'Forest opened after 1.5 min (target 5-10)','DR / OD-1 · opens with 1,000 coins (≈ 5-6 min)'],
+ ['QA-12','med','fixed',0,'Camera blocked by signs, boards and landmarks','PT-04 / DR-13 · they fade when in the way'],
+ ['QA-13','mod','fixed',0,'Damaged saves crashed the join','CA-11 · every field checked on load'],
+ ['QA-14','high','open',1,'Real phone, tablet and controller not tested','owner item · the cloud browser runs at 2-7 fps'],
+ ['QA-15','med','open',1,'Only 2 of 16 pets have 3D models','needs the Weave paid plan'],
+ ['QA-16','med','open',1,'The new melting not replayed','next play pass'],
+ ['QA-17','mod','open',1,'Sunny Beach (500 coins) is now cheaper than the Forest (1,000)','re-price when Beach is built'],
+ ['QA-18','low','open',0,'Kid time is still bot time × 2.5','needs a real 7- and 15-year-old playtest'],
+];
+const box = document.getElementById('tickets'), name = { high: 'High', med: 'Medium', mod: 'Moderate', low: 'Low' };
+function draw(f) {
+  box.innerHTML = T.filter(([, sev, st, isNew]) => f === 'all' || f === sev || (f === 'open' && st !== 'fixed') || (f === 'new' && isNew))
+    .map(([id, sev, st, isNew, title, ev]) => `<div class="t ${sev}"><span class="meta">${name[sev]} · ${st === 'fixed' ? 'fixed' : st === 'partly' ? 'partly fixed' : 'open'}${isNew ? ' · new' : ''} · ${id}</span><b>${title}</b><p>${ev}</p></div>`).join('') || '<p class="lede">No tickets match.</p>';
+}
+document.querySelectorAll('button.f').forEach((b) => b.addEventListener('click', () => { document.querySelectorAll('button.f').forEach((x) => x.setAttribute('aria-pressed', x === b)); draw(b.dataset.f); }));
+draw('all');
+</script>
