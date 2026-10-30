@@ -7,12 +7,13 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { buildWorld } from './scenery.js';
 import { Config, Theme, World, PetDefs, petByKey, SizeHeight, CubeSize, zoneById, cubeSizeFactor, tierByName } from './config.js';
-import { walkable, dist, iceBridgeCenter, lightAt, zoneTemperature } from './world.js';
+import { walkable, pathWalkable, dist, iceBridgeCenter, lightAt, zoneTemperature } from './world.js';
 
 export function createClient({ server, input, audio, hud, headless }) {
   const view = () => server.view();
   const me = { x: World.spawn.x, z: World.spawn.z, facing: 0, walkPhase: 0 };
   const hold = { target: null, t: 0, need: 1, sent: false };
+  const GATE = { x: 0, z: World.gate.z - 2.5 };
   let target = null;
 
   server.on('correctPosition', (p) => { me.x = p.x; me.z = p.z; if (p.splash) { audio.play('melt'); hud.notYet('Splash! The ice bridge melted', null); } });
@@ -30,6 +31,8 @@ export function createClient({ server, input, audio, hud, headless }) {
     if (v.gift.ready && Math.hypot(g.x - me.x, g.z - me.z) < range && Math.hypot(g.x - me.x, g.z - me.z) < bestD) best = { kind: 'gift', id: 'gift' };
     const ib = iceBridgeCenter(me);
     if (!v.iceBridgeActive && Math.hypot(ib.x - me.x, ib.z - me.z) < range + 2) best = best || { kind: 'bridge', id: 'bridge' };
+    // the locked Forest gate: hold to pay its coins (it wins over pets, it's what you walked up to)
+    if (!v.forestUnlocked && Math.hypot(me.x - GATE.x, me.z - GATE.z) < range) best = { kind: 'gate', id: 'gate' };
     return best;
   }
   // CLIENT
@@ -46,10 +49,12 @@ export function createClient({ server, input, audio, hud, headless }) {
     const busy = hold.target && hold.target.kind !== 'gift' && false;
     if (!busy && (mv.x || mv.z)) {
       const nx = me.x + mv.x * speed * dt, nz = me.z + mv.z * speed * dt;
-      if (walkable(nx, nz, st)) { me.x = nx; me.z = nz; }
+      // the same check as the server (every half stud of the move), so the two never disagree at a corner
+      const ok = (x, z) => pathWalkable(me.x, me.z, x, z, st);
+      if (ok(nx, nz)) { me.x = nx; me.z = nz; }
       else {
         bumped(v); // the full step was blocked: at the locked gate this says what's missing
-        if (walkable(nx, me.z, st)) me.x = nx; else if (walkable(me.x, nz, st)) me.z = nz;
+        if (ok(nx, me.z)) me.x = nx; else if (ok(me.x, nz)) me.z = nz;
       }
       me.facing = Math.atan2(mv.x, mv.z);
       me.walkPhase += dt * speed * 0.6;
@@ -62,10 +67,10 @@ export function createClient({ server, input, audio, hud, headless }) {
       if (!hold.target || hold.target.id !== target.id) {
         if (hold.target) server.remotes.cancelZap();
         hold.target = target; hold.t = 0; hold.sent = false;
-        hold.need = target.kind === 'gift' ? Config.player.interactHold
+        hold.need = target.kind === 'gift' || target.kind === 'gate' ? Config.player.interactHold
           : target.kind === 'pet' && target.w.state === 'dazed' ? Config.player.refreezeHold : Config.player.freezeHold;
         server.remotes.beginZap(target.id);
-        if (target.kind !== 'gift') audio.play('zap');
+        if (target.kind !== 'gift' && target.kind !== 'gate') audio.play('zap');
       }
       hold.t += dt;
       if (hold.t >= hold.need && !hold.sent) { hold.sent = true; server.remotes.endZap(target.id); }
@@ -80,8 +85,8 @@ export function createClient({ server, input, audio, hud, headless }) {
     const g = World.gate;
     if (!v.forestUnlocked && Math.abs(me.z - g.z) < 4 && v.time - bumpAt > 1.5) {
       bumpAt = v.time;
-      const need = zoneById[2].gatePets - v.pets.length;
-      hud.notYet(`Need ${need} more ${need === 1 ? 'pet' : 'pets'}`, worldToScreen(me.x, 4, me.z));
+      const need = Math.ceil(v.gateCoins - v.coins);
+      hud.notYet(need > 0 ? `Need ${need} more coins` : 'Hold to open the gate', worldToScreen(me.x, 4, me.z));
       audio.play('no');
     }
   }
@@ -395,15 +400,23 @@ export function createClient({ server, input, audio, hud, headless }) {
       if (!c.superFrozen && frac < 0.6 && Math.random() < 0.08) burst(g.position.x, g.position.y - size / 2, g.position.z, '#bfe9ff', 1, 1, 0.5); // drips
     });
   }
+  let penKey = '';
   function syncPen(v, t) {
-    const show = v.pets.slice(-30);
-    while (penVis.length < show.length) {
-      const p = show[penVis.length];
+    const show = v.pets.filter((x) => x.eq).slice(-30); // the pen's pets (up to 30 drawn); Storage isn't shown in the world
+    const key = show.map((x) => x.id).join(',');
+    if (key !== penKey) {
+      const keep = new Set(show.map((x) => x.id));
+      for (let i = penVis.length - 1; i >= 0; i--) if (!keep.has(penVis[i].id)) { scene.remove(penVis[i].g); disposeVisual(penVis[i].g); penVis.splice(i, 1); }
+      penKey = key;
+    }
+    const have = new Set(penVis.map((e) => e.id));
+    for (const p of show) {
+      if (have.has(p.id)) continue;
       const root = makePetVisual(p.key, { frosty: p.mut === 'Frosty' });
       const pp = World.pen;
       const x = pp.xMin + 2 + Math.random() * (pp.xMax - pp.xMin - 4), z = pp.zMin + 2 + Math.random() * (pp.zMax - pp.zMin - 6);
       const g = new THREE.Group(); g.add(root, blob(root.userData.h * 0.42)); g.position.set(x, 0.4, z); scene.add(g);
-      penVis.push({ g, root, pose: p.pose, phase: Math.random() * 6, born: t });
+      penVis.push({ id: p.id, g, root, pose: p.pose, phase: Math.random() * 6, born: t });
     }
     for (const e of penVis) {
       const age = t - e.born;
@@ -471,7 +484,7 @@ export function createClient({ server, input, audio, hud, headless }) {
       burst(cx, 3, cz, '#bfe9ff', n, 10, 0.8); burst(cx, 3, cz, big ? Theme.tiers[def.tier] : '#ffd34a', n, 8 + rank, 0.9 + rank * 0.1);
       audio.play(rank >= 3 ? 'reveal_rare' : 'bank', rank);
       if (big) { pillarT = 0; pillarColor = Theme.tiers[def.tier]; hud.showBanner(`${def.tier.toUpperCase()}! ${def.name}`, 'tier-' + def.tier.toLowerCase(), 3); }
-      hud.floatAt(`+${fmt(b.income)}/s`, worldToScreen(me.x, 6, me.z), '#ffd34a');
+      hud.floatAt(b.stored ? 'To Storage' : `+${fmt(b.income)}/s`, worldToScreen(me.x, 6, me.z), b.stored ? '#bfe9ff' : '#ffd34a');
     }, i * 250));
   });
   const pillar = new THREE.Mesh(new THREE.CylinderGeometry(4, 6, 60, 24, 1, true), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
@@ -514,7 +527,7 @@ export function createClient({ server, input, audio, hud, headless }) {
     sunLight.position.set(me.x + SUN_OFFSET.x, SUN_OFFSET.y, me.z + 18 + SUN_OFFSET.z); sunLight.target.position.set(me.x, 0, me.z + 18);
     syncWild(v, t); syncCarried(v, t); syncPen(v, t); tickParticles(dt);
     // ray beam while zapping
-    if (hold.target && hold.target.kind !== 'gift') {
+    if (hold.target && hold.target.kind !== 'gift' && hold.target.kind !== 'gate') {
       const tp = hold.target.kind === 'bridge' ? iceBridgeCenter(me) : (v.wild.get(hold.target.id) || {});
       if (tp.x !== undefined) {
         const a = new THREE.Vector3(); avParts.gunTip.getWorldPosition(a); const b = new THREE.Vector3(tp.x, 1.4, tp.z);
@@ -546,8 +559,8 @@ export function createClient({ server, input, audio, hud, headless }) {
     // boards and signs (redrawn only when their data changes)
     if (v.boards && v.boards !== lastBoards) { lastBoards = v.boards; Config.leaderboards.boards.forEach((b, i) => drawBoard(boards[i], b, v.boards[b.id])); }
     if (t - signAt > 3 || lastUnit !== Config.temperature.unit) { signAt = t; lastUnit = Config.temperature.unit; zoneSigns.forEach(drawZoneSign); }
-    const gateKey = v.forestUnlocked ? 'open' : v.pets.length;
-    if (gateKey !== lastGate) { lastGate = gateKey; gateSign.draw((c, w, h) => boardText(c, w, h, v.forestUnlocked ? 'PINE FOREST' : `${v.pets.length} / ${zoneById[2].gatePets} pets in pen`, v.forestUnlocked ? '#3ccf6e' : '#3aa8ff')); }
+    const gateKey = v.forestUnlocked ? 'open' : v.coins >= v.gateCoins ? 'ready' : 'locked';
+    if (gateKey !== lastGate) { lastGate = gateKey; gateSign.draw((c, w, h) => boardText(c, w, h, v.forestUnlocked ? 'PINE FOREST' : `OPEN FOR ${v.gateCoins} COINS`, v.forestUnlocked ? '#3ccf6e' : gateKey === 'ready' ? '#3ccf6e' : '#3aa8ff')); }
     const giftKey = v.gift.locked ? 'locked' : v.gift.ready ? 'ready' : 'later';
     if (giftKey !== lastGift) { lastGift = giftKey; giftLabel.mesh.visible = !v.gift.locked; if (!v.gift.locked) giftLabel.draw((c, w, h) => boardText(c, w, h, v.gift.ready ? 'DAILY GIFT' : 'NEXT GIFT TOMORROW', v.gift.ready ? '#ff5a8a' : '#9aa5b1')); }
     renderer.render(scene, camera);

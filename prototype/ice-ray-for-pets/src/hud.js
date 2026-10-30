@@ -1,9 +1,10 @@
 // CLIENT: the Screen owner. Only this module places HUD elements (UI Rules: one owner).
 // HUD cap of 5: coins, menu tiles, goal bar, contextual banner (+ prompts that live on world objects).
-import { Config, Theme, PetDefs, World, petByKey, upgradeCost, zoneById, isRegular } from './config.js';
+import { Config, Theme, PetDefs, World, petByKey, upgradeCost, zoneById, isRegular, petIncome } from './config.js';
 import { iceBridgeCenter, temperatureAt, zoneAt } from './world.js';
 
-const ICONS = { // the approved painted icons (UI Rules > Icons)
+const ICONS = { // the approved painted icons (UI Rules > Icons); Pets uses the Snowbun art until a painted pets icon is made
+  pets: '<img src="assets/sprites/snowbun.webp" alt="">',
   shop: '<img src="assets/icons/bag.webp" alt="">',
   index: '<img src="assets/icons/book.webp" alt="">',
   settings: '<img src="assets/icons/gear.webp" alt="">',
@@ -61,12 +62,22 @@ export function createHud({ server, input, audio }) {
     const v = server.view(); if (!current || !v) return;
     const head = (title, color) => `<button class="block press close txt" aria-label="Close">X</button><h2 class="txt" style="color:#fff">${title}</h2>`;
     if (current.name === 'shop') {
-      pop.innerHTML = head('Shop') + '<div class="cards">' + ['ray', 'boots', 'backpack'].map((id) => {
+      pop.innerHTML = head('Shop') + '<div class="cards">' + Config.upgradeIds.map((id) => {
         const u = Config.upgrades[id], lvl = v.upgrades[id], max = lvl >= u.maxLevel, cost = max ? 0 : upgradeCost(id, lvl + 1);
-        const effect = id === 'ray' ? 'Bigger cubes that last longer' : id === 'boots' ? 'Run faster' : `Carry ${lvl + 1} cubes`;
+        const effect = id === 'ray' ? 'Bigger cubes that last longer' : id === 'boots' ? 'Run faster' : id === 'pen' ? `${v.penSlots + u.slotsPerLevel} pets earn` : `Carry ${lvl + 1} cubes`;
         return `<div class="block card2"><h3>${u.name}</h3><div>Level ${lvl}</div><p>${effect}</p>
           <button class="block press buy txt ${!max && v.coins < cost ? 'cant' : ''}" data-buy="${id}">${max ? 'MAX' : COIN + fmt(cost)}</button></div>`;
       }).join('') + '</div>';
+    } else if (current.name === 'pets') {
+      // the pen's pets earn; the rest wait in Storage. Tap a pet to move it; Equip best fills the pen with the top earners
+      const earn = (x) => petIncome(petByKey[x.key], x.pose, x.mut);
+      const inPen = v.pets.filter((x) => x.eq).sort((a, b) => earn(b) - earn(a));
+      const stored = v.pets.filter((x) => !x.eq).sort((a, b) => earn(b) - earn(a));
+      const cell = (x) => `<button class="pet-cell ${x.eq ? 'on' : ''}" data-pet="${x.id}" aria-label="${petByKey[x.key].name}"><span class="tr" style="background:${Theme.tiers[petByKey[x.key].tier]}"></span><img src="assets/sprites/${x.key}.webp" alt=""><span class="nm">${petByKey[x.key].name}</span><span class="earn">${COIN}${rate(earn(x))}/s</span></button>`;
+      pop.innerHTML = head('Pets') + `<button class="block press buy txt" data-best="1">Equip best</button>
+        <h3 class="sec">Pen ${inPen.length} / ${v.penSlots} <span>earning</span></h3><div class="pet-grid">${inPen.map(cell).join('') || '<div class="empty">Bank a pet to fill your pen</div>'}</div>
+        <h3 class="sec">Storage ${stored.length} <span>tap one to put it in the pen</span></h3><div class="pet-grid">${stored.slice(0, 60).map(cell).join('')}${stored.length > 60 ? `<div class="empty">+${stored.length - 60} more</div>` : ''}</div>`;
+      seenBetter = storedBetterSig(v);
     } else if (current.name === 'index') {
       const pets = PetDefs.filter((p) => p.zone === idxPage), regular = pets.filter(isRegular);
       const found = regular.filter((p) => v.found[p.key]).length;
@@ -110,6 +121,8 @@ export function createHud({ server, input, audio }) {
       else { Config.motion.reduced = !Config.motion.reduced; document.documentElement.classList.toggle('reduced', Config.motion.reduced); }
       saveSettings(); audio.play('click'); render();
     }));
+    pop.querySelectorAll('[data-pet]').forEach((b) => b.addEventListener('click', () => { audio.play('click'); const x = server.view().pets.find((y) => y.id === b.dataset.pet); if (x) server.remotes.equipPet(x.id, !x.eq); }));
+    pop.querySelector('[data-best]')?.addEventListener('click', () => { audio.play('click'); server.remotes.equipBest(); });
     pop.querySelector('[data-collect]')?.addEventListener('click', () => { server.remotes.collectWelcome(); close(); });
     pop.querySelector('[data-ok]')?.addEventListener('click', () => close());
     pop.querySelector('[data-sf]')?.addEventListener('click', (e) => { server.remotes.buySuperFreezeMock(e.currentTarget.dataset.sf); close(); });
@@ -147,6 +160,18 @@ export function createHud({ server, input, audio }) {
     else if (btn === 'y' && offer) offer.querySelector('button').click(); // Y presses the Super Freeze button by the pet
   });
   server.on('upgraded', ({ id }) => { audio.play('buy'); if (current?.name === 'shop') render(); });
+  server.on('petsChanged', () => { if (current?.name === 'pets') render(); });
+  // "!" on Pets: a pet in Storage would earn more than the weakest pet in the pen (or the pen has an empty slot)
+  let seenBetter = '';
+  function storedBetterSig(v) {
+    const earn = (x) => petIncome(petByKey[x.key], x.pose, x.mut);
+    const inPen = v.pets.filter((x) => x.eq), stored = v.pets.filter((x) => !x.eq);
+    if (!stored.length) return '';
+    const bestStored = Math.max(...stored.map(earn));
+    if (inPen.length < v.penSlots) return 'room:' + stored.length;
+    const weakest = Math.min(...inPen.map(earn));
+    return bestStored > weakest ? 'better:' + bestStored : '';
+  }
   server.on('welcomeBack', (w) => open('welcome', w));
   server.on('gift', () => { if (current?.name === 'gift') render(); });
   server.on('welcomeCollected', ({ coins }) => { audio.play('gift'); floatAt(`+${fmt(coins)}`, centerOf(coinsEl), '#ffd34a'); });
@@ -209,6 +234,7 @@ export function createHud({ server, input, audio }) {
       tierChip = `<span class="tier txt" style="background:${Theme.tiers[def.tier]}">${def.tier}</span>`;
       pos = client.worldToScreen(w.x, 3.5 + (def.size === 'L' ? 1.5 : 0), w.z);
     } else if (t.kind === 'gift') { text = 'Open gift'; pos = client.worldToScreen(World.giftBox.x, 6, World.giftBox.z); }
+    else if (t.kind === 'gate') { text = 'Open Pine Forest'; sub = `${COIN} ${fmt(v.gateCoins)}`; pos = client.worldToScreen(0, 6, World.gate.z - 2.5); }
     else { const c = iceBridgeCenter(client.me); text = 'Freeze an ice bridge'; sub = ''; pos = client.worldToScreen(c.x, 3, c.z); }
     if (!pos) { promptEl.style.display = 'none'; return; }
     promptEl.style.display = 'flex';
@@ -238,8 +264,7 @@ export function createHud({ server, input, audio }) {
 
   // ---------------- goal bar (three goals: short, medium, long) ----------------
   function goalFor(v) {
-    const need = zoneById[2].gatePets;
-    if (!v.forestUnlocked) return { text: `Unlock Pine Forest: ${v.pets.length} / ${need} pets in your pen`, frac: v.pets.length / need };
+    if (!v.forestUnlocked) return v.coins >= v.gateCoins ? { text: 'Pine Forest: go open the gate!', frac: 1 } : { text: `Unlock Pine Forest: ${fmt(v.coins)} / ${fmt(v.gateCoins)}`, frac: v.coins / v.gateCoins };
     const beach = Config.beachGateCoins;
     if (v.coins < beach && !beachSeen) return { text: `Unlock Sunny Beach: ${fmt(v.coins)} / ${fmt(beach)}`, frac: v.coins / beach };
     beachSeen = true; // the prototype stops at the Forest; after 500 coins the Index pages are the goal
@@ -284,14 +309,15 @@ export function createHud({ server, input, audio }) {
     tempWhy.textContent = tp.light === 'chill' ? 'Big Chill' : tp.light === 'shade' ? `${place} · shade` : tp.light === 'sun' ? `${place} · sun` : place;
     tempEl.className = `block txt ${tp.light === 'chill' ? 'chill' : tp.band}`;
     const h = Math.max(2, Math.min(14, 7 + tp.c / 5)); merc.setAttribute('y', String(24 - h)); merc.setAttribute('height', String(h));
-    const affordable = ['ray', 'boots', 'backpack'].some((id) => v.upgrades[id] < Config.upgrades[id].maxLevel && v.coins >= upgradeCost(id, v.upgrades[id] + 1));
+    const affordable = Config.upgradeIds.some((id) => v.upgrades[id] < Config.upgrades[id].maxLevel && v.coins >= upgradeCost(id, v.upgrades[id] + 1));
     tiles.querySelector('[data-id="shop"] .badge').classList.toggle('on', affordable);
     const newFound = Object.keys(v.found).some((k) => !seenFound.has(k));
     tiles.querySelector('[data-id="index"] .badge').classList.toggle('on', newFound);
+    const better = storedBetterSig(v); tiles.querySelector('[data-id="pets"] .badge').classList.toggle('on', !!better && better !== seenBetter);
     if (client) { updatePrompt(v); updateOffers(v); }
     if (current?.name === 'shop') {
       // redraw only when what you can afford changes, so a button never vanishes under a finger
-      const sig = ['ray', 'boots', 'backpack'].map((id) => `${v.upgrades[id]}:${v.coins >= upgradeCost(id, v.upgrades[id] + 1)}`).join('|');
+      const sig = Config.upgradeIds.map((id) => `${v.upgrades[id]}:${v.coins >= upgradeCost(id, v.upgrades[id] + 1)}`).join('|');
       if (sig !== shopSig) { shopSig = sig; render(); }
     }
   }

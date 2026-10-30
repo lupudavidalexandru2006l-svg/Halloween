@@ -50,7 +50,8 @@ button.block { font: inherit; cursor: pointer; }
 .tile .lbl { font-size: 12px; margin-top: -2px; }
 .tile .badge { position: absolute; top: -9px; right: -9px; min-width: 22px; height: 22px; border-radius: 11px; background: var(--no); border: 3px solid var(--ink); font-size: 13px; display: none; align-items: center; justify-content: center; }
 .tile .badge.on { display: flex; animation: wiggle .4s ease-in-out 3; }
-.tile[data-id="index"] .badge.on { animation-delay: .9s; } /* two badges never wiggle at the same time */
+.tile[data-id="index"] .badge.on { animation-delay: .9s; } /* badges never wiggle at the same time */
+.tile[data-id="pets"] .badge.on { animation-delay: 1.8s; }
 @keyframes wiggle { 25% { rotate: -8deg; } 75% { rotate: 8deg; } }
 
 /* 3. goal bar, top centre, never starts empty */
@@ -120,6 +121,15 @@ button.block { font: inherit; cursor: pointer; }
 .idx-cell.miss img { filter: brightness(0) opacity(.75); }
 .idx-cell .nm { font-size: 12px; color: var(--ink); }
 .idx-cell.bonus { border-style: dashed; background: #fff6d8; }
+/* Pets: the pen (earning) and Storage */
+#popup .sec { margin: 10px 2px 6px; font-size: 17px; color: var(--ink); } #popup .sec span { font-size: 13px; font-weight: 500; color: #4a4270; }
+.pet-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+.pet-cell { position: relative; min-height: 104px; border: 3px solid var(--ink); border-radius: 12px; background: #eef4ff; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding: 4px; font: inherit; color: var(--ink); cursor: pointer; }
+.pet-cell.on { background: #d9ffe4; box-shadow: inset 0 0 0 3px var(--go); }
+.pet-cell img { width: 62px; height: 56px; object-fit: contain; }
+.pet-cell .nm { font-size: 12px; font-weight: 600; } .pet-cell .earn { font-size: 12px; display: flex; align-items: center; gap: 2px; } .pet-cell .earn .coinimg { width: 14px; height: 14px; }
+.pet-cell .tr { position: absolute; top: 5px; left: 5px; width: 12px; height: 12px; border-radius: 6px; border: 2px solid var(--ink); }
+.pet-grid .empty { grid-column: 1 / -1; text-align: center; color: #4a4270; padding: 8px; }
 .idx-cell .tr { position: absolute; top: 4px; left: 4px; width: 12px; height: 12px; border-radius: 6px; border: 2px solid var(--ink); }
 .big { font-size: 34px; text-align: center; color: #fff; }
 .best { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 0 0 10px; font-size: 15px; }
@@ -127,7 +137,8 @@ button.block { font: inherit; cursor: pointer; }
 .center { text-align: center; }
 .settings-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 4px; font-size: 18px; }
 .settings-grid { display: grid; grid-template-columns: 1fr; column-gap: 22px; }
-@media (max-height: 500px) { .settings-grid { grid-template-columns: 1fr 1fr; } .settings-row { padding: 5px 2px; font-size: 16px; } }
+@media (max-height: 500px) { .settings-grid { grid-template-columns: 1fr 1fr; } .settings-row { padding: 5px 2px; font-size: 16px; }
+  .cards { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; } .card2 { padding: 6px; } .card2 h3 { font-size: 16px; } .card2 p { font-size: 12.5px; margin: 2px 0 6px; } } /* the Shop's 4 cards in one row on a phone */
 .toggle { width: 70px; height: 42px; padding: 0; font: inherit; border: 3px solid var(--ink); border-radius: 21px; background: #c4c4cf; position: relative; cursor: pointer; flex: none; }
 .toggle::after { content: ''; position: absolute; top: 50%; translate: 0 -50%; left: 3px; width: 30px; height: 30px; border-radius: 15px; background: #fff; border: 2px solid var(--ink); transition: left .15s; }
 .toggle.on { background: var(--go); }

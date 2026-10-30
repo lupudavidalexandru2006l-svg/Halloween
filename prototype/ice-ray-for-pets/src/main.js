@@ -2,7 +2,7 @@
 // URL: ?bot=1 playtest bot, &speed=5 game speed, &seed=N, &fresh=1 wipe save first,
 //      &headless=1 run the sim without drawing (fast bot timing), &until=600 stop the bot at N game seconds,
 //      &debug=1 show the test-panel button on touch screens.
-import { Config, Analytics, PetDefs } from './config.js';
+import { Config, Analytics, PetDefs, World } from './config.js';
 import { createServer } from './server.js';
 import { createClient } from './client.js';
 import { createHud } from './hud.js';
@@ -26,7 +26,8 @@ const input = createInput();
 const server = createServer({ seed: q.get('seed') ? +q.get('seed') : undefined, displayName: 'You' });
 const hud = createHud({ server, input, audio });
 // ---------- timer panel (T): the grind budget in numbers (listening before join, so "joined" is counted) ----------
-const marks = {}; const counts = { upgrades: 0 };
+const marks = {}; const counts = { upgrades: 0, offers: 0 };
+const zoneHeat = () => Config && (window.__game?.World?.zones?.[1]?.heat ?? '');
 const T = () => server.view()?.time ?? 0;
 server.on('analytics', (a) => {
   if (a.kind === 'funnel' && !(a.name in marks)) { marks[a.name] = T(); if (BOT) console.log(`[bot] ${a.name} at ${T().toFixed(1)}s game time`); }
@@ -34,6 +35,10 @@ server.on('analytics', (a) => {
 server.on('banked', () => { const n = server.view().pets.length; for (const k of [8, 12, 15, 20, 25, 30]) if (n >= k && !(`pets_${k}` in marks)) { marks[`pets_${k}`] = T(); if (BOT) console.log(`[bot] ${k} pets at ${T().toFixed(1)}s`); } });
 server.on('upgraded', ({ id, level }) => { counts.upgrades++; if (BOT) console.log(`[bot] upgrade ${id} -> ${level} at ${T().toFixed(1)}s`); });
 server.on('zoneUnlocked', () => { marks.forest_unlocked = T(); if (BOT) console.log(`[bot] Pine Forest unlocked at ${T().toFixed(1)}s`); });
+server.on('analytics', (a) => { if (a.name === 'offer_shown') counts.offers++; });
+// &heat=1.6 gives the Forest a hotter zone's heat from the start (test switch, owner decision 2026-10-30)
+if (q.get('heat')) server.debug.setHeat?.(2, +q.get('heat'));
+if (q.get('gate')) World.zones[1].gateCoins = Math.max(1, +q.get('gate')); // test only: try a Forest price with the bot
 server.join();
 if (q.get('fresh') === '1') history.replaceState(null, '', location.pathname + location.search.replace(/([?&])fresh=1&?/, '$1').replace(/[?&]$/, '')); // a later refresh keeps your progress
 const client = createClient({ server, input, audio, hud, headless: HEADLESS });
@@ -44,7 +49,9 @@ const kid = (s) => (s === undefined ? '-' : `${s.toFixed(0)}s bot = ~${((s * 2.5
 // the buttons are built once; only the text above them is redrawn, so a click never lands on a stale button
 panel.innerHTML = `<div class="ptext"></div><button data-a="away">Skip 2 h (away)</button><button data-a="day">Skip 1 day</button><button data-a="chill">Big Chill soon</button>
 <button data-a="coins">+1,000 coins</button><button data-a="rare">Epic pet here</button><button data-a="melt">Melt my cubes</button>
-<button data-a="exploit">Exploit test</button><button data-a="reset">Reset save</button>`;
+<button data-a="exploit">Exploit test</button><button data-a="reset">Reset save</button>
+<br>Ice Ray (test): <button data-a="ray" data-r="1">Ray 1</button><button data-a="ray" data-r="5">Ray 5</button><button data-a="ray" data-r="10">Ray 10</button>
+<br>Forest heat (test): <button data-a="heat" data-h="0.8">0.8 normal</button><button data-a="heat" data-h="1.2">1.2 Beach</button><button data-a="heat" data-h="1.6">1.6 Desert</button><button data-a="heat" data-h="2.2">2.2 Volcano</button>`;
 const ptext = panel.querySelector('.ptext');
 function drawPanel() {
   if (!panel.classList.contains('on')) return;
@@ -55,7 +62,8 @@ first freeze: ${kid(marks.first_freeze)}<br>first bank: ${kid(marks.first_bank)}
 first upgrade: ${kid(marks.first_coins_spent)}<br>Forest open: ${kid(marks.forest_unlocked)}<br>
 Forest reached: ${kid(marks.first_new_zone)}<br>
 pets in pen ${v.pets.length} · frozen ${v.stats.frozen} · melts ${v.stats.melts} · upgrades ${counts.upgrades}<br>
-ray ${v.upgrades.ray} · boots ${v.upgrades.boots} · backpack ${v.upgrades.backpack} · pages ${v.pages}<br>
+ray ${v.upgrades.ray} · boots ${v.upgrades.boots} · backpack ${v.upgrades.backpack} · pen ${v.upgrades.pen} (${v.penSlots} slots) · pages ${v.pages}<br>
+Forest heat ${zoneHeat()} · melts ${v.stats.melts} · Super Freeze offers ${counts.offers}<br>
 remote calls dropped: ${v.dropped}<br>`;
 }
 panel.addEventListener('click', (e) => {
@@ -68,6 +76,8 @@ panel.addEventListener('click', (e) => {
   if (a === 'melt') server.debug.meltSoon();
   if (a === 'exploit') console.log(exploitTest());
   if (a === 'reset') { server.debug.wipe(); location.search = '?fresh=1'; }
+  if (a === 'heat') server.debug.setHeat(2, +e.target.dataset.h);
+  if (a === 'ray') server.debug.setUpgrade('ray', +e.target.dataset.r);
   drawPanel();
 });
 const togglePanel = () => { panel.classList.toggle('on'); drawPanel(); };
@@ -89,6 +99,8 @@ function exploitTest() {
   const pos = { ...client.me }; r.setPosition(pos.x, pos.z + 500, 0.016); checks.push(['teleport 500 studs', Math.abs(server.view().pos.z - pos.z) < 1]);
   for (let i = 1; i <= 100; i++) r.setPosition(pos.x, pos.z + i * 0.5, 9); checks.push(['100 small steps in one tick (speed hack)', Math.abs(server.view().pos.z - pos.z) < 12]);
   r.buyUpgrade('constructor'); r.buyUpgrade('__proto__'); r.buyUpgrade('toString'); same('buyUpgrade with object built-in names');
+  r.equipPet('nope'); r.equipPet(null, true); r.equipPet({ id: 'q1' }, true); for (let i = 0; i < 50; i++) r.equipBest(); same('equip junk ids, spam Equip best');
+  if (!server.view().forestUnlocked) { r.beginZap('gate'); r.endZap('gate'); checks.push(['open the Forest gate from far away / without the coins', !server.view().forestUnlocked]); }
   r.setPosition(NaN, Infinity, 0.016); checks.push(['NaN position', isFinite(server.view().pos.x)]);
   for (let i = 0; i < 200; i++) r.collectWelcome(); same('spam collectWelcome 200x');
   for (let i = 0; i < 200; i++) r.buySuperFreezeMock('p1'); same('spam Super Freeze on a pet with no offer');
@@ -128,4 +140,4 @@ function finish() {
   if (BOT) panel.classList.add('on');
   requestAnimationFrame(frame);
 });
-window.__game = { server, client, Config, PetDefs };
+window.__game = { server, client, Config, PetDefs, World };

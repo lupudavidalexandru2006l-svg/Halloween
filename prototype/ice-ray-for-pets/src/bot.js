@@ -4,10 +4,12 @@
 import { Config, World, upgradeCost, petByKey, tierByName } from './config.js';
 import { dist, penCenter } from './world.js';
 
+// &raycap=N: the bot stops buying Ice Ray at level N (to test a hot run with a weak ray)
+const RAY_CAP = +(new URLSearchParams(location.search).get('raycap') || 99);
 export function createBot({ server, client, input, hud }) {
   const R = World.river, G = World.gate, BX = (World.mainBridge.xMin + World.mainBridge.xMax) / 2;
   const IX = (World.iceBridgeSpot.xMin + World.iceBridgeSpot.xMax) / 2;
-  let crossX = BX, skipIceUntil = -1;
+  let crossX = BX, skipIceUntil = -1, lastEquip = -99;
   let stuckT = 0, lastPos = null, jiggle = null;
   const side = (z) => (z < R.zMin - 0.5 ? 0 : z < G.z ? 1 : 2);
   function waypoint(me, goal) {
@@ -24,14 +26,25 @@ export function createBot({ server, client, input, hud }) {
     const v = server.view(); if (!v) return;
     const me = client.me;
     if (hud?.popupOpen) hud.close(); // a kid taps Yay / Collect / X
+    // a kid presses Equip best when the Pets tile shows its "!" (a stored pet earns more than one in the pen)
+    if (v.time - lastEquip > 5 && v.pets.some((x) => !x.eq)) { lastEquip = v.time; server.remotes.equipBest(); }
     // cross on the ice bridge when it's up (or freeze it from the spot on this bank), else the long way
     crossX = v.iceBridgeActive ? IX : BX;
     if (v.welcome) server.remotes.collectWelcome();
     // buy the cheapest upgrade it can afford (a kid taps Shop when the red "!" shows)
-    const opts = ['ray', 'boots', 'backpack'].filter((id) => v.upgrades[id] < Config.upgrades[id].maxLevel)
+    // while the Forest is shut a kid saves for it (the goal bar shows it) but still buys the cheap early upgrades
+    const opts = Config.upgradeIds.filter((id) => v.upgrades[id] < Config.upgrades[id].maxLevel && !(id === 'ray' && v.upgrades.ray >= RAY_CAP))
       .map((id) => ({ id, cost: upgradeCost(id, v.upgrades[id] + 1) })).sort((a, b) => a.cost - b.cost);
-    if (opts[0] && v.coins >= opts[0].cost) server.remotes.buyUpgrade(opts[0].id);
+    const saving = !v.forestUnlocked ? v.gateCoins : 0;
+    if (opts[0] && v.coins >= opts[0].cost && (opts[0].cost <= saving * 0.25 || v.coins - opts[0].cost >= saving)) server.remotes.buyUpgrade(opts[0].id);
 
+    // enough coins for the Forest: walk to the gate and hold the prompt
+    if (!v.forestUnlocked && v.coins >= v.gateCoins && !v.carrying.length) {
+      const gate = { x: 0, z: World.gate.z - 2.5 };
+      if (client.target?.kind === 'gate') { input.state.botMove = { x: 0, z: 0 }; input.state.botInteract = true; return; }
+      const wp = waypoint(me, gate), d = dist(wp, me);
+      input.state.botMove = d > 0.8 ? { x: (wp.x - me.x) / d, z: (wp.z - me.z) / d } : { x: 0, z: 0 }; input.state.botInteract = false; return;
+    }
     const cubes = v.carrying;
     const low = cubes.some((c) => !c.superFrozen && c.life / c.lifeMax < 0.45);
     let goal = null, wantInteract = false;

@@ -13,7 +13,7 @@ export const Theme = {
     Common: '#9aa5b1', Uncommon: '#4cc35a', Rare: '#3c8cf0', Epic: '#aa50e6',
     Legendary: '#fab01e', Mythic: '#f04678', Secret: '#2a2a2a',
   },
-  tiles: { shop: '#ff9f1c', index: '#3aa8ff', settings: '#8f7cff' },
+  tiles: { pets: '#ff6fa5', shop: '#ff9f1c', index: '#3aa8ff', settings: '#8f7cff' },
 };
 
 export const Config = {
@@ -63,10 +63,14 @@ export const Config = {
     ray:      { name: 'Ice Ray',  baseCost: 40,  costGrowth: 1.5, maxLevel: 20, lifeBonus: 0.20, bridgeBonus: 4, cubeSize: { early: 0.12, earlyLevels: 4, late: 0.02 } },
     boots:    { name: 'Boots',    baseCost: 64,  costGrowth: 1.5, maxLevel: 15, speedBonus: 0.08 },
     backpack: { name: 'Backpack', baseCost: 750, costGrowth: 1.5, maxLevel: 5, slowPerExtraCube: 0.08 },
+    pen:      { name: 'Pen',      baseCost: 150, costGrowth: 1.5, maxLevel: 19, slotsPerLevel: 5 }, // Game Plan 11: +5 earning slots
   },
+  upgradeIds: ['ray', 'boots', 'backpack', 'pen'],
   carryHomeMinStuds: 4,     // funnel step 4 counts a cube carried at least this far out of the hub and back
   beachGateCoins: 500,      // Game Plan 4: Sunny Beach opens at 500 coins (the zone itself is not in the prototype)
-  penSlots: 100,            // prototype only: the Pen upgrade (+5 slots, Game Plan 11) is out of prototype scope
+  // Pen and Storage (owner decision 2026-10-30): the pen's pets earn; every other banked pet waits in
+  // Storage (kept forever, in the Index, earns nothing). You equip pets by hand or press Equip best.
+  pen: { baseSlots: 10, storageMax: 500 },
 
   melt: {
     shade: 0.5,             // trees, cliffs, tunnels
@@ -99,7 +103,7 @@ export const Config = {
   away: {
     minSeconds: 60,         // shorter absences show no welcome-back
     capSeconds: 8 * 3600,   // pen earnings while away are capped at 8 hours
-    rate: 1.0,              // share of normal pen income earned while away
+    rate: 0.25,             // share of normal pen income earned while away (owner 2026-10-30: 25%, so a night away never skips a zone)
   },
   dailyGift: {
     baseCoins: 50,
@@ -137,6 +141,7 @@ export const Config = {
 
   ui: {
     tiles: [
+      { id: 'pets', label: 'Pets' },
       { id: 'shop', label: 'Shop' },
       { id: 'index', label: 'Index' },
       { id: 'settings', label: 'Settings' },
@@ -202,9 +207,9 @@ export const World = {
   giftBox: { x: -24, z: -10 },
   boards: [ { x: -38, z: -3 }, { x: -53, z: -3 }, { x: -68, z: -3 } ], // hub edge, screen-right (the menu tiles are on the left)
   zones: [
-    { id: 1, key: 'meadow', name: 'Snowy Meadow', heat: 0.5, zMin: -2, zMax: 166, gatePets: 0,
+    { id: 1, key: 'meadow', name: 'Snowy Meadow', heat: 0.5, zMin: -2, zMax: 166, gateCoins: 0,
       sign: { x: -16, z: 4 }, ground: Theme.snow },
-    { id: 2, key: 'forest', name: 'Pine Forest', heat: 0.8, zMin: 194, zMax: 372, gatePets: 8, // starts at the gate
+    { id: 2, key: 'forest', name: 'Pine Forest', heat: 0.8, zMin: 194, zMax: 372, gateCoins: 1000, // starts at the gate; opens with coins (owner 2026-10-30): 1000 lands at ~5.5 min kid time (bot x 2.5)
       sign: { x: -16, z: 202 }, ground: Theme.grass },
   ],
   river: { zMin: 168, zMax: 182 },

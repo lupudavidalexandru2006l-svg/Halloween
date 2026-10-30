@@ -61,7 +61,7 @@ export function createServer(opts = {}) {
   // SERVER
   function defaults() {
     return {
-      version: Config.version, coins: 0, pets: [], upgrades: { ray: 1, boots: 1, backpack: 1 },
+      version: Config.version, coins: 0, pets: [], nextPetId: 1, upgrades: { ray: 1, boots: 1, backpack: 1, pen: 1 },
       found: {}, stats: { frozen: 0, banked: 0, melts: 0, coinsEarned: 0 },
       rarest: { rank: 0, key: null, at: 0 }, week: { id: '', coins: 0 },
       lastSeen: 0, welcome: null, gift: { lastDay: '', streak: 0 }, funnel: {}, forestUnlocked: false,
@@ -81,9 +81,18 @@ export function createServer(opts = {}) {
   function sanitize(raw) {
     const r = obj(raw), d = defaults();
     d.coins = num(r.coins, 0, 1e15);
-    d.pets = (Array.isArray(r.pets) ? r.pets : []).filter((x) => x && Object.hasOwn(petByKey, x.key)).slice(0, Config.penSlots)
-      .map((x) => ({ key: x.key, pose: knownPose(x.pose), mut: knownMut(x.mut), at: num(x.at, 0, 1e15) }));
     for (const id of Object.keys(d.upgrades)) d.upgrades[id] = int(obj(r.upgrades)[id], 1, Config.upgrades[id].maxLevel, 1);
+    // pets: every one has an id and an "in the pen" flag; never more in the pen than it has slots
+    d.nextPetId = int(r.nextPetId, 1, 1e9, 1);
+    const seen = new Set();
+    d.pets = (Array.isArray(r.pets) ? r.pets : []).filter((x) => x && Object.hasOwn(petByKey, x.key)).slice(0, Config.pen.storageMax).map((x) => {
+      let id = typeof x.id === 'string' && x.id.length <= 12 && !seen.has(x.id) ? x.id : null;
+      if (!id) id = 'q' + d.nextPetId++;
+      seen.add(id);
+      return { id, key: x.key, pose: knownPose(x.pose), mut: knownMut(x.mut), at: num(x.at, 0, 1e15), eq: x.eq === true };
+    });
+    if (!d.pets.some((x) => x.eq)) equipBestIn(d); // an older save had no flags: the best pets go in the pen
+    let room = penSlots(d); for (const x of d.pets) if (x.eq && room-- <= 0) x.eq = false;
     for (const [k, v] of Object.entries(obj(r.found))) if (Object.hasOwn(petByKey, k) && v === true) d.found[k] = true;
     for (const k of Object.keys(d.stats)) d.stats[k] = num(obj(r.stats)[k], 0, 1e15);
     const ra = obj(r.rarest); d.rarest = { rank: int(ra.rank, 0, 7), key: Object.hasOwn(petByKey, ra.key) ? ra.key : null, at: num(ra.at, 0, 1e15) };
@@ -124,6 +133,17 @@ export function createServer(opts = {}) {
 
   // ---------- PenService ----------
   // SERVER
+  function penSlots(d = S.player.data) { return Config.pen.baseSlots + Config.upgrades.pen.slotsPerLevel * (d.upgrades.pen - 1); }
+  const petEarn = (x) => petIncome(petByKey[x.key], x.pose, x.mut);
+  function equippedCount(d = S.player.data) { let n = 0; for (const x of d.pets) if (x.eq) n++; return n; }
+  function equipBestIn(d) {
+    const best = new Set([...d.pets].sort((a, b) => petEarn(b) - petEarn(a)).slice(0, penSlots(d)));
+    for (const x of d.pets) x.eq = best.has(x);
+  }
+  function fillEmptySlots(d) { // new slots (Pen upgrade) take the best pets from Storage; your own picks stay
+    let room = penSlots(d) - equippedCount(d); if (room <= 0) return;
+    for (const x of [...d.pets].filter((y) => !y.eq).sort((a, b) => petEarn(b) - petEarn(a))) { if (room-- <= 0) break; x.eq = true; }
+  }
   function completedPages(d) {
     let n = 0;
     for (const z of World.zones) if (PetDefs.filter((p) => p.zone === z.id && isRegular(p)).every((p) => d.found[p.key])) n++;
@@ -131,7 +151,7 @@ export function createServer(opts = {}) {
   }
   function incomePerSecond(d = S.player.data) {
     let sum = 0;
-    for (const p of d.pets) sum += petIncome(petByKey[p.key], p.pose, p.mut);
+    for (const p of d.pets) if (p.eq) sum += petIncome(petByKey[p.key], p.pose, p.mut); // only the pen's pets earn
     return sum * (1 + 0.1 * completedPages(d));
   }
   function addCoins(n) {
@@ -302,6 +322,9 @@ export function createServer(opts = {}) {
     } else if (target === 'gift') {
       if (dist(p.pos, World.giftBox) > Config.player.freezeRange) return;
       p.zap = { target, start: S.time, hold: Config.player.interactHold };
+    } else if (target === 'gate') {
+      if (p.data.forestUnlocked || dist(p.pos, gatePoint()) > Config.player.freezeRange) return;
+      p.zap = { target, start: S.time, hold: Config.player.interactHold };
     } else {
       const w = S.wild.get(target);
       if (!w || dist(p.pos, w) > Config.player.freezeRange + 1 || !zoneOpen(w.zone)) return;
@@ -325,6 +348,7 @@ export function createServer(opts = {}) {
       return;
     }
     if (target === 'gift') { claimGift(); return; }
+    if (target === 'gate') { if (dist(p.pos, gatePoint()) <= Config.player.freezeRange * 1.3) unlockForest(); return; }
     const w = S.wild.get(target);
     if (!w || dist(p.pos, w) > Config.player.freezeRange * 1.3 || p.carrying.length >= capacity() || !zoneOpen(w.zone)) return;
     const def = petByKey[w.key];
@@ -407,10 +431,11 @@ export function createServer(opts = {}) {
     const p = S.player, d = p.data;
     const banked = [];
     for (const c of p.carrying) {
-      if (d.pets.length >= Config.penSlots) { notYet('Pen full'); break; }
+      if (d.pets.length >= Config.pen.storageMax) { notYet('Storage full'); break; }
       const def = petByKey[c.key];
       if (c.superFrozen) { const i = d.superCubes.findIndex((r) => r.key === c.key && r.pose === c.pose && r.mut === c.mut); if (i >= 0) d.superCubes.splice(i, 1); }
-      d.pets.push({ key: c.key, pose: c.pose, mut: c.mut, at: nowMs() });
+      const eq = equippedCount(d) < penSlots(d); // a free pen slot: it starts earning; otherwise it waits in Storage
+      d.pets.push({ id: 'q' + d.nextPetId++, key: c.key, pose: c.pose, mut: c.mut, at: nowMs(), eq });
       const firstTime = !d.found[c.key];
       d.found[c.key] = true;
       d.stats.banked++;
@@ -420,14 +445,37 @@ export function createServer(opts = {}) {
       AnalyticsSvc.funnel('first_carry_home'); // a cube frozen right by the hub still counts as carried home, before the bank
       AnalyticsSvc.funnel('first_bank');
       if (rankOf(def.tier) >= 3) AnalyticsSvc.funnel('first_rare_pet');
-      banked.push({ cube: c, income: petIncome(def, c.pose, c.mut), firstTime });
+      banked.push({ cube: c, income: petIncome(def, c.pose, c.mut), firstTime, stored: !eq });
     }
     p.carrying = p.carrying.slice(banked.length);
     if (!banked.length) return;
-    if (!d.forestUnlocked && d.pets.length >= zoneById[2].gatePets) { d.forestUnlocked = true; emit('zoneUnlocked', { zone: 2 }); }
-    else if (!d.forestUnlocked && d.pets.length === zoneById[2].gatePets - 1) spawnPet(1, 'near'); // the last step comes a bit faster (goal gradient)
     save('bank');
     emit('banked', { banked, income: incomePerSecond() });
+  }
+
+  // equip by hand, or Equip best (the server checks the pet is yours and the pen has room)
+  function equipPet(id, on) {
+    const p = S.player; if (!p || !rateOk() || typeof id !== 'string' || id.length > 12) return;
+    const x = p.data.pets.find((y) => y.id === id); if (!x) return;
+    if (on === true && !x.eq) { if (equippedCount() >= penSlots()) { notYet('Pen full: put one in Storage first', 'pets'); return; } x.eq = true; }
+    else if (on === false && x.eq) x.eq = false;
+    else return;
+    save('equip'); emit('petsChanged', { income: incomePerSecond() });
+  }
+  function equipBest() {
+    const p = S.player; if (!p || !rateOk()) return;
+    equipBestIn(p.data); save('equip'); emit('petsChanged', { income: incomePerSecond() });
+  }
+  // the Forest gate opens with coins (owner 2026-10-30); hold the prompt at the gate
+  function gatePoint() { return { x: 0, z: World.gate.z - 2.5 }; }
+  function unlockForest() {
+    const p = S.player, d = p.data, price = zoneById[2].gateCoins;
+    if (d.forestUnlocked) return;
+    if (d.coins < price) { notYet(`Need ${Math.ceil(price - d.coins)} more coins`, 'gate'); return; }
+    d.coins -= price; d.forestUnlocked = true;
+    AnalyticsSvc.funnel('first_coins_spent');
+    save('unlock'); // paid and opened in the same save
+    emit('zoneUnlocked', { zone: 2, price });
   }
 
   // ---------- ShopService ----------
@@ -440,6 +488,7 @@ export function createServer(opts = {}) {
     const cost = upgradeCost(id, lvl + 1);
     if (p.data.coins < cost) { emit('notYet', { reason: `Need ${Math.ceil(cost - p.data.coins)} more`, at: id }); return; } // a button press: always answered
     p.data.coins -= cost; p.data.upgrades[id] = lvl + 1;
+    if (id === 'pen') fillEmptySlots(p.data);
     AnalyticsSvc.funnel('first_coins_spent');
     save('upgrade');
     emit('upgraded', { id, level: lvl + 1, cost });
@@ -629,6 +678,9 @@ export function createServer(opts = {}) {
     },
     meltSoon() { for (const c of S.player.carrying) if (!c.superFrozen) c.life = Math.min(c.life, 1); },
     teleport(x, z) { S.player.pos.x = x; S.player.pos.z = z; },
+    // owner decision 2026-10-30: give the Forest a hotter zone's heat to test a tense run home and Super Freeze
+    setUpgrade(id, level) { if (Object.hasOwn(Config.upgrades, id)) { S.player.data.upgrades[id] = Math.max(1, Math.min(Config.upgrades[id].maxLevel, Math.floor(level))); emit('upgraded', { id, level: S.player.data.upgrades[id], cost: 0 }); } },
+    setHeat(zone, heat) { const z = zoneById[zone]; if (z && typeof heat === 'number' && heat > 0 && heat < 5) { z.baseHeat ??= z.heat; z.heat = heat; emit('heat', { zone, heat }); } },
     unlockForest() { if (!S.player.data.forestUnlocked) { S.player.data.forestUnlocked = true; emit('zoneUnlocked', { zone: 2 }); } },
   };
 
@@ -639,6 +691,7 @@ export function createServer(opts = {}) {
     return {
       time: S.time, coins: p.data.coins, income: incomePerSecond(), pos: { ...p.pos }, carrying: p.carrying.map((c) => ({ ...c })),
       capacity: capacity(), speed: walkSpeed(), upgrades: { ...p.data.upgrades }, pets: p.data.pets.map((x) => ({ ...x })), found: { ...p.data.found },
+      penSlots: penSlots(), gateCoins: zoneById[2].gateCoins,
       forestUnlocked: p.data.forestUnlocked, iceBridgeActive: S.time < S.iceBridgeUntil, iceBridgeUntil: S.iceBridgeUntil,
       chill: { active: S.time < S.chill.until, until: S.chill.until, next: S.chill.next }, wild,
       gift: giftState(), welcome: p.data.welcome && { ...p.data.welcome }, boards: S.boards, stats: { ...p.data.stats }, zap: p.zap && { ...p.zap },
@@ -650,7 +703,7 @@ export function createServer(opts = {}) {
     on, join, leave, tick, view, shownOdds, nowMs, debug, analytics: AnalyticsSvc,
     // RemoteEvents: the only things a client can ask for
     remotes: {
-      beginZap, endZap, cancelZap, buyUpgrade, collectWelcome, setPosition, buySuperFreezeMock,
+      beginZap, endZap, cancelZap, buyUpgrade, collectWelcome, setPosition, buySuperFreezeMock, equipPet, equipBest,
       setMenuOpen(open) { if (S.player && rateOk()) { S.player.menuOpen = !!open; } },
       openShop() { if (S.player && rateOk()) AnalyticsSvc.event('shop_opened'); },
     },

@@ -17,7 +17,7 @@ export type Zone = {
 	heat: number,
 	zMin: number,
 	zMax: number,
-	gatePets: number,
+	gateCoins: number, -- coins to open it (owner 2026-10-30: zones open with coins; the pen no longer counts)
 	signPos: Vector3,
 }
 
@@ -77,9 +77,12 @@ Config.upgrades = { -- baseCost = the price of level 2; each step costs x1.5 the
 	ray = { name = "Ice Ray", baseCost = 40, costGrowth = 1.5, maxLevel = 20, lifeBonus = 0.20, bridgeBonus = 4, cubeSize = { early = 0.12, earlyLevels = 4, late = 0.02 } },
 	boots = { name = "Boots", baseCost = 64, costGrowth = 1.5, maxLevel = 15, speedBonus = 0.08 },
 	backpack = { name = "Backpack", baseCost = 750, costGrowth = 1.5, maxLevel = 5, slowPerExtraCube = 0.08 },
+	pen = { name = "Pen", baseCost = 150, costGrowth = 1.5, maxLevel = 19, slotsPerLevel = 5 }, -- Game Plan 11: +5 earning slots
 } :: { [string]: { [string]: any } }
-Config.upgradeIds = { "ray", "boots", "backpack" }
-Config.penSlots = 100 -- same as the prototype; the Pen upgrade (+5 slots, Game Plan 11) comes before launch (Port Plan)
+Config.upgradeIds = { "ray", "boots", "backpack", "pen" }
+-- Pen and Storage (owner 2026-10-30): the pen's pets earn; every other banked pet waits in Storage
+-- (kept forever, in the Index, earns nothing). Players equip by hand or press Equip best.
+Config.pen = { baseSlots = 10, storageMax = 500 }
 Config.carryHomeMinStuds = 4 -- funnel step 4 counts a cube carried at least this far out of the hub and back
 Config.beachGateCoins = 500
 Config.notYetCooldown = 2 -- seconds between two of the same "not yet" message
@@ -103,7 +106,13 @@ Config.temperature = {
 }
 Config.dazedSeconds = 8
 
+Config.server = { maxPlayers = 6 }
+
 Config.spawner = {
+	-- owner 2026-10-30: Common and Uncommon pets are shared by everyone on the server; Rare and up
+	-- spawn just for one player (only they see and can freeze it), each with their own pity
+	personalRares = true,
+	personalMaxPerZone = 3,
 	maxPerZone = 9,
 	respawnSeconds = 1.5,
 	firstPetDistance = 12,
@@ -119,7 +128,7 @@ Config.spawner = {
 Config.bridge = { baseSeconds = 20 }
 Config.bigChill = { everySeconds = 600, warnSeconds = 30, durationSeconds = 60 }
 
-Config.away = { minSeconds = 60, capSeconds = 8 * 3600, rate = 1.0 }
+Config.away = { minSeconds = 60, capSeconds = 8 * 3600, rate = 0.25 } -- owner 2026-10-30: 25%, so a night away never skips a zone
 Config.dailyGift = { baseCoins = 50, incomeMinutes = 10, streakBonus = 0.1, streakMax = 7, afterFirstBank = true } -- the gift box opens after your first bank
 
 Config.monetization = {
@@ -202,18 +211,22 @@ Config.world = {
 	bounds = { xMin = -78, xMax = 78, zMin = -62, zMax = 372 },
 	spawn = Vector3.new(0, 3, -6),
 	hubZMax = -2,
-	plots = { -- one pen per player (up to 4 per server); walk in to bank
-		{ x = -51, z = -24 },
-		{ x = -17, z = -24 },
-		{ x = 17, z = -24 },
-		{ x = 51, z = -24 },
+	-- one pen per player, up to 6 per server (owner 2026-10-30): two rows of three around the hub.
+	-- Owner item: set the place's Server Size to 6 in Game Settings > Places.
+	plots = {
+		{ x = -52, z = -20 },
+		{ x = 0, z = -20 },
+		{ x = 52, z = -20 },
+		{ x = -52, z = -44 },
+		{ x = 0, z = -44 },
+		{ x = 52, z = -44 },
 	},
 	penSize = Vector3.new(26, 1, 18),
-	giftBox = Vector3.new(0, 0, -30),
-	boards = { Vector3.new(-40, 0, -4), Vector3.new(-24, 0, -1), Vector3.new(24, 0, -1) }, -- hub edge, turned to face the spawn
+	giftBox = Vector3.new(-26, 0, -8), -- between the front pens, by the path out
+	boards = { Vector3.new(24, 0, -3), Vector3.new(39, 0, -3), Vector3.new(54, 0, -3) }, -- hub edge (the gift box is on the other side), turned to face the spawn
 	zones = {
-		{ id = 1, key = "meadow", name = "Snowy Meadow", heat = 0.5, zMin = -2, zMax = 166, gatePets = 0, signPos = Vector3.new(-16, 0, 4) },
-		{ id = 2, key = "forest", name = "Pine Forest", heat = 0.8, zMin = 194, zMax = 372, gatePets = 8, signPos = Vector3.new(-16, 0, 202) }, -- starts at the gate
+		{ id = 1, key = "meadow", name = "Snowy Meadow", heat = 0.5, zMin = -2, zMax = 166, gateCoins = 0, signPos = Vector3.new(-16, 0, 4) },
+		{ id = 2, key = "forest", name = "Pine Forest", heat = 0.8, zMin = 194, zMax = 372, gateCoins = 1000, signPos = Vector3.new(-16, 0, 202) }, -- starts at the gate
 	} :: { Zone },
 	river = { zMin = 168, zMax = 182, depth = 30 },
 	mainBridge = { xMin = -74, xMax = -62 }, -- the free bridge is the long way round

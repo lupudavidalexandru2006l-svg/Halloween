@@ -11,11 +11,12 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local PetDefs = require(ReplicatedStorage.Shared.PetDefs)
 
-export type PetEntry = { key: string, pose: string, mut: string?, at: number }
+export type PetEntry = { id: string, key: string, pose: string, mut: string?, at: number, eq: boolean } -- eq = in the pen (earning); else in Storage
 export type Data = {
 	version: number,
 	coins: number,
 	pets: { PetEntry },
+	nextPetId: number,
 	upgrades: { [string]: number },
 	found: { [string]: boolean },
 	stats: { frozen: number, banked: number, melts: number, coinsEarned: number },
@@ -48,7 +49,8 @@ local function defaults(): Data
 		version = Config.version,
 		coins = 0,
 		pets = {},
-		upgrades = { ray = 1, boots = 1, backpack = 1 },
+		nextPetId = 1,
+		upgrades = { ray = 1, boots = 1, backpack = 1, pen = 1 },
 		found = {},
 		stats = { frozen = 0, banked = 0, melts = 0, coinsEarned = 0 },
 		rarest = { rank = 0, key = nil, at = 0 },
@@ -97,16 +99,41 @@ local function migrate(old: any): Data
 		return d
 	end
 	d.coins = num(old.coins, 0, 1e15)
+	for _, id in Config.upgradeIds do
+		d.upgrades[id] = int(tbl(old.upgrades)[id], 1, Config.upgrades[id].maxLevel, 1)
+	end
+	-- pets: each has an id and an "in the pen" flag; never more in the pen than it has slots
+	d.nextPetId = int(old.nextPetId, 1, 1e9, 1)
+	local seen: { [string]: boolean } = {}
+	local slots = Config.pen.baseSlots + Config.upgrades.pen.slotsPerLevel * (d.upgrades.pen - 1)
+	local inPen = 0
 	for _, p in tbl(old.pets) do
-		if #d.pets >= Config.penSlots then
+		if #d.pets >= Config.pen.storageMax then
 			break
 		end
 		if typeof(p) == "table" and typeof(p.key) == "string" and PetDefs.get(p.key) then
-			table.insert(d.pets, { key = p.key, pose = knownPose(p.pose), mut = knownMut(p.mut), at = num(p.at, 0, 1e12) })
+			local id = if typeof(p.id) == "string" and #p.id <= 12 and not seen[p.id] then p.id else nil
+			if not id then
+				id = "q" .. d.nextPetId
+				d.nextPetId += 1
+			end
+			seen[id :: string] = true
+			local eq = p.eq == true and inPen < slots
+			if eq then
+				inPen += 1
+			end
+			table.insert(d.pets, { id = id :: string, key = p.key, pose = knownPose(p.pose), mut = knownMut(p.mut), at = num(p.at, 0, 1e12), eq = eq })
 		end
 	end
-	for _, id in Config.upgradeIds do
-		d.upgrades[id] = int(tbl(old.upgrades)[id], 1, Config.upgrades[id].maxLevel, 1)
+	if inPen == 0 and #d.pets > 0 then -- an older save without flags: the best pets go in the pen
+		local sorted = table.clone(d.pets)
+		table.sort(sorted, function(a, b)
+			local da, db = PetDefs.get(a.key), PetDefs.get(b.key)
+			return PetDefs.income(da :: any, a.pose, a.mut) > PetDefs.income(db :: any, b.pose, b.mut)
+		end)
+		for i, p in sorted do
+			p.eq = i <= slots
+		end
 	end
 	for k, v in tbl(old.found) do
 		if typeof(k) == "string" and v == true and PetDefs.get(k) then
