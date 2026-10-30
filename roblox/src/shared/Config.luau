@@ -215,7 +215,6 @@ Config.ui = {
 	pressDepth = 0.06, pressSeconds = 0.08, stroke = 3, corner = 0.18,
 	gamepadKeys = { close = Enum.KeyCode.ButtonB, superFreeze = Enum.KeyCode.ButtonY, menu = Enum.KeyCode.ButtonSelect },
 	keys = { pets = Enum.KeyCode.P, shop = Enum.KeyCode.B, index = Enum.KeyCode.I, close = Enum.KeyCode.Escape, superFreeze = Enum.KeyCode.F },
-	petsPerPage = 40,
 }
 
 Config.lighting = {
