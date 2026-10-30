@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw, ImageFont
 from scipy import ndimage
 
 TILE = 300
-BG = (220, 235, 245)  # snow blue, until Theme has a Meadow colour
+BG = (220, 235, 245)  # line-up background (zone colours are not in Theme yet)
 INK = (27, 20, 51)  # UI Rules ink #1b1433
 TIER_COLOURS = {
     "Common": (150, 160, 170),
