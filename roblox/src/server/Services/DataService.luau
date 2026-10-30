@@ -22,12 +22,13 @@ export type Data = {
 	rarest: { rank: number, key: string?, at: number },
 	week: { id: string, coins: number },
 	lastSeen: number,
-	welcome: { coins: number, awaySeconds: number, capped: boolean }?,
+	welcome: { coins: number, awaySeconds: number, capped: boolean, best: string? }?,
 	gift: { lastDay: string, streak: number },
 	funnel: { [string]: boolean },
 	forestUnlocked: boolean,
 	superFreezeCharges: number,
 	superCubes: { { key: string, pose: string, mut: string? } }, -- bought Super Freeze cubes not yet banked (back on your back after a rejoin)
+	lastBest: string?, -- best pet banked last session, shown in the welcome back (end on a high, on the return)
 	receipts: { string },
 	createdAt: number,
 	lock: { job: string, t: number }?,
@@ -59,6 +60,7 @@ local function defaults(): Data
 		forestUnlocked = false,
 		superFreezeCharges = 0,
 		superCubes = {},
+		lastBest = nil,
 		receipts = {},
 		createdAt = os.time(),
 		lock = nil,
@@ -119,7 +121,8 @@ local function migrate(old: any): Data
 	d.week = { id = str(wk.id, 10), coins = num(wk.coins, 0, Config.leaderboards.limits.weekCoins) }
 	d.lastSeen = num(old.lastSeen, 0, 1e12)
 	if typeof(old.welcome) == "table" then
-		d.welcome = { coins = math.floor(num(old.welcome.coins, 0, 1e15)), awaySeconds = num(old.welcome.awaySeconds, 0, 1e9), capped = old.welcome.capped == true }
+		local best = old.welcome.best
+		d.welcome = { coins = math.floor(num(old.welcome.coins, 0, 1e15)), awaySeconds = num(old.welcome.awaySeconds, 0, 1e9), capped = old.welcome.capped == true, best = if typeof(best) == "string" and PetDefs.get(best) then best else nil }
 	end
 	local g = tbl(old.gift)
 	d.gift = { lastDay = str(g.lastDay, 10), streak = int(g.streak, 0, Config.dailyGift.streakMax) }
@@ -141,6 +144,7 @@ local function migrate(old: any): Data
 		end
 	end
 	d.createdAt = num(old.createdAt, 0, 1e12, os.time())
+	d.lastBest = if typeof(old.lastBest) == "string" and PetDefs.get(old.lastBest) then old.lastBest else nil
 	if typeof(old.lock) == "table" and typeof(old.lock.job) == "string" then
 		d.lock = { job = old.lock.job, t = num(old.lock.t, 0, 1e12) }
 	end
