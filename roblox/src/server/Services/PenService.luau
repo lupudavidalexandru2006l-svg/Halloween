@@ -199,6 +199,10 @@ local function bank(player: Player)
 	if not d or bankingNow[player] or CarryService.count(player) == 0 then
 		return
 	end
+	if #d.pets >= Config.pen.storageMax then
+		Remotes.notYet(player, "Storage full", "pets") -- the cubes stay on your back
+		return
+	end
 	bankingNow[player] = true
 	local cubes = CarryService.takeAll(player)
 	local banked = {}

@@ -56,6 +56,14 @@ function State.Start()
 	local data = remotes:WaitForChild("Data", 10) :: RemoteEvent
 	local note = remotes:WaitForChild("Notify", 10) :: RemoteEvent
 	local rank = remotes:WaitForChild("BoardRank", 10) :: RemoteEvent
+	-- connect after every other controller's Start has run, so early messages (welcome back) aren't
+	-- passed on before anyone listens; Roblox holds remote events until this connects
+	task.defer(function()
+		State.connect(data, note, rank)
+	end)
+end
+
+function State.connect(data: RemoteEvent, note: RemoteEvent, rank: RemoteEvent)
 	data.OnClientEvent:Connect(function(v: View)
 		State.view = v
 		changed:Fire(v)
