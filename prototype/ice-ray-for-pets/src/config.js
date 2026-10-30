@@ -158,11 +158,11 @@ export const Analytics = {
 // PetDefs: one entry per pet. Prototype uses the concept as a sprite, or the real 3D model.
 export const PetDefs = [
   // Snowy Meadow (zone 1)
-  { key: 'snowbun',         name: 'Snowbun',         zone: 1, tier: 'Common',    rig: 'Quadruped', size: 'S', color: '#e9507f', model: 'assets/models/snowbun.glb' },
+  { key: 'snowbun',         name: 'Snowbun',         zone: 1, tier: 'Common',    rig: 'Quadruped', size: 'S', color: '#e9507f', model: 'assets/models/snowbun.gltf.json' },
   { key: 'waddles',         name: 'Waddles',         zone: 1, tier: 'Common',    rig: 'Biped',     size: 'S', color: '#1d2756' },
   { key: 'mittenkit',       name: 'Mittenkit',       zone: 1, tier: 'Uncommon',  rig: 'Quadruped', size: 'S', color: '#f08a22' },
   { key: 'pupcicle',        name: 'Pupcicle',        zone: 1, tier: 'Rare',      rig: 'Quadruped', size: 'M', color: '#f2d81c' },
-  { key: 'frostfox',        name: 'Frostfox',        zone: 1, tier: 'Epic',      rig: 'Quadruped', size: 'M', color: '#1f7f95', model: 'assets/models/frostfox.glb' },
+  { key: 'frostfox',        name: 'Frostfox',        zone: 1, tier: 'Epic',      rig: 'Quadruped', size: 'M', color: '#1f7f95', model: 'assets/models/frostfox.gltf.json' },
   { key: 'blizzard_yeti',   name: 'Blizzard Yeti',   zone: 1, tier: 'Legendary', rig: 'Biped',     size: 'L', color: '#8d6ad6' },
   { key: 'aurora_owl',      name: 'Aurora Owl',      zone: 1, tier: 'Mythic',    rig: 'Bird',      size: 'M', color: '#178a63' },
   { key: 'snowglobe_drake', name: 'Snowglobe Drake', zone: 1, tier: 'Secret',    rig: 'Custom',    size: 'M', color: '#c8202f' },

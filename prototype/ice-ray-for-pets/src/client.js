@@ -205,9 +205,9 @@ export function createClient({ server, input, audio, hud, headless }) {
     };
     fence(p.xMin, p.zMin, p.xMax, p.zMin); fence(p.xMin, p.zMin, p.xMin, p.zMax); fence(p.xMax, p.zMin, p.xMax, p.zMax);
     fence(p.xMin, p.zMax, -5, p.zMax); fence(5, p.zMax, p.xMax, p.zMax); // open front
-    // the pen sign hangs over the entrance, so it never sits between the camera and the player
-    const sign = canvasBoard(9, 2.3, 512, 130); sign.draw((c, w, h) => boardText(c, w, h, 'YOUR PEN', '#ff9f1c')); sign.mesh.position.set(0, 6.5, p.zMax + 0.4); sign.mesh.rotation.y = Math.PI; scene.add(sign.mesh);
-    for (const x of [-5, 5]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.7, 6.5, 0.7), mat('#c9874f')); post.position.set(x, 3.25, p.zMax + 0.4); scene.add(post); }
+    // the pen sign is painted on the floor: readable from the camera and never between it and the player
+    const sign = canvasBoard(12, 3, 512, 130); sign.draw((c, w, h) => boardText(c, w, h, 'YOUR PEN', '#ff9f1c'));
+    sign.mesh.rotation.set(-Math.PI / 2, 0, Math.PI); sign.mesh.position.set(0, 0.06, p.zMin + 3.5); scene.add(sign.mesh);
     const pad = new THREE.Mesh(new THREE.CylinderGeometry(3.5, 3.8, 0.4, 24), mat('#7fd3ff')); pad.position.set(World.spawn.x, 0.2, World.spawn.z); scene.add(pad);
   }
   const giftBox = new THREE.Group();

@@ -1,0 +1,139 @@
+<title>Ice Ray for Pets</title>
+<meta name="description" content="Prototype: zap wild pets with an ice ray, carry the cube home before it melts, and they earn coins in your pen.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ink: #1b1433; --go: #3ccf6e; --no: #ff5a5f; --coin: #ffc93c; --info: #3aa8ff;
+  --shop: #ff9f1c; --index: #3aa8ff; --settings: #8f7cff; --panel: #fff8ec;
+  --lip: 5px; --radius: 16px; --ui: 1;
+  --safe-top: max(52px, env(safe-area-inset-top));   /* clear of the Roblox top bar */
+}
+@media (min-width: 1000px) and (min-height: 600px) { :root { --ui: 1.2; } }
+@media (min-width: 1500px) and (min-height: 800px) { :root { --ui: 1.35; } }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #9fd6ff; font-family: 'Fredoka', system-ui, sans-serif; color: #fff; user-select: none; touch-action: none; }
+canvas#game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+.txt { color: #fff; -webkit-text-stroke: 0; text-shadow: 0 2px 0 var(--ink), 2px 0 0 var(--ink), -2px 0 0 var(--ink), 0 -2px 0 var(--ink), 2px 2px 0 var(--ink), -2px 2px 0 var(--ink), 2px -2px 0 var(--ink), -2px -2px 0 var(--ink); font-weight: 700; }
+
+/* Chunky Pop block: a face on a darker lip with one thick ink outline */
+.block { position: relative; border: 3px solid var(--ink); border-radius: var(--radius); background: var(--face, #fff); box-shadow: 0 var(--lip) 0 0 var(--lip-c, rgba(27,20,51,.55)), 0 calc(var(--lip) + 3px) 0 0 var(--ink); transition: transform .06s ease-out, box-shadow .06s ease-out; }
+.block::before { content: ''; position: absolute; z-index: 0; inset: 3px 3px 55% 3px; border-radius: calc(var(--radius) - 5px); background: linear-gradient(rgba(255,255,255,.45), rgba(255,255,255,0)); pointer-events: none; }
+.block > * { position: relative; z-index: 1; } /* the shine stays behind labels and icons */
+.press:active, .press.pressed { transform: translateY(var(--lip)); box-shadow: 0 0 0 0 var(--lip-c, rgba(27,20,51,.55)), 0 3px 0 0 var(--ink); }
+button.block { font: inherit; cursor: pointer; }
+
+#hud { position: fixed; inset: 0; pointer-events: none; }
+#hud > * { pointer-events: auto; }
+
+/* 1. coins, bottom left (above the thumbstick on touch) */
+#coins { position: absolute; left: max(16px, env(safe-area-inset-left)); bottom: calc(16px + var(--touch-lift, 0px)); display: flex; align-items: center; gap: 10px; padding: 6px 16px 6px 8px; --face: #ffe38a; --lip-c: #c99a16; transform-origin: left bottom; scale: var(--ui); }
+#coins svg { width: 40px; height: 40px; }
+#coins .n { font-size: 28px; line-height: 1; }
+#coins .rate { font-size: 15px; opacity: .95; }
+#coins.pop { animation: pop .25s ease-out; }
+@keyframes pop { 0% { scale: calc(var(--ui) * 1); } 50% { scale: calc(var(--ui) * 1.08); } 100% { scale: var(--ui); } }
+
+/* 2. menu tiles, left, vertically centred, 2 columns */
+#tiles { position: absolute; left: max(16px, env(safe-area-inset-left)); top: 50%; transform: translateY(-50%) scale(var(--ui)); transform-origin: left center; display: grid; grid-template-columns: repeat(2, 64px); gap: 14px 10px; }
+.tile { width: 64px; height: 64px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0; color: #fff; }
+.tile svg { width: 34px; height: 34px; }
+.tile .lbl { font-size: 12px; margin-top: -2px; }
+.tile .badge { position: absolute; top: -9px; right: -9px; min-width: 22px; height: 22px; border-radius: 11px; background: var(--no); border: 3px solid var(--ink); font-size: 13px; display: none; align-items: center; justify-content: center; }
+.tile .badge.on { display: flex; animation: wiggle .4s ease-in-out 3; }
+@keyframes wiggle { 25% { rotate: -8deg; } 75% { rotate: 8deg; } }
+
+/* 3. goal bar, top centre, never starts empty */
+#goal { position: absolute; top: var(--safe-top); left: 50%; transform: translateX(-50%) scale(var(--ui)); transform-origin: center top; width: min(420px, 46vw); padding: 6px 10px 8px; --face: #6fd0ff; --lip-c: #2f88b8; text-align: center; }
+#goal .t { font-size: 16px; }
+#goal .bar { margin-top: 4px; height: 16px; border: 3px solid var(--ink); border-radius: 10px; background: #1b1433; overflow: hidden; }
+#goal .fill { height: 100%; width: 6%; background: linear-gradient(#7dff9e, #3ccf6e); border-radius: 6px; transition: width .4s ease-out; }
+
+/* 4. contextual banner */
+#banner { position: absolute; top: calc(var(--safe-top) + 74px * var(--ui)); left: 50%; transform: translateX(-50%) scale(var(--ui)); transform-origin: center top; padding: 6px 18px; --face: #8fdcff; --lip-c: #3a8fc0; font-size: 18px; display: none; white-space: nowrap; }
+#banner.on { display: block; animation: drop .25s ease-out; }
+#banner.chill { --face: #d9f4ff; --lip-c: #6cbfe8; color: #fff; }
+@keyframes drop { from { transform: translateX(-50%) translateY(-20px) scale(var(--ui)); opacity: 0; } }
+
+/* world prompts (on objects, never on the HUD) */
+.prompt { position: absolute; transform: translate(-50%, -100%); display: flex; flex-direction: column; align-items: center; gap: 2px; pointer-events: auto; touch-action: none; }
+.prompt .card { padding: 4px 12px 6px; --face: #ffffff; --lip-c: #9fb3c8; color: var(--ink); text-align: center; min-width: 120px; font-size: calc(15px * var(--ui)); }
+.prompt .card .k { display: inline-flex; width: 1.5em; height: 1.5em; border: 2px solid var(--ink); border-radius: 6px; align-items: center; justify-content: center; margin-right: 6px; background: #eef4ff; font-size: .85em; }
+.prompt .card .pose { display: block; font-size: .85em; color: #3a3361; }
+.prompt .ring { width: calc(46px * var(--ui)); height: calc(46px * var(--ui)); }
+.prompt .tier { font-size: calc(13px * var(--ui)); padding: 1px 8px; border-radius: 8px; border: 2px solid var(--ink); }
+.offer { position: absolute; transform: translate(-50%, -100%); pointer-events: auto; }
+.offer button { padding: 6px 12px; --face: #4e7dff; --lip-c: #2440a6; color: #fff; font-size: calc(15px * var(--ui)); display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.offer svg { width: 1.2em; height: 1.2em; }
+.float { position: absolute; transform: translate(-50%, -50%); font-size: calc(22px * var(--ui)); pointer-events: none; animation: rise 1.1s ease-out forwards; white-space: nowrap; }
+@keyframes rise { to { transform: translate(-50%, -160%); opacity: 0; } }
+
+/* popups: centred, a little above the middle, one at a time */
+#popup-wrap { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(27,20,51,.35); pointer-events: auto; }
+#popup-wrap.on { display: flex; }
+#popup { --face: var(--panel); --lip-c: #d8b98a; color: var(--ink); width: min(560px, 92vw); max-height: calc(100vh - 110px); overflow: auto; padding: 14px 16px 16px; margin-top: -6vh; scale: var(--ui); animation: popin .25s cubic-bezier(.2,1.6,.4,1); }
+@keyframes popin { from { scale: 0; } }
+#popup h2 { margin: 0 0 8px; font-size: 24px; text-align: center; color: #fff; }
+#popup .close { position: absolute; z-index: 3; top: 8px; right: 8px; width: 40px; height: 40px; --face: var(--no); --lip-c: #b5323a; color: #fff; font-size: 22px; padding: 0; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.card2 { padding: 10px; --face: #fff; --lip-c: #c9b9a0; text-align: center; }
+.card2 h3 { margin: 2px 0; font-size: 18px; }
+.card2 p { margin: 4px 0 8px; font-size: 14px; color: #4a4270; }
+.buy { width: 100%; padding: 6px; --face: var(--go); --lip-c: #23914b; color: #fff; font-size: 18px; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.buy.cant { --face: #c4c4cf; --lip-c: #8a8a9a; }
+.buy svg { width: 22px; height: 22px; }
+.shake { animation: shake .3s linear; }
+@keyframes shake { 20% { translate: -6px 0; } 40% { translate: 6px 0; } 60% { translate: -4px 0; } 80% { translate: 4px 0; } }
+.idx-tabs { display: flex; gap: 8px; justify-content: center; margin-bottom: 8px; }
+.idx-tabs button { padding: 4px 12px; --face: #e8e1ff; --lip-c: #9a8fd6; color: var(--ink); font-size: 15px; }
+.idx-tabs button.on { --face: var(--index); --lip-c: #1f6ea8; color: #fff; }
+.idx-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.idx-cell { aspect-ratio: 1; border: 3px solid var(--ink); border-radius: 12px; background: #eaf6ff; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding: 4px; position: relative; overflow: hidden; }
+.idx-cell img { width: 80%; height: 70%; object-fit: contain; }
+.idx-cell.miss img { filter: brightness(0) opacity(.75); }
+.idx-cell .nm { font-size: 12px; color: var(--ink); }
+.idx-cell .tr { position: absolute; top: 4px; left: 4px; width: 12px; height: 12px; border-radius: 6px; border: 2px solid var(--ink); }
+.big { font-size: 34px; text-align: center; color: #fff; }
+.center { text-align: center; }
+.settings-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 4px; font-size: 18px; }
+.toggle { width: 64px; height: 34px; border: 3px solid var(--ink); border-radius: 18px; background: #c4c4cf; position: relative; cursor: pointer; }
+.toggle::after { content: ''; position: absolute; top: 50%; translate: 0 -50%; left: 3px; width: 24px; height: 24px; border-radius: 12px; background: #fff; border: 2px solid var(--ink); transition: left .15s; }
+.toggle.on { background: var(--go); }
+.toggle.on::after { left: 31px; }
+
+/* touch thumbstick */
+#stick { position: fixed; width: 120px; height: 120px; border-radius: 60px; border: 3px solid rgba(27,20,51,.6); background: rgba(255,255,255,.18); display: none; pointer-events: none; }
+#stick .knob { position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; margin: -27px 0 0 -27px; border-radius: 27px; background: rgba(255,255,255,.75); border: 3px solid var(--ink); }
+
+/* test tools: timer panel (T) */
+#panel { position: fixed; right: 10px; top: var(--safe-top); width: 300px; max-height: calc(100vh - 70px); overflow: auto; background: rgba(27,20,51,.88); color: #fff; font: 12px/1.45 ui-monospace, monospace; border-radius: 10px; padding: 10px; display: none; pointer-events: auto; }
+#panel.on { display: block; }
+#panel b { color: #ffc93c; }
+#panel button { font: 12px Fredoka, sans-serif; margin: 2px 2px 0 0; padding: 3px 7px; border-radius: 6px; border: 2px solid #fff; background: #3a3361; color: #fff; cursor: pointer; }
+#dbg-btn { position: fixed; right: 10px; bottom: 10px; width: 34px; height: 34px; border-radius: 8px; border: 2px solid var(--ink); background: rgba(255,255,255,.7); color: var(--ink); font: 700 16px Fredoka; display: none; }
+#loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: #9fd6ff; font-size: 28px; z-index: 5; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "./vendor/three/build/three.module.min.js",
+  "three/addons/": "./vendor/three/examples/jsm/"
+} }
+</script>
+<canvas id="game"></canvas>
+<div id="hud">
+  <div id="goal" class="block txt"><div class="t">Freeze a pet</div><div class="bar"><div class="fill"></div></div></div>
+  <div id="banner" class="block txt"></div>
+  <div id="tiles"></div>
+  <div id="coins" class="block txt">
+    <svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="21" r="16" fill="#c98a0c" stroke="#1b1433" stroke-width="3"/><circle cx="20" cy="18.5" r="14" fill="#ffd34a" stroke="#1b1433" stroke-width="3"/><circle cx="20" cy="18.5" r="8.5" fill="none" stroke="#e8a714" stroke-width="3"/><path d="M12 12 q4-4 9-4" stroke="#fff6c8" stroke-width="3" fill="none" stroke-linecap="round"/></svg>
+    <div><div class="n">0</div><div class="rate">+0/s</div></div>
+  </div>
+  <div id="prompts"></div>
+</div>
+<div id="stick"><div class="knob"></div></div>
+<div id="popup-wrap"><div id="popup" class="block"></div></div>
+<div id="panel"></div>
+<button id="dbg-btn" aria-label="Test panel">T</button>
+<div id="loading" class="txt">Loading pets...</div>
+<script type="module" src="./src/main.js"></script>
