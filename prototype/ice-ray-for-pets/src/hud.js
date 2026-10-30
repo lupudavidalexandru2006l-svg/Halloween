@@ -64,7 +64,7 @@ export function createHud({ server, input, audio }) {
     if (current.name === 'shop') {
       pop.innerHTML = head('Shop') + '<div class="cards">' + Config.upgradeIds.map((id) => {
         const u = Config.upgrades[id], lvl = v.upgrades[id], max = lvl >= u.maxLevel, cost = max ? 0 : upgradeCost(id, lvl + 1);
-        const effect = id === 'ray' ? 'Bigger cubes that last longer' : id === 'boots' ? 'Run faster' : id === 'pen' ? `${v.penSlots + u.slotsPerLevel} pets earn` : `Carry ${lvl + 1} cubes`;
+        const effect = id === 'ray' ? 'Bigger cubes, longer ice bridges' : id === 'boots' ? 'Run faster' : id === 'pen' ? `${v.penSlots + u.slotsPerLevel} pets earn` : `Carry ${lvl + 1} cubes`;
         return `<div class="block card2"><h3>${u.name}</h3><div>Level ${lvl}</div><p>${effect}</p>
           <button class="block press buy txt ${!max && v.coins < cost ? 'cant' : ''}" data-buy="${id}">${max ? 'MAX' : COIN + fmt(cost)}</button></div>`;
       }).join('') + '</div>';

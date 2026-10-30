@@ -49,11 +49,11 @@ Config.player = {
 Config.tiers = {
 	{ name = "Common", odds = 59.995, cubeLife = 90, income = 1, rank = 1 },
 	{ name = "Uncommon", odds = 25, cubeLife = 70, income = 3, rank = 2 },
-	{ name = "Rare", odds = 10, cubeLife = 50, income = 10, rank = 3 },
-	{ name = "Epic", odds = 4, cubeLife = 40, income = 30, rank = 4 },
-	{ name = "Legendary", odds = 0.9, cubeLife = 30, income = 100, rank = 5 },
-	{ name = "Mythic", odds = 0.1, cubeLife = 25, income = 400, rank = 6 },
-	{ name = "Secret", odds = 0.005, cubeLife = 20, income = 1500, rank = 7 }, -- 1 in 20,000, every zone
+	{ name = "Rare", odds = 10, cubeLife = 30, income = 10, rank = 3 }, -- owner 2026-10-30: steep: Commons easy, Secrets hard
+	{ name = "Epic", odds = 4, cubeLife = 22, income = 30, rank = 4 },
+	{ name = "Legendary", odds = 0.9, cubeLife = 16, income = 100, rank = 5 },
+	{ name = "Mythic", odds = 0.1, cubeLife = 12, income = 400, rank = 6 },
+	{ name = "Secret", odds = 0.005, cubeLife = 8, income = 1500, rank = 7 }, -- 1 in 20,000, every zone
 } :: { Tier }
 Config.incomeZoneMultiplier = 4
 
@@ -74,7 +74,7 @@ Config.mutations = {
 
 Config.upgrades = { -- baseCost = the price of level 2; each step costs x1.5 the last (Game Plan 11)
 	-- cube size: +12% a level for the first 4 levels (you can see it), then +2%
-	ray = { name = "Ice Ray", baseCost = 40, costGrowth = 1.5, maxLevel = 20, lifeBonus = 0.20, bridgeBonus = 4, cubeSize = { early = 0.12, earlyLevels = 4, late = 0.02 } },
+	ray = { name = "Ice Ray", baseCost = 40, costGrowth = 1.5, maxLevel = 20, lifeBonus = 0.02, bridgeBonus = 4, -- +2% cube life a level (owner 2026-10-30) cubeSize = { early = 0.12, earlyLevels = 4, late = 0.02 } },
 	boots = { name = "Boots", baseCost = 64, costGrowth = 1.5, maxLevel = 15, speedBonus = 0.08 },
 	backpack = { name = "Backpack", baseCost = 750, costGrowth = 1.5, maxLevel = 5, slowPerExtraCube = 0.08 },
 	pen = { name = "Pen", baseCost = 150, costGrowth = 1.5, maxLevel = 19, slotsPerLevel = 5 }, -- Game Plan 11: +5 earning slots

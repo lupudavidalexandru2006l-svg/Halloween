@@ -46,13 +46,16 @@ export function createBot({ server, client, input, hud }) {
       input.state.botMove = d > 0.8 ? { x: (wp.x - me.x) / d, z: (wp.z - me.z) / d } : { x: 0, z: 0 }; input.state.botInteract = false; return;
     }
     const cubes = v.carrying;
-    const low = cubes.some((c) => !c.superFrozen && c.life / c.lifeMax < 0.45);
+    const low = cubes.some((c) => !c.superFrozen && c.life / c.lifeMax < 0.35); // a kid heads home when the cube shows cracks (35%)
     let goal = null, wantInteract = false;
     const candidates = [...v.wild.values()].filter((w) => w.zone === 1 || v.forestUnlocked);
       // once the Forest is open a kid goes there (new pets, 4x income); and a kid goes for the glow: each tier above Common is worth 45 studs of extra walking
     const score = (w) => dist(w, me) - (v.forestUnlocked && w.zone === 2 ? 400 : 0) - (w.state === 'dazed' ? 200 : 0) - 45 * (tierByName[petByKey[w.key].tier].rank - 1);
     candidates.sort((a, b) => score(a) - score(b));
-    const near = candidates[0];
+    // a kid who sees a Rare-or-better glow within ~150 studs goes for it (the rarest first)
+    const rk = (w) => tierByName[petByKey[w.key].tier].rank;
+    const glow = candidates.filter((w) => rk(w) >= 3 && w.state === 'wild' && dist(w, me) < 150).sort((a, b) => rk(b) - rk(a) || dist(a, me) - dist(b, me))[0];
+    const near = glow || candidates[0];
     if (cubes.length && (cubes.length >= v.capacity || low || !near || dist(near, me) > 60)) {
       const p = penCenter(); goal = { x: p.x, z: p.z + 2 };
     } else if (near) {

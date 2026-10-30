@@ -26,19 +26,35 @@ const input = createInput();
 const server = createServer({ seed: q.get('seed') ? +q.get('seed') : undefined, displayName: 'You' });
 const hud = createHud({ server, input, audio });
 // ---------- timer panel (T): the grind budget in numbers (listening before join, so "joined" is counted) ----------
-const marks = {}; const counts = { upgrades: 0, offers: 0 };
+const marks = {}; const counts = { upgrades: 0, offers: 0, melted: {}, banked: {}, used: {}, kidMelt: {} };
 const zoneHeat = () => Config && (window.__game?.World?.zones?.[1]?.heat ?? '');
 const T = () => server.view()?.time ?? 0;
 server.on('analytics', (a) => {
   if (a.kind === 'funnel' && !(a.name in marks)) { marks[a.name] = T(); if (BOT) console.log(`[bot] ${a.name} at ${T().toFixed(1)}s game time`); }
 });
 server.on('banked', () => { const n = server.view().pets.length; for (const k of [8, 12, 15, 20, 25, 30]) if (n >= k && !(`pets_${k}` in marks)) { marks[`pets_${k}`] = T(); if (BOT) console.log(`[bot] ${k} pets at ${T().toFixed(1)}s`); } });
+// how much of each banked cube's life was used on the way home; a kid takes ~2.5x as long as the bot
+// (Game Design Rules 12), so a cube the bot banked with 40%+ of its life used would have melted for a kid
+server.on('banked', ({ banked }) => {
+  for (const b of banked) {
+    const c = b.cube; if (c.superFrozen) continue;
+    const tier = PetDefs.find((d) => d.key === c.key).tier, used = 1 - c.life / c.lifeMax;
+    (counts.used[tier] ||= []).push(Math.round(used * 100));
+    if (used >= 0.4) counts.kidMelt[tier] = (counts.kidMelt[tier] || 0) + 1;
+  }
+});
 server.on('upgraded', ({ id, level }) => { counts.upgrades++; if (BOT) console.log(`[bot] upgrade ${id} -> ${level} at ${T().toFixed(1)}s`); });
 server.on('zoneUnlocked', () => { marks.forest_unlocked = T(); if (BOT) console.log(`[bot] Pine Forest unlocked at ${T().toFixed(1)}s`); });
-server.on('analytics', (a) => { if (a.name === 'offer_shown') counts.offers++; });
+server.on('analytics', (a) => {
+  if (a.name === 'offer_shown') counts.offers++;
+  if (a.name === 'cube_melted') counts.melted[a.fields.tier] = (counts.melted[a.fields.tier] || 0) + 1;
+  if (a.name === 'pet_banked') counts.banked[a.fields.tier] = (counts.banked[a.fields.tier] || 0) + 1;
+});
 // &heat=1.6 gives the Forest a hotter zone's heat from the start (test switch, owner decision 2026-10-30)
 if (q.get('heat')) server.debug.setHeat?.(2, +q.get('heat'));
 if (q.get('gate')) World.zones[1].gateCoins = Math.max(1, +q.get('gate')); // test only: try a Forest price with the bot
+if (q.get('raylife')) Config.upgrades.ray.lifeBonus = Math.max(0, +q.get('raylife')); // test only: try an Ice Ray strength
+if (q.get('rarelife')) for (const t of Config.tiers) if (t.rank >= 3) t.cubeLife = Math.round(t.cubeLife * +q.get('rarelife')); // test only: shorter Rare+ cube life
 server.join();
 if (q.get('fresh') === '1') history.replaceState(null, '', location.pathname + location.search.replace(/([?&])fresh=1&?/, '$1').replace(/[?&]$/, '')); // a later refresh keeps your progress
 const client = createClient({ server, input, audio, hud, headless: HEADLESS });

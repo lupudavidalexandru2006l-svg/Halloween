@@ -34,11 +34,11 @@ export const Config = {
     // odds are percentages; cubeLife in seconds before heat; income is coins per second in zone 1
     { name: 'Common',    odds: 59.995, cubeLife: 90, income: 1,   rank: 1 }, // 60% minus the Secret's share, so odds add to 100
     { name: 'Uncommon',  odds: 25,    cubeLife: 70, income: 3,    rank: 2 },
-    { name: 'Rare',      odds: 10,    cubeLife: 50, income: 10,   rank: 3 },
-    { name: 'Epic',      odds: 4,     cubeLife: 40, income: 30,   rank: 4 },
-    { name: 'Legendary', odds: 0.9,   cubeLife: 30, income: 100,  rank: 5 },
-    { name: 'Mythic',    odds: 0.1,   cubeLife: 25, income: 400,  rank: 6 },
-    { name: 'Secret',    odds: 0.005, cubeLife: 20, income: 1500, rank: 7 }, // 1 in 20,000, every zone
+    { name: 'Rare',      odds: 10,    cubeLife: 30, income: 10,   rank: 3 }, // owner 2026-10-30: Rare+ cubes 60% of the old life so rare runs are tense,
+    { name: 'Epic',      odds: 4,     cubeLife: 22, income: 30,   rank: 4 }, // steep on purpose: Commons easy, Secrets hard (owner)
+    { name: 'Legendary', odds: 0.9,   cubeLife: 16, income: 100,  rank: 5 },
+    { name: 'Mythic',    odds: 0.1,   cubeLife: 12, income: 400,  rank: 6 },
+    { name: 'Secret',    odds: 0.005, cubeLife: 8, income: 1500, rank: 7 }, // 1 in 20,000, every zone
   ],
   incomeZoneMultiplier: 4,  // a zone-2 pet earns 4x its zone-1 tier income
 
@@ -60,7 +60,8 @@ export const Config = {
   upgrades: {
     // each step costs x1.5 the last (Game Plan 11); baseCost = the price of level 2
     // cube size: +12% a level for the first 4 levels (an upgrade you can see), then +2%
-    ray:      { name: 'Ice Ray',  baseCost: 40,  costGrowth: 1.5, maxLevel: 20, lifeBonus: 0.20, bridgeBonus: 4, cubeSize: { early: 0.12, earlyLevels: 4, late: 0.02 } },
+    // Ice Ray: +2% cube life a level (owner 2026-10-30; it was +20%, which made every cube safe), +4 s ice bridge
+    ray:      { name: 'Ice Ray',  baseCost: 40,  costGrowth: 1.5, maxLevel: 20, lifeBonus: 0.02, bridgeBonus: 4, cubeSize: { early: 0.12, earlyLevels: 4, late: 0.02 } },
     boots:    { name: 'Boots',    baseCost: 64,  costGrowth: 1.5, maxLevel: 15, speedBonus: 0.08 },
     backpack: { name: 'Backpack', baseCost: 750, costGrowth: 1.5, maxLevel: 5, slowPerExtraCube: 0.08 },
     pen:      { name: 'Pen',      baseCost: 150, costGrowth: 1.5, maxLevel: 19, slotsPerLevel: 5 }, // Game Plan 11: +5 earning slots
