@@ -37,12 +37,17 @@ local Theme = {
 	} :: { [string]: Color3 },
 
 	tiles = {
+		pets = Color3.fromHex("ff6fa5"),
 		shop = Color3.fromHex("ff9f1c"),
 		index = Color3.fromHex("3aa8ff"),
 		settings = Color3.fromHex("8f7cff"),
 	} :: { [string]: Color3 },
 
 	font = Enum.Font.FredokaOne,
+	lipDarken = 0.35, -- the lip under every block face is its colour this much darker
+	temp = { cold = Color3.fromHex("3aa8ff"), cool = Color3.fromHex("2fc6b5"), warm = Color3.fromHex("ff9f1c"), hot = Color3.fromHex("ff5a5f"), chill = Color3.fromHex("bfe9ff") } :: { [string]: Color3 },
+	shade = Color3.fromRGB(0, 0, 0), -- the dim behind a popup
+	shadeTransparency = 0.55,
 }
 
 return Theme

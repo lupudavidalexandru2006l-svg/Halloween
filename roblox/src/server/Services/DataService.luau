@@ -12,6 +12,7 @@ local Config = require(ReplicatedStorage.Shared.Config)
 local PetDefs = require(ReplicatedStorage.Shared.PetDefs)
 
 export type PetEntry = { id: string, key: string, pose: string, mut: string?, at: number, eq: boolean } -- eq = in the pen (earning); else in Storage
+export type Settings = { music: boolean, sound: boolean, reducedMotion: boolean, lowGraphics: boolean, unit: string }
 export type Data = {
 	version: number,
 	coins: number,
@@ -31,9 +32,12 @@ export type Data = {
 	superCubes: { { key: string, pose: string, mut: string? } }, -- bought Super Freeze cubes not yet banked (back on your back after a rejoin)
 	lastBest: string?, -- best pet banked last session, shown in the welcome back (end on a high, on the return)
 	receipts: { string },
+	settings: Settings,
 	createdAt: number,
 	lock: { job: string, t: number }?,
 }
+
+local Remotes = require(script.Parent.Remotes)
 
 local DataService = {}
 
@@ -64,6 +68,7 @@ local function defaults(): Data
 		superCubes = {},
 		lastBest = nil,
 		receipts = {},
+		settings = table.clone(Config.settingsDefault) :: any,
 		createdAt = os.time(),
 		lock = nil,
 	}
@@ -170,6 +175,12 @@ local function migrate(old: any): Data
 			table.insert(d.receipts, r)
 		end
 	end
+	local se = tbl(old.settings)
+	for k, v in Config.settingsDefault :: { [string]: any } do
+		if typeof(se[k]) == typeof(v) and (k ~= "unit" or se[k] == "C" or se[k] == "F") then
+			(d.settings :: any)[k] = se[k]
+		end
+	end
 	d.createdAt = num(old.createdAt, 0, 1e12, os.time())
 	d.lastBest = if typeof(old.lastBest) == "string" and PetDefs.get(old.lastBest) then old.lastBest else nil
 	if typeof(old.lock) == "table" and typeof(old.lock.job) == "string" then
@@ -270,6 +281,20 @@ function DataService.Init()
 end
 
 function DataService.Start()
+	-- Settings are saved on the server (music, sound, reduced motion, low graphics, C or F)
+	Remotes.on("SetSetting", function(player, key, value)
+		local s = sessions[player]
+		local default = (Config.settingsDefault :: any)[key]
+		if not s or typeof(key) ~= "string" or default == nil or typeof(value) ~= typeof(default) then
+			return
+		end
+		if key == "unit" and value ~= "C" and value ~= "F" then
+			return
+		end
+		DataService.mutate(player, function(d)
+			(d.settings :: any)[key] = value
+		end)
+	end)
 	Players.PlayerAdded:Connect(load)
 	for _, p in Players:GetPlayers() do
 		task.spawn(load, p)

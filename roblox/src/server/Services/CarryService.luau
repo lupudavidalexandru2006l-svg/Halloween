@@ -41,7 +41,7 @@ end
 local function cubeSize(player: Player, def: PetDefs.PetDef): number
 	local data = DataService.get(player)
 	local ray = if data then data.upgrades.ray else 1
-	return PetDefs.cubeSize[def.size] * (1 + Config.upgrades.ray.cubeSizeBonus * (ray - 1)) * BACK_SCALE
+	return PetDefs.cubeSize[def.size] * Config.cubeSizeFactor(ray) * BACK_SCALE
 end
 
 -- weld the stack behind the character (re-run after respawn or any change)

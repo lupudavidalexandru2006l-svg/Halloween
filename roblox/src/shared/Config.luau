@@ -74,7 +74,8 @@ Config.mutations = {
 
 Config.upgrades = { -- baseCost = the price of level 2; each step costs x1.5 the last (Game Plan 11)
 	-- cube size: +12% a level for the first 4 levels (you can see it), then +2%
-	ray = { name = "Ice Ray", baseCost = 40, costGrowth = 1.5, maxLevel = 20, lifeBonus = 0.02, bridgeBonus = 4, -- +2% cube life a level (owner 2026-10-30) cubeSize = { early = 0.12, earlyLevels = 4, late = 0.02 } },
+	ray = { name = "Ice Ray", baseCost = 40, costGrowth = 1.5, maxLevel = 20, lifeBonus = 0.02, bridgeBonus = 4, -- +2% cube life a level (owner 2026-10-30)
+		cubeSize = { early = 0.12, earlyLevels = 4, late = 0.02 } },
 	boots = { name = "Boots", baseCost = 64, costGrowth = 1.5, maxLevel = 15, speedBonus = 0.08 },
 	backpack = { name = "Backpack", baseCost = 750, costGrowth = 1.5, maxLevel = 5, slowPerExtraCube = 0.08 },
 	pen = { name = "Pen", baseCost = 150, costGrowth = 1.5, maxLevel = 19, slotsPerLevel = 5 }, -- Game Plan 11: +5 earning slots
@@ -86,6 +87,16 @@ Config.pen = { baseSlots = 10, storageMax = 500 }
 Config.carryHomeMinStuds = 4 -- funnel step 4 counts a cube carried at least this far out of the hub and back
 Config.beachGateCoins = 500
 Config.notYetCooldown = 2 -- seconds between two of the same "not yet" message
+Config.bigWinRank = 5 -- banking Legendary or better sends a server-wide banner and a light pillar over your pen (Game Plan 14)
+Config.index = { pageBonus = 0.1 } -- each full zone page (its 7 regular pets; the Secret is a bonus slot) = +10% coins forever
+Config.income = { tickSeconds = 1 }
+Config.sync = { seconds = 0.5 } -- the client's copy of its data is sent at most this often
+Config.gatePromptOffset = 2.5 -- the gate prompt stands this far on the hub side of the gate
+Config.oddsPushSeconds = 5 -- each player's own odds go to their zone signs this often (personal rares, own pity)
+Config.shopOpenedCooldown = 2
+Config.settingsDefault = { music = true, sound = true, reducedMotion = false, lowGraphics = false, unit = "C" }
+-- Studio-only test switches (Port Plan 6, 6c): chat "/dev coins 5000", "/dev epic", "/dev chill", "/dev heat 2", "/dev ray 10", "/dev away 3600", "/dev wipe"
+Config.dev = { maxCoins = 1e9, heatMax = 5, awayMax = 24 * 3600 }
 
 Config.melt = {
 	shade = 0.5,
@@ -195,8 +206,16 @@ Config.sounds = {
 }
 
 Config.ui = {
-	tiles = { { id = "shop", label = "Shop" }, { id = "index", label = "Index" }, { id = "settings", label = "Settings" } },
+	tiles = { { id = "pets", label = "Pets" }, { id = "shop", label = "Shop" }, { id = "index", label = "Index" }, { id = "settings", label = "Settings" } },
 	scale = { phone = 1, tablet = 1.2, pc = 1.35 },
+	-- sizes are fractions of the screen's short side (Scale only, UI Rules); the Screen module places them
+	tileSize = 0.13, tileGap = 0.02, coinsSize = { 0.3, 0.1 }, goalSize = { 0.42, 0.075 }, tempSize = { 0.16, 0.075 },
+	topInset = 0.02, sideInset = 0.03, touchLift = 0.28, -- the coins sit above the thumbstick on touch screens
+	popupSize = { 0.92, 0.78 }, popupLift = 0.04, bannerSeconds = 3, floatSeconds = 1.2, notYetSeconds = 1.6,
+	pressDepth = 0.06, pressSeconds = 0.08, stroke = 3, corner = 0.18,
+	gamepadKeys = { close = Enum.KeyCode.ButtonB, superFreeze = Enum.KeyCode.ButtonY, menu = Enum.KeyCode.ButtonSelect },
+	keys = { pets = Enum.KeyCode.P, shop = Enum.KeyCode.B, index = Enum.KeyCode.I, close = Enum.KeyCode.Escape, superFreeze = Enum.KeyCode.F },
+	petsPerPage = 40,
 }
 
 Config.lighting = {
@@ -235,7 +254,8 @@ Config.world = {
 	beachGate = { z = 368 }, -- Sunny Beach (zone 3) starts here
 }
 
-Config.camera = { fov = 70 }
+Config.camera = { fov = 70, minZoom = 10, maxZoom = 40, carryFov = 74, fovSeconds = 0.4 }
+Config.effects = { pillarSeconds = 8, pillarHeight = 60, burstParts = 12, beamSeconds = 0.15, snowRate = 60 }
 
 function Config.tier(name: string): Tier
 	for _, t in Config.tiers do

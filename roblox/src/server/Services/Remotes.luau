@@ -12,11 +12,13 @@ local Remotes = {}
 local NAMES = {
 	-- client -> server (intent)
 	"BuyUpgrade", "CollectWelcome", "RequestSuperFreeze", "SetMenuOpen", "ShopOpened",
+	"EquipPet", "EquipBest", "SetSetting",
 	-- server -> client (what happened)
 	"Data", "Notify", "BoardRank",
 }
 local events: { [string]: RemoteEvent } = {}
 local calls: { [Player]: { number } } = {}
+local notYetAt: { [Player]: { [string]: number } } = {}
 
 function Remotes.Init()
 	local folder = Instance.new("Folder")
@@ -33,6 +35,7 @@ end
 function Remotes.Start()
 	Players.PlayerRemoving:Connect(function(p)
 		calls[p] = nil
+		notYetAt[p] = nil
 	end)
 end
 
@@ -75,6 +78,19 @@ end
 
 function Remotes.fireAll(name: string, ...: any)
 	events[name]:FireAllClients(...)
+end
+
+-- "not yet" answers ("Need 120 more", "Pen full"): the same message at most once per cooldown,
+-- so standing in a full pen or mashing a button never spams (prototype QA)
+function Remotes.notYet(player: Player, reason: string, at: string?)
+	local list = notYetAt[player] or {}
+	notYetAt[player] = list
+	local now = os.clock()
+	if now - (list[reason] or -math.huge) < Config.notYetCooldown then
+		return
+	end
+	list[reason] = now
+	events.Notify:FireClient(player, "notYet", { reason = reason, at = at })
 end
 
 -- small shared validators

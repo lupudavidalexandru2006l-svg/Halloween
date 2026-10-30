@@ -30,7 +30,7 @@ end
 
 function FreezeService.onHoldBegan(player: Player, id: string)
 	local pet = WildPetSpawner.get(id)
-	if not pet or not DataService.isLoaded(player) then
+	if not pet or not DataService.isLoaded(player) or (pet.owner and pet.owner ~= player) then
 		return
 	end
 	PlayerTracker.setZapping(player, true)
@@ -69,11 +69,14 @@ function FreezeService.onPetTriggered(player: Player, id: string)
 	if not inRange(player, pet.root.Position, 2) then
 		return
 	end
+	if pet.owner and pet.owner ~= player then
+		return -- someone else's personal rare (their client draws it, yours doesn't)
+	end
 	if pet.state == "dazed" and pet.dazedOwner and pet.dazedOwner ~= player then
 		return -- only the player who carried it can zap a dazed pet back (nobody takes it from them)
 	end
 	if CarryService.count(player) >= CarryService.capacity(player) then
-		Remotes.fire(player, "Notify", "notYet", { reason = "Backpack full" })
+		Remotes.notYet(player, "Backpack full", "pet")
 		return
 	end
 	if pet.zone == 2 and not data.forestUnlocked then

@@ -24,6 +24,7 @@ WorldService.boards = {} :: { BasePart }
 WorldService.giftPrompt = nil :: ProximityPrompt?
 WorldService.bridgePrompts = {} :: { ProximityPrompt } -- one on each bank
 WorldService.gateSign = nil :: BasePart?
+WorldService.gatePrompt = nil :: ProximityPrompt? -- hold to pay the gate's coins (PenService)
 
 local GATE_GROUP, OPEN_GROUP = "ForestGate", "ForestOpen"
 
@@ -123,6 +124,9 @@ local function buildBlockout()
 	local g = W.gate
 	local gate = part("ForestGate", Vector3.new(g.xMax - g.xMin, 10, 1.5), CFrame.new((g.xMin + g.xMax) / 2, 5, g.z), Theme.ice, map, { Material = Enum.Material.Ice, Transparency = 0.3 })
 	gate.CollisionGroup = GATE_GROUP
+	local gz = (Config.zone(2) :: Config.Zone).gateCoins
+	local post = part("GatePromptSpot", Vector3.new(1, 1, 1), CFrame.new((g.xMin + g.xMax) / 2, 0.5, g.z - Config.gatePromptOffset), Theme.ice, map, { Transparency = 1, CanCollide = false, CanQuery = false })
+	WorldService.gatePrompt = prompt(post, "Open", `Pine Forest: {gz} coins`, Config.player.interactHold)
 	part("FenceL", Vector3.new(g.xMin - b.xMin, 4, 1), CFrame.new((b.xMin + g.xMin) / 2, 2, g.z), Theme.wood, map)
 	part("FenceR", Vector3.new(b.xMax - g.xMax, 4, 1), CFrame.new((g.xMax + b.xMax) / 2, 2, g.z), Theme.wood, map)
 	local sign = part("GateSign", Vector3.new(16, 4, 0.5), CFrame.new(0, 13, g.z - 1) * CFrame.Angles(0, math.pi, 0), Theme.info, map)
@@ -211,6 +215,8 @@ local function findExisting(): boolean
 	local gift = map:FindFirstChild("GiftBox", true)
 	WorldService.giftPrompt = gift and gift:FindFirstChildWhichIsA("ProximityPrompt", true)
 	WorldService.gateSign = map:FindFirstChild("GateSign", true) :: BasePart?
+	local gp = map:FindFirstChild("GatePromptSpot", true)
+	WorldService.gatePrompt = gp and gp:FindFirstChildWhichIsA("ProximityPrompt", true)
 	for i = 1, #Config.world.boards do
 		WorldService.boards[i] = map:FindFirstChild("Leaderboard" .. i, true) :: BasePart
 	end

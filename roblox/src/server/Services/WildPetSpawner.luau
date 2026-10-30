@@ -1,15 +1,19 @@
 --!strict
 -- WildPetSpawner: spawn rolls (server only, with soft pity), the action loop that decides poses,
--- wandering, dazed pets after a melt, and the live odds on every zone sign.
+-- wandering, dazed pets after a melt, and each player's own odds for the zone signs.
+-- Personal rares (owner 2026-10-30): every player has their own roll stream and pity. A roll that lands
+-- Common or Uncommon goes into the shared zone pool; Rare and up spawns a pet only that player sees and
+-- can freeze (OwnerUserId on the root). A player's rolls run while the zone they'd see (shared pets plus
+-- their own) has room, so one player's odds and pace are the same as playing solo.
 -- Each wild pet is an invisible anchored "PetRoot" part with attributes and a ProximityPrompt;
 -- clients draw the pet model on it (PetVisuals) and play the action as an animation.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
-local Theme = require(ReplicatedStorage.Shared.Theme)
 local PetDefs = require(ReplicatedStorage.Shared.PetDefs)
 local WorldRules = require(ReplicatedStorage.Shared.WorldRules)
+local Remotes = require(script.Parent.Remotes)
 local DataService = require(script.Parent.DataService)
 local WorldService = require(script.Parent.WorldService)
 
@@ -32,12 +36,13 @@ export type WildPet = {
 	superUsed: boolean,
 	offered: boolean, -- the Super Freeze offer was shown on this run already (at most once per run)
 	held: number, -- players holding Freeze on it right now (it acts at half speed)
+	owner: Player?, -- a personal rare: only this player sees it and can freeze it
 }
 
 local WildPetSpawner = {}
 local pets: { [string]: WildPet } = {}
-local pity: { [number]: { [string]: number } } = {}
-local respawnAt: { [number]: number } = {}
+local pity: { [Player]: { [number]: { [string]: number } } } = {}
+local respawnAt: { [Player]: { [number]: number } } = {}
 local nextId = 1
 local rng = Random.new()
 local folder: Folder
@@ -47,9 +52,17 @@ for _, t in Config.tiers do
 	table.insert(TIER_NAMES, t.name)
 end
 
-function WildPetSpawner.shownOdds(zone: number): { [string]: number }
-	local p = pity[zone] or {}
-	pity[zone] = p
+local function pityFor(player: Player, zone: number): { [string]: number }
+	local byZone = pity[player] or {}
+	pity[player] = byZone
+	local p = byZone[zone] or {}
+	byZone[zone] = p
+	return p
+end
+
+-- the true odds for this player in this zone, their own pity included (shown on the zone signs)
+function WildPetSpawner.shownOdds(player: Player, zone: number): { [string]: number }
+	local p = pityFor(player, zone)
 	local pc = Config.spawner.pity
 	local weights: { [string]: number } = {}
 	local total = 0
@@ -68,8 +81,8 @@ function WildPetSpawner.shownOdds(zone: number): { [string]: number }
 	return weights
 end
 
-local function rollTier(zone: number): string
-	local odds = WildPetSpawner.shownOdds(zone)
+local function pickTier(player: Player, zone: number): string
+	local odds = WildPetSpawner.shownOdds(player, zone)
 	local r = rng:NextNumber() * 100
 	local tier = "Common"
 	for _, name in TIER_NAMES do
@@ -79,14 +92,18 @@ local function rollTier(zone: number): string
 		end
 		r -= odds[name]
 	end
-	local p = pity[zone]
+	return tier
+end
+
+-- only a roll that really spawned a pet moves pity
+local function commitPity(player: Player, zone: number, tier: string)
+	local p = pityFor(player, zone)
 	local rolledRank = Config.tier(tier).rank
 	for _, t in Config.tiers do
 		if t.rank >= 3 then
 			p[t.name] = if rolledRank >= t.rank then 0 else (p[t.name] or 0) + 1
 		end
 	end
-	return tier
 end
 
 local function randomSpot(zone: number, near: boolean, rare: boolean): Vector3?
@@ -146,16 +163,15 @@ local function setAction(pet: WildPet, action: string)
 	pet.root:SetAttribute("ActionStart", workspace:GetServerTimeNow())
 end
 
-function WildPetSpawner.spawn(zone: number, at: Vector3?, forcedKey: string?, near: boolean?): WildPet?
+-- forcedKey: that pet; otherwise a shared Common or Uncommon (60:25, no pity), e.g. the near-band
+-- keepers and the pets already there when the server starts. Player rolls call it with a forcedKey.
+function WildPetSpawner.spawn(zone: number, at: Vector3?, forcedKey: string?, near: boolean?, owner: Player?): WildPet?
 	local def: PetDefs.PetDef?
 	if forcedKey then
 		def = PetDefs.get(forcedKey)
-	elseif near then
-		-- near-band keepers are Commons or Uncommons (60:25) and don't touch pity
-		local pool = PetDefs.inZone(zone, if rng:NextNumber() < 60 / 85 then "Common" else "Uncommon")
-		def = pool[rng:NextInteger(1, #pool)]
 	else
-		local pool = PetDefs.inZone(zone, rollTier(zone))
+		local c, u = Config.tier("Common").odds, Config.tier("Uncommon").odds
+		local pool = PetDefs.inZone(zone, if rng:NextNumber() < c / (c + u) then "Common" else "Uncommon")
 		def = pool[rng:NextInteger(1, #pool)]
 	end
 	if not def then
@@ -173,11 +189,12 @@ function WildPetSpawner.spawn(zone: number, at: Vector3?, forcedKey: string?, ne
 	root:SetAttribute("Tier", def.tier)
 	root:SetAttribute("Zone", zone)
 	root:SetAttribute("State", "wild")
+	root:SetAttribute("OwnerUserId", if owner then owner.UserId else 0) -- clients hide others' personal rares
 	local pet: WildPet = {
 		id = id, def = def, zone = zone, root = root, prompt = pp, state = "wild",
 		loopIdx = rng:NextInteger(1, #Config.poseLoop), action = "idle", actionEnd = 0,
 		wanderTo = nil, dazedUntil = 0, pose = nil, mut = nil, offerFor = nil, dazedOwner = nil, superUsed = false,
-		offered = false, held = 0,
+		offered = false, held = 0, owner = owner,
 	}
 	setAction(pet, Config.poseLoop[pet.loopIdx])
 	pet.actionEnd = os.clock() + rng:NextNumber() * Config.poses[pet.action].seconds
@@ -188,7 +205,9 @@ end
 
 -- a melted cube's pet: dazed for a while, only its carrier can refreeze it, then it's wild again
 function WildPetSpawner.spawnDazed(info: { key: string, zone: number, pose: string, mut: string?, superUsed: boolean, offered: boolean }, pos: Vector3, owner: Player, offer: boolean): WildPet?
-	local pet = WildPetSpawner.spawn(info.zone, pos, info.key)
+	local def = PetDefs.get(info.key)
+	local personal = def ~= nil and Config.tier(def.tier).rank >= 3 and Config.spawner.personalRares
+	local pet = WildPetSpawner.spawn(info.zone, pos, info.key, false, if personal then owner else nil)
 	if not pet then
 		return nil
 	end
@@ -315,66 +334,80 @@ local function tick(dt: number)
 			end
 		end
 	end
+	local sp = Config.spawner
 	for _, z in Config.world.zones do
-		local count = 0
+		local shared = 0
+		local personal: { [Player]: number } = {}
 		for _, p in pets do
 			if p.zone == z.id then
-				count += 1
+				if p.owner then
+					personal[p.owner] = (personal[p.owner] or 0) + 1
+				else
+					shared += 1
+				end
 			end
 		end
-		if count < Config.spawner.maxPerZone and now >= (respawnAt[z.id] or 0) then
-			WildPetSpawner.spawn(z.id, nil, nil, nearCount(z.id) < Config.spawner.nearCount)
-			respawnAt[z.id] = now + Config.spawner.respawnSeconds
+		-- "always one within about 3 seconds of walking"
+		if shared < sp.maxPerZone and nearCount(z.id) < sp.nearCount then
+			if WildPetSpawner.spawn(z.id, nil, nil, true) then
+				shared += 1
+			end
+		end
+		for _, player in Players:GetPlayers() do
+			local data = DataService.get(player)
+			if not data or (z.id == 2 and not data.forestUnlocked) then
+				continue -- no rolls for a zone you can't reach yet
+			end
+			local timers = respawnAt[player] or {}
+			respawnAt[player] = timers
+			local mine = personal[player] or 0
+			if now < (timers[z.id] or 0) or shared + mine >= sp.maxPerZone then
+				continue
+			end
+			timers[z.id] = now + sp.respawnSeconds
+			local tier = pickTier(player, z.id)
+			local rare = Config.tier(tier).rank >= 3
+			if rare and sp.personalRares and mine >= sp.personalMaxPerZone then
+				continue -- full of your own rares: nothing spawns and pity doesn't move
+			end
+			local pool = PetDefs.inZone(z.id, tier)
+			local def = pool[rng:NextInteger(1, #pool)]
+			if def and WildPetSpawner.spawn(z.id, nil, def.key, false, if rare and sp.personalRares then player else nil) then
+				commitPity(player, z.id, tier)
+				if rare and sp.personalRares then
+					personal[player] = mine + 1
+				else
+					shared += 1
+				end
+			end
 		end
 	end
 end
 
-local function drawSign(zone: Config.Zone)
-	local part = WorldService.zoneSigns[zone.id]
-	if not part then
-		return
+-- dev command (Studio only): a personal pet of this tier right next to the player
+function WildPetSpawner.devSpawn(player: Player, tier: string): WildPet?
+	local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not root then
+		return nil
 	end
-	local sg = part:FindFirstChild("Odds") :: SurfaceGui?
-	if not sg then
-		local g = Instance.new("SurfaceGui")
-		g.Name = "Odds"
-		g.Face = Enum.NormalId.Front
-		g.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-		g.PixelsPerStud = 40
-		local frame = Instance.new("Frame")
-		frame.Size = UDim2.fromScale(1, 1)
-		frame.BackgroundColor3 = Theme.panel
-		frame.Parent = g
-		local list = Instance.new("UIListLayout")
-		list.Padding = UDim.new(0.01, 0)
-		list.Parent = frame
-		local function row(name: string, text: string, h: number, color: Color3?)
-			local t = Instance.new("TextLabel")
-			t.Name = name
-			t.Size = UDim2.fromScale(1, h)
-			t.BackgroundTransparency = 1
-			t.TextScaled = true
-			t.Font = Theme.font
-			t.TextColor3 = color or Theme.ink
-			t.Text = text
-			t.Parent = frame
-		end
-		row("Title", zone.name, 0.14)
-		row("Heat", `{WorldRules.zoneTemperature(zone.id)}°C`, 0.08) -- the temperature, worked out from the melt speed
-		for _, t in Config.tiers do
-			row(t.name, t.name, 0.1, Theme.tiers[t.name])
-		end
-		g.Parent = part
-		sg = g
+	local zone = math.max(1, WorldRules.zoneAt(root.Position))
+	local pool = PetDefs.inZone(zone, tier)
+	if #pool == 0 then
+		return nil
 	end
-	local odds = WildPetSpawner.shownOdds(zone.id)
-	local frame = (sg :: SurfaceGui):FindFirstChildOfClass("Frame") :: Frame
-	for _, t in Config.tiers do
-		local label = frame:FindFirstChild(t.name) :: TextLabel?
-		if label then
-			local o = odds[t.name]
-			local shown = if o >= 1 then string.format("%.1f%%", o) elseif o >= 0.01 then string.format("%.2f%%", o) else `1 in {math.round(100 / o)}`
-			label.Text = `{t.name}   {shown}` -- the true odds, pity included
+	local at = Vector3.new(root.Position.X + 5, 0, root.Position.Z + 5)
+	return WildPetSpawner.spawn(zone, at, pool[rng:NextInteger(1, #pool)].key, false, if Config.tier(tier).rank >= 3 then player else nil)
+end
+
+-- the zone signs show your own odds (personal rares, own pity): each client draws them on the sign
+local function pushOdds()
+	for _, player in Players:GetPlayers() do
+		if DataService.isLoaded(player) then
+			local byZone = {}
+			for _, z in Config.world.zones do
+				byZone[tostring(z.id)] = WildPetSpawner.shownOdds(player, z.id)
+			end
+			Remotes.fire(player, "Notify", "odds", byZone)
 		end
 	end
 end
@@ -389,7 +422,7 @@ function WildPetSpawner.Start()
 			WildPetSpawner.spawn(z.id, nil, nil, true)
 		end
 		for _ = 1, Config.spawner.maxPerZone - 2 - Config.spawner.nearCount do
-			WildPetSpawner.spawn(z.id)
+			WildPetSpawner.spawn(z.id) -- shared Commons and Uncommons; rares come from the players' own rolls
 		end
 	end
 	-- first minute: a fluffy bunny next to the spawn, and a second and third pet right there
@@ -401,7 +434,13 @@ function WildPetSpawner.Start()
 		-- the near band is kept topped up for everyone (see nearCount), so nothing more is needed here
 	end)
 	Players.PlayerRemoving:Connect(function(player)
-		for _, p in pets do
+		pity[player] = nil
+		respawnAt[player] = nil
+		for id, p in pets do
+			if p.owner == player then
+				WildPetSpawner.remove(id) -- a personal rare leaves with its player
+				continue
+			end
 			if p.offerFor == player then
 				WildPetSpawner.clearOffer(p)
 			end
@@ -421,10 +460,8 @@ function WildPetSpawner.Start()
 	end)
 	task.spawn(function()
 		while true do
-			for _, z in Config.world.zones do
-				drawSign(z)
-			end
-			task.wait(5)
+			pushOdds()
+			task.wait(Config.oddsPushSeconds)
 		end
 	end)
 end
