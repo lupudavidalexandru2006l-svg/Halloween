@@ -122,7 +122,8 @@ export const Config = {
     superFreeze: { robux: 15, minTier: 'Rare', walkAwayStuds: 18 },
   },
 
-  camera: { height: 15, back: 21, lookAhead: 14, fov: 55 }, // low enough that the next zone and the far volcano are in view
+  camera: { height: 15, back: 21, lookAhead: 14, fov: 55 },
+  graphics: { low: false, shadowMap: 1024 }, // Low graphics (World Rules 7): no shadows or reflections, lower resolution // low enough that the next zone and the far volcano are in view
   motion: { reduced: false, bob: 1.6 },
   sounds: { music: 0.45, sfx: 0.8, streakReset: 1.5, maxSame: 3 },
 

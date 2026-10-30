@@ -3,12 +3,12 @@
 import { Config, Theme, PetDefs, World, petByKey, upgradeCost, zoneById } from './config.js';
 import { iceBridgeCenter, temperatureAt, zoneAt } from './world.js';
 
-const ICONS = {
-  shop: '<svg viewBox="0 0 40 40"><path d="M9 14h22l-2 20H11z" fill="#ffd34a" stroke="#1b1433" stroke-width="3" stroke-linejoin="round"/><path d="M14 15v-3a6 6 0 0 1 12 0v3" fill="none" stroke="#1b1433" stroke-width="3"/><path d="M13 18h3" stroke="#fff6c8" stroke-width="3" stroke-linecap="round"/></svg>',
-  index: '<svg viewBox="0 0 40 40"><rect x="8" y="7" width="24" height="27" rx="3" fill="#fff" stroke="#1b1433" stroke-width="3"/><rect x="8" y="7" width="7" height="27" rx="2" fill="#ff5a8a" stroke="#1b1433" stroke-width="3"/><circle cx="24" cy="18" r="4.5" fill="#3aa8ff" stroke="#1b1433" stroke-width="2.5"/><path d="M19 27h10" stroke="#1b1433" stroke-width="3" stroke-linecap="round"/></svg>',
-  settings: '<svg viewBox="0 0 40 40"><g transform="translate(20 20)"><path d="M-3-15h6l1 5 4 2 4-3 4 4-3 4 2 4 5 1v6l-5 1-2 4 3 4-4 4-4-3-4 2-1 5h-6l-1-5-4-2-4 3-4-4 3-4-2-4-5-1v-6l5-1 2-4-3-4 4-4 4 3 4-2z" fill="#e6e1ff" stroke="#1b1433" stroke-width="2.5" stroke-linejoin="round" transform="scale(.82)"/><circle r="5" fill="#8f7cff" stroke="#1b1433" stroke-width="2.5"/></g></svg>',
+const ICONS = { // the approved painted icons (UI Rules > Icons)
+  shop: '<img src="assets/icons/bag.webp" alt="">',
+  index: '<img src="assets/icons/book.webp" alt="">',
+  settings: '<img src="assets/icons/gear.webp" alt="">',
 };
-const COIN = '<svg viewBox="0 0 40 40"><circle cx="20" cy="21" r="16" fill="#c98a0c" stroke="#1b1433" stroke-width="3"/><circle cx="20" cy="18.5" r="14" fill="#ffd34a" stroke="#1b1433" stroke-width="3"/><circle cx="20" cy="18.5" r="8.5" fill="none" stroke="#e8a714" stroke-width="3"/></svg>';
+const COIN = '<img class="coinimg" src="assets/icons/coin.webp" alt="">'; // one coin image everywhere
 const ROBUX = '<svg viewBox="0 0 40 40"><path d="M20 3l15 8.5v17L20 37 5 28.5v-17z" fill="#fff" stroke="#1b1433" stroke-width="3"/><rect x="13" y="13" width="14" height="14" rx="2" fill="none" stroke="#1b1433" stroke-width="3.5"/></svg>';
 const fmt = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e4 ? (n / 1e3).toFixed(1) + 'K' : Math.floor(n).toLocaleString());
 const rate = (n) => (n >= 100 ? fmt(n) : (Math.round(n * 10) / 10).toString());
@@ -27,7 +27,7 @@ export function createHud({ server, input, audio }) {
   // menu tiles
   for (const t of Config.ui.tiles) {
     const b = document.createElement('button');
-    b.className = 'block press tile txt'; b.style.setProperty('--face', Theme.tiles[t.id]); b.style.setProperty('--lip-c', 'rgba(27,20,51,.45)');
+    b.className = 'block press tile txt'; b.style.setProperty('--face', Theme.tiles[t.id]);
     b.innerHTML = `${ICONS[t.id]}<span class="lbl">${t.label}</span><span class="badge">!</span>`;
     b.addEventListener('click', () => { audio.unlock(); audio.play('click'); open(t.id); });
     b.dataset.id = t.id; tiles.appendChild(b);
@@ -70,15 +70,16 @@ export function createHud({ server, input, audio }) {
         <div class="settings-row"><span>Music</span><div class="toggle ${audio.music ? 'on' : ''}" data-tog="music"></div></div>
         <div class="settings-row"><span>Sound</span><div class="toggle ${audio.sfx ? 'on' : ''}" data-tog="sfx"></div></div>
         <div class="settings-row"><span>Reduced motion</span><div class="toggle ${Config.motion.reduced ? 'on' : ''}" data-tog="motion"></div></div>
+        <div class="settings-row"><span>Low graphics</span><div class="toggle ${Config.graphics.low ? 'on' : ''}" data-tog="gfx"></div></div>
         <div class="settings-row"><span>Temperature in °F</span><div class="toggle ${Config.temperature.unit === 'F' ? 'on' : ''}" data-tog="unit"></div></div>`;
     } else if (current.name === 'welcome') {
       const w = current.data;
-      pop.innerHTML = `<h2 class="txt">Welcome back!</h2><div class="center">Your pets earned</div><div class="big txt">${COIN.replace('<svg', '<svg style="width:34px;height:34px;vertical-align:-6px"')} ${fmt(w.coins)}</div>
+      pop.innerHTML = `<h2 class="txt">Welcome back!</h2><div class="center">Your pets earned</div><div class="big txt">${COIN.replace('class="coinimg"', 'class="coinimg" style="width:40px;height:40px;vertical-align:-8px"')} ${fmt(w.coins)}</div>
         <div class="center" style="margin:4px 0 10px">while you were away${w.capped ? ' (pens hold up to 8 hours of coins)' : ''}</div>
         <button class="block press buy txt" data-collect="1">Collect</button>`;
     } else if (current.name === 'gift') {
       const g = current.data;
-      pop.innerHTML = `<h2 class="txt">Daily gift</h2><div class="big txt">${COIN.replace('<svg', '<svg style="width:34px;height:34px;vertical-align:-6px"')} ${fmt(g.coins)}</div>
+      pop.innerHTML = `<h2 class="txt">Daily gift</h2><div class="big txt">${COIN.replace('class="coinimg"', 'class="coinimg" style="width:40px;height:40px;vertical-align:-8px"')} ${fmt(g.coins)}</div>
         <div class="center" style="margin:4px 0 10px">Day ${g.streak} streak. It waits for you: miss a day and the streak just pauses.</div>
         <button class="block press buy txt" data-ok="1">Yay!</button>`;
     } else if (current.name === 'superfreeze') {
@@ -92,6 +93,7 @@ export function createHud({ server, input, audio }) {
     pop.querySelectorAll('[data-tog]').forEach((b) => b.addEventListener('click', () => {
       const k = b.dataset.tog;
       if (k === 'music') audio.setMusic(!audio.music); else if (k === 'sfx') audio.setSfx(!audio.sfx);
+      else if (k === 'gfx') { try { localStorage.setItem('iceray.lowGfx', Config.graphics.low ? '0' : '1'); } catch { /* storage blocked */ } location.reload(); return; }
       else if (k === 'unit') Config.temperature.unit = Config.temperature.unit === 'F' ? 'C' : 'F';
       else Config.motion.reduced = !Config.motion.reduced;
       audio.play('click'); render();
@@ -202,7 +204,8 @@ export function createHud({ server, input, audio }) {
     if (!v) return;
     if (Math.floor(v.coins) !== lastCoins) { if (v.coins > lastCoins) { coinsEl.classList.remove('pop'); void coinsEl.offsetWidth; coinsEl.classList.add('pop'); } lastCoins = Math.floor(v.coins); }
     coinN.textContent = fmt(v.coins); coinR.textContent = `+${rate(v.income)}/s`;
-    const g = goalFor(v); goalT.textContent = g.text; goalFill.style.width = Math.max(6, g.frac * 100) + '%'; // never starts empty
+    const g = goalFor(v); goalT.textContent = g.text; goalFill.style.width = g.frac * 100 + '%';
+    goal.classList.toggle('hidden', v.pets.length === 0); // shows up with your first pet, so it starts at a real 1 / 8
     // temperature where you stand (worked out from the same numbers as melting)
     const tp = temperatureAt(v.pos.x, v.pos.z, { chill: v.chill.active, night: false });
     const zoneId = zoneAt(v.pos.x, v.pos.z);

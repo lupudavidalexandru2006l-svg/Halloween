@@ -9,7 +9,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const [out = '/tmp/tour', w = '1280', h = '720', touch = '0'] = process.argv.slice(2);
+const [out = '/tmp/tour', w = '1280', h = '720', touch = '0', extra = ''] = process.argv.slice(2);
 fs.mkdirSync(out, { recursive: true });
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.webp': 'image/webp', '.png': 'image/png', '.glb': 'model/gltf-binary' };
 const server = http.createServer((req, res) => {
@@ -21,7 +21,7 @@ const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=sw
 const page = await browser.newPage({ viewport: { width: +w, height: +h }, hasTouch: touch === '1', isMobile: touch === '1' });
 const logs = [];
 page.on('console', (m) => logs.push(m.text())); page.on('pageerror', (e) => logs.push('PAGEERROR ' + e.message));
-await page.goto(`http://127.0.0.1:${server.address().port}/?fresh=1&seed=5`);
+await page.goto(`http://127.0.0.1:${server.address().port}/?fresh=1&seed=5&${extra}`);
 await page.waitForFunction(() => !document.getElementById('loading'), null, { timeout: 60000 });
 const G = (fn, arg) => page.evaluate(fn, arg);
 const shot = async (name, ms = 600) => { await page.waitForTimeout(ms); await page.screenshot({ path: `${out}/${name}.png` }); console.log('shot', name); };
@@ -36,8 +36,8 @@ await shot('03-carrying', 400);
 await tp(0, 20); await shot('04-carry-run-home', 400);
 await tp(0, -24); await shot('05-banked-in-pen', 900);
 await G(() => window.__game.server.debug.grantCoins(1000));
-await page.click('#tiles [data-id="shop"]'); await shot('06-shop', 500);
-await page.click('#popup .close'); await page.click('#tiles [data-id="index"]'); await shot('07-index', 500);
+await page.click('#tiles [data-id="shop"]'); await shot('06-shop', 3000);
+await page.click('#popup .close'); await page.click('#tiles [data-id="index"]'); await shot('07-index', 3000);
 await page.click('#popup .close');
 await tp(10, 80); await G(() => window.__game.server.debug.spawnNear('Epic')); await page.waitForTimeout(300);
 p = await G(() => { const g = window.__game, v = g.server.view(); for (const w of v.wild.values()) if (w.key === 'frostfox') return { x: w.x, z: w.z }; return null; });

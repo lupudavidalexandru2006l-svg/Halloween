@@ -14,6 +14,7 @@ const q = new URLSearchParams(location.search);
 const BOT = q.get('bot') === '1', HEADLESS = q.get('headless') === '1';
 const SPEED = Math.min(20, Math.max(1, +(q.get('speed') || (BOT ? 5 : 1))));
 const UNTIL = +(q.get('until') || 0);
+try { Config.graphics.low = q.get('low') === '1' || localStorage.getItem('iceray.lowGfx') === '1'; } catch { Config.graphics.low = q.get('low') === '1'; }
 if (q.get('fresh') === '1') { try { localStorage.removeItem(Config.saveKey); } catch { /* ignore */ } }
 
 // the analytics list, printed once so it can be checked before wiring it up in Roblox
