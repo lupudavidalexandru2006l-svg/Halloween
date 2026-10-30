@@ -82,8 +82,19 @@ Config.penSlots = 40
 Config.melt = {
 	shade = 0.5,
 	sun = 1.5,
+	night = 0.6, -- Game Plan 12
 	hubHeat = 0.3,
 	tickSeconds = 0.1, -- server melt tick
+}
+
+-- Temperature: a readable version of the melt speed (owner request 2026-10-30). Worked out from the
+-- melt numbers, never the other way round: degrees C = atZeroMelt + perMelt x melt speed.
+-- Zone, shade, sun, night and the Big Chill all move it. Shown on the HUD chip and the zone signs.
+Config.temperature = {
+	unit = "C", -- players can switch to F in Settings
+	atZeroMelt = -20,
+	perMelt = 30,
+	bands = { { 0, "cold" }, { 15, "cool" }, { 35, "warm" }, { 999, "hot" } },
 }
 Config.dazedSeconds = 8
 

@@ -1,7 +1,7 @@
 // CLIENT: the Screen owner. Only this module places HUD elements (UI Rules: one owner).
 // HUD cap of 5: coins, menu tiles, goal bar, contextual banner (+ prompts that live on world objects).
 import { Config, Theme, PetDefs, World, petByKey, upgradeCost, zoneById } from './config.js';
-import { iceBridgeCenter } from './world.js';
+import { iceBridgeCenter, temperatureAt, zoneAt } from './world.js';
 
 const ICONS = {
   shop: '<svg viewBox="0 0 40 40"><path d="M9 14h22l-2 20H11z" fill="#ffd34a" stroke="#1b1433" stroke-width="3" stroke-linejoin="round"/><path d="M14 15v-3a6 6 0 0 1 12 0v3" fill="none" stroke="#1b1433" stroke-width="3"/><path d="M13 18h3" stroke="#fff6c8" stroke-width="3" stroke-linecap="round"/></svg>',
@@ -17,6 +17,7 @@ export function createHud({ server, input, audio }) {
   const $ = (s) => document.querySelector(s);
   const coinsEl = $('#coins'), coinN = coinsEl.querySelector('.n'), coinR = coinsEl.querySelector('.rate');
   const goal = $('#goal'), goalT = goal.querySelector('.t'), goalFill = goal.querySelector('.fill');
+  const tempEl = $('#temp'), tempDeg = tempEl.querySelector('.deg'), tempWhy = tempEl.querySelector('.why'), merc = tempEl.querySelector('.merc');
   const banner = $('#banner'), prompts = $('#prompts');
   const wrap = $('#popup-wrap'), pop = $('#popup');
   const tiles = $('#tiles');
@@ -68,7 +69,8 @@ export function createHud({ server, input, audio }) {
       pop.innerHTML = head('Settings') + `
         <div class="settings-row"><span>Music</span><div class="toggle ${audio.music ? 'on' : ''}" data-tog="music"></div></div>
         <div class="settings-row"><span>Sound</span><div class="toggle ${audio.sfx ? 'on' : ''}" data-tog="sfx"></div></div>
-        <div class="settings-row"><span>Reduced motion</span><div class="toggle ${Config.motion.reduced ? 'on' : ''}" data-tog="motion"></div></div>`;
+        <div class="settings-row"><span>Reduced motion</span><div class="toggle ${Config.motion.reduced ? 'on' : ''}" data-tog="motion"></div></div>
+        <div class="settings-row"><span>Temperature in °F</span><div class="toggle ${Config.temperature.unit === 'F' ? 'on' : ''}" data-tog="unit"></div></div>`;
     } else if (current.name === 'welcome') {
       const w = current.data;
       pop.innerHTML = `<h2 class="txt">Welcome back!</h2><div class="center">Your pets earned</div><div class="big txt">${COIN.replace('<svg', '<svg style="width:34px;height:34px;vertical-align:-6px"')} ${fmt(w.coins)}</div>
@@ -89,7 +91,9 @@ export function createHud({ server, input, audio }) {
     pop.querySelectorAll('[data-page]').forEach((b) => b.addEventListener('click', () => { idxPage = +b.dataset.page; render(); }));
     pop.querySelectorAll('[data-tog]').forEach((b) => b.addEventListener('click', () => {
       const k = b.dataset.tog;
-      if (k === 'music') audio.setMusic(!audio.music); else if (k === 'sfx') audio.setSfx(!audio.sfx); else Config.motion.reduced = !Config.motion.reduced;
+      if (k === 'music') audio.setMusic(!audio.music); else if (k === 'sfx') audio.setSfx(!audio.sfx);
+      else if (k === 'unit') Config.temperature.unit = Config.temperature.unit === 'F' ? 'C' : 'F';
+      else Config.motion.reduced = !Config.motion.reduced;
       audio.play('click'); render();
     }));
     pop.querySelector('[data-collect]')?.addEventListener('click', () => { server.remotes.collectWelcome(); close(); });
@@ -135,7 +139,7 @@ export function createHud({ server, input, audio }) {
     let x = pos.x, y = pos.y;
     const r = el.getBoundingClientRect(), w = r.width || 160, h = r.height || 90;
     // world prompts never sit on a HUD item: push right of the tiles/coins, below the goal bar
-    for (const [kind, e] of [['side', tiles], ['side', coinsEl], ['top', goal]]) {
+    for (const [kind, e] of [['side', tiles], ['side', coinsEl], ['top', goal], ['top', tempEl]]) {
       const hr = e.getBoundingClientRect();
       const box = { l: x - w / 2, r: x + w / 2, t: y - h, b: y };
       if (box.r > hr.left && box.l < hr.right && box.b > hr.top && box.t < hr.bottom) {
@@ -199,6 +203,15 @@ export function createHud({ server, input, audio }) {
     if (Math.floor(v.coins) !== lastCoins) { if (v.coins > lastCoins) { coinsEl.classList.remove('pop'); void coinsEl.offsetWidth; coinsEl.classList.add('pop'); } lastCoins = Math.floor(v.coins); }
     coinN.textContent = fmt(v.coins); coinR.textContent = `+${rate(v.income)}/s`;
     const g = goalFor(v); goalT.textContent = g.text; goalFill.style.width = Math.max(6, g.frac * 100) + '%'; // never starts empty
+    // temperature where you stand (worked out from the same numbers as melting)
+    const tp = temperatureAt(v.pos.x, v.pos.z, { chill: v.chill.active, night: false });
+    const zoneId = zoneAt(v.pos.x, v.pos.z);
+    const place = zoneId === 0 ? 'Hub' : zoneById[zoneId].name;
+    const deg = Config.temperature.unit === 'F' ? tp.f : tp.c;
+    tempDeg.textContent = `${deg}°${Config.temperature.unit}`;
+    tempWhy.textContent = tp.light === 'chill' ? 'Big Chill' : tp.light === 'shade' ? `${place} · shade` : tp.light === 'sun' ? `${place} · sun` : place;
+    tempEl.className = `block txt ${tp.light === 'chill' ? 'chill' : tp.band}`;
+    const h = Math.max(2, Math.min(14, 7 + tp.c / 5)); merc.setAttribute('y', String(24 - h)); merc.setAttribute('height', String(h));
     const affordable = ['ray', 'boots', 'backpack'].some((id) => v.upgrades[id] < Config.upgrades[id].maxLevel && v.coins >= upgradeCost(id, v.upgrades[id] + 1));
     tiles.querySelector('[data-id="shop"] .badge').classList.toggle('on', affordable);
     const newFound = Object.keys(v.found).some((k) => !seenFound.has(k));

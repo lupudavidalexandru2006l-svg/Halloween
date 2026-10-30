@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { Config, Theme, World, Scenery, PetDefs, petByKey, SizeHeight, CubeSize, zoneById } from './config.js';
-import { walkable, dist, iceBridgeCenter, inPen, lightAt } from './world.js';
+import { walkable, dist, iceBridgeCenter, lightAt, zoneTemperature } from './world.js';
 
 export function createClient({ server, input, audio, hud, headless }) {
   const view = () => server.view();
@@ -464,7 +464,8 @@ export function createClient({ server, input, audio, hud, headless }) {
     zs.cb.draw((ctx, w, h) => {
       roundRect(ctx, 6, 6, w - 12, h - 12, 26); ctx.fillStyle = '#fff8ec'; ctx.fill(); ctx.lineWidth = 10; ctx.strokeStyle = Theme.ink; ctx.stroke();
       ctx.textAlign = 'center'; ctx.font = '700 40px Fredoka, sans-serif'; ctx.fillStyle = Theme.ink; ctx.fillText(zs.zone.name, w / 2, 56);
-      ctx.font = '600 22px Fredoka, sans-serif'; ctx.fillStyle = '#5a4f8a'; ctx.fillText(`Melt speed x${zs.zone.heat}  ·  shade melts slower`, w / 2, 88);
+      const tc = zoneTemperature(zs.zone.id), unit = Config.temperature.unit, deg = unit === 'F' ? Math.round((tc * 9) / 5 + 32) : tc;
+      ctx.font = '600 22px Fredoka, sans-serif'; ctx.fillStyle = '#5a4f8a'; ctx.fillText(`${deg}°${unit} here  ·  shade is colder, sun is hotter`, w / 2, 88);
       Config.tiers.forEach((t, i) => {
         const y = 128 + i * 40;
         ctx.fillStyle = Theme.tiers[t.name]; ctx.beginPath(); ctx.arc(60, y - 8, 12, 0, Math.PI * 2); ctx.fill(); ctx.lineWidth = 4; ctx.stroke();

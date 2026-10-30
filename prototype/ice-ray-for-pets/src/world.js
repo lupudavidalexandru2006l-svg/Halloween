@@ -38,6 +38,20 @@ export function meltRate(x, z) {
   return heatAt(x, z) * f;
 }
 
+// Temperature (degrees C) from the same numbers that drive melting, so it can never disagree with the cube.
+export function temperatureAt(x, z, { night = false, chill = false } = {}) {
+  const T = Config.temperature;
+  const melt = chill ? 0 : meltRate(x, z) * (night ? Config.melt.night : 1);
+  const c = Math.round(T.atZeroMelt + T.perMelt * melt);
+  const band = T.bands.find(([max]) => c < max)[1];
+  return { c, f: Math.round((c * 9) / 5 + 32), band, light: chill ? 'chill' : lightAt(x, z), night, melt };
+}
+export function zoneTemperature(zoneId) {
+  const T = Config.temperature;
+  const heat = zoneId === 0 ? Config.melt.hubHeat : zoneById[zoneId].heat;
+  return Math.round(T.atZeroMelt + T.perMelt * heat);
+}
+
 export function onBridge(x, iceBridgeActive) {
   const m = World.mainBridge, i = World.iceBridgeSpot;
   if (x >= m.xMin && x <= m.xMax) return true;

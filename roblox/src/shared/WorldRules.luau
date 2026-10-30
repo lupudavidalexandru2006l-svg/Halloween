@@ -74,6 +74,30 @@ function WorldRules.meltRate(pos: Vector3): number
 	return WorldRules.heatAt(pos) * f
 end
 
+-- Temperature from the same numbers that drive melting, so it can never disagree with the cube.
+function WorldRules.temperatureAt(pos: Vector3, night: boolean, chill: boolean): (number, string)
+	local T = Config.temperature
+	local melt = if chill then 0 else WorldRules.meltRate(pos) * (if night then Config.melt.night else 1)
+	local c = math.round(T.atZeroMelt + T.perMelt * melt)
+	local band = "hot"
+	for _, b in T.bands do
+		if c < b[1] then
+			band = b[2]
+			break
+		end
+	end
+	return c, band
+end
+
+function WorldRules.zoneTemperature(zoneId: number): number
+	local heat = if zoneId == 0 then Config.melt.hubHeat else ((Config.zone(zoneId) :: any).heat :: number)
+	return math.round(Config.temperature.atZeroMelt + Config.temperature.perMelt * heat)
+end
+
+function WorldRules.toFahrenheit(c: number): number
+	return math.round(c * 9 / 5 + 32)
+end
+
 function WorldRules.plotCenter(index: number): Vector3
 	local p = Config.world.plots[index]
 	return Vector3.new(p.x, 0, p.z)

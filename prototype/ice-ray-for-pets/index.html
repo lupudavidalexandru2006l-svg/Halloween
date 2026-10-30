@@ -55,7 +55,18 @@ button.block { font: inherit; cursor: pointer; }
 #goal .bar { margin-top: 4px; height: 16px; border: 3px solid var(--ink); border-radius: 10px; background: #1b1433; overflow: hidden; }
 #goal .fill { height: 100%; width: 6%; background: linear-gradient(#7dff9e, #3ccf6e); border-radius: 6px; transition: width .4s ease-out; }
 
-/* 4. contextual banner */
+/* 4. temperature chip, beside the goal bar: where you stand, and why (shade, sun, Big Chill) */
+#temp { position: absolute; top: var(--safe-top); left: calc(50% + min(210px, 23vw) * var(--ui) + 12px); transform: scale(var(--ui)); transform-origin: left top; display: flex; align-items: center; gap: 6px; padding: 3px 10px 5px 6px; --face: #6fd0ff; --lip-c: #2f88b8; }
+#temp svg { width: 26px; height: 34px; }
+#temp .deg { font-size: 22px; line-height: 1; }
+#temp .why { font-size: 12px; line-height: 1.1; }
+#temp.cold { --face: #6fd0ff; --lip-c: #2f88b8; }
+#temp.cool { --face: #5fd6b4; --lip-c: #2a9478; }
+#temp.warm { --face: #ffb347; --lip-c: #c77a14; }
+#temp.hot { --face: #ff6b5a; --lip-c: #b8382c; }
+#temp.chill { --face: #d9f4ff; --lip-c: #6cbfe8; }
+
+/* 5. contextual banner */
 #banner { position: absolute; top: calc(var(--safe-top) + 74px * var(--ui)); left: 50%; transform: translateX(-50%) scale(var(--ui)); transform-origin: center top; padding: 6px 18px; --face: #8fdcff; --lip-c: #3a8fc0; font-size: 18px; display: none; white-space: nowrap; }
 #banner.on { display: block; animation: drop .25s ease-out; }
 #banner.chill { --face: #d9f4ff; --lip-c: #6cbfe8; color: #fff; }
@@ -130,6 +141,10 @@ button.block { font: inherit; cursor: pointer; }
 <canvas id="game"></canvas>
 <div id="hud">
   <div id="goal" class="block txt"><div class="t">Freeze a pet</div><div class="bar"><div class="fill"></div></div></div>
+  <div id="temp" class="block txt cold">
+    <svg viewBox="0 0 26 34" aria-hidden="true"><rect x="8" y="2" width="10" height="22" rx="5" fill="#fff" stroke="#1b1433" stroke-width="3"/><circle cx="13" cy="26" r="6.5" fill="#ff5a5f" stroke="#1b1433" stroke-width="3"/><rect class="merc" x="11" y="10" width="4" height="14" rx="2" fill="#ff5a5f"/></svg>
+    <div><div class="deg">-5°</div><div class="why">Snowy Meadow</div></div>
+  </div>
   <div id="banner" class="block txt"></div>
   <div id="tiles"></div>
   <div id="coins" class="block txt">

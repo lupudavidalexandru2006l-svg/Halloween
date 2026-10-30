@@ -69,8 +69,13 @@ export const Config = {
   melt: {
     shade: 0.5,             // trees, cliffs, tunnels
     sun: 1.5,               // sun patches
+    night: 0.6,             // Game Plan 12 (night itself is not in the prototype yet)
     hubHeat: 0.3,           // the hub is the cold north end
   },
+  // Temperature: a readable version of the melt speed (owner request 2026-10-30). It never changes
+  // the melt maths in the Game Plan; it is worked out from it, so zone, shade, sun, night and the
+  // Big Chill all move it. degrees C = atZeroMelt + perMelt x melt speed (Big Chill = no melting = coldest).
+  temperature: { unit: 'C', atZeroMelt: -20, perMelt: 30, bands: [ [0, 'cold'], [15, 'cool'], [35, 'warm'], [999, 'hot'] ] },
   dazedSeconds: 8,          // a melted pet stands dazed this long, then wanders off (it was never yours)
 
   spawner: {
