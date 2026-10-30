@@ -70,7 +70,8 @@ function InputController.Start()
 		menu = { G.menu },
 	}
 	for name, keys in binds do
-		ContextActionService:BindAction("IceRay_" .. name, function(_, state: Enum.UserInputState)
+		-- above Roblox's camera keys: I and O zoom the camera by default, so I would never reach the Index
+		ContextActionService:BindActionAtPriority("IceRay_" .. name, function(_, state: Enum.UserInputState)
 			if state == Enum.UserInputState.Begin then
 				if UserInputService:GetFocusedTextBox() then
 					return Enum.ContextActionResult.Pass
@@ -80,7 +81,7 @@ function InputController.Start()
 				return if name == "close" and GuiService.SelectedObject == nil then Enum.ContextActionResult.Pass else Enum.ContextActionResult.Sink
 			end
 			return Enum.ContextActionResult.Pass
-		end, false, table.unpack(keys))
+		end, false, Enum.ContextActionPriority.High.Value, table.unpack(keys))
 	end
 end
 

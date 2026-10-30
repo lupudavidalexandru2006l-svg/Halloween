@@ -7,6 +7,7 @@
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Config = require(ReplicatedStorage.Shared.Config)
 local Theme = require(ReplicatedStorage.Shared.Theme)
 local Ui = require(script.Parent.Parent.Lib.Ui)
 local State = require(script.Parent.State)
@@ -18,7 +19,7 @@ local shown: { [ProximityPrompt]: { gui: BillboardGui, bar: Frame, conns: { RBXS
 
 local function color(prompt: ProximityPrompt): Color3
 	local a = prompt.ActionText
-	return if a == "Freeze" or a == "Zap" then Theme.ice elseif a == "Open" then Theme.go else Theme.info
+	return if a == "Freeze" or a == "Zap" then Theme.info elseif a == "Open" then Theme.go else Theme.info
 end
 
 local function show(prompt: ProximityPrompt)
@@ -28,22 +29,43 @@ local function show(prompt: ProximityPrompt)
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "Prompt"
 	gui.AlwaysOnTop = true
-	gui.Size = UDim2.fromScale(5, 1.6)
-	gui.StudsOffset = Vector3.new(0, 1, 0)
+	-- a fixed screen size (a share of the short side), so it never fills the screen up close
+	local cam = workspace.CurrentCamera
+	local short = if cam then math.min(cam.ViewportSize.X, cam.ViewportSize.Y) else 720
+	local ps = Config.ui.promptSize
+	gui.Size = UDim2.fromOffset(ps[1] * short, ps[2] * short)
+	gui.StudsOffset = Vector3.new(0, 2, 0)
 	gui.Adornee = prompt.Parent :: any
 	gui.Active = true
-	local b = Ui.block(gui, "Block", color(prompt), "", nil)
+	-- the prototype's white card: dark text, the key in a small outlined box, a hold bar in the action's colour
+	local b = Ui.block(gui, "Block", Theme.white, "", nil)
 	b.root.Size = UDim2.fromScale(1, 1)
-	b.text.TextColor3 = Theme.white
-	b.text.Size = UDim2.fromScale(0.62, 0.8)
-	b.text.Position = UDim2.fromScale(0.34, 0.1)
+	b.text.TextColor3 = Theme.ink
+	local textStroke = b.text:FindFirstChildOfClass("UIStroke")
+	if textStroke then
+		textStroke.Enabled = false
+	end
+	b.text.Size = UDim2.fromScale(0.68, 0.7)
+	b.text.Position = UDim2.fromScale(0.29, 0.1)
 	b.text.Text = if prompt.ObjectText ~= "" then `{prompt.ActionText} {prompt.ObjectText}` else prompt.ActionText
-	local key = Ui.label(b.face, InputController.keyHint(prompt), UDim2.fromScale(0.28, 0.8), UDim2.fromScale(0.03, 0.1))
+	local keyBox = Instance.new("Frame")
+	keyBox.Name = "Key"
+	keyBox.BackgroundColor3 = Theme.ice
+	keyBox.Size = UDim2.fromScale(0.2, 0.62)
+	keyBox.Position = UDim2.fromScale(0.05, 0.14)
+	Ui.corner(keyBox, 0.25)
+	Ui.stroke(keyBox, 2)
+	keyBox.Parent = b.face
+	local key = Ui.label(keyBox, InputController.keyHint(prompt), UDim2.fromScale(0.8, 0.8), UDim2.fromScale(0.1, 0.1))
 	key.TextColor3 = Theme.ink
+	local keyStroke = key:FindFirstChildOfClass("UIStroke")
+	if keyStroke then
+		keyStroke.Enabled = false
+	end
 	local bar = Instance.new("Frame")
 	bar.Name = "Hold"
-	bar.BackgroundColor3 = Theme.white
-	bar.BackgroundTransparency = 0.3
+	bar.BackgroundColor3 = color(prompt)
+	bar.BackgroundTransparency = 0
 	bar.BorderSizePixel = 0
 	bar.Size = UDim2.fromScale(0, 0.12)
 	bar.Position = UDim2.fromScale(0, 0.88)
@@ -88,6 +110,15 @@ local function refreshWorldPrompts(v: State.View)
 	local gp = gate and gate:FindFirstChildWhichIsA("ProximityPrompt", true)
 	if gp then
 		gp.Enabled = not v.forestUnlocked
+	end
+	-- the gate's ice bars are gone for you once you've opened it (the server's wall lets you through)
+	local bars = map:FindFirstChild("GateBars", true)
+	if bars then
+		for _, bar in bars:GetChildren() do
+			if bar:IsA("BasePart") then
+				bar.LocalTransparencyModifier = if v.forestUnlocked then 1 else 0
+			end
+		end
 	end
 	local gift = map:FindFirstChild("GiftBox", true)
 	local gift_p = gift and gift:FindFirstChildWhichIsA("ProximityPrompt", true)

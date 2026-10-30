@@ -26,6 +26,81 @@ local incomeCarry: { [Player]: number } = {}
 local sessionBest: { [Player]: number } = {}
 local dirty: { [Player]: boolean } = {}
 local bankingNow: { [Player]: boolean } = {}
+local penShown: { [Player]: { key: string, parts: { [string]: Part } } } = {}
+
+-- the pen's pets stand in the player's plot, seen by everyone (prototype syncPen). Each is an
+-- invisible anchor with PetKey; clients draw the pet on it (PetVisuals). Rebuilt only when the
+-- set of pets in the pen changes; each pet keeps its own spot (seeded by its id).
+local function drawPen(player: Player, d: Data)
+	local plot = WorldService.plotOf(player)
+	local spot = plot and Config.world.plots[plot]
+	if not spot then
+		return
+	end
+	local show: { PetEntry } = {}
+	for _, p in d.pets do
+		if p.eq and #show < Config.pen.displayMax then
+			table.insert(show, p)
+		end
+	end
+	local ids = {}
+	for _, p in show do
+		table.insert(ids, p.id)
+	end
+	local key = table.concat(ids, ",")
+	local state = penShown[player] or { key = "", parts = {} }
+	penShown[player] = state
+	if state.key == key then
+		return
+	end
+	state.key = key
+	local keep: { [string]: boolean } = {}
+	local folder = WorldService.petsFolder("PenPets")
+	local half, m = Config.world.penSize / 2, Config.pen.displayMargin
+	for _, p in show do
+		keep[p.id] = true
+		local def = PetDefs.get(p.key)
+		if def and not state.parts[p.id] then
+			local h = PetDefs.sizeHeight[def.size]
+			local seed = 0
+			for i = 1, #p.id do
+				seed = (seed * 31 + string.byte(p.id, i)) % 2147483647
+			end
+			local r = Random.new(seed + player.UserId % 100000)
+			local x = spot.x - half.X + m + r:NextNumber() * (half.X * 2 - m * 2)
+			local z = spot.z - half.Z + m + r:NextNumber() * (half.Z * 2 - m * 2)
+			local root = Instance.new("Part")
+			root.Name = "PenPet"
+			root.Size = Vector3.one * h
+			root.CFrame = CFrame.new(x, h / 2 + 0.3, z) * CFrame.Angles(0, (r:NextNumber() - 0.5) * 1.2, 0)
+			root.Anchored = true
+			root.CanCollide = false
+			root.CanQuery = false
+			root.CanTouch = false
+			root.Transparency = 1
+			root:SetAttribute("PetKey", p.key)
+			root:SetAttribute("PenOwner", player.UserId)
+			root.Parent = folder
+			state.parts[p.id] = root
+		end
+	end
+	for id, part in state.parts do
+		if not keep[id] then
+			part:Destroy()
+			state.parts[id] = nil
+		end
+	end
+end
+
+local function clearPen(player: Player)
+	local state = penShown[player]
+	if state then
+		for _, part in state.parts do
+			part:Destroy()
+		end
+		penShown[player] = nil
+	end
+end
 
 local function earn(p: PetEntry): number
 	local def = PetDefs.get(p.key)
@@ -342,6 +417,7 @@ end
 function PenService.Init() end
 
 function PenService.Start()
+	WorldService.petsFolder("PenPets") -- made now so clients find it even before anyone banks
 	DataService.Loaded:Connect(function(player: Player, d: any)
 		local data = d :: Data
 		incomeCarry[player] = 0
@@ -366,6 +442,7 @@ function PenService.Start()
 		sessionBest[player] = nil
 		dirty[player] = nil
 		bankingNow[player] = nil
+		clearPen(player)
 	end)
 	PlayerTracker.EnteredPen:Connect(bank)
 	Remotes.on("CollectWelcome", collectWelcome)
@@ -406,6 +483,7 @@ function PenService.Start()
 				local d = DataService.get(player)
 				if d and player.Parent then
 					Remotes.fire(player, "Data", view(player, d))
+					drawPen(player, d)
 				end
 			end
 		end

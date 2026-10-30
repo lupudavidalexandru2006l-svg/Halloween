@@ -163,7 +163,10 @@ local function pets(o: Open, v: State.View)
 		local r = row(l, i, 0, 9)
 		local pose = Config.poses[p.pose]
 		local extra = (if pose and p.pose ~= "idle" then " " .. pose.label else "") .. (if p.mut then " " .. p.mut else "")
-		text(r, def.name .. extra, 0.02, 0.44, tierColor(def.tier))
+		if def.icon ~= "" then
+			Ui.image(r, def.icon, UDim2.fromScale(0.1, 1), UDim2.fromScale(0.01, 0))
+		end
+		text(r, def.name .. extra, 0.12, 0.34, tierColor(def.tier))
 		text(r, `{Ui.short(p.income)}/s`, 0.47, 0.2)
 		button(r, if p.eq then Theme.go else Theme.info, if p.eq then "In pen" else "Storage", 0.7, 0.28, function()
 			State.send("EquipPet", p.id, not p.eq)
@@ -191,6 +194,12 @@ local function index(o: Open, v: State.View)
 			local b = Ui.block(grid, def.key, if found then tierColor(def.tier) else Theme.board,
 				if found then def.name elseif secret then "Bonus" else "?", nil)
 			b.root.LayoutOrder = n
+			-- the painted pet, or its dark silhouette while it's still missing (the Secret stays a mystery)
+			if def.icon ~= "" and (found or not secret) then
+				Ui.image(b.face, def.icon, UDim2.fromScale(0.8, 0.66), UDim2.fromScale(0.1, 0.02), not found)
+				b.text.Size = UDim2.fromScale(0.9, 0.28)
+				b.text.Position = UDim2.fromScale(0.05, 0.68)
+			end
 		end
 	end
 end

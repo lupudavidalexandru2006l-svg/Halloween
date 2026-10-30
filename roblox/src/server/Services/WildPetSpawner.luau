@@ -231,7 +231,11 @@ end
 -- FreezeService listens to ProximityPromptService and asks which pet a prompt belongs to
 -- (the spawner owns pets and never calls FreezeService, so there is no require cycle)
 function WildPetSpawner.idFromPrompt(prompt: ProximityPrompt): string?
+	-- the prompt sits on an Attachment above the pet's root part (so it floats over the pet)
 	local root = prompt.Parent
+	if root and root:IsA("Attachment") then
+		root = root.Parent
+	end
 	if not root or root.Parent ~= folder then
 		return nil
 	end

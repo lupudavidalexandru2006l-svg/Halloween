@@ -11,6 +11,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Theme = require(ReplicatedStorage.Shared.Theme)
 local WorldRules = require(ReplicatedStorage.Shared.WorldRules)
+local Scenery = require(ReplicatedStorage.Shared.Scenery)
+local MapArt = require(script.Parent.MapArt)
 
 local WorldService = {}
 
@@ -89,17 +91,23 @@ local function buildBlockout()
 	local W = Config.world
 	local b = W.bounds
 	local width = b.xMax - b.xMin + 40
-	-- ground: hub, meadow, forest (river is a gap between them)
-	part("HubGround", Vector3.new(width, 2, 70), CFrame.new(0, -1, -35), Theme.hub, map)
+	-- ground: hub plaza, snowy meadow, grassy forest (the river is a gap between them)
+	local A, ART = Theme.art, Config.art
+	part("HubGround", Vector3.new(width, 2, 70), CFrame.new(0, -1, -35), A.plaza, map, { Material = Enum.Material.CeramicTiles })
 	local meadowLen = W.river.zMin - (-2)
-	part("MeadowGround", Vector3.new(width, 2, meadowLen), CFrame.new(0, -1, -2 + meadowLen / 2), Theme.snow, map, { Material = Enum.Material.Snow })
+	part("MeadowGround", Vector3.new(width, 2, meadowLen), CFrame.new(0, -1, -2 + meadowLen / 2), A.snowA, map, { Material = Enum.Material.Snow })
 	local forestLen = b.zMax - W.river.zMax + 10
-	part("ForestGround", Vector3.new(width, 2, forestLen), CFrame.new(0, -1, W.river.zMax + forestLen / 2), Theme.grass, map, { Material = Enum.Material.Grass })
-	part("Path", Vector3.new(18, 0.2, meadowLen), CFrame.new(0, 0.05, -2 + meadowLen / 2), Theme.path, map)
-	-- river: a gap with water at the bottom and a catcher that puts you gently back on the near bank
+	part("ForestGround", Vector3.new(width, 2, forestLen), CFrame.new(0, -1, W.river.zMax + forestLen / 2), A.grassA, map, { Material = Enum.Material.Grass })
+	part("Path", Vector3.new(18, 0.2, meadowLen), CFrame.new(0, 0.05, -2 + meadowLen / 2), A.pathSnow, map, { Material = Enum.Material.Snow })
+	part("ForestPath", Vector3.new(17, 0.2, forestLen - 10), CFrame.new(0, 0.05, W.river.zMax + 1 + (forestLen - 10) / 2), A.dirt, map, { Material = Enum.Material.Ground })
+	-- river: a water surface just below the banks; step in and you sink onto the catcher, which puts
+	-- you gently back on the near bank (prototype: the river isn't walkable)
 	local rz = (W.river.zMin + W.river.zMax) / 2
-	part("RiverWater", Vector3.new(width, 1, W.river.zMax - W.river.zMin), CFrame.new(0, -W.river.depth, rz), Theme.water, map, { Material = Enum.Material.Glass, Transparency = 0.2 })
-	local catcher = part("RiverCatcher", Vector3.new(width, 4, W.river.zMax - W.river.zMin + 4), CFrame.new(0, -W.river.depth + 3, rz), Theme.water, map, { Transparency = 1, CanCollide = false })
+	local rLen = W.river.zMax - W.river.zMin
+	part("RiverBed", Vector3.new(width, 1, rLen), CFrame.new(0, ART.bedY - 0.5, rz), A.riverBed, map, { Material = Enum.Material.Pebble })
+	part("RiverWater", Vector3.new(width, 0.2, rLen), CFrame.new(0, ART.waterY, rz), A.water, map,
+		{ Material = Enum.Material.Glass, Transparency = 0.25, Reflectance = 0.1, CanCollide = false, CanQuery = false, CastShadow = false })
+	local catcher = part("RiverCatcher", Vector3.new(width, 1, rLen + 2), CFrame.new(0, ART.catcherY, rz), A.water, map, { Transparency = 1, CanCollide = false })
 	catcher.Touched:Connect(function(hit)
 		local character = hit.Parent
 		local hrp = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
@@ -110,27 +118,29 @@ local function buildBlockout()
 	end)
 	-- main bridge (always there) and the ice bridge (frozen by players)
 	local mb = W.mainBridge
-	part("MainBridge", Vector3.new(mb.xMax - mb.xMin, 1, W.river.zMax - W.river.zMin + 6), CFrame.new((mb.xMin + mb.xMax) / 2, -0.5, rz), Theme.wood, map, { Material = Enum.Material.WoodPlanks })
+	part("MainBridge", Vector3.new(mb.xMax - mb.xMin, 1, W.river.zMax - W.river.zMin + 6), CFrame.new((mb.xMin + mb.xMax) / 2, -0.3, rz), A.plank, map, { Material = Enum.Material.WoodPlanks })
 	local ib = W.iceBridgeSpot
 	iceBridge = part("IceBridge", Vector3.new(ib.xMax - ib.xMin, 1, W.river.zMax - W.river.zMin + 6), CFrame.new((ib.xMin + ib.xMax) / 2, -0.5, rz), Theme.ice, map,
 		{ Material = Enum.Material.Ice, Transparency = 1, CanCollide = false })
 	-- a glowing freeze spot on each bank; both prompts make the same bridge
 	WorldService.bridgePrompts = {}
 	for i, spotPos in WorldRules.iceBridgeSpots() do
-		local spot = part("IceBridgeSpot" .. i, Vector3.new(0.3, 6, 6), CFrame.new(spotPos.X, 0.15, spotPos.Z) * CFrame.Angles(0, 0, math.rad(90)), Theme.ice, map, { Material = Enum.Material.Neon, Shape = Enum.PartType.Cylinder, CanCollide = false })
+		local spot = part("IceBridgeSpot" .. i, Vector3.new(0.3, 6, 6), CFrame.new(spotPos.X, 0.15, spotPos.Z) * CFrame.Angles(0, 0, math.rad(90)), Theme.ice, map, { Material = Enum.Material.Neon, Transparency = 0.55, Shape = Enum.PartType.Cylinder, CanCollide = false }) -- see-through Neon: solid Neon blooms into a white blob
 		table.insert(WorldService.bridgePrompts, prompt(spot, "Freeze", "Ice bridge", Config.player.freezeHold))
 	end
 	-- the Forest gate: a fence line; the opening is collidable only for players who haven't unlocked it
 	local g = W.gate
-	local gate = part("ForestGate", Vector3.new(g.xMax - g.xMin, 10, 1.5), CFrame.new((g.xMin + g.xMax) / 2, 5, g.z), Theme.ice, map, { Material = Enum.Material.Ice, Transparency = 0.3 })
+	-- the wall that blocks the opening is invisible: MapArt's ice bars show it (hidden on clients that opened it)
+	local gate = part("ForestGate", Vector3.new(g.xMax - g.xMin, 10, 1.5), CFrame.new((g.xMin + g.xMax) / 2, 5, g.z), Theme.ice, map, { Transparency = 1 })
 	gate.CollisionGroup = GATE_GROUP
 	local gz = (Config.zone(2) :: Config.Zone).gateCoins
 	local post = part("GatePromptSpot", Vector3.new(1, 1, 1), CFrame.new((g.xMin + g.xMax) / 2, 0.5, g.z - Config.gatePromptOffset), Theme.ice, map, { Transparency = 1, CanCollide = false, CanQuery = false })
 	WorldService.gatePrompt = prompt(post, "Open", `Pine Forest: {gz} coins`, Config.player.interactHold)
-	part("FenceL", Vector3.new(g.xMin - b.xMin, 4, 1), CFrame.new((b.xMin + g.xMin) / 2, 2, g.z), Theme.wood, map)
-	part("FenceR", Vector3.new(b.xMax - g.xMax, 4, 1), CFrame.new((g.xMax + b.xMax) / 2, 2, g.z), Theme.wood, map)
-	local sign = part("GateSign", Vector3.new(16, 4, 0.5), CFrame.new(0, 13, g.z - 1) * CFrame.Angles(0, math.pi, 0), Theme.info, map)
-	surfaceText(sign, Enum.NormalId.Front, "Pine Forest", Theme.info)
+	-- the fence's collision (MapArt draws the posts and rails)
+	part("FenceL", Vector3.new(g.xMin - b.xMin, 4, 1), CFrame.new((b.xMin + g.xMin) / 2, 2, g.z), Theme.wood, map, { Transparency = 1 })
+	part("FenceR", Vector3.new(b.xMax - g.xMax, 4, 1), CFrame.new((g.xMax + b.xMax) / 2, 2, g.z), Theme.wood, map, { Transparency = 1 })
+	local sign = part("GateSign", Vector3.new(16, 3.4, 0.5), CFrame.new(0, 12, g.z - 1), Theme.go, map) -- text toward the meadow
+	surfaceText(sign, Enum.NormalId.Front, "PINE FOREST", Theme.go)
 	WorldService.gateSign = sign
 	-- invisible walls at the map edge (edges look natural in the real art: hedges, cliffs)
 	for _, x in { b.xMin - 2, b.xMax + 2 } do
@@ -140,22 +150,35 @@ local function buildBlockout()
 	part("EdgeWallS", Vector3.new(width, 40, 2), CFrame.new(0, 20, b.zMax + 2), Theme.snow, map, { Transparency = 1 })
 	-- pen plots
 	for i, pl in W.plots do
-		local pen = part("Plot" .. i, W.penSize, CFrame.new(pl.x, 0.05, pl.z), Theme.pen, map, { Size = Vector3.new(W.penSize.X, 0.2, W.penSize.Z) })
+		local pen = part("Plot" .. i, W.penSize, CFrame.new(pl.x, 0.15, pl.z), A.straw, map, { Size = Vector3.new(W.penSize.X, 0.3, W.penSize.Z), Material = Enum.Material.Grass })
 		pen:SetAttribute("PlotIndex", i)
 		CollectionService:AddTag(pen, "Plot")
-		local signPart = part("PlotSign", Vector3.new(10, 2.4, 0.4), CFrame.new(pl.x, 6.5, pl.z + W.penSize.Z / 2) * CFrame.Angles(0, math.pi, 0), Theme.tiles.shop, pen)
+		-- on the back edge, facing the path: at the front it stood between the camera and the spawn
+		local signPart = part("PlotSign", Vector3.new(10, 2.4, 0.4), CFrame.new(pl.x, 4.5, pl.z - W.penSize.Z / 2) * CFrame.Angles(0, math.pi, 0), Theme.tiles.shop, pen)
 		surfaceText(signPart, Enum.NormalId.Front, "Free pen", Theme.tiles.shop)
 	end
 	local spawnLoc = Instance.new("SpawnLocation")
 	spawnLoc.Size = Vector3.new(8, 1, 8)
-	spawnLoc.CFrame = CFrame.new(W.spawn.X, 0.5, W.spawn.Z)
+	spawnLoc.CFrame = CFrame.new(W.spawn.X, 0.5, W.spawn.Z) * CFrame.Angles(0, math.pi, 0) -- you start facing the meadow, the pens behind you (prototype camera)
 	spawnLoc.Anchored = true
 	spawnLoc.Color = Theme.ice
+	spawnLoc.Transparency = 1 -- MapArt draws the round spawn pad
 	spawnLoc.Neutral = true
 	spawnLoc.Parent = map
 	-- gift box
 	local gift = part("GiftBox", Vector3.new(3, 3, 3), CFrame.new(W.giftBox.X, 1.5, W.giftBox.Z), Theme.gift, map)
 	WorldService.giftPrompt = prompt(gift, "Open", "Daily gift", Config.player.interactHold)
+	local giftIcon = Instance.new("BillboardGui") -- the painted gift icon floats over the box
+	giftIcon.Name = "GiftIcon"
+	giftIcon.Size = UDim2.fromScale(3, 3)
+	giftIcon.StudsOffset = Vector3.new(0, 3.2, 0)
+	giftIcon.LightInfluence = 0
+	local giftImage = Instance.new("ImageLabel")
+	giftImage.BackgroundTransparency = 1
+	giftImage.Size = UDim2.fromScale(1, 1)
+	giftImage.Image = Config.images.icons.gift
+	giftImage.Parent = giftIcon
+	giftIcon.Parent = gift
 	-- leaderboard boards, turned to face the spawn
 	for i, pos in W.boards do
 		local look = CFrame.lookAt(Vector3.new(pos.X, 10, pos.Z), Vector3.new(W.spawn.X, 10, W.spawn.Z))
@@ -164,36 +187,24 @@ local function buildBlockout()
 	end
 	-- zone signs (odds drawn by WildPetSpawner)
 	for _, z in W.zones do
-		local s = part("ZoneSign" .. z.id, Vector3.new(11, 9, 0.5), CFrame.new(z.signPos.X, 6, z.signPos.Z) * CFrame.Angles(0, math.pi, 0), Theme.panel, map)
+		-- its Front (the text) faces the hub, where players come from
+		local s = part("ZoneSign" .. z.id, Vector3.new(11, 9, 0.5), CFrame.new(z.signPos.X, 6, z.signPos.Z), Theme.art.rail, map, { Material = Enum.Material.Wood })
 		WorldService.zoneSigns[z.id] = s
 	end
-	-- shade (trees) and sun patches: same seeds as the prototype so tuning carries over
-	local rng = Random.new(1234)
-	local function tree(x: number, z: number, r: number)
-		local t = part("Tree", Vector3.new(1.2, 3, 1.2), CFrame.new(x, 1.5, z), Theme.wood, map)
-		part("Leaves", Vector3.new(r * 1.6, r * 2.2, r * 1.6), CFrame.new(x, 3 + r, z), Theme.forest, t, { Shape = Enum.PartType.Ball })
-		local shade = part("Shade", Vector3.new(0.2, r * 2, r * 2), CFrame.new(x, 0.08, z) * CFrame.Angles(0, 0, math.rad(90)), Theme.ink, map,
-			{ Shape = Enum.PartType.Cylinder, Transparency = 0.8, CanCollide = false, CanQuery = false })
+	-- shade (under each tree) and sun patches: the prototype's exact list (Shared/Scenery), so the
+	-- spots that melt slower or faster are where the artifact has them; MapArt draws the trees
+	local list = Scenery.get()
+	for _, t in list.trees do
+		local shade = part("Shade", Vector3.new(0.2, t.r * 2, t.r * 2), CFrame.new(t.x, 0.08, t.z) * CFrame.Angles(0, 0, math.rad(90)), A.shade, map,
+			{ Shape = Enum.PartType.Cylinder, Transparency = 0.82, CanCollide = false, CanQuery = false, CastShadow = false })
 		CollectionService:AddTag(shade, "ShadeZone")
 	end
-	for _ = 1, 26 do
-		local x, z = -72 + rng:NextNumber() * 144, 14 + rng:NextNumber() * 146
-		if math.abs(x) > 9 then
-			tree(x, z, 4 + rng:NextNumber() * 2.5)
-		end
+	for _, s in list.sun do
+		local patch = part("SunPatch", Vector3.new(0.2, s.r * 2, s.r * 2), CFrame.new(s.x, 0.07, s.z) * CFrame.Angles(0, 0, math.rad(90)), A.sunGlow, map,
+			{ Shape = Enum.PartType.Cylinder, Transparency = 0.45, CanCollide = false, CanQuery = false, CastShadow = false })
+		CollectionService:AddTag(patch, "SunZone")
 	end
-	for _ = 1, 70 do
-		local x, z = -74 + rng:NextNumber() * 148, 204 + rng:NextNumber() * 164
-		if math.abs(x) > 9 then
-			tree(x, z, 4.5 + rng:NextNumber() * 3)
-		end
-	end
-	for _ = 1, 9 do
-		local x, z, r = -60 + rng:NextNumber() * 120, 30 + rng:NextNumber() * 300, 7 + rng:NextNumber() * 5
-		local s = part("SunPatch", Vector3.new(0.2, r * 2, r * 2), CFrame.new(x, 0.07, z) * CFrame.Angles(0, 0, math.rad(90)), Theme.sunPatch, map,
-			{ Shape = Enum.PartType.Cylinder, Transparency = 0.4, CanCollide = false, CanQuery = false })
-		CollectionService:AddTag(s, "SunZone")
-	end
+	MapArt.build(map)
 	map.Parent = workspace
 end
 

@@ -83,7 +83,8 @@ Config.upgrades = { -- baseCost = the price of level 2; each step costs x1.5 the
 Config.upgradeIds = { "ray", "boots", "backpack", "pen" }
 -- Pen and Storage (owner 2026-10-30): the pen's pets earn; every other banked pet waits in Storage
 -- (kept forever, in the Index, earns nothing). Players equip by hand or press Equip best.
-Config.pen = { baseSlots = 10, storageMax = 500 }
+Config.pen = { baseSlots = 10, storageMax = 500,
+	displayMax = 30, displayMargin = 2.5 } -- up to 30 of the pen's pets stand in it (prototype; Storage isn't shown in the world)
 Config.carryHomeMinStuds = 4 -- funnel step 4 counts a cube carried at least this far out of the hub and back
 Config.beachGateCoins = 500
 Config.notYetCooldown = 2 -- seconds between two of the same "not yet" message
@@ -209,12 +210,13 @@ Config.ui = {
 	tiles = { { id = "pets", label = "Pets" }, { id = "shop", label = "Shop" }, { id = "index", label = "Index" }, { id = "settings", label = "Settings" } },
 	scale = { phone = 1, tablet = 1.2, pc = 1.35 },
 	-- sizes are fractions of the screen's short side (Scale only, UI Rules); the Screen module places them
-	tileSize = 0.13, tileGap = 0.02, coinsSize = { 0.3, 0.1 }, goalSize = { 0.42, 0.075 }, tempSize = { 0.16, 0.075 },
+	tileSize = 0.13, tileGap = 0.02, coinsSize = { 0.3, 0.1 }, goalSize = { 0.42, 0.075 }, tempSize = { 0.21, 0.09 },
 	topInset = 0.02, sideInset = 0.03, touchLift = 0.28, -- the coins sit above the thumbstick on touch screens
-	popupSize = { 0.92, 0.78 }, popupLift = 0.04, bannerSeconds = 3, floatSeconds = 1.2, notYetSeconds = 1.6,
+	popupSize = { 0.92, 0.78 }, popupLift = 0.04, promptSize = { 0.36, 0.115 }, -- world prompts keep this screen size at any distance
+	bannerSeconds = 3, floatSeconds = 1.2, notYetSeconds = 1.6,
 	pressDepth = 0.06, pressSeconds = 0.08, stroke = 3, corner = 0.18,
 	gamepadKeys = { close = Enum.KeyCode.ButtonB, superFreeze = Enum.KeyCode.ButtonY, menu = Enum.KeyCode.ButtonSelect },
-	keys = { pets = Enum.KeyCode.P, shop = Enum.KeyCode.B, index = Enum.KeyCode.I, close = Enum.KeyCode.Escape, superFreeze = Enum.KeyCode.F },
+	keys = { pets = Enum.KeyCode.P, shop = Enum.KeyCode.B, index = Enum.KeyCode.I, close = Enum.KeyCode.Backspace, superFreeze = Enum.KeyCode.F }, -- Escape belongs to Roblox's own menu,
 }
 
 Config.lighting = {
@@ -241,7 +243,7 @@ Config.world = {
 	},
 	penSize = Vector3.new(26, 1, 18),
 	giftBox = Vector3.new(-26, 0, -8), -- between the front pens, by the path out
-	boards = { Vector3.new(24, 0, -3), Vector3.new(39, 0, -3), Vector3.new(54, 0, -3) }, -- hub edge (the gift box is on the other side), turned to face the spawn
+	boards = { Vector3.new(-52, 0, -60), Vector3.new(0, 0, -60), Vector3.new(52, 0, -60) }, -- the back of the hub, behind the back row of pens (six pens leave no room at the front), turned to face the spawn
 	zones = {
 		{ id = 1, key = "meadow", name = "Snowy Meadow", heat = 0.5, zMin = -2, zMax = 166, gateCoins = 0, signPos = Vector3.new(-16, 0, 4) },
 		{ id = 2, key = "forest", name = "Pine Forest", heat = 0.8, zMin = 194, zMax = 372, gateCoins = 1000, signPos = Vector3.new(-16, 0, 202) }, -- starts at the gate
@@ -253,7 +255,69 @@ Config.world = {
 	beachGate = { z = 368 }, -- Sunny Beach (zone 3) starts here
 }
 
-Config.camera = { fov = 70, minZoom = 10, maxZoom = 40, carryFov = 74, fovSeconds = 0.4 }
+-- Uploaded images (the prototype's painted icons and pet sprites, roblox/assets/images)
+Config.images = {
+	icons = {
+		coin = "rbxassetid://114690725766316", bag = "rbxassetid://76257814527627", book = "rbxassetid://103706811541834",
+		gear = "rbxassetid://84856334538368", gift = "rbxassetid://86444394737076", trophy = "rbxassetid://96802650316741",
+	} :: { [string]: string },
+	-- pets with no 3D model yet are drawn as these painted sprites, facing the camera (prototype)
+	pets = {
+		snowbun = "rbxassetid://92428027252754", waddles = "rbxassetid://85819786009594", mittenkit = "rbxassetid://80224010045349",
+		pupcicle = "rbxassetid://99464046375243", frostfox = "rbxassetid://75892873565699", blizzard_yeti = "rbxassetid://93201949480148",
+		aurora_owl = "rbxassetid://82434091513318", snowglobe_drake = "rbxassetid://118494815244289", conehog = "rbxassetid://73502496724119",
+		hopsprout = "rbxassetid://95878437320181", capmouse = "rbxassetid://107833749569236", mossfawn = "rbxassetid://117305047075010",
+		lanternbug = "rbxassetid://74192529771490", mapleguard_bear = "rbxassetid://75624001245030", bloomhorn_stag = "rbxassetid://81929702575504",
+		glowshroom_mammoth = "rbxassetid://88722165161459",
+	} :: { [string]: string },
+}
+
+Config.ui.tileIcons = { pets = Config.images.pets.snowbun, shop = Config.images.icons.bag, index = Config.images.icons.book, settings = Config.images.icons.gear }
+Config.ui.silhouetteTransparency = 0.25
+Config.ui.petSpriteScale = 1.25 -- a pet sprite is this many times the pet's height wide
+
+-- Trees (shade) and sun patches: prototype config.js buildScenery(), same seed and ranges, so the
+-- shade and sun spots are exactly where the artifact has them (Shared/Scenery makes the list)
+Config.scenery = {
+	seed = 1234,
+	pathHalfWidth = 9, -- the main path stays open
+	riverClear = { 160, 200 }, -- and both river banks
+	bands = {
+		{ kind = "snowpine", trees = 26, x = { -72, 72 }, z = { 14, 160 }, r = { 4, 6.5 },
+			sun = 7, sunX = { -60, 60 }, sunZ = { 30, 150 }, sunR = { 7, 12 } },
+		{ kind = "pine", trees = 70, x = { -74, 74 }, z = { 204, 368 }, r = { 4.5, 7.5 },
+			sun = 4, sunX = { -55, 55 }, sunZ = { 215, 355 }, sunR = { 6, 10 } },
+	},
+}
+
+-- The look of the world (MapArt, ported from prototype scenery.js). Shapes come from
+-- ReplicatedStorage.SceneryMeshes (roblox/tools/make_scenery_meshes.ps1); plain parts stand in if missing.
+Config.art = {
+	seed = 77, -- props (mounds, rocks, mushrooms...) are placed with the prototype's generator too
+	treeUnitRadius = 2.4, -- a tree of shade radius r is drawn at scale r / 2.4 (prototype)
+	hillTrees = 160, -- decorative trees on the hills outside the play area
+	hills = { cell = 8, reach = 96, maxHeight = 34, falloff = 14, power = 1.6, scale = 6, base = -12 },
+	waterY = -0.8, -- the river surface; you fall through it onto the catcher and land back on the bank
+	catcherY = -3,
+	bedY = -4,
+	bankStones = 90,
+	props = { mounds = 40, rocks = 22, crystals = 14, mushrooms = 40, bushes = 50, logs = 10 },
+	lanternEvery = 18,
+	penFenceGap = 10, -- the open side of each pen faces the path
+	penPostEvery = 3.2,
+	gatePostEvery = 4,
+	beachPostEvery = 3.5,
+	statue = Vector3.new(-26, 0, -56),
+	snowman = Vector3.new(46, 0, 112),
+	giantMushroom = Vector3.new(-44, 0, 296),
+	lamps = { Vector3.new(-12, 0, -3), Vector3.new(12, 0, -3), Vector3.new(-26, 0, -32), Vector3.new(26, 0, -32) },
+	benches = { { pos = Vector3.new(-12, 0, -58), ry = 0 }, { pos = Vector3.new(12, 0, -58), ry = 0 } },
+	clouds = { cover = 0.55, density = 0.6 },
+}
+
+Config.camera = { fov = 70, minZoom = 10, maxZoom = 40, carryFov = 74, fovSeconds = 0.4,
+	-- the prototype's framing at spawn: high and behind, looking ahead, so carried cubes never hide you
+	startHeight = 15, startBack = 21, startLookAhead = 10, frameSettleSeconds = 0.25 }
 Config.effects = { pillarSeconds = 8, pillarHeight = 60, burstParts = 12, beamSeconds = 0.15, snowRate = 60 }
 
 function Config.tier(name: string): Tier

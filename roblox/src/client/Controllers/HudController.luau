@@ -22,7 +22,38 @@ local coinsRate: TextLabel
 local goal: Ui.Block
 local goalFill: Frame
 local temp: Ui.Block
+local tempWhy: TextLabel
 local banner: Ui.Block
+
+-- a thermometer from UI shapes: white tube, red bulb, red mercury (prototype temp chip)
+local function thermometer(parent: Instance)
+	local holder = Instance.new("Frame")
+	holder.Name = "Thermometer"
+	holder.BackgroundTransparency = 1
+	holder.Size = UDim2.fromScale(0.22, 0.92)
+	holder.Position = UDim2.fromScale(0.03, 0.04)
+	local aspect = Instance.new("UIAspectRatioConstraint")
+	aspect.AspectRatio = 26 / 34
+	aspect.Parent = holder
+	local function piece(name: string, color: Color3, size: UDim2, pos: UDim2, round: number, outline: boolean): Frame
+		local f = Instance.new("Frame")
+		f.Name = name
+		f.BackgroundColor3 = color
+		f.BorderSizePixel = 0
+		f.Size = size
+		f.Position = pos
+		Ui.corner(f, round)
+		if outline then
+			Ui.stroke(f, 2)
+		end
+		f.Parent = holder
+		return f
+	end
+	piece("Tube", Theme.white, UDim2.fromScale(0.38, 0.66), UDim2.fromScale(0.31, 0.04), 0.5, true)
+	piece("Bulb", Theme.no, UDim2.fromScale(0.5, 0.38), UDim2.fromScale(0.25, 0.6), 1, true)
+	piece("Mercury", Theme.no, UDim2.fromScale(0.16, 0.42), UDim2.fromScale(0.42, 0.28), 0.5, false)
+	holder.Parent = parent
+end
 local bannerUntil = 0
 local beachSeen = false
 
@@ -93,7 +124,10 @@ local function updateTemp()
 	local unit = SettingsController.get("unit")
 	local shown = if unit == "F" then WorldRules.toFahrenheit(deg) else deg
 	local light = WorldRules.lightAt(root.Position)
-	temp.text.Text = `{shown}°{unit}` .. (if chill then " Big Chill" elseif light ~= "open" then " " .. light else "")
+	temp.text.Text = `{shown}°{unit}`
+	local zone = Config.zone(WorldRules.zoneAt(root.Position))
+	tempWhy.Text = if chill then "Big Chill" elseif light == "shade" then "Shade" elseif light == "sun" then "Sunny spot"
+		elseif zone then zone.name else "Hub"
 	local color = if chill then Theme.temp.chill else Theme.temp[band]
 	temp.face.BackgroundColor3 = color
 	temp.root.BackgroundColor3 = Ui.darker(color)
@@ -114,15 +148,26 @@ function HudController.Start()
 			PopupController.open(t.id)
 		end)
 		b.root.LayoutOrder = i
+		-- the painted icon on top, the name small underneath (prototype tiles)
+		local icon = Config.ui.tileIcons[t.id]
+		if icon then
+			Ui.image(b.face, icon, UDim2.fromScale(0.74, 0.66), UDim2.fromScale(0.13, 0.02))
+			b.text.Size = UDim2.fromScale(0.9, 0.28)
+			b.text.Position = UDim2.fromScale(0.05, 0.68)
+		end
 	end
 	Screen.register("tiles", tiles, #Config.ui.tiles)
-	-- coins
-	coins = Ui.block(Screen.hud :: ScreenGui, "Coins", Theme.coin, "0", nil)
-	coins.text.Size = UDim2.fromScale(0.9, 0.55)
-	coinsRate = Ui.label(coins.face, "", UDim2.fromScale(0.9, 0.3), UDim2.fromScale(0.05, 0.65))
+	-- coins: the coin image, the number, and +N/s under it
+	coins = Ui.block(Screen.hud :: ScreenGui, "Coins", Theme.coinFace, "0", nil)
+	Ui.image(coins.face, Config.images.icons.coin, UDim2.fromScale(0.36, 1.15), UDim2.fromScale(-0.02, -0.08))
+	coins.text.Size = UDim2.fromScale(0.62, 0.58)
+	coins.text.Position = UDim2.fromScale(0.33, 0.04)
+	coins.text.TextXAlignment = Enum.TextXAlignment.Left
+	coinsRate = Ui.label(coins.face, "", UDim2.fromScale(0.62, 0.32), UDim2.fromScale(0.33, 0.62))
+	coinsRate.TextXAlignment = Enum.TextXAlignment.Left
 	Screen.register("coins", coins.root)
 	-- goal bar
-	goal = Ui.block(Screen.hud :: ScreenGui, "Goal", Theme.board, "", nil)
+	goal = Ui.block(Screen.hud :: ScreenGui, "Goal", Theme.goal, "", nil)
 	goalFill = Instance.new("Frame")
 	goalFill.Name = "Fill"
 	goalFill.BackgroundColor3 = Theme.go
@@ -134,8 +179,14 @@ function HudController.Start()
 	goal.text.ZIndex = 2
 	goal.root.Visible = false
 	Screen.register("goal", goal.root)
-	-- temperature chip
+	-- temperature chip: a thermometer (built from shapes, no emoji), the degrees, and why (zone, shade, sun)
 	temp = Ui.block(Screen.hud :: ScreenGui, "Temp", Theme.temp.cool, "", nil)
+	thermometer(temp.face)
+	temp.text.Size = UDim2.fromScale(0.7, 0.56)
+	temp.text.Position = UDim2.fromScale(0.27, 0.02)
+	temp.text.TextXAlignment = Enum.TextXAlignment.Left
+	tempWhy = Ui.label(temp.face, "", UDim2.fromScale(0.7, 0.34), UDim2.fromScale(0.27, 0.58))
+	tempWhy.TextXAlignment = Enum.TextXAlignment.Left
 	Screen.register("temp", temp.root)
 	-- banner
 	banner = Ui.block(Screen.hud :: ScreenGui, "Banner", Theme.info, "", nil)

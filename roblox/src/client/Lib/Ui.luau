@@ -49,6 +49,26 @@ function Ui.label(parent: Instance, text: string, size: UDim2?, pos: UDim2?): Te
 	return t
 end
 
+-- a painted icon or sprite (uploaded image), kept square; silhouette = a dark shape for "not found yet"
+function Ui.image(parent: Instance, image: string, size: UDim2, pos: UDim2, silhouette: boolean?): ImageLabel
+	local i = Instance.new("ImageLabel")
+	i.Name = "Icon"
+	i.BackgroundTransparency = 1
+	i.Image = image
+	i.Size = size
+	i.Position = pos
+	i.ScaleType = Enum.ScaleType.Fit
+	if silhouette then
+		i.ImageColor3 = Theme.ink
+		i.ImageTransparency = Config.ui.silhouetteTransparency
+	end
+	local a = Instance.new("UIAspectRatioConstraint")
+	a.AspectRatio = 1
+	a.Parent = i
+	i.Parent = parent
+	return i
+end
+
 export type Block = { root: Frame, face: TextButton, text: TextLabel }
 
 -- a pressable block; onPress runs on click / tap / gamepad A

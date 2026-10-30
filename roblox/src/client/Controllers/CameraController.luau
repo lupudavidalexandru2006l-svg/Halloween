@@ -32,11 +32,36 @@ end
 function CameraController.Init()
 	player.CameraMinZoomDistance = Config.camera.minZoom
 	player.CameraMaxZoomDistance = Config.camera.maxZoom
+	-- trees between the camera and you fade to see-through: StarterPlayer.DevCameraOcclusionMode is
+	-- Invisicam, set in default.project.json (scripts may not set it)
+end
+
+-- on spawn: the prototype's framing (high and behind, looking ahead); Roblox's follow camera keeps
+-- that angle and distance until the player turns or zooms it
+local function frame(character: Model)
+	local root = character:WaitForChild("HumanoidRootPart", 5) :: BasePart?
+	local cam = workspace.CurrentCamera
+	if not root or not cam then
+		return
+	end
+	-- Roblox's camera keeps its own zoom, so push the distance out with the minimum zoom for a moment
+	local C = Config.camera
+	local distance = math.sqrt(C.startHeight ^ 2 + C.startBack ^ 2)
+	player.CameraMinZoomDistance = math.min(distance, C.maxZoom)
+	task.wait(C.frameSettleSeconds)
+	local look = (root.CFrame.LookVector * Vector3.new(1, 0, 1)).Unit
+	cam.CFrame = CFrame.lookAt(root.Position - look * C.startBack + Vector3.new(0, C.startHeight, 0), root.Position + look * C.startLookAhead)
+	task.wait(C.frameSettleSeconds)
+	player.CameraMinZoomDistance = C.minZoom
 end
 
 function CameraController.Start()
 	apply()
 	workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(apply)
+	player.CharacterAdded:Connect(frame)
+	if player.Character then
+		task.spawn(frame, player.Character)
+	end
 end
 
 return CameraController

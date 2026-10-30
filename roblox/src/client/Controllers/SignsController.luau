@@ -26,24 +26,53 @@ local function build(zone: Config.Zone)
 	g.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
 	g.PixelsPerStud = 40
 	g.Adornee = part
+	-- the prototype's sign: a cream panel inside the wooden frame (the part), dark text, a coloured dot
+	-- per rarity and its odds on the right
 	local frame = Instance.new("Frame")
-	frame.Size = UDim2.fromScale(1, 1)
-	frame.BackgroundColor3 = Theme.board
+	frame.Size = UDim2.fromScale(0.9, 0.88)
+	frame.Position = UDim2.fromScale(0.05, 0.06)
+	frame.BackgroundColor3 = Theme.panel
+	Ui.corner(frame, 0.04)
 	frame.Parent = g
 	local list = Instance.new("UIListLayout")
 	list.SortOrder = Enum.SortOrder.LayoutOrder
+	list.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	list.Parent = frame
-	local function line(order: number, s: string, h: number, color: Color3): TextLabel
-		local t = Ui.label(frame, s, UDim2.fromScale(1, h))
-		t.LayoutOrder = order
-		t.TextColor3 = color
+	local function inkLabel(parent: Instance, s: string, size: UDim2, pos: UDim2?): TextLabel
+		local t = Ui.label(parent, s, size, pos)
+		t.TextColor3 = Theme.ink
+		local st = t:FindFirstChildOfClass("UIStroke")
+		if st then
+			st.Enabled = false
+		end
 		return t
 	end
-	line(0, zone.name, 0.14, Theme.white)
-	heat[zone.id] = line(1, "", 0.09, Theme.ice)
+	inkLabel(frame, zone.name, UDim2.fromScale(0.9, 0.15)).LayoutOrder = 0
+	local h = inkLabel(frame, "", UDim2.fromScale(0.9, 0.08))
+	h.LayoutOrder = 1
+	h.TextTransparency = 0.25
+	heat[zone.id] = h
 	local byTier = {}
 	for i, t in Config.tiers do
-		byTier[t.name] = line(i + 1, t.name, 0.095, Theme.tiers[t.name])
+		local row = Instance.new("Frame")
+		row.BackgroundTransparency = 1
+		row.Size = UDim2.fromScale(0.9, 0.1)
+		row.LayoutOrder = i + 1
+		row.Parent = frame
+		local dot = Instance.new("Frame")
+		dot.BackgroundColor3 = Theme.tiers[t.name]
+		dot.Size = UDim2.fromScale(0.07, 0.6)
+		dot.Position = UDim2.fromScale(0, 0.2)
+		Ui.corner(dot, 1)
+		Ui.stroke(dot, 2)
+		local a = Instance.new("UIAspectRatioConstraint")
+		a.Parent = dot
+		dot.Parent = row
+		local name = inkLabel(row, t.name, UDim2.fromScale(0.5, 0.8), UDim2.fromScale(0.1, 0.1))
+		name.TextXAlignment = Enum.TextXAlignment.Left
+		local value = inkLabel(row, "", UDim2.fromScale(0.4, 0.8), UDim2.fromScale(0.6, 0.1))
+		value.TextXAlignment = Enum.TextXAlignment.Right
+		byTier[t.name] = value
 	end
 	rows[zone.id] = byTier
 	g.Parent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
@@ -62,7 +91,7 @@ local function draw()
 			for name, label in labels do
 				local o = odds[name]
 				if typeof(o) == "number" and o > 0 then
-					label.Text = `{name}   {percent(o)}` -- the true odds, your pity included
+					label.Text = percent(o) -- the true odds, your pity included
 				end
 			end
 		end

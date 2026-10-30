@@ -43,14 +43,31 @@ local function standIn(def: PetDefs.PetDef, size: number): PVInstance
 		return clone
 	end
 	local p = Instance.new("Part")
-	p.Shape = Enum.PartType.Ball
-	p.Size = Vector3.new(size, size, size)
-	p.Color = def.color
-	p.Material = Enum.Material.SmoothPlastic
 	p.Anchored = true
 	p.CanCollide = false
 	p.CanQuery = false
 	p.CanTouch = false
+	if def.icon ~= "" then
+		-- the painted sprite, always facing the camera (prototype): an invisible anchor carries it
+		p.Size = Vector3.one * size
+		p.Transparency = 1
+		local g = Instance.new("BillboardGui")
+		g.Name = "Sprite"
+		g.Size = UDim2.fromScale(size * Config.ui.petSpriteScale, size * Config.ui.petSpriteScale)
+		g.LightInfluence = 0
+		g.Adornee = p
+		g.Parent = p
+		local img = Instance.new("ImageLabel")
+		img.BackgroundTransparency = 1
+		img.Size = UDim2.fromScale(1, 1)
+		img.Image = def.icon
+		img.Parent = g
+		return p
+	end
+	p.Shape = Enum.PartType.Ball
+	p.Size = Vector3.new(size, size, size)
+	p.Color = def.color
+	p.Material = Enum.Material.SmoothPlastic
 	return p
 end
 
@@ -232,6 +249,7 @@ end
 
 function PetVisuals.Start()
 	watch("WildPets", addPet, removePet)
+	watch("PenPets", addPet, removePet) -- everyone's pen pets (no prompt; they just idle in the pen)
 	watch("Cubes", addCube, removeCube)
 	RunService.RenderStepped:Connect(step)
 	InputController.Action:Connect(function(a: string)
