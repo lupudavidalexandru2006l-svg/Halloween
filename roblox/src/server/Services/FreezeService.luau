@@ -5,6 +5,7 @@
 -- Also owns the ice bridge and the gift-box prompt hand-off.
 
 local Players = game:GetService("Players")
+local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local WorldRules = require(ReplicatedStorage.Shared.WorldRules)
@@ -94,13 +95,25 @@ function FreezeService.Start()
 	if bp then
 		bp.Triggered:Connect(onBridge)
 	end
-	local gp = WorldService.giftPrompt
-	if gp then
-		gp.Triggered:Connect(function(player)
-			local PenService = require(script.Parent.PenService) :: any
-			PenService.claimGift(player)
-		end)
-	end
+	-- every pet prompt goes through here; the gift box prompt belongs to PenService
+	ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt: ProximityPrompt, player: Player)
+		local id = WildPetSpawner.idFromPrompt(prompt)
+		if id then
+			FreezeService.onHoldBegan(player, id)
+		end
+	end)
+	ProximityPromptService.PromptButtonHoldEnded:Connect(function(prompt: ProximityPrompt, player: Player)
+		local id = WildPetSpawner.idFromPrompt(prompt)
+		if id then
+			FreezeService.onHoldEnded(player, id)
+		end
+	end)
+	ProximityPromptService.PromptTriggered:Connect(function(prompt: ProximityPrompt, player: Player)
+		local id = WildPetSpawner.idFromPrompt(prompt)
+		if id then
+			FreezeService.onPetTriggered(player, id)
+		end
+	end)
 	Players.PlayerRemoving:Connect(function(p)
 		lastFreeze[p] = nil
 	end)

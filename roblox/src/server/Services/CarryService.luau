@@ -123,7 +123,7 @@ end
 
 -- banking takes every cube (PenService decides what happens to them)
 function CarryService.takeAll(player: Player): { Cube }
-	local list = carrying[player] or {}
+	local list: { Cube } = carrying[player] or {}
 	carrying[player] = {}
 	for _, c in list do
 		if c.part then
@@ -233,7 +233,8 @@ function CarryService.Start()
 	end
 	Players.PlayerRemoving:Connect(function(player)
 		-- cubes aren't owned pets yet (nothing owned is lost); just clean up
-		for _, c in carrying[player] or {} do
+		local list: { Cube } = carrying[player] or {}
+		for _, c in list do
 			if c.part then
 				c.part:Destroy()
 			end

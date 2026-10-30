@@ -38,8 +38,8 @@ end
 
 local function allowed(player: Player): boolean
 	local now = os.clock()
-	local list = calls[player] or {}
-	local kept = {}
+	local list: { number } = calls[player] or {}
+	local kept: { number } = {}
 	for _, t in list do
 		if now - t < 1 then
 			table.insert(kept, t)
@@ -55,7 +55,7 @@ local function allowed(player: Player): boolean
 end
 
 -- handler gets (player, ...) exactly as sent; it must type-check every argument itself
-function Remotes.on(name: string, handler: (Player, ...any) -> ())
+function Remotes.on(name: string, handler: (Player, ...any) -> ...any)
 	local e = events[name]
 	assert(e, "unknown remote " .. name)
 	e.OnServerEvent:Connect(function(player: Player, ...)

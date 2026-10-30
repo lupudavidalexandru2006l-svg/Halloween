@@ -81,8 +81,8 @@ function WorldRules.temperatureAt(pos: Vector3, night: boolean, chill: boolean):
 	local c = math.round(T.atZeroMelt + T.perMelt * melt)
 	local band = "hot"
 	for _, b in T.bands do
-		if c < b[1] then
-			band = b[2]
+		if c < b.below then
+			band = b.name
 			break
 		end
 	end

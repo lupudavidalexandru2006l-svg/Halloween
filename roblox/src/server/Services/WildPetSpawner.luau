@@ -39,7 +39,6 @@ local respawnAt: { [number]: number } = {}
 local nextId = 1
 local rng = Random.new()
 local folder: Folder
-local FreezeService: any -- required lazily (cycle)
 
 local TIER_NAMES = {}
 for _, t in Config.tiers do
@@ -171,15 +170,6 @@ function WildPetSpawner.spawn(zone: number, at: Vector3?, forcedKey: string?, ne
 	setAction(pet, Config.poseLoop[pet.loopIdx])
 	pet.actionEnd = os.clock() + rng:NextNumber() * Config.poses[pet.action].seconds
 	pets[id] = pet
-	pp.PromptButtonHoldBegan:Connect(function(player)
-		FreezeService.onHoldBegan(player, id)
-	end)
-	pp.PromptButtonHoldEnded:Connect(function(player)
-		FreezeService.onHoldEnded(player, id)
-	end)
-	pp.Triggered:Connect(function(player)
-		FreezeService.onPetTriggered(player, id)
-	end)
 	root.Parent = folder
 	return pet
 end
@@ -204,6 +194,20 @@ function WildPetSpawner.spawnDazed(info: { key: string, zone: number, pose: stri
 	pet.root:SetAttribute("Mut", info.mut)
 	pet.root:SetAttribute("OfferUserId", if offer then owner.UserId else 0)
 	return pet
+end
+
+-- FreezeService listens to ProximityPromptService and asks which pet a prompt belongs to
+-- (the spawner owns pets and never calls FreezeService, so there is no require cycle)
+function WildPetSpawner.idFromPrompt(prompt: ProximityPrompt): string?
+	local root = prompt.Parent
+	if not root or root.Parent ~= folder then
+		return nil
+	end
+	local id = root:GetAttribute("PetId")
+	if typeof(id) == "string" and pets[id] then
+		return id
+	end
+	return nil
 end
 
 function WildPetSpawner.get(id: string): WildPet?
@@ -340,7 +344,6 @@ function WildPetSpawner.Init()
 end
 
 function WildPetSpawner.Start()
-	FreezeService = require(script.Parent.FreezeService)
 	for _, z in Config.world.zones do
 		for _ = 1, Config.spawner.maxPerZone - 2 do
 			WildPetSpawner.spawn(z.id)

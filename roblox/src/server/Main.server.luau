@@ -2,7 +2,7 @@
 -- Server loader (Code Rules 2): require every service, call every Init() first, then every Start().
 -- No service does work at require time, so file order never matters.
 
-type Service = { Init: (() -> ())?, Start: (() -> ())?, Name: string? }
+type Service = { Init: (() -> ...any)?, Start: (() -> ...any)?, Name: string? }
 
 local services: { Service } = {}
 local folder = script.Parent:WaitForChild("Services")
@@ -24,7 +24,7 @@ end
 for _, s in services do
 	if s.Start then
 		task.spawn(function()
-			local ok, err = pcall(s.Start :: () -> ())
+			local ok, err = pcall(s.Start :: () -> ...any)
 			if not ok then
 				warn(`[Start] {s.Name} failed: {err}`)
 			end

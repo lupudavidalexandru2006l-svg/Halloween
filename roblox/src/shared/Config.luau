@@ -94,7 +94,7 @@ Config.temperature = {
 	unit = "C", -- players can switch to F in Settings
 	atZeroMelt = -20,
 	perMelt = 30,
-	bands = { { 0, "cold" }, { 15, "cool" }, { 35, "warm" }, { 999, "hot" } },
+	bands = { { below = 0, name = "cold" }, { below = 15, name = "cool" }, { below = 35, name = "warm" }, { below = 999, name = "hot" } },
 }
 Config.dazedSeconds = 8
 
