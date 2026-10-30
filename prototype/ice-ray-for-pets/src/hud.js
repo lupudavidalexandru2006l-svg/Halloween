@@ -14,6 +14,14 @@ const fmt = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e4 ? (n / 1e3)
 const rate = (n) => (n >= 100 ? fmt(n) : (Math.round(n * 10) / 10).toString());
 
 export function createHud({ server, input, audio }) {
+  // per-viewer settings (in Roblox these are saved with the player's data)
+  function saveSettings() { try { localStorage.setItem('iceray.settings', JSON.stringify({ music: audio.music, sfx: audio.sfx, reduced: Config.motion.reduced, unit: Config.temperature.unit })); } catch { /* storage blocked */ } }
+  try {
+    const st = JSON.parse(localStorage.getItem('iceray.settings') || 'null');
+    if (st) { audio.setMusic(st.music !== false); audio.setSfx(st.sfx !== false); Config.motion.reduced = !!st.reduced; Config.temperature.unit = st.unit === 'F' ? 'F' : 'C'; }
+  } catch { /* storage blocked: defaults */ }
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) Config.motion.reduced = true; // on by default if the device asks
+  document.documentElement.classList.toggle('reduced', Config.motion.reduced);
   const $ = (s) => document.querySelector(s);
   const coinsEl = $('#coins'), coinN = coinsEl.querySelector('.n'), coinR = coinsEl.querySelector('.rate');
   const goal = $('#goal'), goalT = goal.querySelector('.t'), goalFill = goal.querySelector('.fill');
@@ -69,6 +77,7 @@ export function createHud({ server, input, audio }) {
       pop.innerHTML = head('Settings') + `
         <div class="settings-row"><span>Music</span><div class="toggle ${audio.music ? 'on' : ''}" data-tog="music"></div></div>
         <div class="settings-row"><span>Sound</span><div class="toggle ${audio.sfx ? 'on' : ''}" data-tog="sfx"></div></div>
+        <div class="settings-row"><span>Mute everything</span><div class="toggle ${!audio.music && !audio.sfx ? 'on' : ''}" data-tog="mute"></div></div>
         <div class="settings-row"><span>Reduced motion</span><div class="toggle ${Config.motion.reduced ? 'on' : ''}" data-tog="motion"></div></div>
         <div class="settings-row"><span>Low graphics</span><div class="toggle ${Config.graphics.low ? 'on' : ''}" data-tog="gfx"></div></div>
         <div class="settings-row"><span>Temperature in °F</span><div class="toggle ${Config.temperature.unit === 'F' ? 'on' : ''}" data-tog="unit"></div></div>`;
@@ -80,12 +89,12 @@ export function createHud({ server, input, audio }) {
     } else if (current.name === 'gift') {
       const g = current.data;
       pop.innerHTML = `<h2 class="txt">Daily gift</h2><div class="big txt">${COIN.replace('class="coinimg"', 'class="coinimg" style="width:40px;height:40px;vertical-align:-8px"')} ${fmt(g.coins)}</div>
-        <div class="center" style="margin:4px 0 10px">Day ${g.streak} streak. It waits for you: miss a day and the streak just pauses.</div>
+        <div class="center" style="margin:4px 0 10px">Day ${g.streak} streak</div>
         <button class="block press buy txt" data-ok="1">Yay!</button>`;
     } else if (current.name === 'superfreeze') {
-      pop.innerHTML = head('Super Freeze') + `<div class="center" style="margin-bottom:10px">A deep-blue cube that never melts until you reach your pen.<br>Prototype only: no real purchase happens.</div>
+      pop.innerHTML = head('Super Freeze') + `<div class="center" style="margin-bottom:10px">Never melts until your pen.</div>
         <button class="block press buy txt" data-sf="${current.data.id}" style="--face:#4e7dff;--lip-c:#2440a6">${ROBUX} ${Config.monetization.superFreeze.robux} (mock buy)</button>
-        <div class="center" style="margin-top:8px;font-size:14px;color:#4a4270">Or zap it again for free.</div>`;
+        <div class="center" style="margin-top:8px;font-size:14px;color:#4a4270">Zapping it again is always free</div>`;
     }
     pop.querySelector('.close')?.addEventListener('click', () => { audio.play('click'); close(); });
     pop.querySelectorAll('[data-buy]').forEach((b) => b.addEventListener('click', () => { audio.play('click'); server.remotes.buyUpgrade(b.dataset.buy); }));
@@ -93,10 +102,11 @@ export function createHud({ server, input, audio }) {
     pop.querySelectorAll('[data-tog]').forEach((b) => b.addEventListener('click', () => {
       const k = b.dataset.tog;
       if (k === 'music') audio.setMusic(!audio.music); else if (k === 'sfx') audio.setSfx(!audio.sfx);
+      else if (k === 'mute') { const on = !audio.music && !audio.sfx; audio.setMusic(on); audio.setSfx(on); }
       else if (k === 'gfx') { try { localStorage.setItem('iceray.lowGfx', Config.graphics.low ? '0' : '1'); } catch { /* storage blocked */ } location.reload(); return; }
       else if (k === 'unit') Config.temperature.unit = Config.temperature.unit === 'F' ? 'C' : 'F';
-      else Config.motion.reduced = !Config.motion.reduced;
-      audio.play('click'); render();
+      else { Config.motion.reduced = !Config.motion.reduced; document.documentElement.classList.toggle('reduced', Config.motion.reduced); }
+      saveSettings(); audio.play('click'); render();
     }));
     pop.querySelector('[data-collect]')?.addEventListener('click', () => { server.remotes.collectWelcome(); close(); });
     pop.querySelector('[data-ok]')?.addEventListener('click', () => close());
