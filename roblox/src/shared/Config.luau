@@ -58,7 +58,7 @@ Config.tiers = {
 Config.incomeZoneMultiplier = 4
 
 Config.poses = {
-	idle = { label = "Idle", bonus = 1.0, seconds = 2.4 },
+	idle = { label = "Normal", bonus = 1.0, seconds = 2.4 },
 	yawn = { label = "Yawn", bonus = 1.2, seconds = 1.3 },
 	jump = { label = "Jump", bonus = 1.2, seconds = 0.9 },
 	dance = { label = "Dance", bonus = 1.5, seconds = 1.6 },
@@ -66,18 +66,23 @@ Config.poses = {
 } :: { [string]: { label: string, bonus: number, seconds: number } }
 Config.poseLoop = { "idle", "yawn", "idle", "jump", "idle", "dance" }
 Config.sneezeChance = 0.08
+Config.zapSlowdown = 0.5 -- a pet being held with Freeze acts at half speed, so a pose can be caught on purpose
 
 Config.mutations = {
 	Frosty = { bonus = 1.5 },
 } :: { [string]: { bonus: number } }
 
-Config.upgrades = { -- baseCost = the price of level 2
-	ray = { name = "Ice Ray", baseCost = 40, costGrowth = 1.6, maxLevel = 20, lifeBonus = 0.20, bridgeBonus = 4, cubeSizeBonus = 0.04 },
-	boots = { name = "Boots", baseCost = 64, costGrowth = 1.6, maxLevel = 15, speedBonus = 0.08 },
-	backpack = { name = "Backpack", baseCost = 750, costGrowth = 3.0, maxLevel = 5, slowPerExtraCube = 0.08 },
+Config.upgrades = { -- baseCost = the price of level 2; each step costs x1.5 the last (Game Plan 11)
+	-- cube size: +12% a level for the first 4 levels (you can see it), then +2%
+	ray = { name = "Ice Ray", baseCost = 40, costGrowth = 1.5, maxLevel = 20, lifeBonus = 0.20, bridgeBonus = 4, cubeSize = { early = 0.12, earlyLevels = 4, late = 0.02 } },
+	boots = { name = "Boots", baseCost = 64, costGrowth = 1.5, maxLevel = 15, speedBonus = 0.08 },
+	backpack = { name = "Backpack", baseCost = 750, costGrowth = 1.5, maxLevel = 5, slowPerExtraCube = 0.08 },
 } :: { [string]: { [string]: any } }
 Config.upgradeIds = { "ray", "boots", "backpack" }
-Config.penSlots = 40
+Config.penSlots = 100 -- same as the prototype; the Pen upgrade (+5 slots, Game Plan 11) comes before launch (Port Plan)
+Config.carryHomeMinStuds = 4 -- funnel step 4 counts a cube carried at least this far out of the hub and back
+Config.beachGateCoins = 500
+Config.notYetCooldown = 2 -- seconds between two of the same "not yet" message
 
 Config.melt = {
 	shade = 0.5,
@@ -102,9 +107,11 @@ Config.spawner = {
 	maxPerZone = 9,
 	respawnSeconds = 1.5,
 	firstPetDistance = 12,
-	nearUntilPets = 3,
-	nearZ = { 8, 34 },
-	farZMin = 60,
+	-- "always one within about 3 seconds of walking": each zone keeps 2 Commons or Uncommons in its
+	-- near band; other Commons spawn from farZMin; Rare and up only in the far half of the zone
+	near = { [1] = { 8, 34 }, [2] = { 204, 236 } } :: { [number]: { number } },
+	nearCount = 2,
+	farZMin = { [1] = 60, [2] = 204 } :: { [number]: number },
 	wanderSpeed = 2,
 	pity = { graceFactor = 1.0, perMiss = 0.0015, maxBoost = 3 },
 }
@@ -113,7 +120,7 @@ Config.bridge = { baseSeconds = 20 }
 Config.bigChill = { everySeconds = 600, warnSeconds = 30, durationSeconds = 60 }
 
 Config.away = { minSeconds = 60, capSeconds = 8 * 3600, rate = 1.0 }
-Config.dailyGift = { baseCoins = 50, incomeMinutes = 10, streakBonus = 0.1, streakMax = 7 }
+Config.dailyGift = { baseCoins = 50, incomeMinutes = 10, streakBonus = 0.1, streakMax = 7, afterFirstBank = true } -- the gift box opens after your first bank
 
 Config.monetization = {
 	-- Owner items: create the developer product in the Creator Dashboard and paste its id here.
@@ -127,13 +134,15 @@ Config.leaderboards = {
 	rankScanSize = 100, -- "your rank" looks this far down the board; past it shows "100+"
 	weeklyResetDay = 1, -- 1 = Monday, UTC calendar day (not a countdown)
 	weeklyResetLabel = "Resets every Monday",
+	-- scores come from the server's own counters and are clamped before writing (OrderedDataStore needs an integer under 2^63)
+	limits = { frozen = 10000000, weekCoins = 1e13, freezesPerSecond = 1 },
 	storePrefix = "LB_v1_",
 	boards = {
 		{ id = "pets_frozen", title = "Most pets frozen", kind = "alltime" },
 		{ id = "rarest_pet", title = "Rarest pet found", kind = "alltime" },
 		{ id = "coins_week", title = "Coins earned this week", kind = "weekly" },
 	},
-	cosmeticReward = "Top 3 each week get a glowing name plate (cosmetic only)",
+	cosmeticReward = "Top 3 each week get a glowing name",
 	weeklyTopReward = 3, -- how many places get the name-plate glow; never coins or pets
 	weeklyBadgeId = 0, -- optional owner item: a badge for weekly top 3 (0 = off)
 	hiddenName = "A player", -- shown when a display name can't be fetched
@@ -204,12 +213,13 @@ Config.world = {
 	boards = { Vector3.new(-40, 0, -4), Vector3.new(-24, 0, -1), Vector3.new(24, 0, -1) }, -- hub edge, turned to face the spawn
 	zones = {
 		{ id = 1, key = "meadow", name = "Snowy Meadow", heat = 0.5, zMin = -2, zMax = 166, gatePets = 0, signPos = Vector3.new(-16, 0, 4) },
-		{ id = 2, key = "forest", name = "Pine Forest", heat = 0.8, zMin = 186, zMax = 372, gatePets = 8, signPos = Vector3.new(-16, 0, 202) },
+		{ id = 2, key = "forest", name = "Pine Forest", heat = 0.8, zMin = 194, zMax = 372, gatePets = 8, signPos = Vector3.new(-16, 0, 202) }, -- starts at the gate
 	} :: { Zone },
 	river = { zMin = 168, zMax = 182, depth = 30 },
-	mainBridge = { xMin = -54, xMax = -42 },
-	iceBridgeSpot = { xMin = 18, xMax = 30 },
+	mainBridge = { xMin = -74, xMax = -62 }, -- the free bridge is the long way round
+	iceBridgeSpot = { xMin = -6, xMax = 6 }, -- the ice bridge sits on the straight line from the gate to the pens (frozen from either bank)
 	gate = { z = 194, xMin = -10, xMax = 10 },
+	beachGate = { z = 368 }, -- Sunny Beach (zone 3) starts here
 }
 
 Config.camera = { fov = 70 }
@@ -226,6 +236,12 @@ end
 function Config.upgradeCost(id: string, level: number): number
 	local u = Config.upgrades[id]
 	return math.round(u.baseCost * u.costGrowth ^ (level - 2)) -- level 2 costs baseCost
+end
+
+function Config.cubeSizeFactor(rayLevel: number): number
+	local c = Config.upgrades.ray.cubeSize
+	local n = rayLevel - 1
+	return 1 + c.early * math.min(n, c.earlyLevels) + c.late * math.max(0, n - c.earlyLevels)
 end
 
 function Config.zone(id: number): Zone?

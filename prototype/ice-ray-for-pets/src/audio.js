@@ -34,8 +34,10 @@ export function createAudio() {
     zap: (t) => tone(900, t, 0.25, 'sawtooth', 0.08, sfxBus, 1500),
     freeze: (t) => { noise(t, 0.35, 0.18, 3000); tone(1200, t, 0.3, 'sine', 0.25, sfxBus, 2400); },
     coin: (t, n = 0) => { const f = 880 * Math.pow(2, Math.min(n, 12) / 24); tone(f, t, 0.12, 'triangle', 0.28); tone(f * 1.5, t + 0.05, 0.12, 'triangle', 0.18); },
-    bank: (t) => { noise(t, 0.2, 0.2, 2500); [523, 659, 784].forEach((f, i) => tone(f, t + 0.08 + i * 0.07, 0.25, 'triangle', 0.3)); },
-    reveal_rare: (t) => [523, 659, 784, 1046].forEach((f, i) => tone(f, t + i * 0.09, 0.4, 'triangle', 0.3)),
+    // banking in a row climbs a step each time (Game Plan 16: rising chimes on streaks)
+    bank: (t, n = 0) => { const k = Math.pow(2, Math.min(n, 8) / 12); noise(t, 0.2, 0.2, 2500); [523, 659, 784].forEach((f, i) => tone(f * k, t + 0.08 + i * 0.07, 0.25, 'triangle', 0.3)); },
+    // rarer pets get a longer fanfare (rank 3 Rare .. 7 Secret)
+    reveal_rare: (t, rank = 3) => [523, 659, 784, 1046, 1318, 1568, 2093].slice(0, Math.min(7, rank + 1)).forEach((f, i) => tone(f, t + i * 0.09, 0.4 + (i === rank ? 0.3 : 0), 'triangle', 0.3)),
     no: (t) => tone(260, t, 0.18, 'sine', 0.3, sfxBus, 190),
     buy: (t) => [660, 880, 1100].forEach((f, i) => tone(f, t + i * 0.06, 0.18, 'square', 0.12)),
     melt: (t) => tone(700, t, 0.5, 'sine', 0.22, sfxBus, 300),
@@ -50,6 +52,11 @@ export function createAudio() {
     const playing = (state.playing[name] || []).filter((x) => x > t - 0.15);
     if (playing.length >= Config.sounds.maxSame) return; // spam never becomes noise
     playing.push(t); state.playing[name] = playing;
+    if (name === 'bank') {
+      const now = performance.now() / 1000;
+      state.bankStreak = now - (state.bankAt || -99) < Config.sounds.bankStreakReset ? (state.bankStreak || 0) + 1 : 0;
+      state.bankAt = now; n = state.bankStreak;
+    }
     if (name === 'coin') {
       const now = performance.now() / 1000;
       state.streak = now - state.streakAt < Config.sounds.streakReset ? state.streak + 1 : 0;
@@ -59,12 +66,16 @@ export function createAudio() {
   }
   let musicTimer = null;
   function startMusic() {
-    // a gentle, cheerful loop that never stops (crossfade between zones would go here)
-    const notes = [523, 659, 784, 659, 587, 698, 880, 698, 523, 659, 784, 1046, 988, 784, 659, 587];
+    // a gentle, cheerful loop per place: the hub and Meadow are bright and twinkly, the Forest is
+    // lower and woodier (in Roblox these are two music ids crossfaded by the zone)
+    const tunes = {
+      meadow: [523, 659, 784, 659, 587, 698, 880, 698, 523, 659, 784, 1046, 988, 784, 659, 587],
+      forest: [392, 494, 587, 494, 440, 523, 659, 523, 392, 494, 587, 784, 698, 587, 494, 440],
+    };
     let i = 0;
     musicTimer = setInterval(() => {
       if (!state.music || !ctx) return;
-      const t = ctx.currentTime;
+      const t = ctx.currentTime, notes = tunes[state.zone === 2 ? 'forest' : 'meadow'];
       tone(notes[i % notes.length] / 2, t, 0.5, 'triangle', 0.35, musicBus);
       if (i % 4 === 0) tone(notes[i % notes.length] / 4, t, 0.9, 'sine', 0.4, musicBus);
       i++;
@@ -72,7 +83,7 @@ export function createAudio() {
   }
   return {
     unlock: ensure, play,
-    setMusic(on) { state.music = on; }, setSfx(on) { state.sfx = on; },
+    setMusic(on) { state.music = on; }, setSfx(on) { state.sfx = on; }, setZone(z) { state.zone = z; },
     get music() { return state.music; }, get sfx() { return state.sfx; },
   };
 }

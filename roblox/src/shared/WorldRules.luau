@@ -109,9 +109,29 @@ function WorldRules.inPlot(index: number, pos: Vector3): boolean
 	return math.abs(pos.X - c.X) <= s.X / 2 and math.abs(pos.Z - c.Z) <= s.Z / 2
 end
 
-function WorldRules.iceBridgeCenter(): Vector3
-	local i = Config.world.iceBridgeSpot
-	return Vector3.new((i.xMin + i.xMax) / 2, 0, Config.world.river.zMin - 2)
+-- the ice bridge can be frozen from either bank (going out and coming home)
+function WorldRules.iceBridgeSpots(): { Vector3 }
+	local i, r = Config.world.iceBridgeSpot, Config.world.river
+	local x = (i.xMin + i.xMax) / 2
+	return { Vector3.new(x, 0, r.zMin - 2), Vector3.new(x, 0, r.zMax + 2) }
+end
+
+function WorldRules.iceBridgeCenter(from: Vector3?): Vector3
+	local s = WorldRules.iceBridgeSpots()
+	if from and (from - s[2]).Magnitude < (from - s[1]).Magnitude then
+		return s[2]
+	end
+	return s[1]
+end
+
+-- standing in the river (the ice bridge ended under you): the nearest bank, or nil if not in the river
+function WorldRules.nearestBank(pos: Vector3): Vector3?
+	local r, mb = Config.world.river, Config.world.mainBridge
+	if pos.Z <= r.zMin or pos.Z >= r.zMax or (pos.X >= mb.xMin and pos.X <= mb.xMax) then
+		return nil
+	end
+	local z = if pos.Z - r.zMin < r.zMax - pos.Z then r.zMin - 1 else r.zMax + 1
+	return Vector3.new(pos.X, pos.Y, z)
 end
 
 -- calendar (UTC): the daily gift day and the weekly leaderboard week (fixed reset day)

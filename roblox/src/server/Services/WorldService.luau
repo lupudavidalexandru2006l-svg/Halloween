@@ -22,7 +22,7 @@ local forestOpen: { [Player]: boolean } = {}
 WorldService.zoneSigns = {} :: { [number]: BasePart }
 WorldService.boards = {} :: { BasePart }
 WorldService.giftPrompt = nil :: ProximityPrompt?
-WorldService.bridgePrompt = nil :: ProximityPrompt?
+WorldService.bridgePrompts = {} :: { ProximityPrompt } -- one on each bank
 WorldService.gateSign = nil :: BasePart?
 
 local GATE_GROUP, OPEN_GROUP = "ForestGate", "ForestOpen"
@@ -113,10 +113,12 @@ local function buildBlockout()
 	local ib = W.iceBridgeSpot
 	iceBridge = part("IceBridge", Vector3.new(ib.xMax - ib.xMin, 1, W.river.zMax - W.river.zMin + 6), CFrame.new((ib.xMin + ib.xMax) / 2, -0.5, rz), Theme.ice, map,
 		{ Material = Enum.Material.Ice, Transparency = 1, CanCollide = false })
-	local spotPos = WorldRules.iceBridgeCenter()
-	local spot = part("IceBridgeSpot", Vector3.new(6, 0.3, 6), CFrame.new(spotPos.X, 0.15, spotPos.Z), Theme.ice, map, { Material = Enum.Material.Neon, Shape = Enum.PartType.Cylinder, CanCollide = false })
-	spot.CFrame = CFrame.new(spotPos.X, 0.15, spotPos.Z) * CFrame.Angles(0, 0, math.rad(90))
-	WorldService.bridgePrompt = prompt(spot, "Freeze", "Ice bridge", Config.player.freezeHold)
+	-- a glowing freeze spot on each bank; both prompts make the same bridge
+	WorldService.bridgePrompts = {}
+	for i, spotPos in WorldRules.iceBridgeSpots() do
+		local spot = part("IceBridgeSpot" .. i, Vector3.new(0.3, 6, 6), CFrame.new(spotPos.X, 0.15, spotPos.Z) * CFrame.Angles(0, 0, math.rad(90)), Theme.ice, map, { Material = Enum.Material.Neon, Shape = Enum.PartType.Cylinder, CanCollide = false })
+		table.insert(WorldService.bridgePrompts, prompt(spot, "Freeze", "Ice bridge", Config.player.freezeHold))
+	end
 	-- the Forest gate: a fence line; the opening is collidable only for players who haven't unlocked it
 	local g = W.gate
 	local gate = part("ForestGate", Vector3.new(g.xMax - g.xMin, 10, 1.5), CFrame.new((g.xMin + g.xMax) / 2, 5, g.z), Theme.ice, map, { Material = Enum.Material.Ice, Transparency = 0.3 })
@@ -198,8 +200,14 @@ local function findExisting(): boolean
 	end
 	map = existing :: Folder
 	iceBridge = map:FindFirstChild("IceBridge", true) :: BasePart
-	local spot = map:FindFirstChild("IceBridgeSpot", true)
-	WorldService.bridgePrompt = spot and spot:FindFirstChildWhichIsA("ProximityPrompt", true)
+	WorldService.bridgePrompts = {}
+	for i = 1, 2 do
+		local spot = map:FindFirstChild("IceBridgeSpot" .. i, true)
+		local pp = spot and spot:FindFirstChildWhichIsA("ProximityPrompt", true)
+		if pp then
+			table.insert(WorldService.bridgePrompts, pp)
+		end
+	end
 	local gift = map:FindFirstChild("GiftBox", true)
 	WorldService.giftPrompt = gift and gift:FindFirstChildWhichIsA("ProximityPrompt", true)
 	WorldService.gateSign = map:FindFirstChild("GateSign", true) :: BasePart?

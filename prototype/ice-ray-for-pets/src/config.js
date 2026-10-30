@@ -44,27 +44,29 @@ export const Config = {
 
   poses: {
     // the pose when the Freeze hold finishes is the pose you keep
-    idle:   { label: 'Idle',   bonus: 1.0, seconds: 2.4 },
+    idle:   { label: 'Normal', bonus: 1.0, seconds: 2.4 },
     yawn:   { label: 'Yawn',   bonus: 1.2, seconds: 1.3 },
     jump:   { label: 'Jump',   bonus: 1.2, seconds: 0.9 },
     dance:  { label: 'Dance',  bonus: 1.5, seconds: 1.6 },
     sneeze: { label: 'Mid-Sneeze', bonus: 2.0, seconds: 0.7 },
     loop: ['idle', 'yawn', 'idle', 'jump', 'idle', 'dance'],
     sneezeChance: 0.08,     // chance that the next action is a sneeze instead
+    zapSlowdown: 0.5,       // while you hold Freeze on a pet it acts at half speed, so a pose can be caught on purpose
   },
   mutations: {
     Frosty: { bonus: 1.5 }, // caught during the Big Chill
   },
 
   upgrades: {
-    // each step costs x1.5 the last
-    // costs grow faster than income (Game Design Rules 3), so upgrades stay a short goal for a long time
-    // baseCost = the price of level 2
-    ray:      { name: 'Ice Ray',  baseCost: 40,  costGrowth: 1.6, maxLevel: 20, lifeBonus: 0.20, bridgeBonus: 4, cubeSizeBonus: 0.04 },
-    boots:    { name: 'Boots',    baseCost: 64,  costGrowth: 1.6, maxLevel: 15, speedBonus: 0.08 },
-    backpack: { name: 'Backpack', baseCost: 750, costGrowth: 3.0, maxLevel: 5, slowPerExtraCube: 0.08 },
+    // each step costs x1.5 the last (Game Plan 11); baseCost = the price of level 2
+    // cube size: +12% a level for the first 4 levels (an upgrade you can see), then +2%
+    ray:      { name: 'Ice Ray',  baseCost: 40,  costGrowth: 1.5, maxLevel: 20, lifeBonus: 0.20, bridgeBonus: 4, cubeSize: { early: 0.12, earlyLevels: 4, late: 0.02 } },
+    boots:    { name: 'Boots',    baseCost: 64,  costGrowth: 1.5, maxLevel: 15, speedBonus: 0.08 },
+    backpack: { name: 'Backpack', baseCost: 750, costGrowth: 1.5, maxLevel: 5, slowPerExtraCube: 0.08 },
   },
-  penSlots: 40,             // Pen upgrades are out of prototype scope; big enough not to block
+  carryHomeMinStuds: 4,     // funnel step 4 counts a cube carried at least this far out of the hub and back
+  beachGateCoins: 500,      // Game Plan 4: Sunny Beach opens at 500 coins (the zone itself is not in the prototype)
+  penSlots: 100,            // prototype only: the Pen upgrade (+5 slots, Game Plan 11) is out of prototype scope
 
   melt: {
     shade: 0.5,             // trees, cliffs, tunnels
@@ -82,9 +84,11 @@ export const Config = {
     maxPerZone: 9,          // cap on visible wild pets per zone (phone performance)
     respawnSeconds: 1.5,
     firstPetDistance: 12,   // the first-minute bunny spawns this close to the spawn point
-    nearUntilPets: 3,       // a new player gets the bunny + 2 more pets right by the hub ("a second and third pet are right there")
-    nearZ: [8, 34],         // the near band (z, studs)
-    farZMin: 60,            // every other Meadow pet spawns from here south, so the run home matters
+    // "always one within about 3 seconds of walking" (Game Plan 4): each zone keeps 2 Commons or
+    // Uncommons in its near band; other Commons spawn from farZMin; Rare and up only in the far half
+    near: { 1: [8, 34], 2: [204, 236] },
+    nearCount: 2,
+    farZMin: { 1: 60, 2: 204 },
     pity: { graceFactor: 1.0, perMiss: 0.0015, maxBoost: 3 }, // soft pity per zone, Rare and up
   },
 
@@ -109,12 +113,14 @@ export const Config = {
     refreshSeconds: 60,     // boards update on an interval, not on every event
     weeklyResetDay: 1,      // 1 = Monday (UTC), a fixed calendar day shown on the board
     weeklyResetLabel: 'Resets every Monday',
+    // scores come from the server's own counters and are still clamped (no impossible numbers on a board)
+    limits: { frozen: 10000000, weekCoins: 1e13, freezesPerSecond: 1 },
     boards: [
       { id: 'pets_frozen', title: 'Most pets frozen', kind: 'alltime' },
       { id: 'rarest_pet', title: 'Rarest pet found', kind: 'alltime' },
       { id: 'coins_week', title: 'Coins earned this week', kind: 'weekly' },
     ],
-    cosmeticReward: 'Top 3 each week get a glowing name plate (cosmetic only)',
+    cosmeticReward: 'Top 3 each week get a glowing name',
   },
 
   monetization: {
@@ -122,10 +128,12 @@ export const Config = {
     superFreeze: { robux: 15, minTier: 'Rare', walkAwayStuds: 18 },
   },
 
-  camera: { height: 15, back: 21, lookAhead: 14, fov: 55 },
+  camera: { height: 15, back: 21, lookAhead: 14, fov: 55, carry: { height: 24, back: 13, lookAhead: 4 } }, // carrying: higher and more top-down, so home is in view
   graphics: { low: false, shadowMap: 1024 }, // Low graphics (World Rules 7): no shadows or reflections, lower resolution // low enough that the next zone and the far volcano are in view
   motion: { reduced: false, bob: 1.6 },
-  sounds: { music: 0.45, sfx: 0.8, streakReset: 1.5, maxSame: 3 },
+  look: { wildPetScale: 1.15 },  // wild pets a little bigger than in the pen, so they stand out on snow
+  sounds: { music: 0.45, sfx: 0.8, streakReset: 1.5, bankStreakReset: 20, maxSame: 3 },
+  notYetCooldown: 2,        // seconds between two of the same "not yet" messages
 
   ui: {
     tiles: [
@@ -192,17 +200,18 @@ export const World = {
   pen: { xMin: -13, xMax: 13, zMin: -34, zMax: -16 },      // your pen: walk in to bank
   hub: { zMax: -2 },                                       // everything north of this is the hub
   giftBox: { x: -24, z: -10 },
-  boards: [ { x: 30, z: -3 }, { x: 45, z: -3 }, { x: 60, z: -3 } ], // hub edge (screen-left), facing the camera (it looks south)
+  boards: [ { x: -38, z: -3 }, { x: -53, z: -3 }, { x: -68, z: -3 } ], // hub edge, screen-right (the menu tiles are on the left)
   zones: [
     { id: 1, key: 'meadow', name: 'Snowy Meadow', heat: 0.5, zMin: -2, zMax: 166, gatePets: 0,
       sign: { x: -16, z: 4 }, ground: Theme.snow },
-    { id: 2, key: 'forest', name: 'Pine Forest', heat: 0.8, zMin: 186, zMax: 372, gatePets: 8,
+    { id: 2, key: 'forest', name: 'Pine Forest', heat: 0.8, zMin: 194, zMax: 372, gatePets: 8, // starts at the gate
       sign: { x: -16, z: 202 }, ground: Theme.grass },
   ],
   river: { zMin: 168, zMax: 182 },
-  mainBridge: { xMin: -54, xMax: -42 },
-  iceBridgeSpot: { xMin: 18, xMax: 30 },
+  mainBridge: { xMin: -74, xMax: -62 },                    // the free bridge is the long way round
+  iceBridgeSpot: { xMin: -6, xMax: 6 },                    // the ice bridge sits on the straight line from the gate to your pen
   gate: { z: 194, xMin: -10, xMax: 10 },                   // the Forest gate opening
+  beachGate: { z: 368 },                                   // Sunny Beach: closed in the prototype (a sign, not an invisible wall)
 };
 
 // Deterministic scenery so the server (shade/sun) and the client (drawing) agree.
@@ -243,6 +252,11 @@ export function upgradeCost(id, level) {
   const u = Config.upgrades[id];
   return Math.round(u.baseCost * Math.pow(u.costGrowth, level - 2)); // level 2 costs baseCost
 }
+export function cubeSizeFactor(rayLevel) {
+  const c = Config.upgrades.ray.cubeSize, n = rayLevel - 1;
+  return 1 + c.early * Math.min(n, c.earlyLevels) + c.late * Math.max(0, n - c.earlyLevels);
+}
+export const isRegular = (def) => def.tier !== 'Secret'; // an Index page is the 7 regular pets; the Secret is a bonus slot
 export function petIncome(def, pose, mutation) {
   const t = tierByName[def.tier];
   const zoneMult = Math.pow(Config.incomeZoneMultiplier, def.zone - 1);

@@ -18,7 +18,7 @@ local WorldService = require(script.Parent.WorldService)
 local WildPetSpawner = require(script.Parent.WildPetSpawner)
 local EventService = require(script.Parent.EventService)
 
-export type CubeInfo = { key: string, zone: number, pose: string, mut: string?, superFrozen: boolean, superUsed: boolean }
+export type CubeInfo = { key: string, zone: number, pose: string, mut: string?, superFrozen: boolean, superUsed: boolean, offered: boolean }
 export type Cube = CubeInfo & { uid: string, life: number, lifeMax: number, since: number, part: Part? , shownFrac: number }
 
 local CarryService = {}
@@ -102,15 +102,23 @@ local function changed(player: Player)
 	layout(player)
 end
 
-function CarryService.addCube(player: Player, info: CubeInfo)
+-- restoring = a saved Super Freeze cube coming back after a rejoin (it's already in the save)
+function CarryService.addCube(player: Player, info: CubeInfo, restoring: boolean?)
 	local def = PetDefs.get(info.key)
 	local data = DataService.get(player)
 	if not def or not data then
 		return
 	end
+	if info.superFrozen and not restoring then
+		-- a paid cube lives in the save until it's banked, so leaving or a crash never loses it (CA-03).
+		-- MonetizationService saves right after this, before returning PurchaseGranted.
+		DataService.mutate(player, function(d)
+			table.insert(d.superCubes, { key = info.key, pose = info.pose, mut = info.mut })
+		end)
+	end
 	local lifeMax = Config.tier(def.tier).cubeLife * (1 + Config.upgrades.ray.lifeBonus * (data.upgrades.ray - 1))
 	local c: Cube = {
-		key = info.key, zone = info.zone, pose = info.pose, mut = info.mut, superFrozen = info.superFrozen, superUsed = info.superUsed,
+		key = info.key, zone = info.zone, pose = info.pose, mut = info.mut, superFrozen = info.superFrozen, superUsed = info.superUsed, offered = info.offered,
 		uid = "c" .. nextUid, life = lifeMax, lifeMax = lifeMax, since = os.clock(), part = nil, shownFrac = 1,
 	}
 	nextUid += 1
@@ -125,6 +133,18 @@ end
 function CarryService.takeAll(player: Player): { Cube }
 	local list: { Cube } = carrying[player] or {}
 	carrying[player] = {}
+	DataService.mutate(player, function(d)
+		for _, c in list do
+			if c.superFrozen then -- leaves the save as it leaves your back; PenService hands back any it can't bank with addCube
+				for i, r in d.superCubes do
+					if r.key == c.key and r.pose == c.pose and r.mut == c.mut then
+						table.remove(d.superCubes, i)
+						break
+					end
+				end
+			end
+		end
+	end)
 	for _, c in list do
 		if c.part then
 			c.part:Destroy()
@@ -151,8 +171,9 @@ local function melt(player: Player, c: Cube)
 	local pos = PlayerTracker.position(player) or Vector3.zero
 	local angle = math.random() * math.pi * 2
 	local at = Vector3.new(pos.X + math.cos(angle) * 3, 0, pos.Z + math.sin(angle) * 3)
-	local offer = Config.tier(def.tier).rank >= Config.tier(Config.monetization.superFreeze.minTier).rank and not c.superUsed
-	WildPetSpawner.spawnDazed({ key = c.key, zone = c.zone, pose = c.pose, mut = c.mut, superUsed = c.superUsed }, at, player, offer)
+	-- Rare and up, never after a Super Freeze, and at most once per run (the flag rides along through a free re-freeze)
+	local offer = Config.tier(def.tier).rank >= Config.tier(Config.monetization.superFreeze.minTier).rank and not c.superUsed and not c.offered
+	WildPetSpawner.spawnDazed({ key = c.key, zone = c.zone, pose = c.pose, mut = c.mut, superUsed = c.superUsed, offered = c.offered }, at, player, offer)
 	DataService.mutate(player, function(d)
 		d.stats.melts += 1
 	end)
@@ -178,7 +199,7 @@ function CarryService.superFreezeOffer(player: Player): boolean
 		if root:GetAttribute("OfferUserId") == player.UserId then
 			local pet = WildPetSpawner.get(root:GetAttribute("PetId") :: string)
 			if pet and CarryService.count(player) < CarryService.capacity(player) then
-				local info = { key = pet.def.key, zone = pet.zone, pose = pet.pose or "idle", mut = pet.mut, superFrozen = true, superUsed = true }
+				local info = { key = pet.def.key, zone = pet.zone, pose = pet.pose or "idle", mut = pet.mut, superFrozen = true, superUsed = true, offered = true }
 				WildPetSpawner.remove(pet.id)
 				CarryService.addCube(player, info)
 				return true
@@ -221,6 +242,15 @@ function CarryService.Init()
 end
 
 function CarryService.Start()
+	-- bought Super Freeze cubes that weren't banked yet come back onto your back
+	DataService.Loaded:Connect(function(player: Player, data: any)
+		for _, r in data.superCubes do
+			local def = PetDefs.get(r.key)
+			if def then
+				CarryService.addCube(player, { key = r.key, zone = def.zone, pose = r.pose, mut = r.mut, superFrozen = true, superUsed = true, offered = true }, true)
+			end
+		end
+	end)
 	Players.PlayerAdded:Connect(function(player)
 		player.CharacterAdded:Connect(function()
 			task.defer(layout, player)
@@ -232,7 +262,7 @@ function CarryService.Start()
 		end)
 	end
 	Players.PlayerRemoving:Connect(function(player)
-		-- cubes aren't owned pets yet (nothing owned is lost); just clean up
+		-- free cubes aren't owned pets yet (nothing owned is lost); paid ones are already in the save
 		local list: { Cube } = carrying[player] or {}
 		for _, c in list do
 			if c.part then

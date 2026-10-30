@@ -7,7 +7,9 @@ export function createInput() {
     touch: false,
     botMove: null, botInteract: false, // the playtest bot drives the same signals
   };
-  const handlers = { panel: [] };
+  const handlers = { panel: [], pad: [] };
+  const PAD = { 0: 'a', 1: 'b', 3: 'y', 8: 'menu', 9: 'menu', 12: 'up', 13: 'down', 14: 'left', 15: 'right' };
+  let padWas = {};
   addEventListener('keydown', (e) => {
     if (e.repeat) return;
     keys.add(e.code);
@@ -57,6 +59,10 @@ export function createInput() {
       const gx = gp.axes[0] || 0, gz = -(gp.axes[1] || 0);
       if (Math.hypot(gx, gz) > 0.2) { x += gx; z += gz; }
       pad = !!(gp.buttons[0]?.pressed || gp.buttons[2]?.pressed);
+      // menu buttons fire once per press (B closes, A presses, d-pad moves, Start picks a menu tile)
+      const now = {};
+      for (const [i, name] of Object.entries(PAD)) { now[i] = !!gp.buttons[i]?.pressed; if (now[i] && !padWas[i]) handlers.pad.forEach((f) => f(name)); }
+      padWas = now;
     }
     x = -x; // the camera looks south (+z), so screen-right is world -x
     if (state.botMove) { x = state.botMove.x; z = state.botMove.z; } // the bot steers in world space
@@ -64,5 +70,5 @@ export function createInput() {
     state.move = { x, z };
     state.interact = state.botMove ? state.botInteract : (keys.has('KeyE') || keys.has('Space') || promptHeld || pad);
   }
-  return { state, update, bindHoldButton, onPanel: (f) => handlers.panel.push(f) };
+  return { state, update, bindHoldButton, onPanel: (f) => handlers.panel.push(f), onPad: (f) => handlers.pad.push(f) };
 }

@@ -2,9 +2,9 @@
 // ServerScriptService (named in the comment). The client only sends intent through `remotes`
 // and plays effects for the events the server emits.
 import {
-  Config, Analytics, PetDefs, World, tierByName, petByKey, zoneById, upgradeCost, petIncome, mulberry32,
+  Config, Analytics, PetDefs, World, tierByName, petByKey, zoneById, upgradeCost, petIncome, mulberry32, isRegular,
 } from './config.js';
-import { zoneAt, inHub, inPen, penCenter, meltRate, walkable, dist, iceBridgeCenter } from './world.js';
+import { zoneAt, inHub, inPen, penCenter, meltRate, walkable, pathWalkable, dist, iceBridgeCenter, nearestBank, onBridge } from './world.js';
 
 const TIER_ORDER = Config.tiers.map((t) => t.name);
 const rankOf = (tier) => tierByName[tier].rank;
@@ -66,13 +66,44 @@ export function createServer(opts = {}) {
       rarest: { rank: 0, key: null, at: 0 }, week: { id: '', coins: 0 },
       lastSeen: 0, welcome: null, gift: { lastDay: '', streak: 0 }, funnel: {}, forestUnlocked: false,
       createdAt: 0,
+      superCubes: [], // bought Super Freeze cubes not yet banked: saved with the purchase, back on your back after a rejoin
+      lastBest: null, // the best pet you banked last session, shown in the welcome back (end on a high, on the return)
     };
+  }
+  // every field is type- and range-checked on load, so a damaged or edited save can't crash the join
+  // or carry impossible values (the Roblox DataService does the same before the player earns anything)
+  const num = (v, lo, hi, dflt = lo) => (typeof v === 'number' && isFinite(v) ? Math.min(hi, Math.max(lo, v)) : dflt);
+  const int = (v, lo, hi, dflt = lo) => Math.floor(num(v, lo, hi, dflt));
+  const str = (v, max, dflt = '') => (typeof v === 'string' && v.length <= max ? v : dflt);
+  const obj = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
+  const knownPose = (v) => (typeof v === 'string' && Object.hasOwn(Config.poses, v) && v !== 'loop' ? v : 'idle');
+  const knownMut = (v) => (typeof v === 'string' && Object.hasOwn(Config.mutations, v) ? v : null);
+  function sanitize(raw) {
+    const r = obj(raw), d = defaults();
+    d.coins = num(r.coins, 0, 1e15);
+    d.pets = (Array.isArray(r.pets) ? r.pets : []).filter((x) => x && Object.hasOwn(petByKey, x.key)).slice(0, Config.penSlots)
+      .map((x) => ({ key: x.key, pose: knownPose(x.pose), mut: knownMut(x.mut), at: num(x.at, 0, 1e15) }));
+    for (const id of Object.keys(d.upgrades)) d.upgrades[id] = int(obj(r.upgrades)[id], 1, Config.upgrades[id].maxLevel, 1);
+    for (const [k, v] of Object.entries(obj(r.found))) if (Object.hasOwn(petByKey, k) && v === true) d.found[k] = true;
+    for (const k of Object.keys(d.stats)) d.stats[k] = num(obj(r.stats)[k], 0, 1e15);
+    const ra = obj(r.rarest); d.rarest = { rank: int(ra.rank, 0, 7), key: Object.hasOwn(petByKey, ra.key) ? ra.key : null, at: num(ra.at, 0, 1e15) };
+    const wk = obj(r.week); d.week = { id: str(wk.id, 10), coins: num(wk.coins, 0, Config.leaderboards.limits.weekCoins) };
+    d.lastSeen = num(r.lastSeen, 0, 1e15);
+    const wb = r.welcome && typeof r.welcome === 'object' ? r.welcome : null;
+    d.welcome = wb ? { coins: Math.floor(num(wb.coins, 0, 1e15)), awaySeconds: num(wb.awaySeconds, 0, 1e9), capped: wb.capped === true, best: typeof wb.best === 'string' && Object.hasOwn(petByKey, wb.best) ? wb.best : null } : null;
+    const g = obj(r.gift); d.gift = { lastDay: str(g.lastDay, 10), streak: int(g.streak, 0, Config.dailyGift.streakMax) };
+    for (const st of Analytics.funnel) if (obj(r.funnel)[st.name] === true) d.funnel[st.name] = true;
+    d.forestUnlocked = r.forestUnlocked === true;
+    d.createdAt = num(r.createdAt, 0, 1e15);
+    d.lastBest = typeof r.lastBest === 'string' && Object.hasOwn(petByKey, r.lastBest) ? r.lastBest : null;
+    d.superCubes = (Array.isArray(r.superCubes) ? r.superCubes : []).filter((c) => c && Object.hasOwn(petByKey, c.key)).slice(0, 5)
+      .map((c) => ({ key: c.key, zone: petByKey[c.key].zone, pose: knownPose(c.pose), mut: knownMut(c.mut) }));
+    return d;
   }
   function load() {
     let raw = null;
     try { raw = JSON.parse(localStorage.getItem(Config.saveKey) || 'null'); } catch { raw = null; }
-    const d = Object.assign(defaults(), raw || {});
-    for (const k of ['upgrades', 'stats', 'rarest', 'week', 'gift']) d[k] = Object.assign(defaults()[k], d[k] || {});
+    const d = sanitize(raw);
     if (!raw) d.createdAt = nowMs();
     return { data: d, isNew: !raw };
   }
@@ -95,7 +126,7 @@ export function createServer(opts = {}) {
   // SERVER
   function completedPages(d) {
     let n = 0;
-    for (const z of World.zones) if (PetDefs.filter((p) => p.zone === z.id).every((p) => d.found[p.key])) n++;
+    for (const z of World.zones) if (PetDefs.filter((p) => p.zone === z.id && isRegular(p)).every((p) => d.found[p.key])) n++;
     return n;
   }
   function incomePerSecond(d = S.player.data) {
@@ -118,7 +149,7 @@ export function createServer(opts = {}) {
       const inc = incomePerSecond(d);
       if (away >= Config.away.minSeconds && inc > 0) {
         const capped = Math.min(away, Config.away.capSeconds);
-        d.welcome = { coins: Math.floor(inc * capped * Config.away.rate), awaySeconds: Math.round(away), capped: away > Config.away.capSeconds };
+        d.welcome = { coins: Math.floor(inc * capped * Config.away.rate), awaySeconds: Math.round(away), capped: away > Config.away.capSeconds, best: d.lastBest };
       }
     }
     d.lastSeen = now;
@@ -130,11 +161,12 @@ export function createServer(opts = {}) {
   // SERVER
   function giftState() {
     const d = S.player.data; const today = dayId(nowMs());
-    const ready = d.gift.lastDay !== today;
+    const locked = d.stats.banked === 0; // the first minute is about the core loop; the gift box opens after your first bank
+    const ready = !locked && d.gift.lastDay < today;
     const nextStreak = Math.min(Config.dailyGift.streakMax, d.gift.streak + 1);
     const base = Math.max(Config.dailyGift.baseCoins, incomePerSecond() * 60 * Config.dailyGift.incomeMinutes);
     const coins = Math.round(base * (1 + Config.dailyGift.streakBonus * (nextStreak - 1)));
-    return { ready, streak: d.gift.streak, nextStreak, coins };
+    return { ready, locked, streak: d.gift.streak, nextStreak, coins };
   }
 
   // ---------- WildPetSpawner (spawn rolls, pity, respawn) ----------
@@ -162,21 +194,25 @@ export function createServer(opts = {}) {
     return tier;
   }
   function spawnPet(zone, at, forcedKey) {
+    const sp = Config.spawner, near = at === 'near';
     let def;
     if (forcedKey) def = petByKey[forcedKey];
-    else {
+    else if (near) {
+      // near-band keepers are Commons or Uncommons (60:25), and they don't touch pity
+      const tier = rng() < 60 / 85 ? 'Common' : 'Uncommon';
+      const pool = PetDefs.filter((p) => p.zone === zone && p.tier === tier);
+      def = pool[Math.floor(rng() * pool.length)];
+    } else {
       const tier = rollTier(zone);
       const pool = PetDefs.filter((p) => p.zone === zone && p.tier === tier);
       def = pool[Math.floor(rng() * pool.length)];
     }
-    let pos = at && at !== 'near' ? at : null;
-    const sp = Config.spawner;
-    const near = at === 'near';
-    if (near) pos = null;
+    let pos = at && !near ? at : null;
+    const z = zoneById[zone], rare = rankOf(def.tier) >= 3;
     for (let i = 0; !pos && i < 30; i++) {
-      const z = zoneById[zone];
-      const zMin = zone === 1 ? (near ? sp.nearZ[0] : sp.farZMin) : z.zMin + 10;
-      const zMax = near ? sp.nearZ[1] : z.zMax - 10;
+      const zMax = near ? sp.near[zone][1] : z.zMax - 10;
+      // Rare and up only in the far half, so the pets worth most have the longest run home
+      const zMin = near ? sp.near[zone][0] : rare ? Math.max(sp.farZMin[zone], (z.zMin + z.zMax) / 2) : sp.farZMin[zone];
       const xSpan = near ? 30 : (World.bounds.xMax - World.bounds.xMin - 12);
       const c = { x: near ? -15 + rng() * xSpan : World.bounds.xMin + 6 + rng() * xSpan, z: zMin + rng() * (zMax - zMin) };
       if (walkable(c.x, c.z, { iceBridgeActive: false, forestUnlocked: true }) && (!S.player || dist(c, S.player.pos) > 8)) pos = c;
@@ -188,16 +224,21 @@ export function createServer(opts = {}) {
     S.wild.set(id, {
       id, key: def.key, zone, x: pos.x, z: pos.z, state: 'wild',
       loopIdx, action, actionEnd: S.time + rng() * Config.poses[action].seconds,
-      wanderTo: null, dazedUntil: 0, pose: null, mut: null, offer: false, superUsed: false,
+      wanderTo: null, dazedUntil: 0, pose: null, mut: null, offer: false, offered: false, superUsed: false, near,
     });
     emit('wildSpawned', { id });
     return id;
+  }
+  function nearCount(zone) {
+    const [a, b] = Config.spawner.near[zone]; let n = 0;
+    for (const w of S.wild.values()) if (w.zone === zone && w.state === 'wild' && w.z >= a && w.z <= b) n++;
+    return n;
   }
   function tickSpawner() {
     for (const z of World.zones) {
       const count = [...S.wild.values()].filter((w) => w.zone === z.id).length;
       if (count < Config.spawner.maxPerZone && S.time >= (S.respawnAt[z.id] ?? 0)) {
-        spawnPet(z.id);
+        spawnPet(z.id, nearCount(z.id) < Config.spawner.nearCount ? 'near' : undefined);
         S.respawnAt[z.id] = S.time + Config.spawner.respawnSeconds;
       }
     }
@@ -205,10 +246,12 @@ export function createServer(opts = {}) {
   function tickWild(dt) {
     for (const w of S.wild.values()) {
       if (w.state === 'dazed') {
-        if (w.offer && S.player && dist(w, S.player.pos) > Config.monetization.superFreeze.walkAwayStuds) { w.offer = false; emit('offerGone', { id: w.id }); }
-        if (S.time >= w.dazedUntil) { w.state = 'wild'; w.offer = false; w.pose = null; emit('offerGone', { id: w.id }); }
+        // no hidden timer on a paid offer (Game Plan 15): it only goes when you walk off or zap the pet
+        if (w.offer && S.player && dist(w, S.player.pos) > Config.monetization.superFreeze.walkAwayStuds) { w.offer = false; w.dazedUntil = Math.max(w.dazedUntil, S.time); emit('offerGone', { id: w.id }); }
+        if (!w.offer && S.time >= w.dazedUntil) { w.state = 'wild'; w.pose = null; }
         continue;
       }
+      if (S.player?.zap?.target === w.id) w.actionEnd += dt * (1 - Config.poses.zapSlowdown); // half speed while held
       if (S.time >= w.actionEnd) {
         const P = Config.poses;
         let next;
@@ -235,6 +278,7 @@ export function createServer(opts = {}) {
     const extra = Math.max(0, S.player.carrying.length - 1);
     return Config.player.walkSpeed * boots * Math.max(0.5, 1 - Config.upgrades.backpack.slowPerExtraCube * extra);
   }
+  function zoneOpen(zone) { return zone !== 2 || S.player.data.forestUnlocked; }
   function worldState() { return { iceBridgeActive: S.time < S.iceBridgeUntil, forestUnlocked: S.player.data.forestUnlocked }; }
   function cubeLifeMax(def) {
     return tierByName[def.tier].cubeLife * (1 + Config.upgrades.ray.lifeBonus * (S.player.data.upgrades.ray - 1));
@@ -253,15 +297,15 @@ export function createServer(opts = {}) {
     const p = S.player;
     if (S.time - p.lastFreezeAt < Config.player.freezeCooldown) return;
     if (target === 'bridge') {
-      if (dist(p.pos, iceBridgeCenter()) > Config.player.freezeRange + 2) return;
+      if (dist(p.pos, iceBridgeCenter(p.pos)) > Config.player.freezeRange + 2) return;
       p.zap = { target, start: S.time, hold: Config.player.freezeHold };
     } else if (target === 'gift') {
       if (dist(p.pos, World.giftBox) > Config.player.freezeRange) return;
       p.zap = { target, start: S.time, hold: Config.player.interactHold };
     } else {
       const w = S.wild.get(target);
-      if (!w || dist(p.pos, w) > Config.player.freezeRange + 1) return;
-      if (p.carrying.length >= capacity()) { emit('notYet', { reason: 'Backpack full', at: target }); return; }
+      if (!w || dist(p.pos, w) > Config.player.freezeRange + 1 || !zoneOpen(w.zone)) return;
+      if (p.carrying.length >= capacity()) { notYet('Backpack full', target); return; }
       p.zap = { target, start: S.time, hold: w.state === 'dazed' ? Config.player.refreezeHold : Config.player.freezeHold };
       AnalyticsSvc.funnel('first_zap');
     }
@@ -274,7 +318,7 @@ export function createServer(opts = {}) {
     if (S.time - p.zap.start < p.zap.hold - 0.1) return; // held too short: the client is early or lying
     p.zap = null; p.lastFreezeAt = S.time;
     if (target === 'bridge') {
-      if (dist(p.pos, iceBridgeCenter()) > Config.player.freezeRange * 1.5) return;
+      if (dist(p.pos, iceBridgeCenter(p.pos)) > Config.player.freezeRange * 1.5) return;
       const secs = Config.bridge.baseSeconds + Config.upgrades.ray.bridgeBonus * (p.data.upgrades.ray - 1);
       S.iceBridgeUntil = S.time + secs;
       emit('bridge', { until: S.iceBridgeUntil, seconds: secs });
@@ -282,14 +326,14 @@ export function createServer(opts = {}) {
     }
     if (target === 'gift') { claimGift(); return; }
     const w = S.wild.get(target);
-    if (!w || dist(p.pos, w) > Config.player.freezeRange * 1.3 || p.carrying.length >= capacity()) return;
+    if (!w || dist(p.pos, w) > Config.player.freezeRange * 1.3 || p.carrying.length >= capacity() || !zoneOpen(w.zone)) return;
     const def = petByKey[w.key];
     const pose = w.state === 'dazed' ? w.pose : w.action; // the pose at the moment the hold finished
     const mut = w.state === 'dazed' ? w.mut : (S.time < S.chill.until ? 'Frosty' : null);
     const lifeMax = cubeLifeMax(def);
     const cube = {
       uid: 'c' + S.nextId++, key: w.key, zone: w.zone, pose, mut, life: lifeMax, lifeMax,
-      superFrozen: false, superUsed: w.superUsed, since: S.time, carriedHome: false,
+      superFrozen: false, superUsed: w.superUsed, offered: !!w.offered, since: S.time, leftHub: false,
     };
     S.wild.delete(target);
     if (w.offer) emit('offerGone', { id: target });
@@ -320,15 +364,15 @@ export function createServer(opts = {}) {
     const w = {
       id, key: c.key, zone: c.zone, x: p.pos.x + Math.cos(a) * 3, z: p.pos.z + Math.sin(a) * 3, state: 'dazed',
       loopIdx: 0, action: 'idle', actionEnd: S.time + 1, wanderTo: null,
-      dazedUntil: S.time + Config.dazedSeconds, pose: c.pose, mut: c.mut, offer: false, superUsed: c.superUsed,
+      dazedUntil: S.time + Config.dazedSeconds, pose: c.pose, mut: c.mut, offer: false, offered: c.offered, superUsed: c.superUsed,
     };
     S.wild.set(id, w);
     p.data.stats.melts++;
     const home = penCenter();
     AnalyticsSvc.event('cube_melted', { pet: c.key, tier: def.tier, zone: c.zone, studsFromHome: Math.round(dist(p.pos, home)) });
     // Super Freeze offer: Rare and up, at most once per run, a small world button, no countdown
-    if (rankOf(def.tier) >= rankOf(Config.monetization.superFreeze.minTier) && !c.superUsed) {
-      w.offer = true;
+    if (rankOf(def.tier) >= rankOf(Config.monetization.superFreeze.minTier) && !c.superUsed && !c.offered) {
+      w.offer = true; w.offered = true; // at most once per run: the flag rides along through a free re-freeze
       AnalyticsSvc.event('offer_shown', { offer: 'super_freeze', pet: c.key, tier: def.tier });
     }
     emit('melted', { cubeUid: c.uid, petId: id, offer: w.offer });
@@ -342,16 +386,19 @@ export function createServer(opts = {}) {
     if (!w || w.state !== 'dazed' || !w.offer || dist(p.pos, w) > Config.monetization.superFreeze.walkAwayStuds) return;
     if (p.carrying.length >= capacity()) return;
     const def = petByKey[w.key];
-    const cube = {
-      uid: 'c' + S.nextId++, key: w.key, zone: w.zone, pose: w.pose, mut: w.mut, life: 1, lifeMax: 1,
-      superFrozen: true, superUsed: true, since: S.time, carriedHome: false,
-    };
+    const cube = superCube({ key: w.key, zone: w.zone, pose: w.pose, mut: w.mut });
     S.wild.delete(petId);
     p.carrying.push(cube);
+    p.data.superCubes.push({ key: cube.key, zone: cube.zone, pose: cube.pose, mut: cube.mut });
     AnalyticsSvc.event('offer_bought', { offer: 'super_freeze', robux: Config.monetization.superFreeze.robux });
-    save('purchase'); // granted and saved before PurchaseGranted
+    save('purchase'); // the paid cube is in the save before PurchaseGranted, so leaving or a crash never loses it
     emit('offerGone', { id: petId });
     emit('frozen', { petId, cube, superFrozen: true, tier: def.tier });
+  }
+
+  function superCube(r) {
+    return { uid: 'c' + S.nextId++, key: r.key, zone: r.zone, pose: r.pose, mut: r.mut, life: 1, lifeMax: 1,
+      superFrozen: true, superUsed: true, offered: true, since: S.time, leftHub: true };
   }
 
   // ---------- banking (PenService) ----------
@@ -360,14 +407,17 @@ export function createServer(opts = {}) {
     const p = S.player, d = p.data;
     const banked = [];
     for (const c of p.carrying) {
-      if (d.pets.length >= Config.penSlots) { emit('notYet', { reason: 'Pen full' }); break; }
+      if (d.pets.length >= Config.penSlots) { notYet('Pen full'); break; }
       const def = petByKey[c.key];
+      if (c.superFrozen) { const i = d.superCubes.findIndex((r) => r.key === c.key && r.pose === c.pose && r.mut === c.mut); if (i >= 0) d.superCubes.splice(i, 1); }
       d.pets.push({ key: c.key, pose: c.pose, mut: c.mut, at: nowMs() });
       const firstTime = !d.found[c.key];
       d.found[c.key] = true;
       d.stats.banked++;
       if (rankOf(def.tier) > d.rarest.rank) d.rarest = { rank: rankOf(def.tier), key: c.key, at: nowMs() };
+      if (rankOf(def.tier) >= (p.bestRank || 0)) { p.bestRank = rankOf(def.tier); d.lastBest = c.key; } // this session's best so far
       AnalyticsSvc.event('pet_banked', { pet: c.key, tier: def.tier, pose: c.pose, zone: c.zone, carrySeconds: Math.round(S.time - c.since) });
+      AnalyticsSvc.funnel('first_carry_home'); // a cube frozen right by the hub still counts as carried home, before the bank
       AnalyticsSvc.funnel('first_bank');
       if (rankOf(def.tier) >= 3) AnalyticsSvc.funnel('first_rare_pet');
       banked.push({ cube: c, income: petIncome(def, c.pose, c.mut), firstTime });
@@ -375,6 +425,7 @@ export function createServer(opts = {}) {
     p.carrying = p.carrying.slice(banked.length);
     if (!banked.length) return;
     if (!d.forestUnlocked && d.pets.length >= zoneById[2].gatePets) { d.forestUnlocked = true; emit('zoneUnlocked', { zone: 2 }); }
+    else if (!d.forestUnlocked && d.pets.length === zoneById[2].gatePets - 1) spawnPet(1, 'near'); // the last step comes a bit faster (goal gradient)
     save('bank');
     emit('banked', { banked, income: incomePerSecond() });
   }
@@ -383,11 +434,11 @@ export function createServer(opts = {}) {
   // SERVER
   function buyUpgrade(id) {
     const p = S.player;
-    if (!p || !rateOk() || typeof id !== 'string' || !Config.upgrades[id]) return;
+    if (!p || !rateOk() || typeof id !== 'string' || !Object.hasOwn(Config.upgrades, id)) return;
     const lvl = p.data.upgrades[id];
-    if (lvl >= Config.upgrades[id].maxLevel) { emit('notYet', { reason: 'Max level', at: id }); return; }
+    if (lvl >= Config.upgrades[id].maxLevel) { notYet('Max level', id); return; }
     const cost = upgradeCost(id, lvl + 1);
-    if (p.data.coins < cost) { emit('notYet', { reason: `Need ${Math.ceil(cost - p.data.coins)} more`, at: id }); return; }
+    if (p.data.coins < cost) { emit('notYet', { reason: `Need ${Math.ceil(cost - p.data.coins)} more`, at: id }); return; } // a button press: always answered
     p.data.coins -= cost; p.data.upgrades[id] = lvl + 1;
     AnalyticsSvc.funnel('first_coins_spent');
     save('upgrade');
@@ -395,7 +446,7 @@ export function createServer(opts = {}) {
   }
   function claimGift() {
     const g = giftState(); const d = S.player.data;
-    if (!g.ready) { emit('notYet', { reason: 'Next gift tomorrow', at: 'gift' }); return; }
+    if (!g.ready) { notYet(g.locked ? 'Bank a pet first' : 'Next gift tomorrow', 'gift'); return; }
     d.gift = { lastDay: dayId(nowMs()), streak: g.nextStreak };
     addCoins(g.coins);
     save('gift'); // grant and claim stamp in the same save
@@ -434,24 +485,34 @@ export function createServer(opts = {}) {
       rarestAt: i, weekCoins: Math.floor(500 + r() * 60000),
     }));
   }
+  // a score is written only after it's clamped to what is possible (OrderedDataStore needs an integer
+  // under 2^63 anyway): non-numbers become 0, and nobody freezes more than 1 pet a second since joining
+  function boardScore(v, max) { return typeof v === 'number' && isFinite(v) && v > 0 ? Math.floor(Math.min(v, max)) : 0; }
   function refreshBoards() {
-    S.rivals ||= makeRivals();
+    const wk = weekId(nowMs());
+    if (!S.rivals || S.rivalsWeek !== wk) { S.rivals = makeRivals(); S.rivalsWeek = wk; } // every board week starts fresh
     for (const rv of S.rivals) { rv.frozen += Math.floor(rng() * 3); rv.weekCoins += Math.floor(rng() * 400); }
-    const d = S.player.data;
-    const me = { name: opts.displayName || 'You', me: true, frozen: d.stats.frozen, rarest: d.rarest.rank, rarestAt: d.rarest.at, weekCoins: Math.floor(d.week.coins) };
+    const d = S.player.data, L = Config.leaderboards.limits;
+    const ageSeconds = Math.max(0, (nowMs() - (d.createdAt || nowMs())) / 1000);
+    const me = {
+      name: opts.displayName || 'You', me: true,
+      frozen: boardScore(d.stats.frozen, Math.min(L.frozen, Math.ceil(ageSeconds * L.freezesPerSecond) + 1)),
+      rarest: boardScore(d.rarest.rank, 7), rarestAt: d.rarest.at,
+      weekCoins: d.week.id === wk ? boardScore(d.week.coins, L.weekCoins) : 0,
+    };
     const all = [...S.rivals, me];
     const tierName = (rank) => Config.tiers.find((t) => t.rank === rank)?.name ?? '-';
     const build = (id, score, label) => {
       const sorted = [...all].sort((a, b) => score(b) - score(a) || (a.rarestAt - b.rarestAt));
       const rows = sorted.slice(0, Config.leaderboards.size).map((e, i) => ({ rank: i + 1, name: e.name ?? 'A player', score: label(e), me: !!e.me }));
       const myRank = sorted.findIndex((e) => e.me) + 1;
-      return { id, rows, me: { rank: myRank, score: label(me) } };
+      return { id, rows, me: { rank: myRank, score: score(me) > 0 ? label(me) : '' } };
     };
     S.boards = {
       pets_frozen: build('pets_frozen', (e) => e.frozen, (e) => e.frozen.toLocaleString()),
       rarest_pet: build('rarest_pet', (e) => e.rarest * 1e6 - (e.me ? 0 : 0), (e) => tierName(e.rarest)),
       coins_week: build('coins_week', (e) => e.weekCoins, (e) => e.weekCoins.toLocaleString()),
-      weekId: weekId(nowMs()),
+      weekId: wk,
     };
     S.boardsAt = S.time;
     emit('boards', S.boards);
@@ -459,15 +520,18 @@ export function createServer(opts = {}) {
 
   // ---------- movement replication + position check ----------
   // SERVER
-  function setPosition(x, z, dt) {
+  function setPosition(x, z) {
     const p = S.player;
-    if (!p || typeof x !== 'number' || typeof z !== 'number' || !isFinite(x) || !isFinite(z) || !(dt > 0)) return;
-    const maxStep = walkSpeed() * Math.min(dt, 0.25) * 1.6 + 0.6;
-    if (Math.hypot(x - p.pos.x, z - p.pos.z) > maxStep || !walkable(x, z, worldState())) {
+    if (!p || typeof x !== 'number' || typeof z !== 'number' || !isFinite(x) || !isFinite(z)) return;
+    // the budget refills with server time only, so sending more often or claiming a big time step gains nothing
+    const speed = walkSpeed(), elapsed = Math.max(0, S.time - p.posAt); p.posAt = S.time;
+    p.moveBudget = Math.min(speed * 0.5, p.moveBudget + speed * elapsed * 1.25);
+    const d = Math.hypot(x - p.pos.x, z - p.pos.z);
+    if (d > p.moveBudget + 0.05 || !pathWalkable(p.pos.x, p.pos.z, x, z, worldState())) {
       emit('correctPosition', { x: p.pos.x, z: p.pos.z });
       return;
     }
-    p.pos.x = x; p.pos.z = z;
+    p.moveBudget -= d; p.pos.x = x; p.pos.z = z;
   }
 
   function tickPlayerZone() {
@@ -478,9 +542,17 @@ export function createServer(opts = {}) {
       AnalyticsSvc.event('zone_entered', { zone: zone === 0 ? 'hub' : zoneById[zone].key });
       if (zone === 2) AnalyticsSvc.funnel('first_new_zone');
     }
-    if (p.carrying.length && inHub(p.pos.x, p.pos.z)) AnalyticsSvc.funnel('first_carry_home');
+    const hub = inHub(p.pos.x, p.pos.z);
+    const outside = p.pos.z > World.hub.zMax + Config.carryHomeMinStuds; // a real trip out, not a step over the hub line
+    for (const c of p.carrying) { if (outside) c.leftHub = true; else if (hub && c.leftHub) AnalyticsSvc.funnel('first_carry_home'); }
     if (p.carrying.length && inPen(p.pos.x, p.pos.z)) bankCubes();
     p.lastAction = p.zap ? 'zapping' : p.menuOpen ? 'in_menu' : p.carrying.length ? 'carrying' : inPen(p.pos.x, p.pos.z) ? 'in_pen' : 'exploring';
+  }
+
+  const notYetAt = {};
+  function notYet(reason, at) {
+    if (S.time - (notYetAt[reason] ?? -1e9) < Config.notYetCooldown) return; // standing in a full pen doesn't spam
+    notYetAt[reason] = S.time; emit('notYet', { reason, at });
   }
 
   let incomeCarry = 0;
@@ -494,17 +566,19 @@ export function createServer(opts = {}) {
   function join() {
     const { data, isNew } = load();
     S.player = {
-      data, pos: { ...World.spawn }, zone: 0, carrying: [], zap: null, lastFreezeAt: -9,
-      lastAction: 'exploring', menuOpen: false,
+      data, pos: { ...World.spawn }, zone: 0, carrying: data.superCubes.map(superCube), zap: null, lastFreezeAt: -9,
+      lastAction: 'exploring', menuOpen: false, posAt: S.time, moveBudget: 2,
     };
     S.session.start = S.time;
     const w = weekId(nowMs()); if (data.week.id !== w) data.week = { id: w, coins: 0 };
     AnalyticsSvc.funnel('joined');
     // first minute: a fluffy bunny right next to the spawn point
     if (data.stats.frozen === 0) spawnPet(1, { x: World.spawn.x + 4, z: World.spawn.z + Config.spawner.firstPetDistance }, 'snowbun');
-    // "a second and third pet are right there"; every other Meadow pet spawns further south
-    for (let i = data.pets.length + 1; i < Config.spawner.nearUntilPets; i++) spawnPet(1, 'near');
-    for (const z of World.zones) for (let i = 0; i < Config.spawner.maxPerZone - 2; i++) spawnPet(z.id);
+    // "a second and third pet are right there": every zone keeps a few in its near band from the start
+    for (const z of World.zones) {
+      while (nearCount(z.id) < Config.spawner.nearCount) if (!spawnPet(z.id, 'near')) break;
+      for (let i = 0; i < Config.spawner.maxPerZone - 2 - Config.spawner.nearCount; i++) spawnPet(z.id);
+    }
     checkWelcomeBack();
     refreshBoards();
     emit('joined', { isNew });
@@ -525,7 +599,11 @@ export function createServer(opts = {}) {
     if (!S.player) return;
     S.time += dt;
     tickWild(dt); tickSpawner(); tickCarry(dt); tickPlayerZone(); tickIncome(dt); tickChill();
-    if (S.iceBridgeUntil > 0 && S.time >= S.iceBridgeUntil) { S.iceBridgeUntil = -1; emit('bridge', { until: -1 }); }
+    if (S.iceBridgeUntil > 0 && S.time >= S.iceBridgeUntil) {
+      S.iceBridgeUntil = -1; emit('bridge', { until: -1 });
+      const p = S.player, bank = !onBridge(p.pos.x, false) && nearestBank(p.pos.x, p.pos.z);
+      if (bank) { p.pos.x = bank.x; p.pos.z = bank.z; emit('correctPosition', { x: bank.x, z: bank.z, splash: true }); } // never stuck in the river
+    }
     if (S.time - S.boardsAt >= Config.leaderboards.refreshSeconds) refreshBoards();
     if (S.time - S.lastSaveAt >= 10) { S.player.data.lastSeen = nowMs(); save(); }
   }
@@ -557,12 +635,13 @@ export function createServer(opts = {}) {
   // what the client is allowed to see (replicated state)
   function view() {
     const p = S.player; if (!p) return null;
+    const wild = new Map(); for (const [id, w] of S.wild) wild.set(id, { ...w });
     return {
-      time: S.time, coins: p.data.coins, income: incomePerSecond(), pos: p.pos, carrying: p.carrying,
-      capacity: capacity(), speed: walkSpeed(), upgrades: p.data.upgrades, pets: p.data.pets, found: p.data.found,
+      time: S.time, coins: p.data.coins, income: incomePerSecond(), pos: { ...p.pos }, carrying: p.carrying.map((c) => ({ ...c })),
+      capacity: capacity(), speed: walkSpeed(), upgrades: { ...p.data.upgrades }, pets: p.data.pets.map((x) => ({ ...x })), found: { ...p.data.found },
       forestUnlocked: p.data.forestUnlocked, iceBridgeActive: S.time < S.iceBridgeUntil, iceBridgeUntil: S.iceBridgeUntil,
-      chill: { active: S.time < S.chill.until, until: S.chill.until, next: S.chill.next }, wild: S.wild,
-      gift: giftState(), welcome: p.data.welcome, boards: S.boards, stats: p.data.stats, zap: p.zap,
+      chill: { active: S.time < S.chill.until, until: S.chill.until, next: S.chill.next }, wild,
+      gift: giftState(), welcome: p.data.welcome && { ...p.data.welcome }, boards: S.boards, stats: { ...p.data.stats }, zap: p.zap && { ...p.zap },
       pages: completedPages(p.data), dropped: S.dropped, zone: p.zone,
     };
   }

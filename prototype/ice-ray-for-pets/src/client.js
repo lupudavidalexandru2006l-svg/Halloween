@@ -6,7 +6,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { buildWorld } from './scenery.js';
-import { Config, Theme, World, PetDefs, petByKey, SizeHeight, CubeSize, zoneById } from './config.js';
+import { Config, Theme, World, PetDefs, petByKey, SizeHeight, CubeSize, zoneById, cubeSizeFactor, tierByName } from './config.js';
 import { walkable, dist, iceBridgeCenter, lightAt, zoneTemperature } from './world.js';
 
 export function createClient({ server, input, audio, hud, headless }) {
@@ -15,7 +15,7 @@ export function createClient({ server, input, audio, hud, headless }) {
   const hold = { target: null, t: 0, need: 1, sent: false };
   let target = null;
 
-  server.on('correctPosition', (p) => { me.x = p.x; me.z = p.z; });
+  server.on('correctPosition', (p) => { me.x = p.x; me.z = p.z; if (p.splash) { audio.play('melt'); hud.notYet('Splash! The ice bridge melted', null); } });
 
   // ---------------- logic (runs in headless bot mode too) ----------------
   // CLIENT
@@ -28,13 +28,17 @@ export function createClient({ server, input, audio, hud, headless }) {
     }
     const g = World.giftBox;
     if (v.gift.ready && Math.hypot(g.x - me.x, g.z - me.z) < range && Math.hypot(g.x - me.x, g.z - me.z) < bestD) best = { kind: 'gift', id: 'gift' };
-    const ib = iceBridgeCenter();
+    const ib = iceBridgeCenter(me);
     if (!v.iceBridgeActive && Math.hypot(ib.x - me.x, ib.z - me.z) < range + 2) best = best || { kind: 'bridge', id: 'bridge' };
     return best;
   }
   // CLIENT
   function step(dt) {
     const v = view(); if (!v) return;
+    if (hud.popupOpen) { // a menu is open: keys and buttons belong to the menu, the player stands still
+      if (hold.target) { if (!hold.sent) server.remotes.cancelZap(); hold.target = null; hold.t = 0; }
+      target = null; server.remotes.setPosition(me.x, me.z, dt); return;
+    }
     // movement (in Roblox the Humanoid does this; the server checks speed and position)
     const mv = input.state.move;
     const speed = v.speed;
@@ -43,9 +47,10 @@ export function createClient({ server, input, audio, hud, headless }) {
     if (!busy && (mv.x || mv.z)) {
       const nx = me.x + mv.x * speed * dt, nz = me.z + mv.z * speed * dt;
       if (walkable(nx, nz, st)) { me.x = nx; me.z = nz; }
-      else if (walkable(nx, me.z, st)) me.x = nx;
-      else if (walkable(me.x, nz, st)) me.z = nz;
-      else bumped(v);
+      else {
+        bumped(v); // the full step was blocked: at the locked gate this says what's missing
+        if (walkable(nx, me.z, st)) me.x = nx; else if (walkable(me.x, nz, st)) me.z = nz;
+      }
       me.facing = Math.atan2(mv.x, mv.z);
       me.walkPhase += dt * speed * 0.6;
     }
@@ -76,7 +81,7 @@ export function createClient({ server, input, audio, hud, headless }) {
     if (!v.forestUnlocked && Math.abs(me.z - g.z) < 4 && v.time - bumpAt > 1.5) {
       bumpAt = v.time;
       const need = zoneById[2].gatePets - v.pets.length;
-      hud.notYet(`Need ${need} more ${need === 1 ? 'pet' : 'pets'} in your pen`, worldToScreen(me.x, 4, me.z));
+      hud.notYet(`Need ${need} more ${need === 1 ? 'pet' : 'pets'}`, worldToScreen(me.x, 4, me.z));
       audio.play('no');
     }
   }
@@ -91,7 +96,7 @@ export function createClient({ server, input, audio, hud, headless }) {
   const LOW = Config.graphics.low;
   renderer.setPixelRatio(LOW ? 1 : Math.min(devicePixelRatio, 1.5));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.25;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
   renderer.shadowMap.enabled = !LOW; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0xe4f3ff, 150, 460);
@@ -102,8 +107,8 @@ export function createClient({ server, input, audio, hud, headless }) {
   addEventListener('resize', resize); resize();
 
   // light: a warm sun from the top left (it follows the player so shadows stay sharp nearby) + sky fill
-  scene.add(new THREE.HemisphereLight(0xe6f4ff, 0xc9d3e2, 1.05));
-  const sunLight = new THREE.DirectionalLight(0xfff0d8, 2.4);
+  scene.add(new THREE.HemisphereLight(0xdcefff, 0xd8cfc0, 1.1));
+  const sunLight = new THREE.DirectionalLight(0xffe4bd, 2.6);
   sunLight.castShadow = !LOW; sunLight.shadow.mapSize.set(Config.graphics.shadowMap, Config.graphics.shadowMap);
   Object.assign(sunLight.shadow.camera, { left: -45, right: 45, top: 45, bottom: -45, near: 1, far: 240 });
   sunLight.shadow.bias = -0.0004; sunLight.shadow.normalBias = 0.03; sunLight.shadow.radius = 4;
@@ -139,11 +144,18 @@ export function createClient({ server, input, audio, hud, headless }) {
     for (const px of [-w / 2 + 1, w / 2 - 1]) { const post = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.4, postH + 1, 8), std(color)); post.position.set(px, (postH + 1) / 2, 0.6); post.castShadow = true; g.add(post); }
     cb.mesh.position.set(0, postH + h / 2, 0); cb.mesh.rotation.y = Math.PI; g.add(cb.mesh);
     g.position.set(x, 0, z); scene.add(g);
+    cb.group = g;
     return cb;
   }
   const boards = World.boards.map((b) => framed(12, 15.5, 512, 660, b.x, b.z, 1.2, '#5b3fa8'));
-  const zoneSigns = World.zones.map((z) => ({ zone: z, cb: framed(10, 8.2, 512, 420, z.sign.x, z.sign.z, 1.6) }));
+  const zoneSigns = World.zones.map((z) => ({ zone: z, cb: framed(7.5, 6.2, 512, 420, z.sign.x, z.sign.z, 1.4) }));
+  World.boards.forEach((b, i) => W.blockers.push({ obj: boards[i].group, x: b.x, z: b.z, r: 6.5 }));
+  World.zones.forEach((z, i) => W.blockers.push({ obj: zoneSigns[i].cb.group, x: z.sign.x, z: z.sign.z, r: 4.5 }));
+  const beachSign = framed(9, 4.2, 512, 240, -16, World.beachGate.z - 1, 1.4, '#c98f2a');
+  beachSign.draw((c, w, h) => { boardText(c, w, h * 0.55, 'SUNNY BEACH', '#ff9f1c'); c.save(); c.translate(0, h * 0.5); boardText(c, w, h * 0.45, 'COMING SOON', '#3aa8ff'); c.restore(); });
+  W.blockers.push({ obj: beachSign.group, x: -16, z: World.beachGate.z - 1, r: 5 });
   const gateSign = canvasBoard(13, 3.6, 512, 140); gateSign.mesh.position.set(0, 14.2, World.gate.z - 1); gateSign.mesh.rotation.y = Math.PI; scene.add(gateSign.mesh);
+  W.blockers.push({ obj: gateSign.mesh, x: 0, z: World.gate.z - 1, r: 6.5 }); // the camera passes it on every trip through the gate
   { // the pen sign is painted on the floor: readable from the camera and never between it and the player
     const p = World.pen, sign = canvasBoard(12, 3, 512, 130); sign.draw((c, w, h) => boardText(c, w, h, 'YOUR PEN', '#ff9f1c'));
     sign.mesh.rotation.set(-Math.PI / 2, 0, Math.PI); sign.mesh.position.set(0, 0.42, p.zMin + 3.5); scene.add(sign.mesh);
@@ -160,6 +172,10 @@ export function createClient({ server, input, audio, hud, headless }) {
     giftBox.position.set(World.giftBox.x, 0, World.giftBox.z); scene.add(giftBox);
   }
   const giftLabel = canvasBoard(6.5, 1.7, 384, 100); giftLabel.mesh.position.set(World.giftBox.x, 5.6, World.giftBox.z); giftLabel.mesh.rotation.y = Math.PI; scene.add(giftLabel.mesh);
+  W.blockers.push({ obj: giftLabel.mesh, x: World.giftBox.x, z: World.giftBox.z, r: 3.5 });
+  // your pen's beacon: a soft light pillar that shows the way home while you carry a cube
+  const beacon = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.2, 70, 24, 1, true), new THREE.MeshBasicMaterial({ color: '#7dffb0', transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
+  beacon.position.set(0, 35, (World.pen.zMin + World.pen.zMax) / 2); scene.add(beacon);
 
   // ---------- player avatar: rounded blocks, a face, and the ice ray ----------
   const avatar = new THREE.Group(), avParts = {};
@@ -201,6 +217,14 @@ export function createClient({ server, input, audio, hud, headless }) {
   const modelPromises = PetDefs.filter((p) => p.model).map((p) => new Promise((res) => gltf.load(p.model, (g) => { g.scene.traverse((o) => { if (o.isMesh) { o.castShadow = true; } }); models[p.key] = g.scene; res(); }, undefined, () => res())));
   const ready = Promise.all(modelPromises);
 
+  const starGeo = new THREE.OctahedronGeometry(0.28), ringGeo = new THREE.PlaneGeometry(1, 1);
+  const frostMat = std('#ffffff', { emissive: '#bff1ff', emissiveIntensity: 1 });
+  const starMat = std('#ffffff', { emissive: '#bff1ff', emissiveIntensity: 0.8 });
+  function disposeVisual(g) { // shared geometry stays; per-object materials and the crack lines go
+    g.traverse((o) => { if (o.userData?.disposeMats) o.userData.disposeMats.forEach((m) => m.dispose()); });
+    if (g.userData?.cracks) { g.userData.cracks.geometry.dispose(); g.userData.cracks.material.dispose(); g.userData.iceMat.dispose(); g.userData.edges.material.dispose(); }
+    if (g.userData?.ringMat) g.userData.ringMat.dispose();
+  }
   function makePetVisual(key, opts = {}) {
     const def = petByKey[key], h = SizeHeight[def.size];
     const root = new THREE.Group(); const body = new THREE.Group(); root.add(body);
@@ -210,10 +234,16 @@ export function createClient({ server, input, audio, hud, headless }) {
       m.position.set(-c.x, -box.min.y, -c.z);
       const holder = new THREE.Group(); holder.add(m); holder.scale.setScalar(h / size.y); holder.rotation.y = Math.PI - 0.45;
       body.add(holder); root.userData.model = true;
-      if (opts.tint) holder.traverse((o) => { if (o.material) { o.material = o.material.clone(); o.material.color = new THREE.Color(opts.tint); } });
+      root.userData.disposeMats = [];
     } else {
-      const sm = new THREE.SpriteMaterial({ map: spriteTex[key], transparent: true, alphaTest: 0.3, color: opts.tint || 0xffffff, toneMapped: false });
+      const sm = new THREE.SpriteMaterial({ map: spriteTex[key], transparent: true, alphaTest: 0.3, toneMapped: false });
       const s = new THREE.Sprite(sm); s.center.set(0.5, 0.02); s.scale.set(h * 1.2, h * 1.2, 1); body.add(s); root.userData.sprite = s;
+      root.userData.disposeMats = [sm];
+    }
+    if (opts.frosty) { // Frosty mutation: snowflake sparkles circling the pet
+      const fx = new THREE.Group();
+      for (let i = 0; i < 4; i++) { const f = new THREE.Mesh(starGeo, frostMat); const a = (i / 4) * Math.PI * 2; f.position.set(Math.cos(a) * h * 0.55, h * (0.35 + 0.18 * (i % 2)), Math.sin(a) * h * 0.55); f.scale.setScalar(0.8); fx.add(f); }
+      root.add(fx); root.userData.frost = fx;
     }
     root.userData.h = h; root.userData.body = body;
     return root;
@@ -241,8 +271,8 @@ export function createClient({ server, input, audio, hud, headless }) {
   function makeCube(cube) {
     const def = petByKey[cube.key];
     const g = new THREE.Group();
-    const size = CubeSize[def.size] * (1 + Config.upgrades.ray.cubeSizeBonus * (view().upgrades.ray - 1));
-    const pet = makePetVisual(cube.key, { tint: cube.mut === 'Frosty' ? '#d4f1ff' : null });
+    const size = CubeSize[def.size] * cubeSizeFactor(view().upgrades.ray);
+    const pet = makePetVisual(cube.key, { frosty: cube.mut === 'Frosty' });
     pet.scale.setScalar((size * 0.8) / (pet.userData.h * 1.2)); pet.position.y = -size * 0.42; g.add(pet);
     applyPose(pet, cube.pose, 0, true);
     const iceMat = new THREE.MeshPhysicalMaterial({ color: cube.superFrozen ? '#5f8dff' : '#cdefff', roughness: 0.06, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.05,
@@ -251,7 +281,7 @@ export function createClient({ server, input, audio, hud, headless }) {
     const edges = new THREE.LineSegments(frameGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55 })); g.add(edges);
     const cracks = new THREE.LineSegments(crackGeo(), new THREE.LineBasicMaterial({ color: 0xffffff })); cracks.visible = false; g.add(cracks);
     ice.scale.setScalar(size); edges.scale.setScalar(size); cracks.scale.setScalar(size * 1.01);
-    g.userData = { size, ice, iceMat, cracks, pet, cube };
+    g.userData = { size, ice, iceMat, cracks, edges, pet, cube };
     return g;
   }
   function crackGeo() {
@@ -315,32 +345,36 @@ export function createClient({ server, input, audio, hud, headless }) {
       let e = wildVis.get(id);
       if (!e) {
         const def = petByKey[w.key];
-        const root = makePetVisual(w.key, { tint: w.mut === 'Frosty' ? '#d4f1ff' : null });
-        const ring = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: ringTex, color: Theme.tiers[def.tier], transparent: true, depthWrite: false, toneMapped: false }));
-        ring.rotation.x = -Math.PI / 2; ring.position.y = 0.12; ring.scale.setScalar(root.userData.h * 1.5);
-        const sh = blob(root.userData.h * 0.45);
+        const root = makePetVisual(w.key, { frosty: w.mut === 'Frosty' });
+        root.scale.setScalar(Config.look.wildPetScale);
+        const ringMat = new THREE.MeshBasicMaterial({ map: ringTex, color: Theme.tiers[def.tier], transparent: true, depthWrite: false, toneMapped: false });
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.rotation.x = -Math.PI / 2; ring.position.y = 0.12; ring.scale.setScalar(root.userData.h * 1.8);
+        const sh = blob(root.userData.h * 0.5);
         const stars = new THREE.Group();
-        for (let i = 0; i < 3; i++) { const s = new THREE.Mesh(new THREE.OctahedronGeometry(0.28), std('#ffffff', { emissive: '#bff1ff', emissiveIntensity: 0.8 })); s.position.set(Math.cos(i * 2.1) * 0.9, 0, Math.sin(i * 2.1) * 0.9); stars.add(s); }
-        stars.position.y = root.userData.h * 1.3; stars.visible = false;
-        const g = new THREE.Group(); g.add(root, ring, sh, stars); scene.add(g);
+        for (let i = 0; i < 3; i++) { const s = new THREE.Mesh(starGeo, starMat); s.position.set(Math.cos(i * 2.1) * 0.9, 0, Math.sin(i * 2.1) * 0.9); stars.add(s); }
+        stars.position.y = root.userData.h * 1.45; stars.visible = false;
+        const g = new THREE.Group(); g.add(root, ring, sh, stars); g.userData.ringMat = ringMat; scene.add(g);
         e = { g, root, ring, stars, born: t, actionStart: t, action: null, rare: RARE.includes(def.tier), tier: def.tier };
         wildVis.set(id, e);
       }
       e.g.position.set(w.x, 0, w.z);
       if (e.root.userData.model) e.root.rotation.y = Math.atan2(me.x - w.x, me.z - w.z) * 0.4; // models turn a little toward you
       if (w.action !== e.action) { e.action = w.action; e.actionStart = t; if (w.action === 'sneeze') burst(w.x, e.root.userData.h * 0.8, w.z, '#ffffff', 6, 3, 0.4); }
+      else if (hold.target?.id === id) e.actionStart += dtFrame * (1 - Config.poses.zapSlowdown); // held pets move at half speed
       const dazed = w.state === 'dazed';
       applyPose(e.root, dazed ? 'dazed' : w.action, t - e.actionStart, false);
       e.stars.visible = dazed; e.stars.rotation.y = t * 3;
-      e.ring.material.opacity = 0.6 + Math.sin(t * 4) * 0.25; e.ring.rotation.z = t * 0.5;
+      e.ring.material.opacity = 0.8 + Math.sin(t * 4) * 0.2; if (!Config.motion.reduced) e.ring.rotation.z = t * 0.5;
+      if (e.root.userData.frost) e.root.userData.frost.rotation.y = t * 1.5;
       if (e.rare && Math.random() < 0.03) burst(w.x + (Math.random() - 0.5) * 2, e.root.userData.h * Math.random(), w.z, Theme.tiers[e.tier], 1, 1.5, 0.6);
       const appear = Math.min(1, (t - e.born) / 0.25); e.g.scale.setScalar(appear < 1 ? appear * 1.08 : 1);
     }
-    for (const [id, e] of wildVis) if (!v.wild.has(id)) { scene.remove(e.g); wildVis.delete(id); }
+    for (const [id, e] of wildVis) if (!v.wild.has(id)) { scene.remove(e.g); disposeVisual(e.g); wildVis.delete(id); }
   }
   function syncCarried(v, t) {
     const ids = new Set(v.carrying.map((c) => c.uid));
-    for (const [uid, g] of carriedVis) if (!ids.has(uid)) { scene.remove(g); carriedVis.delete(uid); }
+    for (const [uid, g] of carriedVis) if (!ids.has(uid)) { scene.remove(g); disposeVisual(g); carriedVis.delete(uid); }
     let y = 2.2;
     v.carrying.forEach((c) => {
       let g = carriedVis.get(c.uid);
@@ -351,7 +385,7 @@ export function createClient({ server, input, audio, hud, headless }) {
       const size = g.userData.size * s;
       const behind = -1.4 - size / 2;
       const fx = Math.sin(me.facing), fz = Math.cos(me.facing);
-      g.position.set(me.x + fx * behind, y + size / 2 + Math.sin(me.walkPhase * 2) * 0.06, me.z + fz * behind);
+      g.position.set(me.x + fx * behind, y + size / 2 + (Config.motion.reduced ? 0 : Math.sin(me.walkPhase * 2) * 0.06), me.z + fz * behind);
       y += size + 0.12;
       g.scale.setScalar(s); g.rotation.y = me.facing;
       g.userData.cracks.visible = frac < 0.35;
@@ -365,7 +399,7 @@ export function createClient({ server, input, audio, hud, headless }) {
     const show = v.pets.slice(-30);
     while (penVis.length < show.length) {
       const p = show[penVis.length];
-      const root = makePetVisual(p.key, { tint: p.mut === 'Frosty' ? '#d4f1ff' : null });
+      const root = makePetVisual(p.key, { frosty: p.mut === 'Frosty' });
       const pp = World.pen;
       const x = pp.xMin + 2 + Math.random() * (pp.xMax - pp.xMin - 4), z = pp.zMin + 2 + Math.random() * (pp.zMax - pp.zMin - 6);
       const g = new THREE.Group(); g.add(root, blob(root.userData.h * 0.42)); g.position.set(x, 0.4, z); scene.add(g);
@@ -374,7 +408,7 @@ export function createClient({ server, input, audio, hud, headless }) {
     for (const e of penVis) {
       const age = t - e.born;
       applyPose(e.root, age < 1.2 ? 'dance' : e.pose, age < 1.2 ? age : (t + e.phase) % 2.5, age >= 1.2);
-      if (age >= 1.2) e.root.userData.body.position.y += Math.abs(Math.sin(t * 2 + e.phase)) * 0.15;
+      if (age >= 1.2 && !Config.motion.reduced) e.root.userData.body.position.y += Math.abs(Math.sin(t * 2 + e.phase)) * 0.15;
     }
   }
 
@@ -398,9 +432,9 @@ export function createClient({ server, input, audio, hud, headless }) {
       ctx.strokeStyle = '#6b5fb8'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(30, y - 22); ctx.lineTo(w - 30, y - 22); ctx.stroke();
       roundRect(ctx, 22, y - 8, w - 44, 44, 12); ctx.fillStyle = '#3ccf6e'; ctx.fill();
       // friendly: an exact rank only inside the top 100 (Game Psychology 10: no shaming low scores)
-      const rankText = data.me.rank <= 100 ? `You: #${data.me.rank}` : 'You: not in the top 100 yet';
+      const rankText = !data.me.score ? 'You: not on the board yet' : data.me.rank <= 100 ? `You: #${data.me.rank}` : 'You: not in the top 100 yet';
       ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.font = '700 26px Fredoka, sans-serif'; ctx.fillText(rankText, 34, y + 23);
-      ctx.textAlign = 'right'; ctx.fillText(data.me.score, w - 34, y + 23);
+      if (data.me.score) { ctx.textAlign = 'right'; ctx.fillText(data.me.score, w - 34, y + 23); } // nothing shown rather than a 0
       ctx.textAlign = 'center'; ctx.font = '500 19px Fredoka, sans-serif'; ctx.fillStyle = '#bfb6ff';
       ctx.fillText(def.kind === 'weekly' ? Config.leaderboards.cosmeticReward : 'Updates every minute', w / 2, h - 22);
     });
@@ -411,7 +445,7 @@ export function createClient({ server, input, audio, hud, headless }) {
       roundRect(ctx, 6, 6, w - 12, h - 12, 26); ctx.fillStyle = '#fff8ec'; ctx.fill(); ctx.lineWidth = 10; ctx.strokeStyle = Theme.ink; ctx.stroke();
       ctx.textAlign = 'center'; ctx.font = '700 40px Fredoka, sans-serif'; ctx.fillStyle = Theme.ink; ctx.fillText(zs.zone.name, w / 2, 56);
       const tc = zoneTemperature(zs.zone.id), unit = Config.temperature.unit, deg = unit === 'F' ? Math.round((tc * 9) / 5 + 32) : tc;
-      ctx.font = '600 22px Fredoka, sans-serif'; ctx.fillStyle = '#5a4f8a'; ctx.fillText(`${deg}°${unit} here  ·  shade is colder, sun is hotter`, w / 2, 88);
+      ctx.font = '600 26px Fredoka, sans-serif'; ctx.fillStyle = '#5a4f8a'; ctx.fillText(`${deg}°${unit}`, w / 2, 90);
       Config.tiers.forEach((t, i) => {
         const y = 128 + i * 40;
         ctx.fillStyle = Theme.tiers[t.name]; ctx.beginPath(); ctx.arc(60, y - 8, 12, 0, Math.PI * 2); ctx.fill(); ctx.lineWidth = 4; ctx.stroke();
@@ -428,25 +462,36 @@ export function createClient({ server, input, audio, hud, headless }) {
     burst(x, 2, z, superFrozen ? '#2f6bff' : '#ffffff', 22, 9); burst(x, 2, z, '#9fe8ff', 10, 6);
     audio.play('freeze');
   });
+  let pillarT = -1, pillarColor = '#ffffff';
   server.on('banked', ({ banked }) => {
     banked.forEach((b, i) => setTimeout(() => {
-      const p = World.pen; burst((p.xMin + p.xMax) / 2, 3, (p.zMin + p.zMax) / 2, '#bfe9ff', 22, 10, 0.8); burst((p.xMin + p.xMax) / 2, 3, (p.zMin + p.zMax) / 2, '#ffd34a', 12, 8, 0.9);
-      const tier = petByKey[b.cube.key].tier;
-      audio.play(RARE.includes(tier) ? 'reveal_rare' : 'bank');
+      const p = World.pen, cx = (p.xMin + p.xMax) / 2, cz = (p.zMin + p.zMax) / 2;
+      const def = petByKey[b.cube.key], rank = tierByName[def.tier].rank, big = rank >= 4; // Epic and up get the show
+      const n = Config.motion.reduced ? 8 : 12 + rank * 6;
+      burst(cx, 3, cz, '#bfe9ff', n, 10, 0.8); burst(cx, 3, cz, big ? Theme.tiers[def.tier] : '#ffd34a', n, 8 + rank, 0.9 + rank * 0.1);
+      audio.play(rank >= 3 ? 'reveal_rare' : 'bank', rank);
+      if (big) { pillarT = 0; pillarColor = Theme.tiers[def.tier]; hud.showBanner(`${def.tier.toUpperCase()}! ${def.name}`, 'tier-' + def.tier.toLowerCase(), 3); }
       hud.floatAt(`+${fmt(b.income)}/s`, worldToScreen(me.x, 6, me.z), '#ffd34a');
     }, i * 250));
   });
+  const pillar = new THREE.Mesh(new THREE.CylinderGeometry(4, 6, 60, 24, 1, true), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
+  pillar.position.set(0, 30, (World.pen.zMin + World.pen.zMax) / 2); scene.add(pillar);
   server.on('melted', () => { audio.play('melt'); burst(me.x, 3, me.z, '#bfe9ff', 16, 6); });
-  server.on('bridge', ({ until }) => { if (until > 0) { audio.play('bridge'); const c = iceBridgeCenter(); burst(c.x, 1, c.z + 8, '#bfe9ff', 30, 10); } });
+  server.on('bridge', ({ until }) => { if (until > 0) { audio.play('bridge'); const c = iceBridgeCenter(me); burst(c.x, 1, (World.river.zMin + World.river.zMax) / 2, '#bfe9ff', 30, 10); } });
   server.on('zoneUnlocked', () => { audio.play('unlock'); burst(0, 8, World.gate.z, '#3ccf6e', 40, 14, 1.2); });
   server.on('giftClaimed', () => { audio.play('gift'); burst(World.giftBox.x, 3, World.giftBox.z, '#ffd34a', 30, 10, 1); });
 
   // ---------- frame ----------
   const camPos = new THREE.Vector3(me.x, Config.camera.height, me.z - Config.camera.back);
-  let t = 0;
+  const camLook = new THREE.Vector3(me.x, 1, me.z + Config.camera.lookAhead);
+  let carryBlend = 0;
+  // a small diamond over the nearest pet you can freeze, while your hands are free (the world teaches)
+  const marker = new THREE.Mesh(new THREE.OctahedronGeometry(0.55, 0), std('#ffffff', { emissive: '#ffffff', emissiveIntensity: 0.6 }));
+  marker.scale.set(1, 1.5, 1); scene.add(marker);
+  let t = 0, dtFrame = 0;
   function render(dt) {
     const v = view(); if (!v) return;
-    t += dt;
+    t += dt; dtFrame = dt;
     // avatar
     avatar.position.set(me.x, 0, me.z); avatar.rotation.y = me.facing;
     const moving = input.state.move.x || input.state.move.z;
@@ -455,15 +500,22 @@ export function createClient({ server, input, audio, hud, headless }) {
     avParts.armR.rotation.x = hold.target ? -1.45 : sw;
     avParts.torso.position.y = 3 + (moving ? Math.abs(Math.sin(me.walkPhase)) * 0.12 : Math.sin(t * 2) * 0.03);
     avParts.gunTip.material.emissiveIntensity = hold.target ? 2.5 + Math.sin(t * 30) : 1.2;
-    // camera: behind and above, looking south toward the next zone
-    const want = new THREE.Vector3(me.x, Config.camera.height, me.z - Config.camera.back);
+    // camera: behind and above, looking south toward the next zone; while carrying it rises and looks
+    // down more, so the way home and your pen's beacon are in view (no sudden 180 degree swing)
+    const C = Config.camera, K = C.carry;
+    carryBlend += ((v.carrying.length ? 1 : 0) - carryBlend) * Math.min(1, dt * 1.5);
+    const ch = C.height + (K.height - C.height) * carryBlend, cb = C.back + (K.back - C.back) * carryBlend, cl = C.lookAhead + (K.lookAhead - C.lookAhead) * carryBlend;
+    const want = new THREE.Vector3(me.x, ch, me.z - cb);
     camPos.lerp(want, 1 - Math.pow(0.001, dt));
-    camera.position.copy(camPos); camera.lookAt(me.x, 1, me.z + Config.camera.lookAhead);
+    camLook.lerp(new THREE.Vector3(me.x, 1, me.z + cl), 1 - Math.pow(0.001, dt));
+    camera.position.copy(camPos); camera.lookAt(camLook);
+    beacon.material.opacity = v.carrying.length ? 0.22 + (Config.motion.reduced ? 0 : Math.sin(t * 3) * 0.06) : Math.max(0, beacon.material.opacity - dt);
+    if (pillarT >= 0) { pillarT += dt; pillar.material.color.set(pillarColor); pillar.material.opacity = Math.max(0, 0.55 * (1 - pillarT / 2.2)); pillar.scale.x = pillar.scale.z = 1 + pillarT * 0.3; if (pillarT > 2.2) pillarT = -1; }
     sunLight.position.set(me.x + SUN_OFFSET.x, SUN_OFFSET.y, me.z + 18 + SUN_OFFSET.z); sunLight.target.position.set(me.x, 0, me.z + 18);
     syncWild(v, t); syncCarried(v, t); syncPen(v, t); tickParticles(dt);
     // ray beam while zapping
     if (hold.target && hold.target.kind !== 'gift') {
-      const tp = hold.target.kind === 'bridge' ? iceBridgeCenter() : (v.wild.get(hold.target.id) || {});
+      const tp = hold.target.kind === 'bridge' ? iceBridgeCenter(me) : (v.wild.get(hold.target.id) || {});
       if (tp.x !== undefined) {
         const a = new THREE.Vector3(); avParts.gunTip.getWorldPosition(a); const b = new THREE.Vector3(tp.x, 1.4, tp.z);
         beam.visible = true; beam.position.copy(a).add(b).multiplyScalar(0.5); beam.scale.set(1, a.distanceTo(b), 1);
@@ -475,23 +527,29 @@ export function createClient({ server, input, audio, hud, headless }) {
     let goal = null;
     if (v.carrying.length) goal = { x: 0, z: (World.pen.zMin + World.pen.zMax) / 2 };
     else if (v.pets.length < 3) { let bd = 1e9; for (const w of v.wild.values()) { const d = dist(w, me); if (d < bd && w.zone === 1) { bd = d; goal = w; } } }
-    arrowG.visible = !!goal && !(goal && dist(goal, me) < 6);
-    if (goal) { const ang = Math.atan2(goal.x - me.x, goal.z - me.z); arrowG.position.set(me.x + Math.sin(ang) * 4.5, 0.5 + Math.abs(Math.sin(t * 4)) * 0.35, me.z + Math.cos(ang) * 4.5); arrowG.rotation.y = ang; }
+    arrowG.visible = !!goal && !(goal && dist(goal, me) < 8); // 6.5 studs out, so the avatar never hides it from the camera
+    // the chevron's tip is modelled along -z, so it turns a half turn more to point at the goal
+    if (goal) { const ang = Math.atan2(goal.x - me.x, goal.z - me.z); arrowG.position.set(me.x + Math.sin(ang) * 6.5, 0.5 + (Config.motion.reduced ? 0.15 : Math.abs(Math.sin(t * 4)) * 0.35), me.z + Math.cos(ang) * 6.5); arrowG.rotation.y = ang + Math.PI; }
+    let mk = null;
+    if (!v.carrying.length && !hold.target) { let bd = 45; for (const w of v.wild.values()) { if (w.zone === 2 && !v.forestUnlocked) continue; const d = dist(w, me); if (d < bd && d > Config.player.freezeRange) { bd = d; mk = w; } } }
+    marker.visible = !!mk && !arrowG.visible;
+    if (mk) { const h = SizeHeight[petByKey[mk.key].size] * Config.look.wildPetScale; marker.position.set(mk.x, h * 1.6 + 1 + (Config.motion.reduced ? 0 : Math.sin(t * 3) * 0.3), mk.z); marker.rotation.y = t * (Config.motion.reduced ? 0 : 1.5); marker.material.emissive.set(Theme.tiers[petByKey[mk.key].tier]); }
     // world state
-    W.update(dt, t); W.clearView({ x: camera.position.x, z: camera.position.z }, me);
+    W.update(dt, t); W.clearView({ x: camera.position.x, z: camera.position.z }, me, dt);
     W.iceBridge.visible = v.iceBridgeActive; if (v.iceBridgeActive) W.iceSpot.material.opacity = 0.25;
     if (v.iceBridgeActive) { const left = v.iceBridgeUntil - v.time; W.iceBridge.material.opacity = left < 4 && Math.sin(t * 12) > 0 ? 0.35 : 0.8; }
     W.gateBars.position.y += ((v.forestUnlocked ? -9 : 0) - W.gateBars.position.y) * Math.min(1, dt * 3);
     snow.visible = v.chill.active; if (snow.visible) { snow.position.set(me.x, 0, me.z); const a = snow.geometry.attributes.position; for (let i = 0; i < a.count; i++) { let y = a.getY(i) - dt * 8; if (y < 0) y += 40; a.setY(i, y); } a.needsUpdate = true; }
     scene.fog.color.set(v.chill.active ? 0xf4fbff : 0xe4f3ff);
-    giftBox.rotation.y = v.gift.ready ? Math.sin(t * 2) * 0.15 : 0; giftBox.position.y = v.gift.ready ? Math.abs(Math.sin(t * 3)) * 0.6 : 0;
+    const bob = v.gift.ready && !Config.motion.reduced;
+    giftBox.rotation.y = bob ? Math.sin(t * 2) * 0.15 : 0; giftBox.position.y = bob ? Math.abs(Math.sin(t * 3)) * 0.6 : 0;
     // boards and signs (redrawn only when their data changes)
     if (v.boards && v.boards !== lastBoards) { lastBoards = v.boards; Config.leaderboards.boards.forEach((b, i) => drawBoard(boards[i], b, v.boards[b.id])); }
     if (t - signAt > 3 || lastUnit !== Config.temperature.unit) { signAt = t; lastUnit = Config.temperature.unit; zoneSigns.forEach(drawZoneSign); }
     const gateKey = v.forestUnlocked ? 'open' : v.pets.length;
     if (gateKey !== lastGate) { lastGate = gateKey; gateSign.draw((c, w, h) => boardText(c, w, h, v.forestUnlocked ? 'PINE FOREST' : `${v.pets.length} / ${zoneById[2].gatePets} pets in pen`, v.forestUnlocked ? '#3ccf6e' : '#3aa8ff')); }
-    const giftKey = v.gift.ready ? 'ready' : 'later';
-    if (giftKey !== lastGift) { lastGift = giftKey; giftLabel.draw((c, w, h) => boardText(c, w, h, v.gift.ready ? 'DAILY GIFT' : 'NEXT GIFT TOMORROW', v.gift.ready ? '#ff5a8a' : '#9aa5b1')); }
+    const giftKey = v.gift.locked ? 'locked' : v.gift.ready ? 'ready' : 'later';
+    if (giftKey !== lastGift) { lastGift = giftKey; giftLabel.mesh.visible = !v.gift.locked; if (!v.gift.locked) giftLabel.draw((c, w, h) => boardText(c, w, h, v.gift.ready ? 'DAILY GIFT' : 'NEXT GIFT TOMORROW', v.gift.ready ? '#ff5a8a' : '#9aa5b1')); }
     renderer.render(scene, camera);
   }
 

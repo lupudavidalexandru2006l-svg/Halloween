@@ -20,6 +20,7 @@ local EventService = require(script.Parent.EventService)
 
 local FreezeService = {}
 local lastFreeze: { [Player]: number } = {}
+local holding: { [Player]: string } = {} -- the pet each player is holding Freeze on (it acts at half speed)
 local bridgeUntil = 0
 
 local function inRange(player: Player, pos: Vector3, extra: number): boolean
@@ -33,15 +34,30 @@ function FreezeService.onHoldBegan(player: Player, id: string)
 		return
 	end
 	PlayerTracker.setZapping(player, true)
+	if holding[player] then
+		WildPetSpawner.setHeld(holding[player], false)
+	end
+	holding[player] = id
+	WildPetSpawner.setHeld(id, true)
 	AnalyticsSvc.funnel(player, "first_zap")
+end
+
+local function release(player: Player)
+	local id = holding[player]
+	if id then
+		holding[player] = nil
+		WildPetSpawner.setHeld(id, false)
+	end
 end
 
 function FreezeService.onHoldEnded(player: Player, _id: string)
 	PlayerTracker.setZapping(player, false)
+	release(player)
 end
 
 function FreezeService.onPetTriggered(player: Player, id: string)
 	PlayerTracker.setZapping(player, false)
+	release(player)
 	local data = DataService.get(player)
 	local pet = WildPetSpawner.get(id)
 	if not data or not pet then
@@ -66,7 +82,7 @@ function FreezeService.onPetTriggered(player: Player, id: string)
 	lastFreeze[player] = os.clock()
 	local pose = if pet.state == "dazed" then pet.pose or "idle" else pet.action -- the pose when the hold finished
 	local mut = if pet.state == "dazed" then pet.mut elseif EventService.isChill() then "Frosty" else nil
-	local info = { key = pet.def.key, zone = pet.zone, pose = pose, mut = mut, superFrozen = false, superUsed = pet.superUsed }
+	local info = { key = pet.def.key, zone = pet.zone, pose = pose, mut = mut, superFrozen = false, superUsed = pet.superUsed, offered = pet.offered }
 	local at = pet.root.Position
 	WildPetSpawner.remove(id)
 	CarryService.addCube(player, info)
@@ -79,7 +95,7 @@ end
 
 local function onBridge(player: Player)
 	local data = DataService.get(player)
-	if not data or not inRange(player, WorldRules.iceBridgeCenter(), 3) then
+	if not data or not inRange(player, WorldRules.iceBridgeCenter(PlayerTracker.position(player)), 3) then
 		return
 	end
 	local secs = Config.bridge.baseSeconds + Config.upgrades.ray.bridgeBonus * (data.upgrades.ray - 1)
@@ -91,8 +107,7 @@ end
 function FreezeService.Init() end
 
 function FreezeService.Start()
-	local bp = WorldService.bridgePrompt
-	if bp then
+	for _, bp in WorldService.bridgePrompts do
 		bp.Triggered:Connect(onBridge)
 	end
 	-- every pet prompt goes through here; the gift box prompt belongs to PenService
@@ -116,6 +131,7 @@ function FreezeService.Start()
 	end)
 	Players.PlayerRemoving:Connect(function(p)
 		lastFreeze[p] = nil
+		release(p)
 	end)
 	task.spawn(function()
 		while true do
@@ -123,6 +139,15 @@ function FreezeService.Start()
 			if bridgeUntil > 0 and os.clock() >= bridgeUntil then
 				bridgeUntil = 0
 				WorldService.setIceBridge(false)
+				-- anyone still on the ice lands on the nearest bank: never stuck in the river (prototype QA, PT-03)
+				for _, p in Players:GetPlayers() do
+					local root = PlayerTracker.rootPart(p)
+					local bank = root and WorldRules.nearestBank(root.Position)
+					if root and bank then
+						root.CFrame = CFrame.new(bank) * root.CFrame.Rotation
+						Remotes.fire(p, "Notify", "splash", {})
+					end
+				end
 			end
 		end
 	end)

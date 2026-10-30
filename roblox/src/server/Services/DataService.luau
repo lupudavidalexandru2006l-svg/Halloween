@@ -9,6 +9,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
+local PetDefs = require(ReplicatedStorage.Shared.PetDefs)
 
 export type PetEntry = { key: string, pose: string, mut: string?, at: number }
 export type Data = {
@@ -26,6 +27,7 @@ export type Data = {
 	funnel: { [string]: boolean },
 	forestUnlocked: boolean,
 	superFreezeCharges: number,
+	superCubes: { { key: string, pose: string, mut: string? } }, -- bought Super Freeze cubes not yet banked (back on your back after a rejoin)
 	receipts: { string },
 	createdAt: number,
 	lock: { job: string, t: number }?,
@@ -56,26 +58,91 @@ local function defaults(): Data
 		funnel = {},
 		forestUnlocked = false,
 		superFreezeCharges = 0,
+		superCubes = {},
 		receipts = {},
 		createdAt = os.time(),
 		lock = nil,
 	}
 end
 
--- old saves get new fields; future versions migrate here
+-- Every field is type- and range-checked on load, so a damaged or old save can't break the join or
+-- carry impossible values (prototype QA, CA-11). Old saves get new fields from the defaults.
+local function num(v: any, lo: number, hi: number, default: number?): number
+	if typeof(v) == "number" and v == v and v > -math.huge and v < math.huge then
+		return math.clamp(v, lo, hi)
+	end
+	return default or lo
+end
+local function int(v: any, lo: number, hi: number, default: number?): number
+	return math.floor(num(v, lo, hi, default))
+end
+local function str(v: any, maxLen: number): string
+	return if typeof(v) == "string" and #v <= maxLen then v else ""
+end
+local function tbl(v: any): { [any]: any }
+	return if typeof(v) == "table" then v else {}
+end
+local function knownPose(v: any): string
+	return if typeof(v) == "string" and Config.poses[v] then v else "idle"
+end
+local function knownMut(v: any): string?
+	return if typeof(v) == "string" and Config.mutations[v] then v else nil
+end
+
 local function migrate(old: any): Data
 	local d = defaults()
 	if typeof(old) ~= "table" then
 		return d
 	end
-	for k, v in old do
-		if typeof(v) == "table" and typeof((d :: any)[k]) == "table" and k ~= "pets" and k ~= "receipts" then
-			for k2, v2 in v do
-				(d :: any)[k][k2] = v2
-			end
-		else
-			(d :: any)[k] = v
+	d.coins = num(old.coins, 0, 1e15)
+	for _, p in tbl(old.pets) do
+		if #d.pets >= Config.penSlots then
+			break
 		end
+		if typeof(p) == "table" and typeof(p.key) == "string" and PetDefs.get(p.key) then
+			table.insert(d.pets, { key = p.key, pose = knownPose(p.pose), mut = knownMut(p.mut), at = num(p.at, 0, 1e12) })
+		end
+	end
+	for _, id in Config.upgradeIds do
+		d.upgrades[id] = int(tbl(old.upgrades)[id], 1, Config.upgrades[id].maxLevel, 1)
+	end
+	for k, v in tbl(old.found) do
+		if typeof(k) == "string" and v == true and PetDefs.get(k) then
+			d.found[k] = true
+		end
+	end
+	local st = tbl(old.stats)
+	d.stats = { frozen = num(st.frozen, 0, 1e15), banked = num(st.banked, 0, 1e15), melts = num(st.melts, 0, 1e15), coinsEarned = num(st.coinsEarned, 0, 1e15) }
+	local ra = tbl(old.rarest)
+	d.rarest = { rank = int(ra.rank, 0, 7), key = if typeof(ra.key) == "string" and PetDefs.get(ra.key) then ra.key else nil, at = num(ra.at, 0, 1e12) }
+	local wk = tbl(old.week)
+	d.week = { id = str(wk.id, 10), coins = num(wk.coins, 0, Config.leaderboards.limits.weekCoins) }
+	d.lastSeen = num(old.lastSeen, 0, 1e12)
+	if typeof(old.welcome) == "table" then
+		d.welcome = { coins = math.floor(num(old.welcome.coins, 0, 1e15)), awaySeconds = num(old.welcome.awaySeconds, 0, 1e9), capped = old.welcome.capped == true }
+	end
+	local g = tbl(old.gift)
+	d.gift = { lastDay = str(g.lastDay, 10), streak = int(g.streak, 0, Config.dailyGift.streakMax) }
+	for _, step in Config.analytics.funnel do
+		if tbl(old.funnel)[step.name] == true then
+			d.funnel[step.name] = true
+		end
+	end
+	d.forestUnlocked = old.forestUnlocked == true
+	d.superFreezeCharges = int(old.superFreezeCharges, 0, 999)
+	for _, c in tbl(old.superCubes) do
+		if #d.superCubes < 5 and typeof(c) == "table" and typeof(c.key) == "string" and PetDefs.get(c.key) then
+			table.insert(d.superCubes, { key = c.key, pose = knownPose(c.pose), mut = knownMut(c.mut) })
+		end
+	end
+	for _, r in tbl(old.receipts) do
+		if typeof(r) == "string" and #r <= 64 and #d.receipts < Config.data.receiptsKept then
+			table.insert(d.receipts, r)
+		end
+	end
+	d.createdAt = num(old.createdAt, 0, 1e12, os.time())
+	if typeof(old.lock) == "table" and typeof(old.lock.job) == "string" then
+		d.lock = { job = old.lock.job, t = num(old.lock.t, 0, 1e12) }
 	end
 	d.version = Config.version
 	return d

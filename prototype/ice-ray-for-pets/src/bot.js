@@ -1,26 +1,31 @@
 // TEST TOOL (CLIENT side): the playtest bot (?bot=1). Plays like a focused kid through the same
 // input signals a player uses: nearest pet -> freeze -> carry home -> buy when affordable -> next zone.
 // It never buys anything with Robux, so it measures the free player's grind.
-import { Config, World, upgradeCost } from './config.js';
+import { Config, World, upgradeCost, petByKey, tierByName } from './config.js';
 import { dist, penCenter } from './world.js';
 
-export function createBot({ server, client, input }) {
+export function createBot({ server, client, input, hud }) {
   const R = World.river, G = World.gate, BX = (World.mainBridge.xMin + World.mainBridge.xMax) / 2;
+  const IX = (World.iceBridgeSpot.xMin + World.iceBridgeSpot.xMax) / 2;
+  let crossX = BX, skipIceUntil = -1;
   let stuckT = 0, lastPos = null, jiggle = null;
   const side = (z) => (z < R.zMin - 0.5 ? 0 : z < G.z ? 1 : 2);
   function waypoint(me, goal) {
     const a = side(me.z), b = side(goal.z);
     if (a === b) return goal;
     if (a < b) {
-      if (a === 0) return Math.abs(me.x - BX) > 2 || me.z < R.zMin - 4 ? { x: BX, z: R.zMin - 3 } : { x: BX, z: R.zMax + 3 };
+      if (a === 0) return Math.abs(me.x - crossX) > 2 || me.z < R.zMin - 4 ? { x: crossX, z: R.zMin - 3 } : { x: crossX, z: R.zMax + 3 };
       return Math.abs(me.x) > 3 ? { x: 0, z: G.z - 4 } : { x: 0, z: G.z + 4 };
     }
     if (a === 2) return Math.abs(me.x) > 3 ? { x: 0, z: G.z + 4 } : { x: 0, z: G.z - 4 };
-    return Math.abs(me.x - BX) > 2 || me.z > R.zMax + 4 ? { x: BX, z: R.zMax + 3 } : { x: BX, z: R.zMin - 3 };
+    return Math.abs(me.x - crossX) > 2 || me.z > R.zMax + 4 ? { x: crossX, z: R.zMax + 3 } : { x: crossX, z: R.zMin - 3 };
   }
   function step(dt) {
     const v = server.view(); if (!v) return;
     const me = client.me;
+    if (hud?.popupOpen) hud.close(); // a kid taps Yay / Collect / X
+    // cross on the ice bridge when it's up (or freeze it from the spot on this bank), else the long way
+    crossX = v.iceBridgeActive ? IX : BX;
     if (v.welcome) server.remotes.collectWelcome();
     // buy the cheapest upgrade it can afford (a kid taps Shop when the red "!" shows)
     const opts = ['ray', 'boots', 'backpack'].filter((id) => v.upgrades[id] < Config.upgrades[id].maxLevel)
@@ -31,7 +36,8 @@ export function createBot({ server, client, input }) {
     const low = cubes.some((c) => !c.superFrozen && c.life / c.lifeMax < 0.45);
     let goal = null, wantInteract = false;
     const candidates = [...v.wild.values()].filter((w) => w.zone === 1 || v.forestUnlocked);
-    const score = (w) => dist(w, me) - (v.forestUnlocked && w.zone === 2 ? 120 : 0) - (w.state === 'dazed' ? 200 : 0);
+      // once the Forest is open a kid goes there (new pets, 4x income); and a kid goes for the glow: each tier above Common is worth 45 studs of extra walking
+    const score = (w) => dist(w, me) - (v.forestUnlocked && w.zone === 2 ? 400 : 0) - (w.state === 'dazed' ? 200 : 0) - 45 * (tierByName[petByKey[w.key].tier].rank - 1);
     candidates.sort((a, b) => score(a) - score(b));
     const near = candidates[0];
     if (cubes.length && (cubes.length >= v.capacity || low || !near || dist(near, me) > 60)) {
@@ -39,6 +45,13 @@ export function createBot({ server, client, input }) {
     } else if (near) {
       goal = near;
       if (dist(near, me) < Config.player.freezeRange - 1.5) { wantInteract = true; goal = null; }
+    }
+    // crossing the river with the bridge down: freeze it from the spot on this bank when that's on the way
+    if (goal && !v.iceBridgeActive && v.time > skipIceUntil && side(me.z) !== side(goal.z) && (side(me.z) === 0 || side(goal.z) === 0)) {
+      const spot = me.z < R.zMin ? { x: IX, z: R.zMin - 2 } : { x: IX, z: R.zMax + 2 };
+      if (client.target?.kind === 'bridge') { wantInteract = true; goal = null; }
+      else if (dist(spot, me) < 2.5) skipIceUntil = v.time + 15; // a pet is in the way of the prompt: take the long way this time
+      else if (dist(spot, me) < dist({ x: BX, z: spot.z }, me)) goal = spot;
     }
     // keep holding while a zap is in progress
     if (client.hold.target && !client.hold.sent) { wantInteract = true; goal = null; }

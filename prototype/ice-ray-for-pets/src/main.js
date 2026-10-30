@@ -25,35 +25,38 @@ const audio = createAudio();
 const input = createInput();
 const server = createServer({ seed: q.get('seed') ? +q.get('seed') : undefined, displayName: 'You' });
 const hud = createHud({ server, input, audio });
-server.join();
-const client = createClient({ server, input, audio, hud, headless: HEADLESS });
-hud.setClient(client);
-const bot = BOT ? createBot({ server, client, input }) : null;
-
-// ---------- timer panel (T): the grind budget in numbers ----------
+// ---------- timer panel (T): the grind budget in numbers (listening before join, so "joined" is counted) ----------
 const marks = {}; const counts = { upgrades: 0 };
 const T = () => server.view()?.time ?? 0;
 server.on('analytics', (a) => {
   if (a.kind === 'funnel' && !(a.name in marks)) { marks[a.name] = T(); if (BOT) console.log(`[bot] ${a.name} at ${T().toFixed(1)}s game time`); }
 });
+server.on('banked', () => { const n = server.view().pets.length; for (const k of [8, 12, 15, 20, 25, 30]) if (n >= k && !(`pets_${k}` in marks)) { marks[`pets_${k}`] = T(); if (BOT) console.log(`[bot] ${k} pets at ${T().toFixed(1)}s`); } });
 server.on('upgraded', ({ id, level }) => { counts.upgrades++; if (BOT) console.log(`[bot] upgrade ${id} -> ${level} at ${T().toFixed(1)}s`); });
 server.on('zoneUnlocked', () => { marks.forest_unlocked = T(); if (BOT) console.log(`[bot] Pine Forest unlocked at ${T().toFixed(1)}s`); });
+server.join();
+if (q.get('fresh') === '1') history.replaceState(null, '', location.pathname + location.search.replace(/([?&])fresh=1&?/, '$1').replace(/[?&]$/, '')); // a later refresh keeps your progress
+const client = createClient({ server, input, audio, hud, headless: HEADLESS });
+hud.setClient(client);
+const bot = BOT ? createBot({ server, client, input, hud }) : null;
 const panel = document.getElementById('panel');
 const kid = (s) => (s === undefined ? '-' : `${s.toFixed(0)}s bot = ~${((s * 2.5) / 60).toFixed(1)} min kid`);
+// the buttons are built once; only the text above them is redrawn, so a click never lands on a stale button
+panel.innerHTML = `<div class="ptext"></div><button data-a="away">Skip 2 h (away)</button><button data-a="day">Skip 1 day</button><button data-a="chill">Big Chill soon</button>
+<button data-a="coins">+1,000 coins</button><button data-a="rare">Epic pet here</button><button data-a="melt">Melt my cubes</button>
+<button data-a="exploit">Exploit test</button><button data-a="reset">Reset save</button>`;
+const ptext = panel.querySelector('.ptext');
 function drawPanel() {
   if (!panel.classList.contains('on')) return;
   const v = server.view(); if (!v) return;
-  panel.innerHTML = `<b>Timer panel</b> (T) ${BOT ? `bot x${SPEED}` : ''}<br>
+  ptext.innerHTML = `<b>Timer panel</b> (T) ${BOT ? `bot x${SPEED}` : ''}<br>
 game time ${v.time.toFixed(0)}s · coins ${Math.floor(v.coins)} · +${v.income.toFixed(1)}/s<br>
 first freeze: ${kid(marks.first_freeze)}<br>first bank: ${kid(marks.first_bank)}<br>
 first upgrade: ${kid(marks.first_coins_spent)}<br>Forest open: ${kid(marks.forest_unlocked)}<br>
 Forest reached: ${kid(marks.first_new_zone)}<br>
 pets in pen ${v.pets.length} · frozen ${v.stats.frozen} · melts ${v.stats.melts} · upgrades ${counts.upgrades}<br>
 ray ${v.upgrades.ray} · boots ${v.upgrades.boots} · backpack ${v.upgrades.backpack} · pages ${v.pages}<br>
-remote calls dropped: ${v.dropped}<br>
-<button data-a="away">Skip 2 h (away)</button><button data-a="day">Skip 1 day</button><button data-a="chill">Big Chill soon</button>
-<button data-a="coins">+1,000 coins</button><button data-a="rare">Epic pet here</button><button data-a="melt">Melt my cubes</button>
-<button data-a="exploit">Exploit test</button><button data-a="reset">Reset save</button>`;
+remote calls dropped: ${v.dropped}<br>`;
 }
 panel.addEventListener('click', (e) => {
   const a = e.target.dataset?.a; if (!a) return;
@@ -84,6 +87,8 @@ function exploitTest() {
   if (far) { r.beginZap(far.id); r.endZap(far.id); same('freeze a pet 30+ studs away'); }
   r.endZap('bridge'); same('finish a zap that never started');
   const pos = { ...client.me }; r.setPosition(pos.x, pos.z + 500, 0.016); checks.push(['teleport 500 studs', Math.abs(server.view().pos.z - pos.z) < 1]);
+  for (let i = 1; i <= 100; i++) r.setPosition(pos.x, pos.z + i * 0.5, 9); checks.push(['100 small steps in one tick (speed hack)', Math.abs(server.view().pos.z - pos.z) < 12]);
+  r.buyUpgrade('constructor'); r.buyUpgrade('__proto__'); r.buyUpgrade('toString'); same('buyUpgrade with object built-in names');
   r.setPosition(NaN, Infinity, 0.016); checks.push(['NaN position', isFinite(server.view().pos.x)]);
   for (let i = 0; i < 200; i++) r.collectWelcome(); same('spam collectWelcome 200x');
   for (let i = 0; i < 200; i++) r.buySuperFreezeMock('p1'); same('spam Super Freeze on a pet with no offer');

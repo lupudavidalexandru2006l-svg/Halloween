@@ -23,6 +23,7 @@ type State = {
 	lastPos: Vector3?,
 	lastPosAt: number,
 	speedFlags: number,
+	carriedOut: boolean, -- a carried cube has been a real distance out of the hub
 }
 
 local PlayerTracker = {}
@@ -100,8 +101,16 @@ local function tick()
 				AnalyticsSvc.funnel(player, "first_new_zone")
 			end
 		end
-		if s.carrying > 0 and WorldRules.inHub(pos) then
-			AnalyticsSvc.funnel(player, "first_carry_home")
+		-- funnel step 4: a cube that went a real distance out of the hub and came back (CarryService
+		-- also logs it just before the first bank, so the funnel stays in order)
+		if s.carrying > 0 then
+			if pos.Z > Config.world.hubZMax + Config.carryHomeMinStuds then
+				s.carriedOut = true
+			elseif s.carriedOut and WorldRules.inHub(pos) then
+				AnalyticsSvc.funnel(player, "first_carry_home")
+			end
+		else
+			s.carriedOut = false
 		end
 		if not WorldService then
 			WorldService = require(script.Parent.WorldService) :: any
@@ -136,7 +145,7 @@ function PlayerTracker.Start()
 	DataService.Loaded:Connect(function(player: Player)
 		states[player] = {
 			zone = -1, lastAction = "exploring", menuOpen = false, zapping = false, joinedAt = os.clock(),
-			carrying = 0, inPen = false, lastPos = nil, lastPosAt = os.clock(), speedFlags = 0,
+			carrying = 0, inPen = false, lastPos = nil, lastPosAt = os.clock(), speedFlags = 0, carriedOut = false,
 		}
 		AnalyticsSvc.funnel(player, "joined")
 		player.CharacterAdded:Connect(function()

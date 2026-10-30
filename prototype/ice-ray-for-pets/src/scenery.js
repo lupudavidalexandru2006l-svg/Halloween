@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { World, Scenery, Theme, mulberry32 } from './config.js';
+import { Config, World, Scenery, Theme, mulberry32 } from './config.js';
 
 const C = (hex) => new THREE.Color(hex);
 const std = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0, ...o });
@@ -20,7 +20,7 @@ function vnoise(x, z) {
 const fbm = (x, z) => vnoise(x, z) * 0.6 + vnoise(x * 2.1, z * 2.1) * 0.3 + vnoise(x * 4.3, z * 4.3) * 0.1;
 
 // vertex-coloured part for merged props
-function part(geo, color, m) { const g = geo.clone().toNonIndexed(); if (m) g.applyMatrix4(m); const c = C(color); const n = g.attributes.position.count; const a = new Float32Array(n * 3); for (let i = 0; i < n; i++) { a[i * 3] = c.r; a[i * 3 + 1] = c.g; a[i * 3 + 2] = c.b; } g.setAttribute('color', new THREE.BufferAttribute(a, 3)); g.deleteAttribute('uv'); return g; }
+function part(geo, color, m) { const g0 = geo.clone(), g = g0.index ? g0.toNonIndexed() : g0; if (m) g.applyMatrix4(m); const c = C(color); const n = g.attributes.position.count; const a = new Float32Array(n * 3); for (let i = 0; i < n; i++) { a[i * 3] = c.r; a[i * 3 + 1] = c.g; a[i * 3 + 2] = c.b; } g.setAttribute('color', new THREE.BufferAttribute(a, 3)); g.deleteAttribute('uv'); return g; }
 const M = (x, y, z, sx = 1, sy = 1, sz = 1, ry = 0) => new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0)), new THREE.Vector3(sx, sy, sz));
 
 function instanced(scene, geo, list, { mat, cast = true, receive = false } = {}) {
@@ -46,6 +46,18 @@ function clearCorridor(mesh, cam, me) {
   if (dirty) mesh.instanceMatrix.needsUpdate = true;
 }
 
+// a blocker {obj, x, z, r} fades to see-through while it stands between the camera and the player
+function fadeBlocker(b, cam, me, dt) {
+  const zA = Math.min(cam.z, me.z) - b.r, zB = Math.max(cam.z, me.z) + 1;
+  const lineX = cam.x + ((me.x - cam.x) * (b.z - cam.z)) / ((me.z - cam.z) || 1);
+  const inWay = b.z > zA && b.z < zB && Math.abs(b.x - lineX) < b.r + 2.5;
+  const want = inWay ? 0.18 : 1;
+  b.fade = b.fade ?? 1; if (Math.abs(b.fade - want) < 0.01) return;
+  b.fade += (want - b.fade) * Math.min(1, dt * 8);
+  if (!b.mats) { b.mats = []; b.obj.traverse((o) => { if (o.material) { o.material = o.material.clone(); o.material.userData.baseOpacity = o.material.opacity; b.mats.push(o.material); } }); }
+  for (const m of b.mats) { m.transparent = true; m.opacity = m.userData.baseOpacity * b.fade; m.depthWrite = b.fade > 0.95; }
+}
+
 function radialTexture(inner, outer) {
   const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d');
   const g = x.createRadialGradient(64, 64, 4, 64, 64, 64); g.addColorStop(0, inner); g.addColorStop(1, outer);
@@ -54,11 +66,11 @@ function radialTexture(inner, outer) {
 
 export function buildWorld(scene) {
   const R = World.river, B = World.bounds, rng = mulberry32(77);
-  const handles = { clouds: [], puffs: [], sunPatches: [], lanterns: [], update: null };
+  const handles = { clouds: [], puffs: [], sunPatches: [], lanterns: [], blockers: [], update: null };
 
   // ---------- sky ----------
   {
-    const g = new THREE.SphereGeometry(900, 32, 16), top = C('#7fc4ff'), mid = C('#bfe6ff'), bottom = C('#f1fbff');
+    const g = new THREE.SphereGeometry(900, 32, 16), top = C('#4fa8ff'), mid = C('#a6d8ff'), bottom = C('#eaf7ff');
     const cols = [], pos = g.attributes.position;
     for (let i = 0; i < pos.count; i++) { const t = Math.max(0, pos.getY(i) / 900); const c = t < 0.25 ? bottom.clone().lerp(mid, t / 0.25) : mid.clone().lerp(top, Math.min(1, (t - 0.25) / 0.5)); cols.push(c.r, c.g, c.b); }
     g.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
@@ -72,7 +84,7 @@ export function buildWorld(scene) {
     const W = 460, D = 560, cx = 0, cz = 150, sx = 150, sz = 190;
     const g = new THREE.PlaneGeometry(W, D, sx, sz); g.rotateX(-Math.PI / 2);
     const pos = g.attributes.position, cols = new Float32Array(pos.count * 3);
-    const snowA = C('#f7fbff'), snowB = C('#dde9f8'), pathSnow = C('#d3e0ef'), grassA = C('#86c35c'), grassB = C('#5f9f45'), dirt = C('#c7a273'), bank = C('#e9f2ff'), rock = C('#a9b6c9'), forestHill = C('#4d8a4a');
+    const snowA = C('#f7fbff'), snowB = C('#cfdff3'), pathSnow = C('#d3e0ef'), grassA = C('#86c35c'), grassB = C('#5f9f45'), dirt = C('#c7a273'), bank = C('#e9f2ff'), rock = C('#a9b6c9'), forestHill = C('#4d8a4a');
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i) + cx, z = pos.getZ(i) + cz;
       pos.setX(i, x); pos.setZ(i, z);
@@ -96,7 +108,8 @@ export function buildWorld(scene) {
         else if (pathW < 2 && z > R.zMax + 1) c.lerp(dirt, 1 - pathW / 2);
         if (edge > 0) c.lerp(forestHill, Math.min(1, edge / 20));
       } else {
-        c = snowA.clone().lerp(snowB, Math.pow(fbm(x * 0.06, z * 0.06), 1.5));
+        c = snowA.clone().lerp(snowB, Math.pow(fbm(x * 0.06, z * 0.06), 1.3));
+        c.lerp(C('#bcd3ee'), Math.max(0, fbm(x * 0.21 + 3, z * 0.04) - 0.62) * 1.6); // wind ripples in the snow
         if (pathW < 2 && z > -2) c.lerp(pathSnow, Math.min(1, 1 - pathW / 2));
         if (z > R.zMin - 3) c.lerp(bank, 0.6);
         if (edge > 0) c.lerp(edge > 22 ? snowA : rock, Math.min(0.35, edge / 40));
@@ -137,12 +150,18 @@ export function buildWorld(scene) {
     const i = World.iceBridgeSpot, len = R.zMax - R.zMin + 6;
     const ice = new THREE.Mesh(new RoundedBoxGeometry(i.xMax - i.xMin, 0.8, len, 3, 0.3), new THREE.MeshPhysicalMaterial({ color: '#bfe9ff', roughness: 0.1, transmission: 0, transparent: true, opacity: 0.8, clearcoat: 1, emissive: '#2a6f9a', emissiveIntensity: 0.35 }));
     ice.position.set((i.xMin + i.xMax) / 2, 0.1, (R.zMin + R.zMax) / 2); ice.visible = false; ice.receiveShadow = true; scene.add(ice);
-    const spot = new THREE.Mesh(new THREE.CircleGeometry(3.4, 40), new THREE.MeshBasicMaterial({ map: radialTexture('rgba(150,240,255,1)', 'rgba(150,240,255,0)'), transparent: true, depthWrite: false }));
-    spot.rotation.x = -Math.PI / 2; spot.position.set((i.xMin + i.xMax) / 2, 0.08, R.zMin - 2); scene.add(spot);
-    const crystals = new THREE.Group();
-    for (let k = 0; k < 5; k++) { const cr = new THREE.Mesh(new THREE.OctahedronGeometry(0.6, 0), std('#9fe8ff', { emissive: '#3ab0e0', emissiveIntensity: 0.5, roughness: 0.2 })); cr.scale.y = 2.2; const a = (k / 5) * Math.PI * 2; cr.position.set(Math.cos(a) * 3.6, 0.9, Math.sin(a) * 3.6); crystals.add(cr); }
-    crystals.position.copy(spot.position); scene.add(crystals);
-    handles.iceBridge = ice; handles.iceSpot = spot;
+    // a glowing freeze spot on each bank, so the bridge can be made going out and coming home
+    const spotMat = new THREE.MeshBasicMaterial({ map: radialTexture('rgba(150,240,255,1)', 'rgba(150,240,255,0)'), transparent: true, depthWrite: false });
+    const crysMat = std('#9fe8ff', { emissive: '#3ab0e0', emissiveIntensity: 0.5, roughness: 0.2 }), crysGeo = new THREE.OctahedronGeometry(0.6, 0);
+    let spot = null;
+    for (const sz of [R.zMin - 2, R.zMax + 2]) {
+      const sp = new THREE.Mesh(new THREE.CircleGeometry(3.4, 40), spotMat);
+      sp.rotation.x = -Math.PI / 2; sp.position.set((i.xMin + i.xMax) / 2, 0.08, sz); scene.add(sp); spot ||= sp;
+      const crystals = new THREE.Group();
+      for (let k = 0; k < 5; k++) { const cr = new THREE.Mesh(crysGeo, crysMat); cr.scale.y = 2.2; const a = (k / 5) * Math.PI * 2; cr.position.set(Math.cos(a) * 3.6, 0.9, Math.sin(a) * 3.6); crystals.add(cr); }
+      crystals.position.copy(sp.position); scene.add(crystals);
+    }
+    handles.iceBridge = ice; handles.iceSpot = spot; // both spots share one material
   }
 
   // ---------- the Forest gate: fence, wooden arch with ice crystals, ice bars ----------
@@ -158,6 +177,14 @@ export function buildWorld(scene) {
     const bars = new THREE.Group();
     for (let x = g.xMin + 2; x < g.xMax; x += 2.5) { const bar = new THREE.Mesh(new RoundedBoxGeometry(0.8, 8, 0.8, 2, 0.3), std('#9fe3ff', { emissive: '#2a7fb0', emissiveIntensity: 0.5, transparent: true, opacity: 0.88, roughness: 0.2 })); bar.position.set(x, 4, g.z); bars.add(bar); }
     scene.add(bars); handles.gateBars = bars;
+  }
+
+  // ---------- Sunny Beach gate (closed in the prototype): a fence with sandy posts ----------
+  {
+    const z = World.beachGate.z + 1, posts = [];
+    for (let x = B.xMin; x <= B.xMax; x += 3.5) posts.push({ x, z, s: 1 });
+    instanced(scene, part(new THREE.CylinderGeometry(0.4, 0.45, 3.2, 8), '#d9b26a', M(0, 1.6, 0)), posts);
+    for (const y of [1.2, 2.4]) { const r = new THREE.Mesh(new RoundedBoxGeometry(B.xMax - B.xMin, 0.35, 0.3, 2, 0.1), std('#e8c27a')); r.position.set(0, y, z); r.castShadow = true; scene.add(r); }
   }
 
   // ---------- trees (instanced, shade under each), decorative hill trees for depth ----------
@@ -218,11 +245,13 @@ export function buildWorld(scene) {
     const scarf = new THREE.Mesh(new THREE.TorusGeometry(2.4, 0.55, 10, 24), std('#e8414a')); scarf.rotation.x = Math.PI / 2; scarf.position.y = 12.6; snowman.add(scarf);
     const hat = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 2.4, 20), std('#2d3561')); hat.position.y = 17.6; snowman.add(hat);
     snowman.position.set(46, 0, 112); snowman.rotation.y = 0.3; scene.add(snowman);
+    handles.blockers.push({ obj: statue, x: -36, z: -34, r: 5 }, { obj: snowman, x: 46, z: 112, r: 4.5 });
     const shroom = new THREE.Group();
     const stem = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 3, 14, 20), std('#fff1dc')); stem.position.y = 7; stem.castShadow = true; shroom.add(stem);
     const cap = new THREE.Mesh(new THREE.SphereGeometry(9, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2), std('#e2453f')); cap.scale.y = 0.6; cap.position.y = 13.5; cap.castShadow = true; shroom.add(cap);
     for (let k = 0; k < 9; k++) { const d = new THREE.Mesh(new THREE.SphereGeometry(1.1, 10, 8), std('#ffffff')); const a = k * 0.7, rr = 4 + (k % 3) * 1.5; d.position.set(Math.cos(a) * rr, 13.5 + Math.sqrt(Math.max(0, 81 - rr * rr)) * 0.6 - 0.3, Math.sin(a) * rr); shroom.add(d); }
     shroom.position.set(-44, 0, 296); scene.add(shroom);
+    handles.blockers.push({ obj: shroom, x: -44, z: 296, r: 9 });
   }
 
   // ---------- far scenery: snowy peaks north, green hills, dunes and a friendly volcano south ----------
@@ -281,14 +310,17 @@ export function buildWorld(scene) {
   }
 
   // per-frame ambient motion (only gentle things move: World Rules / Animation Rules)
-  handles.clearView = (cam, me) => { for (const m of handles.trees) clearCorridor(m, cam, me); };
+  handles.clearView = (cam, me, dt = 0.016) => {
+    for (const m of handles.trees) clearCorridor(m, cam, me);
+    for (const b of handles.blockers) fadeBlocker(b, cam, me, dt);
+  };
   handles.update = (dt, t) => {
     handles.water.offset.x = (handles.water.offset.x + dt * 0.02) % 1; handles.water.offset.y = Math.sin(t * 0.3) * 0.02;
     handles.clouds.forEach((c, i) => { c.position.x += dt * (0.8 + (i % 3) * 0.3); if (c.position.x > 380) c.position.x = -380; });
     handles.puffs.forEach((p, i) => { p.position.y += Math.sin(t * 0.4 + i) * dt * 0.8; });
     handles.sunPatches.forEach((d, i) => { d.material.opacity = 0.85 + Math.sin(t * 1.5 + i) * 0.15; });
     handles.iceSpot.material.opacity = 0.6 + Math.sin(t * 4) * 0.35;
-    handles.statue.rotation.y = Math.sin(t * 0.2) * 0.05;
+    if (!Config.motion.reduced) handles.statue.rotation.y = Math.sin(t * 0.2) * 0.05;
   };
   return handles;
 }

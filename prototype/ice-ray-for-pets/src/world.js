@@ -66,13 +66,31 @@ export function walkable(x, z, state) {
   if (z > r.zMin && z < r.zMax && !onBridge(x, state.iceBridgeActive)) return false;
   const g = World.gate;
   if (!state.forestUnlocked && z > g.z - 1 && z < g.z + 1.5) return false; // closed gate line
+  if (z > World.beachGate.z) return false; // Sunny Beach is closed in the prototype
   if (state.forestUnlocked && z > g.z - 1 && z < g.z + 1.5 && (x < g.xMin || x > g.xMax)) return false;
   return true;
 }
 
-export function iceBridgeCenter() {
-  const i = World.iceBridgeSpot;
-  return { x: (i.xMin + i.xMax) / 2, z: World.river.zMin - 2 };
+// the ice bridge can be frozen from either bank (coming home from the Forest too)
+export function iceBridgeSpots() {
+  const i = World.iceBridgeSpot, x = (i.xMin + i.xMax) / 2;
+  return [{ x, z: World.river.zMin - 2 }, { x, z: World.river.zMax + 2 }];
+}
+// every half stud along a move must be walkable, so one long step can't hop over the thin gate line
+export function pathWalkable(x0, z0, x1, z1, state) {
+  const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 0.5));
+  for (let i = 1; i <= n; i++) if (!walkable(x0 + ((x1 - x0) * i) / n, z0 + ((z1 - z0) * i) / n, state)) return false;
+  return true;
+}
+export function iceBridgeCenter(from) {
+  const s = iceBridgeSpots();
+  return from && dist(from, s[1]) < dist(from, s[0]) ? s[1] : s[0];
+}
+// standing in the river (the ice bridge just ended under you): the nearest bank
+export function nearestBank(x, z) {
+  const r = World.river;
+  if (!(z > r.zMin && z < r.zMax)) return null;
+  return { x, z: z - r.zMin < r.zMax - z ? r.zMin - 0.5 : r.zMax + 0.5 };
 }
 
 export function dist(a, b) { return Math.hypot(a.x - b.x, a.z - b.z); }

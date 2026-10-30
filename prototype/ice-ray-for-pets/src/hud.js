@@ -1,6 +1,6 @@
 // CLIENT: the Screen owner. Only this module places HUD elements (UI Rules: one owner).
 // HUD cap of 5: coins, menu tiles, goal bar, contextual banner (+ prompts that live on world objects).
-import { Config, Theme, PetDefs, World, petByKey, upgradeCost, zoneById } from './config.js';
+import { Config, Theme, PetDefs, World, petByKey, upgradeCost, zoneById, isRegular } from './config.js';
 import { iceBridgeCenter, temperatureAt, zoneAt } from './world.js';
 
 const ICONS = { // the approved painted icons (UI Rules > Icons)
@@ -45,7 +45,7 @@ export function createHud({ server, input, audio }) {
   const queue = []; let current = null;
   function open(name, data) {
     if (current) { if (current.name !== name) queue.push({ name, data }); return; }
-    current = { name, data }; render(); wrap.classList.add('on');
+    current = { name, data }; openedAt = performance.now(); sel = -1; render(); wrap.classList.add('on');
     server.remotes.setMenuOpen(true);
     if (name === 'shop') server.remotes.openShop();
   }
@@ -53,7 +53,9 @@ export function createHud({ server, input, audio }) {
     wrap.classList.remove('on'); current = null; server.remotes.setMenuOpen(false);
     const n = queue.shift(); if (n) setTimeout(() => open(n.name, n.data), 150);
   }
-  wrap.addEventListener('pointerdown', (e) => { if (e.target === wrap) close(); });
+  let openedAt = 0;
+  wrap.addEventListener('pointerdown', (e) => { if (e.target === wrap && performance.now() - openedAt > 400) close(); }); // a double-click doesn't open and shut it
+  addEventListener('keydown', (e) => { if (e.code === 'Escape' && current) { audio.play('click'); close(); } });
   let idxPage = 1;
   function render() {
     const v = server.view(); if (!current || !v) return;
@@ -61,30 +63,30 @@ export function createHud({ server, input, audio }) {
     if (current.name === 'shop') {
       pop.innerHTML = head('Shop') + '<div class="cards">' + ['ray', 'boots', 'backpack'].map((id) => {
         const u = Config.upgrades[id], lvl = v.upgrades[id], max = lvl >= u.maxLevel, cost = max ? 0 : upgradeCost(id, lvl + 1);
-        const effect = id === 'ray' ? `Bigger cubes, melt ${Math.round(u.lifeBonus * 100)}% slower, ice bridges +${u.bridgeBonus}s`
-          : id === 'boots' ? `Run ${Math.round(u.speedBonus * 100)}% faster` : `Carry ${lvl + 1} cubes at once`;
+        const effect = id === 'ray' ? 'Bigger cubes that last longer' : id === 'boots' ? 'Run faster' : `Carry ${lvl + 1} cubes`;
         return `<div class="block card2"><h3>${u.name}</h3><div>Level ${lvl}</div><p>${effect}</p>
           <button class="block press buy txt ${!max && v.coins < cost ? 'cant' : ''}" data-buy="${id}">${max ? 'MAX' : COIN + fmt(cost)}</button></div>`;
       }).join('') + '</div>';
     } else if (current.name === 'index') {
-      const pets = PetDefs.filter((p) => p.zone === idxPage);
-      const found = pets.filter((p) => v.found[p.key]).length;
+      const pets = PetDefs.filter((p) => p.zone === idxPage), regular = pets.filter(isRegular);
+      const found = regular.filter((p) => v.found[p.key]).length;
       pop.innerHTML = head('Index') + `<div class="idx-tabs">${World.zones.map((z) => `<button class="block press ${z.id === idxPage ? 'on' : ''}" data-page="${z.id}">${z.name}</button>`).join('')}</div>
-        <div class="center" style="margin-bottom:8px">${found} / ${pets.length} found ${found === pets.length ? ' - page complete: +10% coins' : ' - complete the page for +10% coins forever'}</div>
-        <div class="idx-grid">${pets.map((p) => `<div class="idx-cell ${v.found[p.key] ? '' : 'miss'}"><span class="tr" style="background:${Theme.tiers[p.tier]}"></span><img src="assets/sprites/${p.key}.webp" alt=""><span class="nm">${v.found[p.key] ? p.name : '???'}</span></div>`).join('')}</div>`;
+        <div class="center" style="margin-bottom:8px">${found} / ${regular.length} found${found === regular.length ? ': +10% coins!' : ' · find all for +10% coins'}</div>
+        <div class="idx-grid">${pets.map((p) => `<div class="idx-cell ${v.found[p.key] ? '' : 'miss'} ${isRegular(p) ? '' : 'bonus'}"><span class="tr" style="background:${Theme.tiers[p.tier]}"></span><img src="assets/sprites/${p.key}.webp" alt=""><span class="nm">${v.found[p.key] ? p.name : isRegular(p) ? '???' : 'Bonus'}</span></div>`).join('')}</div>`;
       pets.forEach((p) => v.found[p.key] && seenFound.add(p.key));
     } else if (current.name === 'settings') {
-      pop.innerHTML = head('Settings') + `
-        <div class="settings-row"><span>Music</span><div class="toggle ${audio.music ? 'on' : ''}" data-tog="music"></div></div>
-        <div class="settings-row"><span>Sound</span><div class="toggle ${audio.sfx ? 'on' : ''}" data-tog="sfx"></div></div>
-        <div class="settings-row"><span>Mute everything</span><div class="toggle ${!audio.music && !audio.sfx ? 'on' : ''}" data-tog="mute"></div></div>
-        <div class="settings-row"><span>Reduced motion</span><div class="toggle ${Config.motion.reduced ? 'on' : ''}" data-tog="motion"></div></div>
-        <div class="settings-row"><span>Low graphics</span><div class="toggle ${Config.graphics.low ? 'on' : ''}" data-tog="gfx"></div></div>
-        <div class="settings-row"><span>Temperature in °F</span><div class="toggle ${Config.temperature.unit === 'F' ? 'on' : ''}" data-tog="unit"></div></div>`;
+      pop.innerHTML = head('Settings') + `<div class="settings-grid">
+        <div class="settings-row"><span>Music</span><button class="toggle ${audio.music ? 'on' : ''}" data-tog="music" aria-label="Music"></button></div>
+        <div class="settings-row"><span>Sound</span><button class="toggle ${audio.sfx ? 'on' : ''}" data-tog="sfx" aria-label="Sound"></button></div>
+        <div class="settings-row"><span>Mute everything</span><button class="toggle ${!audio.music && !audio.sfx ? 'on' : ''}" data-tog="mute" aria-label="Mute everything"></button></div>
+        <div class="settings-row"><span>Reduced motion</span><button class="toggle ${Config.motion.reduced ? 'on' : ''}" data-tog="motion" aria-label="Reduced motion"></button></div>
+        <div class="settings-row"><span>Low graphics</span><button class="toggle ${Config.graphics.low ? 'on' : ''}" data-tog="gfx" aria-label="Low graphics"></button></div>
+        <div class="settings-row"><span>Temperature in °F</span><button class="toggle ${Config.temperature.unit === 'F' ? 'on' : ''}" data-tog="unit" aria-label="Temperature in F"></button></div></div>`;
     } else if (current.name === 'welcome') {
       const w = current.data;
       pop.innerHTML = `<h2 class="txt">Welcome back!</h2><div class="center">Your pets earned</div><div class="big txt">${COIN.replace('class="coinimg"', 'class="coinimg" style="width:40px;height:40px;vertical-align:-8px"')} ${fmt(w.coins)}</div>
         <div class="center" style="margin:4px 0 10px">while you were away${w.capped ? ' (pens hold up to 8 hours of coins)' : ''}</div>
+        ${w.best ? `<div class="best"><img src="assets/sprites/${w.best}.webp" alt=""><span>Your best last time:<br><b>${petByKey[w.best].name}</b></span></div>` : ''}
         <button class="block press buy txt" data-collect="1">Collect</button>`;
     } else if (current.name === 'gift') {
       const g = current.data;
@@ -111,9 +113,42 @@ export function createHud({ server, input, audio }) {
     pop.querySelector('[data-collect]')?.addEventListener('click', () => { server.remotes.collectWelcome(); close(); });
     pop.querySelector('[data-ok]')?.addEventListener('click', () => close());
     pop.querySelector('[data-sf]')?.addEventListener('click', (e) => { server.remotes.buySuperFreezeMock(e.currentTarget.dataset.sf); close(); });
+    if (sel >= 0) highlight(); // keep the gamepad selection after a redraw
+    requestAnimationFrame(moreHint);
   }
+  // a hint when the popup has more below (the phone Index page scrolls)
+  function moreHint() { pop.classList.toggle('more', pop.scrollHeight > pop.clientHeight + 4 && pop.scrollTop + pop.clientHeight < pop.scrollHeight - 4); }
+  pop.addEventListener('scroll', moreHint);
+
+  // ---------------- gamepad (and keyboard) menus: the d-pad moves, A presses, B closes ----------------
+  let sel = -1, tileSel = -1;
+  const focusables = () => [...pop.querySelectorAll('button')].filter((b) => b.offsetParent !== null);
+  function highlight() {
+    document.querySelectorAll('.gp-sel').forEach((e) => e.classList.remove('gp-sel'));
+    if (current) { const f = focusables(); if (f.length) { sel = Math.max(0, Math.min(f.length - 1, sel)); f[sel].classList.add('gp-sel'); f[sel].scrollIntoView({ block: 'nearest' }); } }
+    else if (tileSel >= 0) tiles.children[tileSel]?.classList.add('gp-sel');
+  }
+  input.onPad((btn) => {
+    audio.unlock();
+    const offer = [...offerEls.values()].find((el) => el.style.display !== 'none');
+    if (current) {
+      const f = focusables();
+      if (btn === 'b') { audio.play('click'); close(); }
+      else if (btn === 'a') { if (sel < 0) { sel = Math.max(0, f.findIndex((b) => b.matches('.buy, [data-collect], [data-ok]'))); highlight(); } else f[sel]?.click(); }
+      else if (btn === 'down' || btn === 'right') { sel = sel < 0 ? 0 : (sel + 1) % f.length; highlight(); }
+      else if (btn === 'up' || btn === 'left') { sel = sel < 0 ? 0 : (sel - 1 + f.length) % f.length; highlight(); }
+    } else if (tileSel >= 0) {
+      const n = tiles.children.length;
+      if (btn === 'b' || btn === 'menu') { tileSel = -1; highlight(); }
+      else if (btn === 'a') { const id = tiles.children[tileSel].dataset.id; tileSel = -1; highlight(); audio.play('click'); open(id); }
+      else if (['down', 'right'].includes(btn)) { tileSel = (tileSel + 1) % n; highlight(); }
+      else if (['up', 'left'].includes(btn)) { tileSel = (tileSel - 1 + n) % n; highlight(); }
+    } else if (btn === 'menu') { tileSel = 0; highlight(); } // Start (or Select) picks a menu tile
+    else if (btn === 'y' && offer) offer.querySelector('button').click(); // Y presses the Super Freeze button by the pet
+  });
   server.on('upgraded', ({ id }) => { audio.play('buy'); if (current?.name === 'shop') render(); });
   server.on('welcomeBack', (w) => open('welcome', w));
+  server.on('gift', () => { if (current?.name === 'gift') render(); });
   server.on('welcomeCollected', ({ coins }) => { audio.play('gift'); floatAt(`+${fmt(coins)}`, centerOf(coinsEl), '#ffd34a'); });
   server.on('giftClaimed', (g) => open('gift', g));
 
@@ -147,15 +182,15 @@ export function createHud({ server, input, audio }) {
   promptEl.innerHTML = '<svg class="ring" viewBox="0 0 46 46"><circle cx="23" cy="23" r="19" fill="rgba(27,20,51,.35)" stroke="#fff" stroke-width="4"/><circle class="arc" cx="23" cy="23" r="19" fill="none" stroke="#7fe3ff" stroke-width="6" stroke-dasharray="119.4" stroke-dashoffset="119.4" transform="rotate(-90 23 23)"/></svg><div class="block card"></div>';
   prompts.appendChild(promptEl); input.bindHoldButton(promptEl);
   const offerEls = new Map();
-  function place(el, pos) {
+  function place(el, pos, extra = []) {
     let x = pos.x, y = pos.y;
     const r = el.getBoundingClientRect(), w = r.width || 160, h = r.height || 90;
-    // world prompts never sit on a HUD item: push right of the tiles/coins, below the goal bar
-    for (const [kind, e] of [['side', tiles], ['side', coinsEl], ['top', goal], ['top', tempEl]]) {
-      const hr = e.getBoundingClientRect();
+    // world prompts never sit on a HUD item: push right of the tiles/coins, below the goal bar and banner
+    for (const [kind, e] of [['side', tiles], ['side', coinsEl], ['top', goal], ['top', tempEl], ['top', banner], ...extra]) {
+      const hr = e.getBoundingClientRect(); if (!hr.width) continue;
       const box = { l: x - w / 2, r: x + w / 2, t: y - h, b: y };
       if (box.r > hr.left && box.l < hr.right && box.b > hr.top && box.t < hr.bottom) {
-        if (kind === 'top') y = hr.bottom + h + 8; else x = hr.right + w / 2 + 10;
+        if (kind === 'top') y = hr.bottom + h + 8; else if (kind === 'below') y = hr.bottom + h + 10; else x = hr.right + w / 2 + 10;
       }
     }
     x = Math.max(w / 2 + 6, Math.min(innerWidth - w / 2 - 6, x)); y = Math.max(h + 6, Math.min(innerHeight - 6, y));
@@ -174,7 +209,7 @@ export function createHud({ server, input, audio }) {
       tierChip = `<span class="tier txt" style="background:${Theme.tiers[def.tier]}">${def.tier}</span>`;
       pos = client.worldToScreen(w.x, 3.5 + (def.size === 'L' ? 1.5 : 0), w.z);
     } else if (t.kind === 'gift') { text = 'Open gift'; pos = client.worldToScreen(World.giftBox.x, 6, World.giftBox.z); }
-    else { const c = iceBridgeCenter(); text = 'Freeze an ice bridge'; sub = 'Glowing spot'; pos = client.worldToScreen(c.x, 3, c.z); }
+    else { const c = iceBridgeCenter(client.me); text = 'Freeze an ice bridge'; sub = ''; pos = client.worldToScreen(c.x, 3, c.z); }
     if (!pos) { promptEl.style.display = 'none'; return; }
     promptEl.style.display = 'flex';
     promptEl.querySelector('.card').innerHTML = `${tierChip}<div><span class="k">${keyHint()}</span>${text}</div>${sub ? `<span class="pose">${sub}</span>` : ''}`;
@@ -186,7 +221,7 @@ export function createHud({ server, input, audio }) {
     for (const w of v.wild.values()) {
       if (w.state === 'dazed' && w.offer && !offerEls.has(w.id)) {
         const el = document.createElement('div'); el.className = 'offer';
-        el.innerHTML = `<button class="block press txt">${ROBUX} ${Config.monetization.superFreeze.robux} Super Freeze</button>`;
+        el.innerHTML = `<button class="block press txt"><span class="k">Y</span>${ROBUX} ${Config.monetization.superFreeze.robux} Super Freeze</button>`;
         el.querySelector('button').addEventListener('click', () => { audio.play('click'); open('superfreeze', { id: w.id }); });
         prompts.appendChild(el); offerEls.set(w.id, el);
       }
@@ -195,7 +230,9 @@ export function createHud({ server, input, audio }) {
       const w = v.wild.get(id);
       if (!w || !w.offer) { el.remove(); offerEls.delete(id); continue; }
       const p = client.worldToScreen(w.x + 3, 2.5, w.z);
-      if (p) { el.style.display = 'block'; place(el, p); } else el.style.display = 'none';
+      // the paid button gets its own slot below the free "Zap to refreeze" prompt, never touching it
+      if (p) { el.style.display = 'block'; place(el, p, promptEl.style.display !== 'none' ? [['below', promptEl]] : []); } else el.style.display = 'none';
+      el.querySelector('.k').style.display = navigator.getGamepads?.()[0] ? '' : 'none';
     }
   }
 
@@ -203,17 +240,39 @@ export function createHud({ server, input, audio }) {
   function goalFor(v) {
     const need = zoneById[2].gatePets;
     if (!v.forestUnlocked) return { text: `Unlock Pine Forest: ${v.pets.length} / ${need} pets in your pen`, frac: v.pets.length / need };
+    const beach = Config.beachGateCoins;
+    if (v.coins < beach && !beachSeen) return { text: `Unlock Sunny Beach: ${fmt(v.coins)} / ${fmt(beach)}`, frac: v.coins / beach };
+    beachSeen = true; // the prototype stops at the Forest; after 500 coins the Index pages are the goal
     for (const z of World.zones) {
-      const pets = PetDefs.filter((p) => p.zone === z.id), found = pets.filter((p) => v.found[p.key]).length;
-      if (found < pets.length) return { text: `Fill the ${z.name} page: ${found} / ${pets.length} (+10% coins)`, frac: found / pets.length };
+      const pets = PetDefs.filter((p) => p.zone === z.id && isRegular(p)), found = pets.filter((p) => v.found[p.key]).length;
+      if (found < pets.length) return { text: `Fill the ${z.name} page: ${found} / ${pets.length}`, frac: found / pets.length };
     }
     return { text: 'Every page full! Sunny Beach is next', frac: 1 };
   }
 
+  let beachSeen = false, lastZone = -1, layoutKey = '';
+  // Screen layout: the tile grid is centred, but moves up (and the coins drop a little) so the two
+  // never touch on a short phone screen (UI Rules: nothing overlaps at 844x390)
+  function layout() {
+    const key = `${innerWidth}x${innerHeight}:${getComputedStyle(document.documentElement).getPropertyValue('--touch-lift')}:${coinsEl.offsetHeight}`; // the coins grow when the +N/s line appears
+    if (key === layoutKey) return; layoutKey = key;
+    tiles.style.top = ''; tiles.style.transform = ''; coinsEl.style.bottom = '';
+    const safeTop = 52, gap = 12;
+    let t = tiles.getBoundingClientRect(), c = coinsEl.getBoundingClientRect();
+    if (t.bottom + gap > c.top) {
+      const top = Math.max(safeTop + 6, c.top - gap - t.height);
+      tiles.style.top = top + 'px'; tiles.style.transform = 'scale(var(--ui))'; tiles.style.transformOrigin = 'left top';
+      t = tiles.getBoundingClientRect();
+      if (t.bottom + gap > c.top) coinsEl.style.bottom = Math.max(8, innerHeight - c.bottom - (t.bottom + gap - c.top)) + 'px';
+    }
+  }
   function update(v) {
     if (!v) return;
+    layout();
+    const zoneNow = zoneAt(v.pos.x, v.pos.z); if (zoneNow !== lastZone) { lastZone = zoneNow; audio.setZone?.(zoneNow); }
     if (Math.floor(v.coins) !== lastCoins) { if (v.coins > lastCoins) { coinsEl.classList.remove('pop'); void coinsEl.offsetWidth; coinsEl.classList.add('pop'); } lastCoins = Math.floor(v.coins); }
-    coinN.textContent = fmt(v.coins); coinR.textContent = `+${rate(v.income)}/s`;
+    coinN.textContent = fmt(v.coins); coinR.textContent = v.income > 0 ? `+${rate(v.income)}/s` : ''; // never a "+0"
+    coinR.style.display = v.income > 0 ? '' : 'none';
     const g = goalFor(v); goalT.textContent = g.text; goalFill.style.width = g.frac * 100 + '%';
     goal.classList.toggle('hidden', v.pets.length === 0); // shows up with your first pet, so it starts at a real 1 / 8
     // temperature where you stand (worked out from the same numbers as melting)

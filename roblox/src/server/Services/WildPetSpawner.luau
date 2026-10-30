@@ -30,6 +30,8 @@ export type WildPet = {
 	offerFor: Player?,
 	dazedOwner: Player?,
 	superUsed: boolean,
+	offered: boolean, -- the Super Freeze offer was shown on this run already (at most once per run)
+	held: number, -- players holding Freeze on it right now (it acts at half speed)
 }
 
 local WildPetSpawner = {}
@@ -87,7 +89,7 @@ local function rollTier(zone: number): string
 	return tier
 end
 
-local function randomSpot(zone: number, near: boolean): Vector3?
+local function randomSpot(zone: number, near: boolean, rare: boolean): Vector3?
 	local z = Config.zone(zone)
 	if not z then
 		return nil
@@ -97,10 +99,12 @@ local function randomSpot(zone: number, near: boolean): Vector3?
 	for _ = 1, 30 do
 		local x, zz
 		if near then
+			local band = sp.near[zone]
 			x = -15 + rng:NextNumber() * 30
-			zz = sp.nearZ[1] + rng:NextNumber() * (sp.nearZ[2] - sp.nearZ[1])
+			zz = band[1] + rng:NextNumber() * (band[2] - band[1])
 		else
-			local zMin = if zone == 1 then sp.farZMin else z.zMin + 10
+			-- Rare and up only in the far half, so the pets worth most have the longest run home
+			local zMin = if rare then math.max(sp.farZMin[zone], (z.zMin + z.zMax) / 2) else sp.farZMin[zone]
 			x = b.xMin + 6 + rng:NextNumber() * (b.xMax - b.xMin - 12)
 			zz = zMin + rng:NextNumber() * (z.zMax - 10 - zMin)
 		end
@@ -146,12 +150,19 @@ function WildPetSpawner.spawn(zone: number, at: Vector3?, forcedKey: string?, ne
 	local def: PetDefs.PetDef?
 	if forcedKey then
 		def = PetDefs.get(forcedKey)
+	elseif near then
+		-- near-band keepers are Commons or Uncommons (60:25) and don't touch pity
+		local pool = PetDefs.inZone(zone, if rng:NextNumber() < 60 / 85 then "Common" else "Uncommon")
+		def = pool[rng:NextInteger(1, #pool)]
 	else
 		local pool = PetDefs.inZone(zone, rollTier(zone))
 		def = pool[rng:NextInteger(1, #pool)]
 	end
-	local pos = at or randomSpot(zone, near == true)
-	if not def or not pos then
+	if not def then
+		return nil
+	end
+	local pos = at or randomSpot(zone, near == true, Config.tier(def.tier).rank >= 3)
+	if not pos then
 		return nil
 	end
 	local id = "p" .. nextId
@@ -166,6 +177,7 @@ function WildPetSpawner.spawn(zone: number, at: Vector3?, forcedKey: string?, ne
 		id = id, def = def, zone = zone, root = root, prompt = pp, state = "wild",
 		loopIdx = rng:NextInteger(1, #Config.poseLoop), action = "idle", actionEnd = 0,
 		wanderTo = nil, dazedUntil = 0, pose = nil, mut = nil, offerFor = nil, dazedOwner = nil, superUsed = false,
+		offered = false, held = 0,
 	}
 	setAction(pet, Config.poseLoop[pet.loopIdx])
 	pet.actionEnd = os.clock() + rng:NextNumber() * Config.poses[pet.action].seconds
@@ -175,7 +187,7 @@ function WildPetSpawner.spawn(zone: number, at: Vector3?, forcedKey: string?, ne
 end
 
 -- a melted cube's pet: dazed for a while, only its carrier can refreeze it, then it's wild again
-function WildPetSpawner.spawnDazed(info: { key: string, zone: number, pose: string, mut: string?, superUsed: boolean }, pos: Vector3, owner: Player, offer: boolean): WildPet?
+function WildPetSpawner.spawnDazed(info: { key: string, zone: number, pose: string, mut: string?, superUsed: boolean, offered: boolean }, pos: Vector3, owner: Player, offer: boolean): WildPet?
 	local pet = WildPetSpawner.spawn(info.zone, pos, info.key)
 	if not pet then
 		return nil
@@ -185,6 +197,7 @@ function WildPetSpawner.spawnDazed(info: { key: string, zone: number, pose: stri
 	pet.pose = info.pose
 	pet.mut = info.mut
 	pet.superUsed = info.superUsed
+	pet.offered = info.offered or offer
 	pet.dazedOwner = owner
 	pet.offerFor = if offer then owner else nil
 	pet.prompt.HoldDuration = Config.player.refreezeHold
@@ -222,9 +235,31 @@ function WildPetSpawner.remove(id: string)
 	end
 end
 
+-- FreezeService says when a player starts and stops holding Freeze on a pet
+function WildPetSpawner.setHeld(id: string, on: boolean)
+	local p = pets[id]
+	if p then
+		p.held = math.max(0, p.held + (if on then 1 else -1))
+		p.root:SetAttribute("Held", p.held > 0) -- clients play its animation at half speed too
+	end
+end
+
 function WildPetSpawner.clearOffer(pet: WildPet)
 	pet.offerFor = nil
 	pet.root:SetAttribute("OfferUserId", 0)
+end
+
+-- "always one within about 3 seconds of walking": wild pets in a zone's near band
+local function nearCount(zone: number): number
+	local band = Config.spawner.near[zone]
+	local n = 0
+	for _, p in pets do
+		local z = p.root.Position.Z
+		if p.zone == zone and p.state == "wild" and z >= band[1] and z <= band[2] then
+			n += 1
+		end
+	end
+	return n
 end
 
 local function tick(dt: number)
@@ -235,9 +270,11 @@ local function tick(dt: number)
 				local hrp = pet.offerFor.Character and pet.offerFor.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
 				if not hrp or (hrp.Position - pet.root.Position).Magnitude > Config.monetization.superFreeze.walkAwayStuds then
 					WildPetSpawner.clearOffer(pet) -- the button goes away when you walk off
+					pet.dazedUntil = math.max(pet.dazedUntil, now)
 				end
 			end
-			if now >= pet.dazedUntil then
+			-- no hidden timer on a paid offer (Game Plan 15): while it's up, the pet stays dazed
+			if not pet.offerFor and now >= pet.dazedUntil then
 				pet.state = "wild"
 				pet.dazedOwner = nil
 				WildPetSpawner.clearOffer(pet)
@@ -246,6 +283,9 @@ local function tick(dt: number)
 				pet.root:SetAttribute("State", "wild")
 			end
 			continue
+		end
+		if pet.held > 0 then
+			pet.actionEnd += dt * (1 - Config.zapSlowdown) -- half speed while someone holds Freeze on it
 		end
 		if now >= pet.actionEnd then
 			local nextAction
@@ -283,7 +323,7 @@ local function tick(dt: number)
 			end
 		end
 		if count < Config.spawner.maxPerZone and now >= (respawnAt[z.id] or 0) then
-			WildPetSpawner.spawn(z.id)
+			WildPetSpawner.spawn(z.id, nil, nil, nearCount(z.id) < Config.spawner.nearCount)
 			respawnAt[z.id] = now + Config.spawner.respawnSeconds
 		end
 	end
@@ -320,7 +360,7 @@ local function drawSign(zone: Config.Zone)
 			t.Parent = frame
 		end
 		row("Title", zone.name, 0.14)
-		row("Heat", `Melt speed x{zone.heat} - shade melts slower`, 0.07)
+		row("Heat", `{WorldRules.zoneTemperature(zone.id)}°C`, 0.08) -- the temperature, worked out from the melt speed
 		for _, t in Config.tiers do
 			row(t.name, t.name, 0.1, Theme.tiers[t.name])
 		end
@@ -345,7 +385,10 @@ end
 
 function WildPetSpawner.Start()
 	for _, z in Config.world.zones do
-		for _ = 1, Config.spawner.maxPerZone - 2 do
+		for _ = 1, Config.spawner.nearCount do
+			WildPetSpawner.spawn(z.id, nil, nil, true)
+		end
+		for _ = 1, Config.spawner.maxPerZone - 2 - Config.spawner.nearCount do
 			WildPetSpawner.spawn(z.id)
 		end
 	end
@@ -355,9 +398,7 @@ function WildPetSpawner.Start()
 			local s = Config.world.spawn
 			WildPetSpawner.spawn(1, Vector3.new(s.X + 4, 0, s.Z + Config.spawner.firstPetDistance), "snowbun")
 		end
-		for _ = #data.pets + 2, Config.spawner.nearUntilPets do
-			WildPetSpawner.spawn(1, nil, nil, true)
-		end
+		-- the near band is kept topped up for everyone (see nearCount), so nothing more is needed here
 	end)
 	Players.PlayerRemoving:Connect(function(player)
 		for _, p in pets do
