@@ -96,8 +96,31 @@ Config.gatePromptOffset = 2.5 -- the gate prompt stands this far on the hub side
 Config.oddsPushSeconds = 5 -- each player's own odds go to their zone signs this often (personal rares, own pity)
 Config.shopOpenedCooldown = 2
 Config.settingsDefault = { music = true, sound = true, reducedMotion = false, lowGraphics = false, unit = "C" }
--- Studio-only test switches (Port Plan 6, 6c): chat "/dev coins 5000", "/dev epic", "/dev chill", "/dev heat 2", "/dev ray 10", "/dev away 3600", "/dev wipe"
-Config.dev = { maxCoins = 1e9, heatMax = 5, awayMax = 24 * 3600 }
+-- Tester tools (Round 4 phase 1): only these accounts get the Tester panel ("T" tile / T key) and the
+-- "/dev" chat commands; every tester remote checks the caller's UserId on the server.
+-- 1929450116 = the place owner (LupusorCoiotul, game.CreatorId), 520039727 = n2012haidu.
+-- In Studio's local Start Server test, Player1 (UserId -1) is a tester and Player2 (-2) is not.
+Config.testers = {
+	userIds = { 1929450116, 520039727 },
+	studioUserIds = { -1 },
+}
+Config.dev = {
+	maxCoins = 1e15, heatMax = 5, awayMax = 24 * 3600,
+	multMin = 0.1, multMax = 10000,
+	walkMin = 16, walkMax = 100,
+	addCoins = { 1e3, 1e6, 1e9 },
+	multPresets = { 1, 10, 100, 1000 },
+	walkPresets = { 16, 32, 60, 100 },
+	maxRebirths = 50,
+	readoutSeconds = 1,
+}
+
+function Config.isTester(userId: number): boolean
+	if table.find(Config.testers.userIds, userId) then
+		return true
+	end
+	return game:GetService("RunService"):IsStudio() and table.find(Config.testers.studioUserIds, userId) ~= nil
+end
 
 Config.melt = {
 	shade = 0.5,
@@ -216,7 +239,8 @@ Config.ui = {
 	bannerSeconds = 3, floatSeconds = 1.2, notYetSeconds = 1.6,
 	pressDepth = 0.06, pressSeconds = 0.08, stroke = 3, corner = 0.18,
 	gamepadKeys = { close = Enum.KeyCode.ButtonB, superFreeze = Enum.KeyCode.ButtonY, menu = Enum.KeyCode.ButtonSelect },
-	keys = { pets = Enum.KeyCode.P, shop = Enum.KeyCode.B, index = Enum.KeyCode.I, close = Enum.KeyCode.Backspace, superFreeze = Enum.KeyCode.F }, -- Escape belongs to Roblox's own menu,
+	keys = { pets = Enum.KeyCode.P, shop = Enum.KeyCode.B, index = Enum.KeyCode.I, close = Enum.KeyCode.Backspace, superFreeze = Enum.KeyCode.F, tester = Enum.KeyCode.T }, -- Escape belongs to Roblox's own menu,
+	testerTile = { id = "tester", label = "Tester" }, -- only testers see it
 }
 
 Config.lighting = {

@@ -71,10 +71,30 @@ function PlayerTracker.updateSpeed(player: Player)
 	if not data or not hum or not s then
 		return
 	end
+	if data.tester.walk > 0 then
+		hum.WalkSpeed = data.tester.walk -- tester walk speed slider (DataService keeps it 0 for everyone else)
+		return
+	end
 	local boots = 1 + Config.upgrades.boots.speedBonus * (data.upgrades.boots - 1)
 	local extra = math.max(0, s.carrying - 1)
 	local slow = math.max(0.5, 1 - Config.upgrades.backpack.slowPerExtraCube * extra)
 	hum.WalkSpeed = Config.player.walkSpeed * boots * slow
+end
+
+-- moves a player's character (tester teleports); the speed check starts fresh from there
+function PlayerTracker.teleport(player: Player, cf: CFrame): boolean
+	local root = PlayerTracker.rootPart(player)
+	if not root then
+		return false
+	end
+	root.AssemblyLinearVelocity = Vector3.zero
+	root.CFrame = cf
+	local s = states[player]
+	if s then
+		s.lastPos = cf.Position
+		s.lastPosAt = os.clock()
+	end
+	return true
 end
 
 local function zoneKey(id: number): string

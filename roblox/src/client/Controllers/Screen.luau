@@ -114,6 +114,12 @@ function Screen.register(name: string, obj: GuiObject, count: number?)
 	Screen.layout()
 end
 
+-- the tile grid grew or shrank (the Tester tile appears only for testers)
+function Screen.setTileCount(count: number)
+	tileCount = count
+	Screen.layout()
+end
+
 -- the popup layer's centre (a little above the middle). Sizes are Scale with a fixed aspect, so a
 -- popup is the same share of the screen everywhere; that replaces the offset-era UIScale per device.
 function Screen.popupFrame(): Frame

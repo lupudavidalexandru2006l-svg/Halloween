@@ -220,8 +220,10 @@ local function tick(dt: number)
 			continue
 		end
 		local rate = WorldRules.meltRate(pos)
+		local data = DataService.get(player)
+		local noMelt = data ~= nil and data.tester.noMelt -- tester switch (off for everyone else)
 		for _, c in table.clone(list) do
-			if not c.superFrozen and not chill then
+			if not c.superFrozen and not chill and not noMelt then
 				c.life -= rate * dt
 				if c.life <= 0 then
 					melt(player, c)

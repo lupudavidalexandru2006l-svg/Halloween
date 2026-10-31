@@ -13,6 +13,8 @@ local PetDefs = require(ReplicatedStorage.Shared.PetDefs)
 
 export type PetEntry = { id: string, key: string, pose: string, mut: string?, at: number, eq: boolean } -- eq = in the pen (earning); else in Storage
 export type Settings = { music: boolean, sound: boolean, reducedMotion: boolean, lowGraphics: boolean, unit: string }
+-- tester switches, saved per tester; reset to these defaults on load for everyone else
+export type TesterSettings = { mult: number, walk: number, instantFreeze: boolean, noMelt: boolean }
 export type Data = {
 	version: number,
 	coins: number,
@@ -33,15 +35,23 @@ export type Data = {
 	lastBest: string?, -- best pet banked last session, shown in the welcome back (end on a high, on the return)
 	receipts: { string },
 	settings: Settings,
+	rebirths: number,
+	tester: TesterSettings,
 	createdAt: number,
 	lock: { job: string, t: number }?,
 }
+
+local function testerDefaults(): TesterSettings
+	return { mult = 1, walk = 0, instantFreeze = false, noMelt = false } -- walk 0 = normal speed
+end
 
 local Remotes = require(script.Parent.Remotes)
 
 local DataService = {}
 
 local store: DataStore
+local storeName = ""
+local isQaStore = false
 local sessions: { [Player]: { data: Data, saving: boolean, wiping: boolean } } = {}
 local loadedEvent = Instance.new("BindableEvent")
 local changedEvent = Instance.new("BindableEvent")
@@ -69,6 +79,8 @@ local function defaults(): Data
 		lastBest = nil,
 		receipts = {},
 		settings = table.clone(Config.settingsDefault) :: any,
+		rebirths = 0,
+		tester = testerDefaults(),
 		createdAt = os.time(),
 		lock = nil,
 	}
@@ -181,6 +193,14 @@ local function migrate(old: any): Data
 			(d.settings :: any)[k] = se[k]
 		end
 	end
+	d.rebirths = int(old.rebirths, 0, 1e6)
+	local te = tbl(old.tester)
+	d.tester = {
+		mult = num(te.mult, Config.dev.multMin, Config.dev.multMax, 1),
+		walk = if te.walk == 0 then 0 else num(te.walk, Config.dev.walkMin, Config.dev.walkMax, 0),
+		instantFreeze = te.instantFreeze == true,
+		noMelt = te.noMelt == true,
+	}
 	d.createdAt = num(old.createdAt, 0, 1e12, os.time())
 	d.lastBest = if typeof(old.lastBest) == "string" and PetDefs.get(old.lastBest) then old.lastBest else nil
 	if typeof(old.lock) == "table" and typeof(old.lock.job) == "string" then
@@ -244,6 +264,9 @@ local function load(player: Player)
 		player:Kick("We couldn't load your pets right now. Please rejoin in a minute - nothing is lost!")
 		return
 	end
+	if not Config.isTester(player.UserId) then
+		(loaded :: Data).tester = testerDefaults() -- tester switches never apply to anyone else
+	end
 	sessions[player] = { data = loaded :: Data, saving = false, wiping = false }
 	loadedEvent:Fire(player, loaded)
 end
@@ -276,8 +299,9 @@ local function save(player: Player, releaseLock: boolean): boolean
 end
 
 function DataService.Init()
-	local name = Config.data.storeName .. (if RunService:IsStudio() then Config.data.qaStoreSuffix else "")
-	store = DataStoreService:GetDataStore(name)
+	isQaStore = RunService:IsStudio()
+	storeName = Config.data.storeName .. (if isQaStore then Config.data.qaStoreSuffix else "")
+	store = DataStoreService:GetDataStore(storeName)
 end
 
 function DataService.Start()
@@ -355,8 +379,17 @@ function DataService.saveNow(player: Player): boolean
 	return save(player, false)
 end
 
--- dev command: really wipe (saving is blocked first, so the old save can't come back)
+-- "IceRayPlayerData_v1_QA / u_123": shown on the Tester panel
+function DataService.saveKey(player: Player): (string, boolean)
+	return `{storeName} / {keyFor(player)}`, isQaStore
+end
+
+-- tester tool: really wipe (saving is blocked first, so the old save can't come back).
+-- Only ever on the QA store: a live server never wipes a real save.
 function DataService.wipe(player: Player)
+	if not isQaStore then
+		return
+	end
 	local s = sessions[player]
 	if s then
 		s.wiping = true

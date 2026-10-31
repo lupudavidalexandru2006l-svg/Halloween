@@ -118,6 +118,10 @@ function FreezeService.Start()
 		local id = WildPetSpawner.idFromPrompt(prompt)
 		if id then
 			FreezeService.onHoldBegan(player, id)
+			local data = DataService.get(player)
+			if data and data.tester.instantFreeze then -- tester switch: freezes on the first touch of the button
+				FreezeService.onPetTriggered(player, id)
+			end
 		end
 	end)
 	ProximityPromptService.PromptButtonHoldEnded:Connect(function(prompt: ProximityPrompt, player: Player)

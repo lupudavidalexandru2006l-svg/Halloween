@@ -16,12 +16,13 @@ local SettingsController = require(script.Parent.SettingsController)
 
 local PopupController = {}
 
-type Open = { name: string, data: any, frame: Frame, body: Frame, first: GuiObject? }
+-- update: set by popups that change their own labels instead of being rebuilt (the Tester panel)
+type Open = { name: string, data: any, frame: Frame, body: Frame, first: GuiObject?, update: ((State.View) -> ())?, closed: boolean? }
 local current: Open? = nil
 local queue: { { name: string, data: any } } = {}
-local MENUS = { pets = true, shop = true, index = true, settings = true }
+local MENUS = { pets = true, shop = true, index = true, settings = true, tester = true }
 local TITLES: { [string]: string } = {
-	pets = "Pets", shop = "Shop", index = "Index", settings = "Settings",
+	pets = "Pets", shop = "Shop", index = "Index", settings = "Settings", tester = "Tester",
 	welcome = "Welcome back!", gift = "Daily gift", pageDone = "Page complete!",
 }
 
@@ -48,6 +49,7 @@ end
 -- aspect: inside a scrolling list the height comes from the width (Scale of an auto-sized canvas would loop)
 local function row(parent: Instance, order: number, height: number, aspect: number?): Frame
 	local f = Instance.new("Frame")
+	f.Name = "Row" .. order -- unique names, so QA tools can click a button by its path
 	f.LayoutOrder = order
 	f.BackgroundTransparency = 1
 	f.Size = UDim2.fromScale(1, if aspect then 1 else height)
@@ -62,7 +64,7 @@ local function row(parent: Instance, order: number, height: number, aspect: numb
 end
 
 local function button(parent: Instance, color: Color3, text: string, x: number, w: number, onPress: () -> ()): Ui.Block
-	local b = Ui.block(parent, "Button", color, text, function()
+	local b = Ui.block(parent, text, color, text, function()
 		SoundController.play("click")
 		onPress()
 	end)
@@ -84,6 +86,7 @@ local function list(body: Frame, scroll: boolean): GuiObject
 	local holder: GuiObject
 	if scroll then
 		local sf = Instance.new("ScrollingFrame")
+		sf.Name = "List"
 		sf.BackgroundTransparency = 1
 		sf.Size = UDim2.fromScale(1, 1)
 		sf.CanvasSize = UDim2.fromScale(0, 0)
@@ -93,6 +96,7 @@ local function list(body: Frame, scroll: boolean): GuiObject
 		holder = sf
 	else
 		local f = Instance.new("Frame")
+		f.Name = "List"
 		f.BackgroundTransparency = 1
 		f.Size = UDim2.fromScale(1, 1)
 		holder = f
@@ -101,6 +105,17 @@ local function list(body: Frame, scroll: boolean): GuiObject
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Padding = UDim.new(0.015, 0)
 	layout.Parent = holder
+	if holder:IsA("ScrollingFrame") then
+		-- AutomaticCanvasSize under-counts rows sized by an aspect ratio (the last rows of a long list
+		-- could never be reached), so the canvas follows the measured content height instead
+		local sf = holder
+		sf.AutomaticCanvasSize = Enum.AutomaticSize.None
+		local function fit()
+			sf.CanvasSize = UDim2.fromOffset(0, layout.AbsoluteContentSize.Y)
+		end
+		layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(fit)
+		fit()
+	end
 	holder.Parent = body
 	return holder
 end
@@ -229,6 +244,285 @@ local function settings(o: Open)
 	end
 end
 
+-- ---------- Tester panel (testers only; the server checks every button again) ----------
+local testerReadout: { [string]: any } = {}
+local fps = 60
+
+local function numberBox(parent: Instance, placeholder: string, x: number, w: number): TextBox
+	local holder = Ui.block(parent, "Box", Theme.white, "", nil)
+	holder.root.Position = UDim2.fromScale(x, 0.1)
+	holder.root.Size = UDim2.fromScale(w, 0.8)
+	holder.text.Visible = false
+	local box = Instance.new("TextBox")
+	box.BackgroundTransparency = 1
+	box.Size = UDim2.fromScale(0.9, 0.8)
+	box.Position = UDim2.fromScale(0.05, 0.1)
+	box.Font = Theme.font
+	box.TextScaled = true
+	box.TextColor3 = Theme.ink
+	box.PlaceholderText = placeholder
+	box.PlaceholderColor3 = Theme.board
+	box.Text = ""
+	box.ClearTextOnFocus = false
+	box.Parent = holder.face
+	return box
+end
+
+local function tester(o: Open, v: State.View)
+	local D = Config.dev
+	local l = list(o.body, true)
+	local updates: { (State.View) -> () } = {}
+	local order = 0
+	local function line(): Frame
+		order += 1
+		return row(l, order, 0, 9)
+	end
+	local function heading(s: string)
+		local t = text(line(), s, 0.02, 0.96, Theme.coin)
+		t.TextXAlignment = Enum.TextXAlignment.Left
+	end
+	local function send(action: string, a: any?, b: any?)
+		State.send("Tester", action, a, b)
+	end
+	local function toggle(r: Frame, label: string, x: number, w: number, get: (State.View) -> boolean, action: string)
+		local b = button(r, Theme.no, label, x, w, function()
+			local view = State.view
+			if view and view.tester then
+				send(action, not get(view))
+			end
+		end)
+		table.insert(updates, function(view)
+			local on = get(view)
+			b.face.BackgroundColor3 = if on then Theme.go else Theme.no
+			b.root.BackgroundColor3 = Ui.darker(b.face.BackgroundColor3)
+			b.text.Text = `{label}: {if on then "On" else "Off"}`
+		end)
+	end
+
+	-- readout
+	local readout = text(line(), "", 0.02, 0.96)
+	table.insert(updates, function()
+		local parts = 0
+		for _, d in workspace:GetDescendants() do
+			if d:IsA("BasePart") then
+				parts += 1
+			end
+		end
+		local r = testerReadout
+		readout.Text = `FPS {math.round(fps)}   Parts {Ui.commas(parts)}   Server: {Ui.short(r.coins or 0)} coins, x{r.mult or 1}, rebirths {r.rebirths or 0}`
+	end)
+
+	heading("Money multiplier")
+	local r = line()
+	local multNow = text(r, "", 0.02, 0.2)
+	local multBox = numberBox(r, "0.1 - 10000", 0.23, 0.22)
+	local setB = button(r, Theme.go, "Set", 0.46, 0.12, function()
+		local n = tonumber(multBox.Text)
+		if n then
+			send("mult", n)
+		end
+	end)
+	o.first = setB.face
+	for i, p in D.multPresets do
+		button(r, if p == 1 then Theme.no else Theme.info, if p == 1 then "Reset" else `{p}x`, 0.59 + (i - 1) * 0.1, 0.095, function()
+			send("mult", p)
+		end)
+	end
+	table.insert(updates, function(view)
+		multNow.Text = `Now x{if view.tester then view.tester.mult else 1}`
+	end)
+
+	heading("Coins")
+	r = line()
+	local coinBox = numberBox(r, "Exact amount", 0.02, 0.3)
+	button(r, Theme.go, "Set", 0.33, 0.14, function()
+		local n = tonumber(coinBox.Text)
+		if n then
+			send("coinsSet", n)
+		end
+	end)
+	for i, n in D.addCoins do
+		local label = if n >= 1e9 then `+{n // 1e9}B` elseif n >= 1e6 then `+{n // 1e6}M` else `+{n // 1e3}K`
+		button(r, Theme.coin, label, 0.49 + (i - 1) * 0.17, 0.155, function()
+			send("coinsAdd", n)
+		end)
+	end
+
+	heading("Teleport")
+	local targets: { { id: string, label: string } } = testerReadout.targets or {}
+	for i = 1, #targets, 4 do
+		r = line()
+		for j = 0, 3 do
+			local t = targets[i + j]
+			if t then
+				button(r, Theme.info, t.label, 0.02 + j * 0.245, 0.23, function()
+					send("teleport", t.id)
+				end)
+			end
+		end
+	end
+
+	heading("Unlocks")
+	r = line()
+	button(r, Theme.go, "Open all gates", 0.02, 0.3, function()
+		send("openGates")
+	end)
+	button(r, Theme.go, "Max all upgrades", 0.34, 0.3, function()
+		send("upgrade", "all")
+	end)
+	local rebirthText = text(r, "", 0.66, 0.16)
+	button(r, Theme.no, "-", 0.83, 0.07, function()
+		send("rebirths", ((State.view and State.view.rebirths) or 0) - 1)
+	end)
+	button(r, Theme.go, "+", 0.91, 0.07, function()
+		send("rebirths", ((State.view and State.view.rebirths) or 0) + 1)
+	end)
+	table.insert(updates, function(view)
+		rebirthText.Text = `Rebirth {view.rebirths}`
+	end)
+	for i = 1, #Config.upgradeIds, 2 do
+		r = line()
+		for j = 0, 1 do
+			local id = Config.upgradeIds[i + j]
+			if id then
+				local x = 0.02 + j * 0.49
+				local lv = text(r, "", x, 0.27)
+				button(r, Theme.no, "-", x + 0.28, 0.06, function()
+					send("upgrade", id, ((State.view and State.view.upgrades[id]) or 1) - 1)
+				end)
+				button(r, Theme.go, "+", x + 0.35, 0.06, function()
+					send("upgrade", id, ((State.view and State.view.upgrades[id]) or 1) + 1)
+				end)
+				table.insert(updates, function(view)
+					lv.Text = `{Config.upgrades[id].name} {view.upgrades[id] or 1}`
+				end)
+			end
+		end
+	end
+
+	heading("Pets")
+	local all: { PetDefs.PetDef } = {}
+	for _, z in Config.world.zones do
+		for _, def in PetDefs.inZone(z.id) do
+			table.insert(all, def)
+		end
+	end
+	local petIdx, mutIdx, tierIdx = 1, 0, #Config.tiers
+	local muts: { string } = {}
+	for name in Config.mutations do
+		table.insert(muts, name)
+	end
+	r = line()
+	local petName = text(r, "", 0.11, 0.38)
+	local function showPet()
+		local def = all[petIdx]
+		petName.Text = if def then `{def.name} ({def.tier})` else "-"
+		petName.TextColor3 = if def then tierColor(def.tier) else Theme.white
+	end
+	button(r, Theme.info, "<", 0.02, 0.08, function()
+		petIdx = (petIdx - 2) % #all + 1
+		showPet()
+	end)
+	button(r, Theme.info, ">", 0.5, 0.08, function()
+		petIdx = petIdx % #all + 1
+		showPet()
+	end)
+	local mutB: Ui.Block
+	mutB = button(r, Theme.info, "No mutation", 0.6, 0.2, function()
+		mutIdx = (mutIdx + 1) % (#muts + 1)
+		mutB.text.Text = if mutIdx == 0 then "No mutation" else muts[mutIdx]
+	end)
+	button(r, Theme.go, "Give", 0.82, 0.16, function()
+		local def = all[petIdx]
+		if def then
+			send("givePet", def.key, if mutIdx == 0 then nil else muts[mutIdx])
+		end
+	end)
+	showPet()
+	r = line()
+	local tierB: Ui.Block
+	tierB = button(r, tierColor(Config.tiers[tierIdx].name), Config.tiers[tierIdx].name, 0.02, 0.24, function()
+		tierIdx = tierIdx % #Config.tiers + 1
+		local name = Config.tiers[tierIdx].name
+		tierB.text.Text = name
+		tierB.face.BackgroundColor3 = tierColor(name)
+		tierB.root.BackgroundColor3 = Ui.darker(tierB.face.BackgroundColor3)
+	end)
+	button(r, Theme.go, "Spawn here", 0.28, 0.24, function()
+		send("spawnTier", Config.tiers[tierIdx].name)
+	end)
+	button(r, Theme.go, "Fill my pan", 0.6, 0.38, function()
+		send("fillPan")
+	end)
+
+	heading("Speed")
+	r = line()
+	local walkText = text(r, "", 0.02, 0.2)
+	button(r, Theme.no, "Normal", 0.23, 0.14, function()
+		send("walk", 0)
+	end)
+	for i, s in D.walkPresets do
+		button(r, Theme.info, tostring(s), 0.39 + (i - 1) * 0.15, 0.13, function()
+			send("walk", s)
+		end)
+	end
+	table.insert(updates, function(view)
+		local w = if view.tester then view.tester.walk else 0
+		walkText.Text = if w > 0 then `Walk {w}` else "Walk normal"
+	end)
+	r = line()
+	toggle(r, "Instant freeze", 0.02, 0.47, function(view)
+		return view.tester ~= nil and view.tester.instantFreeze
+	end, "instantFreeze")
+	toggle(r, "No melt", 0.51, 0.47, function(view)
+		return view.tester ~= nil and view.tester.noMelt
+	end, "noMelt")
+
+	heading("Events")
+	r = line()
+	button(r, Theme.info, "Big Chill now", 0.02, 0.31, function()
+		send("chill")
+	end)
+	button(r, Theme.info, "Away 1 h", 0.35, 0.31, function()
+		send("away", 3600)
+	end)
+	button(r, Theme.info, "Away 8 h", 0.68, 0.3, function()
+		send("away", 8 * 3600)
+	end)
+
+	heading("Save")
+	r = line()
+	local keyText = text(r, "", 0.02, 0.62)
+	local armed = false
+	local wipeB: Ui.Block
+	wipeB = button(r, Theme.no, "Wipe my save", 0.66, 0.32, function()
+		if not testerReadout.qa then
+			wipeB.text.Text = "Live save: no"
+			return
+		end
+		if armed then
+			send("wipe", "confirm")
+		else
+			armed = true
+			wipeB.text.Text = "Sure? Press again"
+			task.delay(4, function()
+				armed = false
+				wipeB.text.Text = "Wipe my save"
+			end)
+		end
+	end)
+	table.insert(updates, function()
+		keyText.Text = `{testerReadout.saveKey or ""}{if testerReadout.qa then " (QA)" else ""}`
+	end)
+
+	o.update = function(view)
+		for _, fn in updates do
+			fn(view)
+		end
+	end
+	o.update(v)
+end
+
 local function message(o: Open, lines: { string }, okText: string, onOk: () -> ())
 	local l = list(o.body, false)
 	for i, s in lines do
@@ -275,6 +569,8 @@ local function fill(o: Open)
 			pets(o, v)
 		elseif o.name == "index" then
 			index(o, v)
+		elseif o.name == "tester" then
+			tester(o, v)
 		end
 	end
 	InputController.select(o.first)
@@ -303,6 +599,7 @@ function PopupController.close()
 		return
 	end
 	o.frame:Destroy()
+	o.closed = true
 	current = nil
 	InputController.select(nil)
 	State.send("SetMenuOpen", false)
@@ -313,6 +610,9 @@ function PopupController.close()
 end
 
 function PopupController.open(name: string, data: any?)
+	if name == "tester" and not (State.view and State.view.tester) then
+		return -- not a tester: the panel doesn't exist
+	end
 	if current then
 		if current.name == name and MENUS[name] then
 			PopupController.close() -- pressing the same tile again closes it
@@ -346,6 +646,15 @@ function PopupController.open(name: string, data: any?)
 	if name == "shop" then
 		State.send("ShopOpened")
 	end
+	if name == "tester" then
+		-- the server's readout while the panel is open (it also brings the teleport list)
+		task.spawn(function()
+			while not o.closed do
+				State.send("Tester", "readout")
+				task.wait(Config.dev.readoutSeconds)
+			end
+		end)
+	end
 	fill(o)
 end
 
@@ -359,13 +668,30 @@ function PopupController.Start()
 			PopupController.open(a)
 		end
 	end)
-	State.Changed:Connect(function()
-		if current and MENUS[current.name] and current.name ~= "settings" then
+	State.Changed:Connect(function(v: State.View)
+		local o = current
+		if o and o.update then
+			o.update(v)
+		elseif o and MENUS[o.name] and o.name ~= "settings" then
 			PopupController.refresh()
 		end
 	end)
+	game:GetService("RunService").RenderStepped:Connect(function(dt: number)
+		fps = fps * 0.95 + (1 / math.max(dt, 1e-3)) * 0.05
+	end)
 	State.Notify:Connect(function(kind: string, data: any)
-		if kind == "welcomeBack" then
+		if kind == "testerReadout" then
+			local hadTargets = testerReadout.targets ~= nil
+			testerReadout = data
+			local o = current
+			if o and o.name == "tester" then
+				if not hadTargets then
+					PopupController.refresh() -- the teleport buttons arrive with the first readout
+				elseif o.update and State.view then
+					o.update(State.view)
+				end
+			end
+		elseif kind == "welcomeBack" then
 			PopupController.open("welcome", data)
 		elseif kind == "giftClaimed" then
 			PopupController.open("gift", data)

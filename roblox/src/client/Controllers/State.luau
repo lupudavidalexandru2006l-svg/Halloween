@@ -21,6 +21,8 @@ export type View = {
 	superFreezeCharges: number,
 	stats: { frozen: number, banked: number, melts: number, coinsEarned: number },
 	plot: number?,
+	rebirths: number,
+	tester: { mult: number, walk: number, instantFreeze: boolean, noMelt: boolean }?, -- only sent to testers
 }
 
 local State = {}

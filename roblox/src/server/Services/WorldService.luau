@@ -204,6 +204,20 @@ local function findExisting(): boolean
 		return false
 	end
 	map = existing :: Folder
+	-- a saved map skips buildBlockout, so hook the river catcher here too
+	local catcher = map:FindFirstChild("RiverCatcher", true) :: BasePart?
+	if catcher then
+		local W = Config.world
+		local rz = (W.river.zMin + W.river.zMax) / 2
+		catcher.Touched:Connect(function(hit)
+			local character = hit.Parent
+			local hrp = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if hrp and Players:GetPlayerFromCharacter(character) then
+				local back = if hrp.Position.Z > rz then W.river.zMax + 4 else W.river.zMin - 4
+				hrp.CFrame = CFrame.new(hrp.Position.X, 4, back)
+			end
+		end)
+	end
 	iceBridge = map:FindFirstChild("IceBridge", true) :: BasePart
 	WorldService.bridgePrompts = {}
 	for i = 1, 2 do
@@ -320,6 +334,26 @@ end
 function WorldService.setIceBridge(active: boolean)
 	iceBridge.Transparency = if active then 0.25 else 1
 	iceBridge.CanCollide = active
+end
+
+export type TeleportTarget = { id: string, label: string, cf: CFrame }
+
+-- every place a tester can jump to (also when it's locked): the hub, your pen, the start of each zone
+function WorldService.teleportTargets(player: Player): { TeleportTarget }
+	local W = Config.world
+	local up = Vector3.new(0, 4, 0)
+	local list: { TeleportTarget } = {
+		{ id = "hub", label = "Hub", cf = CFrame.new(W.spawn + up) * CFrame.Angles(0, math.pi, 0) },
+	}
+	local plot = playerPlot[player]
+	if plot then
+		local pl = W.plots[plot]
+		table.insert(list, { id = "pan", label = "My Pan", cf = CFrame.new(pl.x, 4, pl.z) })
+	end
+	for _, z in W.zones do
+		table.insert(list, { id = "zone" .. z.id, label = z.name, cf = CFrame.new(0, 4, z.zMin + 6) * CFrame.Angles(0, math.pi, 0) })
+	end
+	return list
 end
 
 function WorldService.petsFolder(name: string): Folder

@@ -65,6 +65,7 @@ function InputController.Start()
 		pets = { K.pets },
 		shop = { K.shop },
 		index = { K.index },
+		tester = { K.tester }, -- PopupController ignores it for anyone who isn't a tester
 		close = { K.close, G.close },
 		superFreeze = { K.superFreeze, G.superFreeze },
 		menu = { G.menu },

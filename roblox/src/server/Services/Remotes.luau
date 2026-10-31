@@ -12,7 +12,7 @@ local Remotes = {}
 local NAMES = {
 	-- client -> server (intent)
 	"BuyUpgrade", "CollectWelcome", "RequestSuperFreeze", "SetMenuOpen", "ShopOpened",
-	"EquipPet", "EquipBest", "SetSetting",
+	"EquipPet", "EquipBest", "SetSetting", "Tester",
 	-- server -> client (what happened)
 	"Data", "Notify", "BoardRank",
 }

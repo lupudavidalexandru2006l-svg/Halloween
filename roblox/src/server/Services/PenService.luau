@@ -122,7 +122,8 @@ function PenService.equippedCount(d: Data): number
 	return n
 end
 
--- only the pen's pets earn; each full Index page adds 10%
+-- only the pen's pets earn; each full Index page adds 10%; a tester's money multiplier on top
+-- (DataService resets it to 1 for everyone who isn't a tester)
 function PenService.incomePerSecond(d: Data): number
 	local sum = 0
 	for _, p in d.pets do
@@ -130,7 +131,7 @@ function PenService.incomePerSecond(d: Data): number
 			sum += earn(p)
 		end
 	end
-	return sum * IndexService.multiplier(d.found)
+	return sum * IndexService.multiplier(d.found) * d.tester.mult
 end
 
 local function byEarnings(list: { PetEntry }): { PetEntry }
@@ -181,6 +182,18 @@ function PenService.addCoins(d: Data, n: number)
 		d.week = { id = w, coins = 0 } -- calendar reset (Monday UTC), nothing else is lost
 	end
 	d.week.coins = math.min(d.week.coins + n, Config.leaderboards.limits.weekCoins)
+end
+
+-- tester tool: a pet straight into the pen (or Storage when the pen is full); false when Storage is full
+function PenService.addPet(d: Data, key: string, pose: string, mut: string?): boolean
+	if not PetDefs.get(key) or #d.pets >= Config.pen.storageMax then
+		return false
+	end
+	local eq = PenService.equippedCount(d) < PenService.slots(d)
+	table.insert(d.pets, { id = "q" .. d.nextPetId, key = key, pose = pose, mut = mut, at = os.time(), eq = eq })
+	d.nextPetId += 1
+	d.found[key] = true
+	return true
 end
 
 -- ---------- daily gift ----------
@@ -412,7 +425,14 @@ local function view(player: Player, d: Data): { [string]: any }
 		superFreezeCharges = d.superFreezeCharges,
 		stats = d.stats,
 		plot = WorldService.plotOf(player),
+		rebirths = d.rebirths,
+		tester = if Config.isTester(player.UserId) then d.tester else nil, -- only testers learn the panel exists
 	}
+end
+
+-- tester tool: send the client its data on the next sync
+function PenService.markDirty(player: Player)
+	dirty[player] = true
 end
 
 function PenService.Init() end

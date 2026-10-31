@@ -102,7 +102,31 @@ local function goalFor(v: State.View): (string, number)
 	return "Every page full! Sunny Beach is next", 1
 end
 
+local tilesFrame: Frame
+local testerTile: Ui.Block? = nil
+
+-- the "T" tile: only made once the server says this account is a tester
+local function ensureTesterTile()
+	if testerTile then
+		return
+	end
+	local t = Config.ui.testerTile
+	local b = Ui.block(tilesFrame, t.id, Theme.info, "T", function()
+		PopupController.open(t.id)
+	end)
+	b.root.LayoutOrder = #Config.ui.tiles + 1
+	b.text.Size = UDim2.fromScale(0.8, 0.62)
+	b.text.Position = UDim2.fromScale(0.1, 0.04)
+	local small = Ui.label(b.face, t.label, UDim2.fromScale(0.9, 0.26), UDim2.fromScale(0.05, 0.7))
+	small.Name = "Label"
+	testerTile = b
+	Screen.setTileCount(#Config.ui.tiles + 1)
+end
+
 local function render(v: State.View)
+	if v.tester then
+		ensureTesterTile()
+	end
 	coins.text.Text = Ui.short(v.coins)
 	coinsRate.Text = if v.income > 0 then `+{Ui.short(v.income)}/s` else ""
 	coinsRate.Visible = v.income > 0
@@ -143,6 +167,7 @@ function HudController.Start()
 	local grid = Instance.new("UIGridLayout")
 	grid.SortOrder = Enum.SortOrder.LayoutOrder
 	grid.Parent = tiles
+	tilesFrame = tiles
 	for i, t in Config.ui.tiles do
 		local b = Ui.block(tiles, t.id, Theme.tiles[t.id] or Theme.info, t.label, function()
 			PopupController.open(t.id)
