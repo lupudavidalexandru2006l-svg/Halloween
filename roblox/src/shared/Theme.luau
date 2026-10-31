@@ -67,6 +67,16 @@ local Theme = {
 		statueBase = Color3.fromHex("dbe8f7"), shade = Color3.fromHex("283c78"), sunGlow = Color3.fromHex("ffec8c"),
 	},
 
+	-- effects and guides (prototype client.js)
+	fx = {
+		arrow = Color3.fromHex("3ccf6e"), beacon = Color3.fromHex("7dffb0"),
+		beamCore = Color3.new(1, 1, 1), beamGlow = Color3.fromHex("7fe3ff"),
+		gunBody = Color3.fromHex("e9f6ff"), gunTip = Color3.fromHex("7fe3ff"),
+		star = Color3.fromHex("ffd34a"), shadow = Color3.fromHex("1b1433"), frost = Color3.fromHex("dff6ff"),
+		giftBody = Color3.fromHex("ff5a8a"), giftLid = Color3.fromHex("ff7ca3"), giftRibbon = Color3.fromHex("ffd34a"),
+		superFrozen = Color3.fromHex("5f8dff"),
+	},
+
 	font = Enum.Font.FredokaOne,
 	lipDarken = 0.35, -- the lip under every block face is its colour this much darker
 	temp = { cold = Color3.fromHex("6fd0ff"), cool = Color3.fromHex("5fd6b4"), warm = Color3.fromHex("ffb347"), hot = Color3.fromHex("ff6b5a"), chill = Color3.fromHex("d9f4ff") } :: { [string]: Color3 },

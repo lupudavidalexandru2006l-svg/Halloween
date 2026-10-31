@@ -166,19 +166,9 @@ local function buildBlockout()
 	spawnLoc.Neutral = true
 	spawnLoc.Parent = map
 	-- gift box
-	local gift = part("GiftBox", Vector3.new(3, 3, 3), CFrame.new(W.giftBox.X, 1.5, W.giftBox.Z), Theme.gift, map)
+	-- invisible: MapArt draws the ribboned box, the client bobs it and shows its label
+	local gift = part("GiftBox", Vector3.new(3, 3, 3), CFrame.new(W.giftBox.X, 1.5, W.giftBox.Z), Theme.gift, map, { Transparency = 1 })
 	WorldService.giftPrompt = prompt(gift, "Open", "Daily gift", Config.player.interactHold)
-	local giftIcon = Instance.new("BillboardGui") -- the painted gift icon floats over the box
-	giftIcon.Name = "GiftIcon"
-	giftIcon.Size = UDim2.fromScale(3, 3)
-	giftIcon.StudsOffset = Vector3.new(0, 3.2, 0)
-	giftIcon.LightInfluence = 0
-	local giftImage = Instance.new("ImageLabel")
-	giftImage.BackgroundTransparency = 1
-	giftImage.Size = UDim2.fromScale(1, 1)
-	giftImage.Image = Config.images.icons.gift
-	giftImage.Parent = giftIcon
-	giftIcon.Parent = gift
 	-- leaderboard boards, turned to face the spawn
 	for i, pos in W.boards do
 		local look = CFrame.lookAt(Vector3.new(pos.X, 10, pos.Z), Vector3.new(W.spawn.X, 10, W.spawn.Z))

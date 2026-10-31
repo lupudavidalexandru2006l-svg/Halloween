@@ -210,11 +210,19 @@ function HudController.Start()
 				HudController.banner(`{data.name} caught a {string.upper(def.tier)} {def.name}!`, Theme.tiers[def.tier])
 			end
 		elseif kind == "banked" then
-			local total = 0
+			local total, best = 0, nil :: PetDefs.PetDef?
 			for _, b in data.banked do
 				total += b.income
+				local def = PetDefs.get(b.key)
+				if def and (not best or Config.tier(def.tier).rank > Config.tier(best.tier).rank) then
+					best = def
+				end
 			end
-			HudController.banner(`+{Ui.short(total)}/s in your pen`, Theme.go)
+			if best and Config.tier(best.tier).rank >= Config.effects.showRank then
+				HudController.banner(`{string.upper(best.tier)}! {best.name}`, Theme.tiers[best.tier]) -- prototype: Epic and up get the show
+			else
+				HudController.banner(`+{Ui.short(total)}/s in your pen`, Theme.go)
+			end
 		elseif kind == "zoneUnlocked" then
 			HudController.banner("Pine Forest is open!", Theme.go)
 		elseif kind == "upgraded" then

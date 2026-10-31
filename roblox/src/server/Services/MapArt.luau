@@ -424,6 +424,18 @@ function MapArt.build(map: Instance)
 	landmarks(folder("Landmarks", art))
 	farScenery(folder("Far", art))
 	hub(folder("Hub", art))
+	-- the gift box (prototype): body, lid, gold ribbons and a bow; the client bobs it while a gift waits
+	local giftArt = folder("GiftArt", art)
+	local gb = W.giftBox
+	local at = CFrame.new(gb.X, 0, gb.Z)
+	local F = Theme.fx
+	block(Vector3.new(3, 2.4, 3), at * CFrame.new(0, 1.2, 0), F.giftBody, giftArt)
+	block(Vector3.new(3.4, 0.8, 3.4), at * CFrame.new(0, 2.7, 0), F.giftLid, giftArt)
+	block(Vector3.new(0.6, 3.25, 3.5), at * CFrame.new(0, 1.6, 0), F.giftRibbon, giftArt)
+	block(Vector3.new(3.5, 3.25, 0.6), at * CFrame.new(0, 1.6, 0), F.giftRibbon, giftArt)
+	for _, x in { -0.55, 0.55 } do
+		shape("Ring", Vector3.new(1.6, 0.4, 1.6), at * CFrame.new(x, 3.4, 0) * CFrame.Angles(0, 0, math.pi / 2), F.giftRibbon, giftArt)
+	end
 	-- two wooden legs under each zone sign (the board itself is WorldService's ZoneSign)
 	local legs = folder("SignLegs", art)
 	for _, z in W.zones do

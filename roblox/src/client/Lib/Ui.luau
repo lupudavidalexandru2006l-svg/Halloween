@@ -26,7 +26,7 @@ function Ui.stroke(parent: Instance, thickness: number?)
 	s.Color = Theme.ink
 	s.Thickness = thickness or Config.ui.stroke
 	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	s.LineJoinMode = Enum.LineJoinMode.Miter
+	s.LineJoinMode = Enum.LineJoinMode.Round -- Miter draws square dark corners around a rounded block
 	s.Parent = parent
 end
 

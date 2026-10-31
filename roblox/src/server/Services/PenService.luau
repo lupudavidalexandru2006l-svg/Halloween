@@ -80,6 +80,7 @@ local function drawPen(player: Player, d: Data)
 			root.Transparency = 1
 			root:SetAttribute("PetKey", p.key)
 			root:SetAttribute("PenOwner", player.UserId)
+			root:SetAttribute("Mut", p.mut)
 			root.Parent = folder
 			state.parts[p.id] = root
 		end

@@ -276,6 +276,24 @@ Config.ui.tileIcons = { pets = Config.images.pets.snowbun, shop = Config.images.
 Config.ui.silhouetteTransparency = 0.25
 Config.ui.petSpriteScale = 1.25 -- a pet sprite is this many times the pet's height wide
 
+-- The world teaches (prototype client.js): a green arrow to a pet in your first minutes and home while
+-- you carry, a diamond over the nearest pet you can't reach yet, a light pillar over your pen
+Config.guide = {
+	earlyPets = 3, -- the arrow points to pets until you own this many
+	arrowDistance = 6.5, arrowHideNear = 8, arrowY = 0.5, arrowBob = 0.35, arrowBobSpeed = 4,
+	markerRange = 45, markerY = 1, markerBob = 0.3, markerSpin = 1.5,
+	beaconRadius = 3.2, beaconHeight = 70, beaconTransparency = 0.78, beaconPulse = 0.06,
+}
+-- the ice ray: a small gun in every player's right hand, a beam while you hold Freeze
+Config.ray = { beamCore = 0.28, beamGlow = 0.84, armRaise = 90, tipSize = 0.76, sparkleRate = 20 }
+-- extra pet looks (prototype syncWild / makeCube)
+Config.petFx = {
+	ringScale = 1.8, ringSpin = 0.5, shadowScale = 1.0, starCount = 3, starRadius = 0.9, starHeight = 1.45, starSpin = 3,
+	rareSparkleRate = 2, frostySparkleRate = 6, crackBelow = 0.35, crackLines = 9, edgeTransparency = 0.45,
+	popSeconds = 0.25,
+}
+Config.mapFx = { gateBarsDrop = 9, gateBarsSeconds = 1.2, giftBob = 0.6, giftSway = 0.15, bridgeFlashSeconds = 4 }
+
 -- Trees (shade) and sun patches: prototype config.js buildScenery(), same seed and ranges, so the
 -- shade and sun spots are exactly where the artifact has them (Shared/Scenery makes the list)
 Config.scenery = {
@@ -318,7 +336,7 @@ Config.art = {
 Config.camera = { fov = 70, minZoom = 10, maxZoom = 40, carryFov = 74, fovSeconds = 0.4,
 	-- the prototype's framing at spawn: high and behind, looking ahead, so carried cubes never hide you
 	startHeight = 15, startBack = 21, startLookAhead = 10, frameSettleSeconds = 0.25 }
-Config.effects = { pillarSeconds = 8, pillarHeight = 60, burstParts = 12, beamSeconds = 0.15, snowRate = 60 }
+Config.effects = { pillarSeconds = 8, pillarHeight = 60, burstParts = 12, beamSeconds = 0.15, snowRate = 60, showRank = 4 } -- showRank: Epic and up get a pillar in your pen
 
 function Config.tier(name: string): Tier
 	for _, t in Config.tiers do

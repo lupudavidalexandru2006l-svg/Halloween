@@ -111,15 +111,6 @@ local function refreshWorldPrompts(v: State.View)
 	if gp then
 		gp.Enabled = not v.forestUnlocked
 	end
-	-- the gate's ice bars are gone for you once you've opened it (the server's wall lets you through)
-	local bars = map:FindFirstChild("GateBars", true)
-	if bars then
-		for _, bar in bars:GetChildren() do
-			if bar:IsA("BasePart") then
-				bar.LocalTransparencyModifier = if v.forestUnlocked then 1 else 0
-			end
-		end
-	end
 	local gift = map:FindFirstChild("GiftBox", true)
 	local gift_p = gift and gift:FindFirstChildWhichIsA("ProximityPrompt", true)
 	if gift_p then

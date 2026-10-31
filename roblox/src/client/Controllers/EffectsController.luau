@@ -3,12 +3,14 @@
 -- Legendary or better, and Big Chill snow. Low graphics halves the particles; reduced motion keeps
 -- bursts small and the pillar still.
 
+local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Theme = require(ReplicatedStorage.Shared.Theme)
 local WorldRules = require(ReplicatedStorage.Shared.WorldRules)
+local PetDefs = require(ReplicatedStorage.Shared.PetDefs)
 local State = require(script.Parent.State)
 local SettingsController = require(script.Parent.SettingsController)
 
@@ -93,8 +95,32 @@ function EffectsController.Start()
 		elseif kind == "banked" then
 			local v = State.view
 			if v and v.plot then
-				EffectsController.burst(WorldRules.plotCenter(v.plot), Theme.coin)
+				local at = WorldRules.plotCenter(v.plot)
+				EffectsController.burst(at, Theme.ice)
+				EffectsController.burst(at, Theme.coin)
+				-- Epic and up get the show in your own pen (prototype): a pillar in the tier's colour
+				for _, b in data.banked do
+					local def = PetDefs.get(b.key)
+					if def and Config.tier(def.tier).rank >= E.showRank then
+						pillar(at, Theme.tiers[def.tier] or Theme.coin)
+						EffectsController.burst(at, Theme.tiers[def.tier] or Theme.coin)
+					end
+				end
 			end
+		elseif kind == "melted" then
+			local c = Players.LocalPlayer.Character
+			local root = c and c:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if root then
+				EffectsController.burst(root.Position, Theme.ice)
+			end
+		elseif kind == "bridge" then
+			local r = Config.world.river
+			local x = (Config.world.iceBridgeSpot.xMin + Config.world.iceBridgeSpot.xMax) / 2
+			EffectsController.burst(Vector3.new(x, 0, (r.zMin + r.zMax) / 2), Theme.ice)
+		elseif kind == "zoneUnlocked" then
+			EffectsController.burst(Vector3.new(0, 6, Config.world.gate.z), Theme.go)
+		elseif kind == "giftClaimed" then
+			EffectsController.burst(Config.world.giftBox, Theme.coin)
 		elseif kind == "bigWin" and typeof(data.plot) == "number" then
 			pillar(WorldRules.plotCenter(data.plot), Theme.tiers[data.tier] or Theme.coin)
 		elseif kind == "chillStart" then
