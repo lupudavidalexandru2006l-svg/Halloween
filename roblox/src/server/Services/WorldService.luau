@@ -135,7 +135,6 @@ local function buildHub()
 	collider("HubWallSE", Vector3.new(sw, hc, 2), CFrame.new(H.xMax - sw / 2, hc / 2, W.hubZMax + 1), map)
 	-- the pans: a thick soil bed per lane, walls on every side, a door at the front only its owner
 	-- can walk through (the owner's client turns it off for itself; PlayerTracker puts anyone else back)
-	local back = H.zMin
 	for i, pl in W.plots do
 		local x0, x1 = pl.x - P.width / 2, pl.x + P.width / 2
 		local pan = part("Plot" .. i, Vector3.new(P.width, P.soilHeight, P.length), CFrame.new(pl.x, P.soilHeight / 2, pl.z), HA.soil, map, { Material = Enum.Material.Ground })
@@ -162,19 +161,8 @@ local function buildHub()
 		pp:SetAttribute("Booth", "pan")
 		pp:SetAttribute("Action", W.panUpgradeAction)
 		pp:SetAttribute("PlotIndex", i)
-		-- fill the gaps between lanes (and at both ends of the row) so nobody walks into a dead end
-		if i < #W.plots then
-			local gx0, gx1 = x1 + 1, W.plots[i + 1].x - P.width / 2 - 1
-			if gx1 > gx0 then
-				collider("PanGap", Vector3.new(gx1 - gx0, ph, P.frontZ - back + 1), CFrame.new((gx0 + gx1) / 2, ph / 2, (back + P.frontZ + 1) / 2), map)
-			end
-		end
-	end
-	local first, last = W.plots[1], W.plots[#W.plots]
-	for _, ends in { { H.xMin, first.x - P.width / 2 - 1 }, { last.x + P.width / 2 + 1, H.xMax } } do
-		if ends[2] > ends[1] then
-			collider("PanEnd", Vector3.new(ends[2] - ends[1], P.wallHeight, P.frontZ - back + 1), CFrame.new((ends[1] + ends[2]) / 2, P.wallHeight / 2, (back + P.frontZ + 1) / 2), map)
-		end
+		-- the gaps between pans and at both ends of the row stay open ground: they lead round to the
+		-- open strip behind the pans (Config.world.pans.backSpace), so none of them is a dead end
 	end
 	-- the spawn: you start facing down the tunnel, the pans behind you
 	local spawnLoc = Instance.new("SpawnLocation")

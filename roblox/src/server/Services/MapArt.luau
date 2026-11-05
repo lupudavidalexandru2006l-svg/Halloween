@@ -401,8 +401,9 @@ local function panArt(parent: Instance, i: number, pl: { x: number, z: number },
 	local y = P.soilHeight
 	local x0, x1 = pl.x - P.width / 2, pl.x + P.width / 2
 	local zb, zf = P.frontZ - P.length, P.frontZ
-	-- a stone kerb round the bed, then the lawn with mowed stripes across it
-	block(Vector3.new(P.width + 0.9, 1.15, P.length + 0.9), CFrame.new(pl.x, 0.57, pl.z), V.stone, f, false, Enum.Material.Cobblestone)
+	-- a flush stone edge round the bed (the pan sits level with the ground), then the lawn with mowed stripes
+	local kerb = y + 0.1
+	block(Vector3.new(P.width + 0.9, kerb, P.length + 0.9), CFrame.new(pl.x, kerb / 2, pl.z), V.stone, f, false, Enum.Material.Cobblestone)
 	named(block(Vector3.new(P.width - 0.2, 0.2, P.length - 0.2), CFrame.new(pl.x, y + 0.1, pl.z), look.floor, f, false, Enum.Material.Grass), "PanFloor")
 	local band = 4
 	local n = math.floor((P.length - 0.4) / band)
@@ -884,16 +885,9 @@ local function boardFrame(parent: Instance, pos: Vector3, i: number)
 end
 
 local function hubGround(parent: Instance, rng: () -> number)
-	local H, P = W.hub, W.pans
 	local f = folder("Ground", parent)
-	-- the promenade along the pans' gates: warm tiles in two tones
-	local x = H.xMin + 2
-	local k = 0
-	while x < H.xMax - 2 do
-		quiet(block(Vector3.new(4, 0.1, 7), CFrame.new(x + 2, 0.05, P.frontZ + 4.6), if k % 2 == 0 then V.tileWarm else V.stoneWarm, f, false, Enum.Material.Slate))
-		x += 4
-		k += 1
-	end
+	-- (no paved strip along the pans' gates: the plaza ground runs right up to the fences, as in the
+	-- owner's reference)
 	-- the boulevard from the spawn to the tunnel mouth: a checkerboard of light tiles with a stone edge
 	for row = 0, 7 do
 		for col = 0, 3 do
@@ -996,26 +990,15 @@ local function hub(parent: Instance, rng: () -> number)
 	local half = T.width / 2
 	hubGround(parent, rng)
 	village(parent, rng)
-	-- the pans, and neat snowy hedges between them with a lantern at each front end
+	-- the pans, with open walkable ground between them (as in the owner's reference) and a lantern at
+	-- the front of each gap
 	for i, pl in W.plots do
 		panArt(parent, i, pl, rng)
 		if i < #W.plots then
 			local gx0, gx1 = pl.x + P.width / 2 + 1, W.plots[i + 1].x - P.width / 2 - 1
 			if gx1 > gx0 then
-				local cx = (gx0 + gx1) / 2
-				block(Vector3.new(gx1 - gx0 + 0.6, 3.2, P.length + 1), CFrame.new(cx, 1.6, pl.z), V.hedge, parent, false, Enum.Material.LeafyGrass)
-				quiet(block(Vector3.new(gx1 - gx0 + 0.9, 0.45, P.length + 1.2), CFrame.new(cx, 3.3, pl.z), A.snowCap, parent, false, Enum.Material.Snow))
-				for zz = P.frontZ - 8, P.frontZ - P.length + 6, -12 do
-					snowyBush(parent, Vector3.new(cx, 3.2, zz), 0.7, true)
-				end
-				lantern(parent, Vector3.new(cx, 0, P.frontZ + 1.2), A.lanternGlow, 5, 14, i % 2 == 1)
+				lantern(parent, Vector3.new((gx0 + gx1) / 2, 0, P.frontZ + 1.2), A.lanternGlow, 5, 14, i % 2 == 1)
 			end
-		end
-	end
-	local first, last = W.plots[1], W.plots[#W.plots]
-	for _, ends in { { W.hub.xMin, first.x - P.width / 2 - 1 }, { last.x + P.width / 2 + 1, W.hub.xMax } } do
-		if ends[2] > ends[1] then
-			block(Vector3.new(ends[2] - ends[1], 3.2, P.length + 1), CFrame.new((ends[1] + ends[2]) / 2, 1.6, first.z), V.hedge, parent, false, Enum.Material.LeafyGrass)
 		end
 	end
 	-- the spawn pad: a ring of light on the plaza

@@ -373,16 +373,19 @@ export type Booth = { id: string, label: string, action: string, pos: Vector3 }
 
 Config.world = {
 	maxPlayers = 6, -- one pan per server slot. Owner item: Server Size 6 in Game Settings > Places
-	mapVersion = 6, -- Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges, 6 = bigger square pans)
+	mapVersion = 8, -- Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges, 6 = bigger square pans, 7 = pans measured against the real avatar, 8 = open gaps, open ground behind, level pans)
 	hubZMax = 0, -- the tunnel mouth: the hub is z < 0 (no wild pets, no heat)
-	-- wide enough for the row of six pans plus 10 studs at each end; the pans' back fences sit just in front of the north wall
-	hub = { xMin = -132, xMax = 132, zMin = -100, wallHeight = 16, colliderHeight = 60 },
+	-- wide enough for the row of six pans plus 10 studs at each end; zMin is worked out below (behind the pans' backSpace)
+	hub = { xMin = -150, xMax = 150, zMin = 0, wallHeight = 16, colliderHeight = 60 },
 	spawn = Vector3.new(0, 3, -34),
 	spawnPadRadius = 6,
-	-- the pans: nearly square fenced gardens on a thick soil bed, doors facing the plaza. Sizes follow the
-	-- owner's reference shots (2026-11-05): width about 7 avatar heights, depth about 1.05 x width, door
-	-- about half the width, gap about 0.22 x width, fence about chest high (0.8 avatar heights)
-	pans = { width = 34, length = 36, gap = 8, frontZ = -62, soilHeight = 1, doorWidth = 16, fenceHeight = 4, wallHeight = 16,
+	-- the pans: fenced gardens a little deeper than wide, level with the ground round them, doors facing
+	-- the plaza, open walkable ground between them and backSpace of open ground behind them.
+	-- Sizes follow the owner's reference shots (2026-11-05), measured against the real avatar (5.8 studs
+	-- tall, 3.3 across the arms) and the reference's 4-stud floor tiles: width about 7 avatar heights,
+	-- depth 1.1 x width, door 0.4 x width, gap 0.2 x width, about one width of open ground behind,
+	-- fence about shoulder high (0.8 avatar heights)
+	pans = { width = 40, length = 44, gap = 8, frontZ = -62, soilHeight = 0.2, backSpace = 40, doorWidth = 16, fenceHeight = 4.5, wallHeight = 16,
 		signY = 6.5, gaugeOffset = 10.5, boothOffset = -11 }, -- gauge right of the door, Pan Upgrades stand left of it (x from the lane's middle)
 	tunnel = { width = 72, wallHeight = 18, wallThick = 4, colliderHeight = 60, pathWidth = 16, lampEvery = 28 },
 	gate = { depth = 3, barGap = 3, height = 14 },
@@ -461,7 +464,7 @@ Config.world = {
 	panUpgradeAction = "pan", -- the Pan Upgrades popup (Round 4 phase 5)
 	giftBox = Vector3.new(74, 0, -10),
 	-- leaderboards on the hub's side walls, turned to face the plaza
-	boards = { Vector3.new(-128, 0, -46), Vector3.new(-128, 0, -24), Vector3.new(128, 0, -46) },
+	boards = { Vector3.new(-146, 0, -46), Vector3.new(-146, 0, -24), Vector3.new(146, 0, -46) },
 	-- filled in below from the lists above
 	zones = {} :: { Zone },
 	plots = {} :: { { x: number, z: number } },
@@ -481,6 +484,7 @@ do
 		table.insert(W.plots, { x = -row / 2 + P.width / 2 + (i - 1) * (P.width + P.gap), z = P.frontZ - P.length / 2 })
 	end
 	W.penSize = Vector3.new(P.width, 1, P.length)
+	W.hub.zMin = P.frontZ - P.length - P.backSpace
 	-- the tunnel's sections: one per open island, end to end from the mouth
 	local z = W.hubZMax
 	for _, isl in W.islands do
@@ -614,7 +618,7 @@ Config.mapFx = { gateBarsDrop = 13, gateBarsSeconds = 1.2, giftBob = 0.6, giftSw
 	panDoorSeconds = 0.5 }
 -- banked pets stay frozen: ice cubes in a neat grid on the pan, the pet inside wiggles a little,
 -- frost shimmers on the ice and a coin rises from each cube now and then
-Config.panCubes = { cols = 6, gap = 5, frontMargin = 7, backMargin = 3, maxSize = 4.2, wiggle = 0.06, wiggleSpeed = 2.2,
+Config.panCubes = { cols = 7, gap = 5, frontMargin = 7, backMargin = 3, maxSize = 4.2, wiggle = 0.06, wiggleSpeed = 2.2,
 	shimmerSpeed = 1.3, shimmerAmount = 0.12, coinEvery = 3.2, coinRise = 2.6, coinSize = 1.1, drawDistance = 120 }
 -- carried cubes are held in front of you, in your hands (both arms come up while you carry)
 Config.carry = { scale = 0.62, handY = 0.4, front = 0.9, stackGap = 0.15, armRaise = 80 }
