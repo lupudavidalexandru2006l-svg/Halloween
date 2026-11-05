@@ -150,7 +150,9 @@ local function drawPen(player: Player, d: Data)
 			cube.CanCollide = false
 			cube.CanQuery = false
 			cube.CanTouch = false
-			cube.Material = Enum.Material.Glass
+			-- not Glass: Roblox draws nothing see-through behind Glass, so a sprite pet in its cube (or
+			-- strolling inside the hidden one once thawed) vanished (World Rules)
+			cube.Material = Enum.Material.SmoothPlastic
 			cube.Color = Theme.ice
 			cube.Transparency = 0.5
 			cube.CastShadow = false

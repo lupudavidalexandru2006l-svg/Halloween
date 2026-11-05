@@ -67,7 +67,7 @@ local function add(root: Instance)
 	glow.Brightness = 1.2
 	glow.Parent = core
 	local ice = part(Vector3.one * C.size * 1.25, Theme.ice)
-	ice.Material = Enum.Material.Glass
+	ice.Material = Enum.Material.SmoothPlastic -- not Glass: it would hide the critter's sprite inside (World Rules)
 	ice.Transparency = 1
 	ice.Name = "CritterIce"
 	looks[root] = { model = model, img = img, steam = steam, glow = glow, ice = ice, phase = math.random() * 6, at = root.CFrame }

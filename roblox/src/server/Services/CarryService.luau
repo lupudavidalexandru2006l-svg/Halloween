@@ -106,7 +106,7 @@ local function makePart(player: Player, c: Cube): Part
 	local p = Instance.new("Part")
 	p.Name = "Cube"
 	p.Size = Vector3.new(s, s, s)
-	p.Material = Enum.Material.Glass
+	p.Material = Enum.Material.SmoothPlastic -- not Glass: it would hide a sprite pet inside (World Rules)
 	p.Color = if c.superFrozen then Theme.iceDeep else Theme.ice
 	p.Transparency = if c.superFrozen then 0.35 else 0.45
 	p.CanCollide = false

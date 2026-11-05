@@ -22,6 +22,9 @@ local MapArt = require(script.Parent.MapArt)
 local WorldService = {}
 
 local map: Folder
+-- the hub's tiles run this far into the tunnel mouth; the first tunnel floor starts where they end, so
+-- the two floors never overlap at the same height (they flickered there)
+local HUB_LIP = 2
 local plotOwner: { [number]: Player } = {}
 local playerPlot: { [Player]: number } = {}
 WorldService.gateSigns = {} :: { [number]: BasePart }
@@ -124,7 +127,8 @@ local function buildHub()
 	local HA = Theme.hubArt
 	local width, depth = H.xMax - H.xMin, W.hubZMax - H.zMin
 	local cx, cz = (H.xMin + H.xMax) / 2, (H.zMin + W.hubZMax) / 2
-	part("HubGround", Vector3.new(width + 8, 2, depth + 8), CFrame.new(cx, -1, cz - 2), HA.plaza, map, { Material = Enum.Material.CeramicTiles })
+	-- runs HUB_LIP past the tunnel mouth (under the south wall); the first tunnel floor starts there
+	part("HubGround", Vector3.new(width + 8, 2, depth + 6 + HUB_LIP), CFrame.new(cx, -1, cz - 3 + HUB_LIP / 2), HA.plaza, map, { Material = Enum.Material.CeramicTiles })
 	-- the hub's walls; the south wall leaves the tunnel mouth open
 	local hc, half = H.colliderHeight, T.width / 2
 	collider("HubWallW", Vector3.new(2, hc, depth + 4), CFrame.new(H.xMin - 1, hc / 2, cz), map)
@@ -214,7 +218,8 @@ local function buildTunnel()
 		sec.Name = "Section" .. zone.id
 		sec:SetAttribute("Zone", zone.id)
 		sec.Parent = map
-		part("Floor", Vector3.new(T.width + T.wallThick * 2, 2, len), CFrame.new(0, -1, mid), look.floor, sec, { Material = floorMat })
+		local f0 = if zone.zMin < W.hubZMax + HUB_LIP then W.hubZMax + HUB_LIP else zone.zMin -- after the hub's tiles
+		part("Floor", Vector3.new(T.width + T.wallThick * 2, 2, zone.zMax - f0), CFrame.new(0, -1, (f0 + zone.zMax) / 2), look.floor, sec, { Material = floorMat })
 		part("Path", Vector3.new(T.pathWidth, 0.2, len), CFrame.new(0, 0.05, mid), look.path, sec,
 			{ Material = if mats then mats.path else Enum.Material.Ground, CanCollide = false })
 		local wx = half + T.wallThick / 2
@@ -260,19 +265,22 @@ local function buildMap()
 		{ Transparency = 1, CanCollide = false, CanQuery = false })
 	hookCatcher(catcher)
 	-- shade (under each tree) and sun patches: Shared/Scenery's list, so the spots that melt slower or
-	-- faster are exactly where MapArt draws the trees and glowing patches
+	-- faster are exactly where MapArt draws the trees and glowing patches.
+	-- Floor layers (tops), never flush, or overlapping ones flicker: path and edge strips 0.15, puddles
+	-- 0.19 and beach starfish 0.2 (MapArt), sun patches 0.25, lava glow and sun rims 0.27, lake pools 0.3 (MapArt),
+	-- shade 0.35
 	local A = Theme.art
 	local list = Scenery.get()
 	local areas = Instance.new("Folder")
 	areas.Name = "Areas"
 	areas.Parent = map
 	for _, t in list.trees do
-		local shade = part("Shade", Vector3.new(0.2, t.r * 2, t.r * 2), CFrame.new(t.x, 0.08, t.z) * CFrame.Angles(0, 0, math.rad(90)), A.shade, areas,
+		local shade = part("Shade", Vector3.new(0.2, t.r * 2, t.r * 2), CFrame.new(t.x, 0.25, t.z) * CFrame.Angles(0, 0, math.rad(90)), A.shade, areas,
 			{ Shape = Enum.PartType.Cylinder, Transparency = 0.82, CanCollide = false, CanQuery = false, CastShadow = false })
 		CollectionService:AddTag(shade, "ShadeZone")
 	end
 	for _, s in list.sun do
-		local patch = part("SunPatch", Vector3.new(0.2, s.r * 2, s.r * 2), CFrame.new(s.x, 0.07, s.z) * CFrame.Angles(0, 0, math.rad(90)), A.sunGlow, areas,
+		local patch = part("SunPatch", Vector3.new(0.2, s.r * 2, s.r * 2), CFrame.new(s.x, 0.15, s.z) * CFrame.Angles(0, 0, math.rad(90)), A.sunGlow, areas,
 			{ Shape = Enum.PartType.Cylinder, Transparency = 0.45, CanCollide = false, CanQuery = false, CastShadow = false })
 		CollectionService:AddTag(patch, "SunZone")
 	end

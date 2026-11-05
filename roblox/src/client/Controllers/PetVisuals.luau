@@ -753,7 +753,7 @@ end
 local function newFreeze(root: BasePart, d: Drawn, style: string): FreezeLook
 	local h = d.height
 	local shell = fxPart(Vector3.new(h, 0.05, h), Theme.ice, folder) :: Part
-	shell.Material = Enum.Material.Glass
+	shell.Material = Enum.Material.SmoothPlastic -- not Glass: it would hide a sprite pet inside (World Rules)
 	shell.Transparency = 0.6
 	local hl: Highlight? = nil
 	if not d.img then -- a 3D model gets a frost overlay; a sprite's colour is tinted instead
@@ -976,7 +976,7 @@ function PetVisuals.frozenCube(key: string, size: number): (Model?, Part?)
 	m.Name = "FrozenCube"
 	local cube = fxPart(Vector3.one * size, Theme.ice, m) :: Part
 	cube.Name = "Cube"
-	cube.Material = Enum.Material.Glass
+	cube.Material = Enum.Material.SmoothPlastic -- not Glass: it would hide a sprite pet inside (World Rules)
 	cube.Transparency = 0.45
 	local pet = standIn(def, size * 0.6)
 	cube.CFrame = CFrame.new()

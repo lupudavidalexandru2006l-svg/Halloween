@@ -271,8 +271,8 @@ end
 local function present(parent: Instance, at: Vector3, s: number, color: Color3, ry: number)
 	local cf = CFrame.new(at) * CFrame.Angles(0, ry, 0)
 	block(Vector3.one * s, cf * CFrame.new(0, s / 2, 0), color, parent)
-	block(Vector3.new(s * 0.22, s + 0.04, s + 0.04), cf * CFrame.new(0, s / 2, 0), V.gold, parent)
-	block(Vector3.new(s + 0.04, s + 0.04, s * 0.22), cf * CFrame.new(0, s / 2, 0), V.gold, parent)
+	block(Vector3.new(s * 0.22, s + 0.08, s + 0.08), cf * CFrame.new(0, s / 2, 0), V.gold, parent) -- ribbons stand clear of the box (0.02 flickered)
+	block(Vector3.new(s + 0.08, s + 0.08, s * 0.22), cf * CFrame.new(0, s / 2, 0), V.gold, parent)
 end
 
 local function smallSnowman(parent: Instance, at: Vector3, s: number, ry: number)
@@ -327,8 +327,9 @@ local function house(parent: Instance, cf: CFrame, w: number, d: number, h: numb
 		if math.abs(x) + 1.2 < w / 2 then
 			block(Vector3.new(2, 2, 0.2), cf * CFrame.new(x, 1 + h * 0.6, front), V.trim, m)
 			quiet(glow(block(Vector3.new(1.6, 1.6, 0.22), cf * CFrame.new(x, 1 + h * 0.6, front - 0.03), V.window, m), 0.1))
-			block(Vector3.new(0.12, 1.6, 0.25), cf * CFrame.new(x, 1 + h * 0.6, front - 0.06), V.trim, m)
-			block(Vector3.new(1.6, 0.12, 0.25), cf * CFrame.new(x, 1 + h * 0.6, front - 0.06), V.trim, m)
+			-- the cross bars stop short of the glass's edges and stand clearly in front of it (flush, they flickered)
+			block(Vector3.new(0.12, 1.5, 0.3), cf * CFrame.new(x, 1 + h * 0.6, front - 0.1), V.trim, m)
+			block(Vector3.new(1.5, 0.12, 0.3), cf * CFrame.new(x, 1 + h * 0.6, front - 0.1), V.trim, m)
 			for _, sx in { -1.25, 1.25 } do
 				block(Vector3.new(0.5, 1.9, 0.15), cf * CFrame.new(x + sx, 1 + h * 0.6, front - 0.02), shutter, m)
 			end
@@ -456,7 +457,7 @@ local function fountain(parent: Instance, at: Vector3)
 	local cf = CFrame.new(at.X, 0, at.Z)
 	-- the plaza round it: a stone ring with a tiled band
 	quiet(cyl(13, 0.1, cf * CFrame.new(0, 0.05, 0), V.stone, f, false, Enum.Material.Slate))
-	quiet(cyl(11.6, 0.12, cf * CFrame.new(0, 0.06, 0), V.tileWarm, f, false, Enum.Material.Slate))
+	quiet(cyl(11.6, 0.16, cf * CFrame.new(0, 0.08, 0), V.tileWarm, f, false, Enum.Material.Slate)) -- clearly above the ring (0.02 flickered)
 	-- the pool: a rim you can't walk through, frozen water inside
 	cyl(7, 1.4, cf * CFrame.new(0, 0.7, 0), V.stone, f, true, Enum.Material.Cobblestone)
 	cyl(7.3, 0.4, cf * CFrame.new(0, 1.5, 0), V.trim, f, true)
@@ -559,7 +560,7 @@ local function booth(parent: Instance, b: Config.Booth, rng: () -> number)
 	quiet(block(Vector3.new(Wd - 1, y0 + 0.02, bz + 3.6), at * CFrame.new(0, y0 / 2 + 0.02, (bz - 3.4) / 2), A.plank, f, false, Enum.Material.WoodPlanks))
 	quiet(block(Vector3.new(8, 0.3, 1.3), at * CFrame.new(0, 0.15, -4.4), V.stone, f, false, Enum.Material.Slate))
 	quiet(block(Vector3.new(8.4, 0.06, 3), at * CFrame.new(0, 0.03, -6.6), color, f, false, Enum.Material.Fabric))
-	quiet(block(Vector3.new(7, 0.07, 1.9), at * CFrame.new(0, 0.04, -6.6), Theme.panel, f, false, Enum.Material.Fabric))
+	quiet(block(Vector3.new(7, 0.1, 1.9), at * CFrame.new(0, 0.05, -6.6), Theme.panel, f, false, Enum.Material.Fabric)) -- clearly above the rug (0.015 flickered)
 	-- log walls: the sides and back are stacked logs whose ends cross at the corners
 	local step = 0.84
 	local rows = math.floor(H / step)
@@ -583,10 +584,11 @@ local function booth(parent: Instance, b: Config.Booth, rng: () -> number)
 	-- warm windows on the sides, with plank shutters and a snowy sill
 	for _, side in { -1, 1 } do
 		local wcf = at * CFrame.new(side * (Wd / 2 + 0.05), y0 + 4, (fz + bz) / 2) * CFrame.Angles(0, side * math.pi / 2, 0)
+		-- frame, glass and bars each stand clearly proud of the one behind (0.01 apart they flickered)
 		block(Vector3.new(3, 2.8, 0.3), wcf, dark, f)
-		quiet(glow(block(Vector3.new(2.4, 2.2, 0.32), wcf, V.window, f), 0.1))
-		block(Vector3.new(0.18, 2.2, 0.36), wcf, dark, f)
-		block(Vector3.new(2.4, 0.18, 0.36), wcf, dark, f)
+		quiet(glow(block(Vector3.new(2.4, 2.2, 0.4), wcf, V.window, f), 0.1))
+		block(Vector3.new(0.18, 2.1, 0.5), wcf, dark, f)
+		block(Vector3.new(2.3, 0.18, 0.5), wcf, dark, f)
 		for _, sx in { -1.9, 1.9 } do
 			block(Vector3.new(0.8, 2.6, 0.2), wcf * CFrame.new(sx, 0, -0.1), logB, f, false, Enum.Material.WoodPlanks)
 		end
@@ -645,7 +647,7 @@ local function booth(parent: Instance, b: Config.Booth, rng: () -> number)
 	end
 	local rw = at * CFrame.new(0, eaveY + 2.4, fz - 0.05)
 	cyl(1.15, 0.3, rw * CFrame.Angles(math.pi / 2, 0, 0), dark, f)
-	quiet(glow(cyl(0.9, 0.34, rw * CFrame.Angles(math.pi / 2, 0, 0), V.window, f), 0.1))
+	quiet(glow(cyl(0.9, 0.4, rw * CFrame.Angles(math.pi / 2, 0, 0), V.window, f), 0.1))
 	-- the porch: two log posts holding the overhang, a beam across, the sign standing on it
 	local BS = Config.world.boothSign
 	local postZ = -2.9
@@ -787,7 +789,7 @@ local function booth(parent: Instance, b: Config.Booth, rng: () -> number)
 		local chest = at * CFrame.new(5, y0, -1.5) * CFrame.Angles(0, -0.3, 0)
 		block(Vector3.new(2.2, 1.2, 1.4), chest * CFrame.new(0, 0.6, 0), V.barrel, f, true, Enum.Material.WoodPlanks)
 		for _, x in { -0.75, 0.75 } do
-			block(Vector3.new(0.18, 1.24, 1.44), chest * CFrame.new(x, 0.6, 0), V.gold, f)
+			block(Vector3.new(0.18, 1.28, 1.48), chest * CFrame.new(x, 0.6, 0), V.gold, f) -- bands stand clear of the wood (0.02 flickered)
 		end
 		quiet(glow(ellipsoid(Vector3.new(1.9, 0.7, 1.1), chest * CFrame.new(0, 1.25, 0), V.gold, f), 0.1))
 		block(Vector3.new(2.2, 0.35, 1.4), chest * CFrame.new(0, 1.55, 0.95) * CFrame.Angles(math.rad(-70), 0, 0), V.barrel, f, false, Enum.Material.WoodPlanks)
@@ -864,7 +866,7 @@ local function boardFrame(parent: Instance, pos: Vector3, i: number)
 	for _, x in { -8.4, 8.4 } do
 		block(Vector3.new(2.4, 21, 2.4), cf * CFrame.new(x, 0.5, 0.6), V.stone, f, true, Enum.Material.Cobblestone)
 		block(Vector3.new(3, 0.8, 3), cf * CFrame.new(x, 11.2, 0.6), V.trim, f)
-		block(Vector3.new(3, 1, 3), cf * CFrame.new(x, -9.5, 0.6), V.stoneDark, f, false, Enum.Material.Slate)
+		block(Vector3.new(3, 1.2, 3), cf * CFrame.new(x, -9.4, 0.6), V.stoneDark, f, false, Enum.Material.Slate) -- taller than the border (flush tops flickered)
 		local cap = glow(shape("Octa", Vector3.new(1.6, 3, 1.6), cf * CFrame.new(x, 13.1, 0.6), A.crystalGlow, f), 0.15)
 		light(cap, A.crystalGlow, 12, 0.8)
 	end
@@ -901,7 +903,8 @@ local function hubGround(parent: Instance, rng: () -> number)
 	for _, side in { -1, 1 } do
 		local cx, cz = side * 33, -40
 		quiet(block(Vector3.new(24, 0.2, 20), CFrame.new(cx, 0.1, cz), V.lawn, f, false, Enum.Material.Grass))
-		quiet(block(Vector3.new(24.6, 0.3, 20.6), CFrame.new(cx, 0.05, cz), V.stone, f, false, Enum.Material.Cobblestone))
+		-- its stone edge tops out below the grass (flush tops flickered)
+		quiet(block(Vector3.new(24.6, 0.3, 20.6), CFrame.new(cx, 0, cz), V.stone, f, false, Enum.Material.Cobblestone))
 		for _, sp in { { -7, -5 }, { 6, 4 }, { -2, 6 } } do
 			snowyBush(f, Vector3.new(cx + sp[1], 0.2, cz + sp[2]), 0.8 + rng() * 0.4, true)
 		end
@@ -1147,7 +1150,7 @@ local function meadowProps(parent: Instance, zone: Config.Zone, trees: { Scenery
 	-- frozen ponds with a snowy rim
 	for _, p in pick(zone, trees, rng, 2, 6, taken) do
 		local r = 5 + rng() * 2
-		local ice = cyl(r, 0.15, CFrame.new(p + Vector3.new(0, 0.08, 0)), V.water, f, false, Enum.Material.Ice)
+		local ice = cyl(r, 0.15, CFrame.new(p + Vector3.new(0, 0.115, 0)), V.water, f, false, Enum.Material.Ice) -- top 0.19 (floor layers: WorldService)
 		ice.Transparency = 0.1
 		for k = 0, 9 do
 			local a = k / 10 * math.pi * 2
@@ -1468,7 +1471,7 @@ PROPS.beach = function(parent, zone, trees, rng)
 			quiet(ellipsoid(Vector3.new(0.8, 0.35, 0.7), CFrame.new(p + Vector3.new(0, 0.15, 0)) * CFrame.Angles(0, rng() * 6, 0), IA.shell, f))
 		else
 			for k = 0, 4 do
-				quiet(block(Vector3.new(0.25, 0.12, 0.8), CFrame.new(p + Vector3.new(0, 0.1, 0)) * CFrame.Angles(0, k * math.pi * 2 / 5, 0) * CFrame.new(0, 0, -0.35), IA.starfish, f))
+				quiet(block(Vector3.new(0.25, 0.2, 0.8), CFrame.new(p + Vector3.new(0, 0.1, 0)) * CFrame.Angles(0, k * math.pi * 2 / 5, 0) * CFrame.new(0, 0, -0.35), IA.starfish, f))
 			end
 		end
 	end
@@ -1478,7 +1481,7 @@ PROPS.beach = function(parent, zone, trees, rng)
 	end
 	-- tide pools with a shine
 	for _, p in pickDry(zone, trees, rng, 2, 4, taken) do
-		local w = cyl(3 + rng(), 0.15, CFrame.new(p + Vector3.new(0, 0.08, 0)), IA.sea, f, false, Enum.Material.Glass)
+		local w = cyl(3 + rng(), 0.15, CFrame.new(p + Vector3.new(0, 0.115, 0)), IA.sea, f, false, Enum.Material.Glass) -- top 0.19 (floor layers: WorldService)
 		w.Transparency = 0.15
 		for k = 0, 5 do
 			local a = k / 6 * math.pi * 2
@@ -1542,7 +1545,7 @@ PROPS.desert = function(parent, zone, trees, rng)
 	smallRocks(f, zone, trees, rng, 8, taken, IA.hoodoo, IA.hoodooBand, Enum.Material.Sandstone)
 	-- an oasis: a little pool with two palms (shade!)
 	for _, p in pickDry(zone, trees, rng, 1, 6, taken) do
-		local w = cyl(4.5, 0.2, CFrame.new(p + Vector3.new(0, 0.1, 0)), IA.pool, f, false, Enum.Material.Glass)
+		local w = cyl(4.5, 0.2, CFrame.new(p + Vector3.new(0, 0.09, 0)), IA.pool, f, false, Enum.Material.Glass) -- top 0.19 (floor layers: WorldService)
 		w.Transparency = 0.1
 		for _, dx in { -5.5, 5.5 } do
 			local m = Instance.new("Model")
