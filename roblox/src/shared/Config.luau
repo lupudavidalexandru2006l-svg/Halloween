@@ -295,6 +295,9 @@ Config.sounds = {
 		melt = 0, chill = 0, gift = 0, unlock = 0, bridge = 0, music_meadow = 0, music_forest = 0,
 		tink = 0, crack = 0, slam = 0, reveal_secret = 0, -- freeze snap, layered crack, show slam, Secret reveal
 		pan_up = 0, sell = 0, bounce = 0, -- a pan upgrade's burst, a sale, a cube too hot for your pan
+		-- the shot (Config.ray.anim): charge whoosh, mechanical clack, fire, the hold's hum (looped), the
+		-- airy tail after a lock, a fizz when you let go early, and soft crackles as ice flecks form
+		ray_charge = 0, ray_clack = 0, ray_fire = 0, ray_hum = 0, ray_tail = 0, ray_fizz = 0, ray_crackle = 0,
 	} :: { [string]: number },
 	maxSame = 3,
 	streakReset = 1.5,
@@ -370,6 +373,8 @@ export type Island = {
 	near: { number }?, farFrom: number?, -- spawn bands, measured from the section's start
 }
 export type Booth = { id: string, label: string, action: string, pos: Vector3 }
+-- one cue in a shot clip (Config.ray.anim): at a share of the clip, a sound, an effect and/or a camera kick
+export type RayCue = { at: number, sound: string?, fx: string?, kick: string? }
 
 Config.world = {
 	maxPlayers = 6, -- one pan per server slot. Owner item: Server Size 6 in Game Settings > Places
@@ -556,7 +561,30 @@ Config.ray = { beamCore = 0.28, beamGlow = 0.84, armRaise = 90, tipSize = 0.76, 
 	-- each gun tier: a wider beam, more sparkles along it and at the pet, a curl from tier 5 (beam colours: Theme.guns)
 	beamPerGun = 0.04, sparklePerGun = 4, sparkleSize = 0.3, sparkleSizePerGun = 0.03, curlFromGun = 5, curlAmount = 0.6,
 	tipLightRange = 5, tipLightBrightness = 2, -- a real gun model: a small light in its glow colour at each barrel tip
-	putAwayAfterFreeze = true } -- a freeze puts the ray away; it comes back when you carry nothing (owner 2026-11-05)
+	putAwayAfterFreeze = true, -- a freeze puts the ray away; it comes back when you carry nothing (owner 2026-11-05)
+-- the shot's body motion (owner 2026-11-05, from a freeze reference clip): a quick start (hips lead, the
+-- torso coils back, then everything snaps forward and the beam lands), a hold that leans in harder as the
+-- meter climbs, and a lock (the cube shut) or a cancel (let go early). Seconds; angles in degrees;
+-- dips in studs. Every character on every client. Reduced motion halves the times and stops the strain.
+anim = {
+	start = { seconds = 0.27, weightEnd = 0.05, coilFrom = 0.033, coilEnd = 0.083, fireAt = 0.10, kickEnd = 0.133,
+		snapSeconds = 0.033, snapStagger = 0.008 }, -- each joint unwinds in 2 frames, half a frame after the one below
+	dip = 0.12, hipTurn = 5, coilTwist = 8, coilBack = 4, cockDip = 3, kickUp = 5, -- the start
+	braceLean = 3, holdLean = 7, holdDip = 0.2, -- the hold: leans in harder as the meter climbs
+	strain = { amount = 0.6, hz = 5, from = 0.6 }, -- a slow wobble on the gun near the end (not with reduced motion)
+	lock = { seconds = 0.45, kickEnd = 0.05, kickUp = 7 }, -- the cube shut: the gun rocks up as the tension lets go
+	cancel = { seconds = 0.25 }, -- let go early: a soft return, no kick
+	lockFromMeter = 0.8, -- someone else's beam that stops this far up (or on a vanished target) counts as a lock
+	blendSeconds = 0.08, -- each change of phase crossfades from the pose it was in
+	-- cues as shares of the clip (0-1); sounds are Config.sounds names, effects are in RayController
+	startCues = { { at = 0.12, sound = "ray_charge", fx = "mist" }, { at = 0.31, sound = "ray_clack" },
+		{ at = 0.37, sound = "ray_fire", fx = "flash", kick = "fire" }, { at = 0.42, fx = "eject" } } :: { RayCue },
+	lockCues = { { at = 0, kick = "lock" }, { at = 0.07, sound = "ray_tail" }, { at = 0.15, fx = "vent" } } :: { RayCue },
+	cancelCues = { { at = 0, sound = "ray_fizz" } } :: { RayCue },
+	humPitch = { 1.0, 1.2 }, -- the hold's hum rises with the meter
+	fx = { mist = 8, eject = 5, vent = 10, flashSize = 0.9, flashSeconds = 0.07, flashGap = 0.34, -- flashGap: at most 3 flashes a second
+		beamOut = 0.06, beamIn = 0.1 }, -- the beam pulls back: the muzzle end first, then the target end
+} }
 -- extra pet looks (prototype syncWild / makeCube)
 Config.petFx = {
 	ringScale = 1.8, ringSpin = 0.5, shadowScale = 1.0, starCount = 3, starRadius = 0.9, starHeight = 1.45, starSpin = 3,
@@ -659,7 +687,15 @@ Config.art = {
 
 Config.camera = { fov = 70, minZoom = 10, maxZoom = 40, carryFov = 74, fovSeconds = 0.4,
 	-- the prototype's framing at spawn: high and behind, looking ahead, so carried cubes never hide you
-	startHeight = 15, startBack = 21, startLookAhead = 10, frameSettleSeconds = 0.25 }
+	startHeight = 15, startBack = 21, startLookAhead = 10, frameSettleSeconds = 0.25,
+	-- short camera kicks: A * e^(-t/decay) * cos(2*pi*hz*t), cut off at `seconds` (Animation Rules 6: 0.3 s or less);
+	-- none with reduced motion. The lock kick grows with the pet's tier (Common x0.6 up to Epic x1)
+	kicks = {
+		fire = { pitch = 0.35, roll = 0, back = 0.04, hz = 16, decay = 0.05, seconds = 0.15 },
+		lock = { pitch = 0.8, roll = 0.3, back = 0.1, hz = 12, decay = 0.08, seconds = 0.3 },
+	} :: { [string]: { pitch: number, roll: number, back: number, hz: number, decay: number, seconds: number } },
+	lockKickScale = { 0.6, 1 }, lockKickFullRank = 4,
+	pushFov = -3 } -- while you hold the ray on a target the view tightens this much, with the meter
 Config.effects = { pillarSeconds = 8, pillarHeight = 60, burstParts = 12, beamSeconds = 0.15, snowRate = 60, showRank = 4 } -- showRank: Epic and up get a pillar in your pen
 
 -- Freezing that looks great (Round 4 phase 3). Every freeze timing and every show beat lives here
@@ -685,6 +721,12 @@ Config.show.freeze = {
 	cracksFrom = 0.3, cracks = 6, -- layered freezes crack from 30% up
 	chipEvery = 0.4, chipFall = 2.2, chipSeconds = 0.55, chipSize = 0.32, -- bits of ice falling off a layered freeze
 	frostFill = 0.55, -- the frost overlay at 100% (Highlight fill, 0 = none)
+	-- the ice front (owner 2026-11-05, from a freeze reference clip): mist rolls in first, the ice climbs fast
+	-- then slows near the top (height = 1 - (1 - meter)^2), a bright frost rim leads it, and loose crystal
+	-- flecks flicker just above the rim. The frost colour follows the meter, so it trails the front.
+	mist = { rate = 14, untilMeter = 0.5 }, -- per second at the feet, fading out by this meter
+	rim = { thick = 0.1, transparency = 0.2 }, -- a thin bright line round the top edge of the ice
+	flecks = { count = 5, size = 0.22, seconds = 0.3, band = { 0.1, 0.25 } }, -- band: heights above the rim, shares of the pet's height
 	-- the snap at 100% (EffectsController)
 	snapSeconds = 0.16, snapScale = 1.22, puffParts = 14, flashPuffParts = 22, flySeconds = 0.3,
 	touchSeconds = 0.8, spikeCount = 6, spikeHeight = 1.6, starCount = 7, auroraBands = 3,

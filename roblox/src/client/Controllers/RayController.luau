@@ -12,15 +12,24 @@
 -- the ice creeping up (PetVisuals reads freezeOf). An aim ring sits on the target you'd hit.
 -- It also owns the arm poses: the gun arm is held out in front while the gun is in the hand, and anyone carrying cubes holds
 -- both arms out in front (the cubes sit in their hands, CarryService), on every client for every character.
+-- Each shot plays as three clips (Config.ray.anim, owner 2026-11-05): a quick start (hips lead, the torso
+-- coils back, everything snaps forward and the beam lands at 0.10 s), a hold that leans in harder as the
+-- meter climbs, and a lock when the cube shuts (or a soft cancel if you let go early). The clips also fire
+-- the shot's sounds, muzzle effects and camera kicks (your own shots only for sounds and kicks).
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Theme = require(ReplicatedStorage.Shared.Theme)
+local PetDefs = require(ReplicatedStorage.Shared.PetDefs)
 local State = require(script.Parent.State)
 local InputController = require(script.Parent.InputController)
+local CameraController = require(script.Parent.CameraController)
+local SoundController = require(script.Parent.SoundController)
+local SettingsController = require(script.Parent.SettingsController)
 
 local RayController = {}
 local R = Config.ray
@@ -400,23 +409,361 @@ local function makeBeams(tip: Attachment, part: BasePart, tier: number): BeamSet
 	}
 end
 
+-- the beam pulls back rather than vanishing: the muzzle end thins first, then the target end
 local function dropBeams(set: BeamSet)
+	local F = R.anim.fx
+	local k = if SettingsController.get("reducedMotion") == true then 0.5 else 1
 	for _, b in set.beams do
-		b:Destroy()
+		TweenService:Create(b, TweenInfo.new(F.beamOut * k, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Width0 = 0 }):Play()
+		TweenService:Create(b, TweenInfo.new(F.beamIn * k, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Width1 = 0 }):Play()
+		task.delay(F.beamIn * k, function()
+			b:Destroy()
+		end)
 	end
 	for _, s in set.sparkles do
 		s:Destroy()
 	end
 end
 
+-- ---------- the shot's clips (Config.ray.anim) ----------
+local AN = R.anim
+type BodyPose = { dip: number, hipYaw: number, twist: number, lean: number, arm: number }
+local ZERO: BodyPose = { dip = 0, hipYaw = 0, twist = 0, lean = 0, arm = 0 }
+type Shot = {
+	phase: string, -- "start" | "hold" | "lock" | "cancel"
+	t0: number, part: BasePart?, meter: number, side: number, -- side: +1 the target is to the right, -1 left
+	from: BodyPose, fromT: number, -- the pose this phase crossfades from
+	cue: number, fired: boolean, mine: boolean, hum: Sound?, kicked: boolean,
+}
+local shots: { [Model]: Shot } = {}
+local bodyPose: { [Model]: BodyPose } = setmetatable({}, { __mode = "k" }) :: any -- this frame's pose, read by poseArms
+local lastFlash = 0
+local pendingLock: { scale: number, show: boolean, at: number }? = nil -- my cube shut ("frozen")
+
+local function reduced(): boolean
+	return SettingsController.get("reducedMotion") == true
+end
+
+local function timeScale(): number
+	return if reduced() then 0.5 else 1
+end
+
+local function seg(x: number, a: number, b: number): number
+	return if b <= a then (if x >= b then 1 else 0) else math.clamp((x - a) / (b - a), 0, 1)
+end
+local function quadOut(x: number): number
+	return 1 - (1 - x) ^ 2
+end
+local function cubicOut(x: number): number
+	return 1 - (1 - x) ^ 3
+end
+local function expoOut(x: number): number
+	return if x >= 1 then 1 else 1 - 2 ^ (-10 * x)
+end
+local function smooth(x: number): number
+	return x * x * (3 - 2 * x)
+end
+-- 1 at the start, swings past 0 once, then rests (Animation Rules 4: the settle)
+local function settle(x: number): number
+	return math.exp(-4 * x) * math.cos(math.pi * 1.5 * x)
+end
+
+local function mixPose(a: BodyPose, b: BodyPose, f: number): BodyPose
+	return {
+		dip = a.dip + (b.dip - a.dip) * f, hipYaw = a.hipYaw + (b.hipYaw - a.hipYaw) * f,
+		twist = a.twist + (b.twist - a.twist) * f, lean = a.lean + (b.lean - a.lean) * f, arm = a.arm + (b.arm - a.arm) * f,
+	}
+end
+
+local function scalePose(p: BodyPose, f: number): BodyPose
+	return { dip = p.dip * f, hipYaw = p.hipYaw * f, twist = p.twist * f, lean = p.lean * f, arm = p.arm * f }
+end
+
+-- the start, t in clip seconds: hips lead, the torso coils back and the gun cocks, then the torso and
+-- the arm snap forward in turn, the beam lands and the gun kicks up and settles into the brace
+local function startPose(t: number, side: number): BodyPose
+	local S = AN.start
+	local w = quadOut(seg(t, 0, S.weightEnd))
+	local c = quadOut(seg(t, S.coilFrom, S.coilEnd))
+	local torso = cubicOut(seg(t, S.coilEnd + S.snapStagger, S.coilEnd + S.snapStagger + S.snapSeconds))
+	local arm = cubicOut(seg(t, S.coilEnd + 2 * S.snapStagger, S.coilEnd + 2 * S.snapStagger + S.snapSeconds))
+	local kick = if t < S.fireAt then 0 elseif t < S.kickEnd then expoOut(seg(t, S.fireAt, S.kickEnd)) else settle(seg(t, S.kickEnd, S.seconds))
+	return {
+		dip = AN.dip * w,
+		hipYaw = AN.hipTurn * side * w,
+		twist = -AN.coilTwist * side * c * (1 - torso),
+		lean = -AN.coilBack * c * (1 - torso) + AN.braceLean * torso,
+		arm = -AN.cockDip * c * (1 - arm) + AN.kickUp * kick,
+	}
+end
+
+-- the hold: leans in harder as the meter climbs; near the end the gun strains a little
+local function holdPose(m: number, side: number, clock: number): BodyPose
+	local s = smooth(math.clamp(m, 0, 1))
+	local strain = if reduced() then 0 else AN.strain.amount * smooth(seg(m, AN.strain.from, 1)) * math.sin(clock * AN.strain.hz * 2 * math.pi)
+	return {
+		dip = AN.dip + (AN.holdDip - AN.dip) * s,
+		hipYaw = AN.hipTurn * side,
+		twist = 0,
+		lean = AN.braceLean + (AN.holdLean - AN.braceLean) * s,
+		arm = strain,
+	}
+end
+
+-- the lock: the body lets go with a soft settle while the gun rocks up and settles
+local function lockPose(t: number, from: BodyPose): BodyPose
+	local L = AN.lock
+	local body = settle(seg(t, 0, L.seconds))
+	local kick = if t < L.kickEnd then quadOut(seg(t, 0, L.kickEnd)) else settle(seg(t, L.kickEnd, L.seconds))
+	local p = scalePose(from, body)
+	p.arm += L.kickUp * kick
+	return p
+end
+
+local function frostEmitter(tip: Attachment): ParticleEmitter
+	local e = tip:FindFirstChild("ShotFrost")
+	if e and e:IsA("ParticleEmitter") then
+		return e
+	end
+	local n = Instance.new("ParticleEmitter")
+	n.Name = "ShotFrost"
+	n.Color = ColorSequence.new(Theme.fx.frost)
+	n.LightEmission = 0.3
+	n.Transparency = NumberSequence.new(0.3, 1)
+	n.Size = NumberSequence.new(0.25, 0.7)
+	n.Speed = NumberRange.new(1, 3)
+	n.Drag = 3
+	n.Acceleration = Vector3.new(0, -1.5, 0) -- cold vapour sinks
+	n.Lifetime = NumberRange.new(0.35, 0.6)
+	n.EmissionDirection = Enum.NormalId.Right -- the barrel points along the tip's +X
+	n.SpreadAngle = Vector2.new(40, 40)
+	n.Rate = 0
+	n.Parent = tip
+	return n
+end
+
+local function gunTip(c: Model): (Attachment?, number)
+	local g = guns[c]
+	local tip = g and g.model:FindFirstChild("RayTip", true)
+	return if tip and tip:IsA("Attachment") then tip else nil, if g then g.tier else 1
+end
+
+-- a muzzle effect: frost wisps (mist / eject / vent) or the one quick flash when the beam lands
+local function muzzle(c: Model, kind: string)
+	local tip, tier = gunTip(c)
+	if not tip then
+		return
+	end
+	local F = AN.fx
+	if kind == "flash" then
+		local now = os.clock()
+		if now - lastFlash < F.flashGap then
+			return -- never more than 3 flashes a second (Animation Rules 1)
+		end
+		lastFlash = now
+		local look = Theme.guns[tier] or Theme.guns[1]
+		local b = piece(Enum.PartType.Ball, Vector3.one * F.flashSize, look.core, workspace)
+		b.Anchored = true
+		b.Material = Enum.Material.Neon
+		b.Transparency = if reduced() then 0.6 else 0.2
+		b.Position = tip.WorldPosition
+		local time = F.flashSeconds * timeScale()
+		TweenService:Create(b, TweenInfo.new(time), { Transparency = 1, Size = Vector3.one * F.flashSize * 1.4 }):Play()
+		task.delay(time, function()
+			b:Destroy()
+		end)
+		return
+	end
+	local count = (F :: any)[kind]
+	if typeof(count) == "number" then
+		local f = if SettingsController.get("lowGraphics") == true then 0.5 else 1
+		frostEmitter(tip):Emit(math.max(1, math.floor(count * f)))
+	end
+end
+
+local function playCue(c: Model, s: Shot, cue: Config.RayCue)
+	if cue.sound and s.mine then
+		SoundController.play(cue.sound, 0.95 + 0.1 * math.random()) -- a little variety (Sound Rules 3)
+	end
+	if cue.fx then
+		muzzle(c, cue.fx)
+	end
+	if cue.kick == "fire" and s.mine then
+		CameraController.kick("fire")
+	end
+end
+
+-- my cube shut ("frozen", which can arrive just before or just after my beam stops): one lock kick,
+-- sized by the pet's tier. Legendary and up skip it, because their show owns the camera.
+local function lockKick(s: Shot)
+	local lock = pendingLock
+	if not lock or s.kicked then
+		return
+	end
+	s.kicked = true
+	pendingLock = nil
+	if not lock.show then
+		CameraController.kick("lock", lock.scale)
+	end
+end
+
+local function setPhase(c: Model, s: Shot, phase: string, now: number)
+	s.from = bodyPose[c] or ZERO
+	s.fromT = now
+	s.phase = phase
+	s.t0 = now
+	s.cue = 1
+	s.kicked = false
+	if s.hum then
+		s.hum:Destroy()
+		s.hum = nil
+	end
+end
+
+local function sideOf(c: Model, part: BasePart): number
+	local hrp = c:FindFirstChild("HumanoidRootPart")
+	if not hrp or not hrp:IsA("BasePart") then
+		return 1
+	end
+	return if (part.Position - hrp.Position):Dot(hrp.CFrame.RightVector) >= 0 then 1 else -1
+end
+
+-- who shoots this frame (character -> its first target) moves each shot through its clips
+local function updateShots(shooting: { [Model]: BasePart }, now: number)
+	local k = timeScale()
+	local mine = me.Character
+	for c, part in shooting do
+		local s = shots[c]
+		-- a new shot; after a lock the next one waits for the gun's kick, after a cancel it starts at once
+		if not s or s.phase == "cancel" or (s.phase == "lock" and now - s.t0 >= AN.lock.kickEnd * k) then
+			if not s then
+				s = { phase = "start", t0 = now, part = part, meter = 0, side = 1, from = ZERO, fromT = now, cue = 1, fired = false, mine = c == mine, kicked = false }
+				shots[c] = s
+			end
+			local sh = s :: Shot
+			setPhase(c, sh, "start", now)
+			sh.side = sideOf(c, part)
+			sh.fired = false
+		end
+		local sh = s :: Shot
+		sh.part = part
+		local m = part:GetAttribute("Meter")
+		sh.meter = if typeof(m) == "number" then m else 0
+		if sh.phase == "start" and now - sh.t0 >= AN.start.seconds * k then
+			sh.phase = "hold" -- the start ends on the brace pose, so no crossfade is needed
+			sh.from, sh.fromT = bodyPose[c] or ZERO, now
+			if sh.mine then
+				sh.hum = SoundController.loop("ray_hum")
+			end
+		end
+	end
+	local lock = pendingLock
+	if lock and now - lock.at > 0.5 then
+		pendingLock = nil -- nothing of mine was shooting when it arrived
+		lock = nil
+	end
+	for c, s in shots do
+		local live = s.phase == "start" or s.phase == "hold"
+		-- my cube shut: only a shot that began before it shut can be the one that froze it
+		local myLock = s.mine and lock ~= nil and (s.phase == "lock" or s.t0 <= (lock :: any).at)
+		if live and (myLock or not shooting[c]) then
+			local p = s.part
+			local locked = myLock or s.meter >= AN.lockFromMeter or not (p and p.Parent)
+			setPhase(c, s, if locked then "lock" else "cancel", now)
+		end
+		if myLock and s.phase == "lock" then
+			lockKick(s)
+		end
+		if s.phase == "lock" and now - s.t0 >= AN.lock.seconds * k and not shooting[c] then
+			shots[c] = nil
+		elseif s.phase == "cancel" and now - s.t0 >= AN.cancel.seconds * k and not shooting[c] then
+			shots[c] = nil
+		end
+		if c.Parent == nil then
+			if s.hum then
+				s.hum:Destroy()
+			end
+			shots[c] = nil
+		end
+	end
+	-- cues and poses
+	local myPush = 0
+	for c, s in shots do
+		local t = (now - s.t0) / k -- clip seconds
+		local cues: { Config.RayCue }? = nil
+		local length = 1
+		local pose: BodyPose
+		if s.phase == "start" then
+			cues, length = AN.startCues, AN.start.seconds
+			s.fired = t >= AN.start.fireAt
+			pose = startPose(t, s.side)
+		elseif s.phase == "hold" then
+			s.fired = true
+			pose = holdPose(s.meter, s.side, now)
+			if s.hum then
+				s.hum.PlaybackSpeed = AN.humPitch[1] + (AN.humPitch[2] - AN.humPitch[1]) * s.meter
+			end
+		elseif s.phase == "lock" then
+			cues, length = AN.lockCues, AN.lock.seconds
+			pose = lockPose(t, s.from)
+		else
+			cues, length = AN.cancelCues, AN.cancel.seconds
+			pose = scalePose(s.from, settle(seg(t, 0, AN.cancel.seconds)))
+		end
+		if cues then
+			local n = t / length
+			while cues[s.cue] and cues[s.cue].at <= n do
+				playCue(c, s, cues[s.cue])
+				s.cue += 1
+			end
+		end
+		-- each change of phase crossfades from the pose it was in
+		local f = smooth(seg(now - s.fromT, 0, AN.blendSeconds * k))
+		bodyPose[c] = if f < 1 then mixPose(s.from, pose, f) else pose
+		if s.mine and (s.phase == "start" or s.phase == "hold") then
+			myPush = smooth(math.clamp(s.meter, 0, 1))
+		end
+	end
+	for c in bodyPose do
+		if not shots[c] then
+			bodyPose[c] = nil
+		end
+	end
+	CameraController.setPush(myPush)
+end
+
+-- has this character's shot reached the frame the beam lands?
+local function hasFired(c: Model?): boolean
+	local s = c and shots[c]
+	return s ~= nil and (s.phase == "hold" or (s.phase == "start" and s.fired))
+end
+
 -- who shoots what this frame: my own lock (drawn at once) plus every target the server says a player aims at
+-- every target part gets its own number for the beam keys: wild pet roots all share one name, so a key
+-- built from the name let one pet's beam overwrite another's
+local partIds: { [BasePart]: number } = setmetatable({}, { __mode = "k" }) :: any
+local nextPartId = 0
+local function partKey(part: BasePart): number
+	local id = partIds[part]
+	if not id then
+		nextPartId += 1
+		id = nextPartId
+		partIds[part] = id
+	end
+	return id
+end
+
 local function drawBeams()
 	local want: { [string]: { player: Player, part: BasePart, n: number } } = {}
 	local count: { [Player]: number } = {}
 	local function add(p: Player, part: BasePart)
+		local key = p.UserId .. ">" .. partKey(part)
+		if want[key] then
+			return
+		end
 		local n = (count[p] or 0) + 1
 		count[p] = n
-		want[p.UserId .. ">" .. part:GetFullName() .. "#" .. tostring(part)] = { player = p, part = part, n = n }
+		want[key] = { player = p, part = part, n = n }
 	end
 	if locked and aiming() then
 		add(me, locked.part)
@@ -447,15 +794,25 @@ local function drawBeams()
 			add(shooter, hrp)
 		end
 	end
+	-- each shooter's shot moves through its clips (start, hold, lock / cancel)
+	local shooting: { [Model]: BasePart } = {}
+	for _, w in want do
+		local c = w.player.Character
+		if c and w.n == 1 and guns[c] then
+			shooting[c] = w.part
+		end
+	end
+	updateShots(shooting, os.clock())
 	for key, set in beamSets do
-		if not want[key] then
+		local w = want[key]
+		if not w or not hasFired(w.player.Character) then
 			dropBeams(set)
 			beamSets[key] = nil
 		end
 	end
 	for key, w in want do
-		if beamSets[key] then
-			continue
+		if beamSets[key] or not hasFired(w.player.Character) then
+			continue -- the beam lands on the start's fire frame
 		end
 		local gun = w.player.Character and guns[w.player.Character]
 		if gun then
@@ -635,6 +992,60 @@ end
 -- A posed arm is held still (owner 2026-11-03: walking with a cube looked strange): the walk
 -- animation's swing is cleared from its shoulder, elbow and wrist, so the hands stay on the cube and
 -- the gun stays level; the cubes are welded to the torso, so they bob and lean with the body.
+-- the shot's hips and torso: an offset put on top of whatever the Animator set this step. A joint the
+-- Animator didn't touch still holds last step's offset, so it's taken off first (never adds up).
+-- Both joint kinds (Code Rules: Motor6D and AnimationConstraint); offsets are in the upper part's
+-- parent space (y up, -z forward), turned into the joint's own frame.
+local jointBase: { [Instance]: { base: CFrame, wrote: CFrame } } = setmetatable({}, { __mode = "k" }) :: any
+local posedBody: { [Model]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+
+local function offsetJoint(j: Instance?, off: CFrame)
+	if not j or not (j:IsA("Motor6D") or j:IsA("AnimationConstraint")) then
+		return
+	end
+	local rot = CFrame.identity
+	if j:IsA("Motor6D") then
+		rot = j.C0.Rotation
+	elseif j:IsA("AnimationConstraint") and j.Attachment0 then
+		rot = j.Attachment0.CFrame.Rotation
+	end
+	local cur: CFrame = (j :: any).Transform
+	local rec = jointBase[j]
+	local base = if rec and cur == rec.wrote then rec.base else cur
+	local out = (rot:Inverse() * off * rot) * base
+	;(j :: any).Transform = out
+	jointBase[j] = { base = base, wrote = out }
+end
+
+-- the hips turn the whole body (feet stay planted, they only turn); the dip sinks the upper body at the
+-- waist, so the feet never sink into the ground
+local function poseBody(character: Model, pose: BodyPose?)
+	if not pose and not posedBody[character] then
+		return
+	end
+	local p = pose or ZERO
+	local waist = character:FindFirstChild("Waist", true)
+	local root = character:FindFirstChild("Root", true) or character:FindFirstChild("RootJoint", true)
+	local hips = CFrame.Angles(0, -math.rad(p.hipYaw), 0)
+	local torso = CFrame.Angles(0, -math.rad(p.twist), 0) * CFrame.Angles(-math.rad(p.lean), 0, 0)
+	if waist then
+		offsetJoint(root, hips)
+		offsetJoint(waist, CFrame.new(0, -p.dip, 0) * torso)
+	else
+		offsetJoint(root, hips * torso) -- classic R6: one joint for the whole body, so no dip
+	end
+	if not pose then -- back at rest: forget the offsets
+		posedBody[character] = nil
+		for _, j in { root, waist } do
+			if j then
+				jointBase[j] = nil
+			end
+		end
+	else
+		posedBody[character] = true
+	end
+end
+
 local function poseArms()
 	local carriers: { [number]: boolean } = {}
 	local cubes = workspace:FindFirstChild("Cubes")
@@ -653,9 +1064,14 @@ local function poseArms()
 		end
 		local carrying = carriers[p.UserId] == true
 		local holding = guns[character] ~= nil -- the gun arm stays up while the gun is in the hand, not only while shooting
+		-- the shot's body motion plays on while you carry (the cube lands in your hands as the lock starts);
+		-- only the gun arm's part of it gives way to the carry pose
+		local pose = bodyPose[character]
+		poseBody(character, pose)
 		for _, side in { "Right", "Left" } do
 			local joint = character:FindFirstChild(side .. "Shoulder", true)
-			local angle = if carrying then Config.carry.armRaise elseif side == "Right" and holding then R.armRaise else 0
+			local shot = if pose then pose.arm else 0
+			local angle = if carrying then Config.carry.armRaise elseif side == "Right" and holding then R.armRaise + shot else 0
 			local turn = CFrame.Angles(math.rad(angle), 0, 0)
 			if joint and joint:IsA("Motor6D") then
 				local base = baseC0[joint]
@@ -730,6 +1146,16 @@ function RayController.Start()
 	State.Notify:Connect(function(kind: string, data: any)
 		if kind == "frozen" then
 			locked = nil -- the cube shut: hold on to pick the next one
+			-- my shot plays its lock; the camera kick grows with the pet's tier (Common x0.6 up to Epic x1)
+			local C = Config.camera
+			local def = if typeof(data) == "table" and typeof(data.key) == "string" then PetDefs.get(data.key) else nil
+			local rank = if def then Config.tier(def.tier).rank else 1
+			local f = math.clamp((rank - 1) / math.max(1, C.lockKickFullRank - 1), 0, 1)
+			pendingLock = {
+				scale = C.lockKickScale[1] + (C.lockKickScale[2] - C.lockKickScale[1]) * f,
+				show = typeof(data) == "table" and data.show ~= nil,
+				at = os.clock(),
+			}
 		elseif kind == "tagged" and typeof(data) == "table" then
 			-- ray-tag: this client owns its character's physics, so it lies the Humanoid down (the server
 			-- loosened the joints) and gets up again when the tumble ends

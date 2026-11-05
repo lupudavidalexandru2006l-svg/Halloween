@@ -17,7 +17,7 @@ local playing: { [string]: number } = {}
 local music: Sound? = nil
 local musicName = ""
 
-function SoundController.play(name: string)
+function SoundController.play(name: string, speed: number?)
 	local id = S.ids[name]
 	if not sfxOn or not id or id == 0 or (playing[name] or 0) >= S.maxSame then
 		return
@@ -25,6 +25,7 @@ function SoundController.play(name: string)
 	local s = Instance.new("Sound")
 	s.SoundId = "rbxassetid://" .. id
 	s.Volume = S.sfx
+	s.PlaybackSpeed = speed or 1
 	s.Parent = SoundService
 	playing[name] = (playing[name] or 0) + 1
 	s.Ended:Once(function()
@@ -32,6 +33,21 @@ function SoundController.play(name: string)
 		s:Destroy()
 	end)
 	s:Play()
+end
+
+-- a looped sound the caller tunes (PlaybackSpeed) and stops with :Destroy(); nil when it's silent or sound is off
+function SoundController.loop(name: string): Sound?
+	local id = S.ids[name]
+	if not sfxOn or not id or id == 0 then
+		return nil
+	end
+	local s = Instance.new("Sound")
+	s.SoundId = "rbxassetid://" .. id
+	s.Volume = S.sfx
+	s.Looped = true
+	s.Parent = SoundService
+	s:Play()
+	return s
 end
 
 local function setMusic(name: string)

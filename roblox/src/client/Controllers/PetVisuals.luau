@@ -34,7 +34,9 @@ type Anim = { key: string, start: any, t: number, clock: number, from: Pose?, bl
 	role: string, pivot: Vector3?, side: number, hang: boolean } }, sneezed: boolean, culled: boolean,
 	seed: number, scratchy: boolean, hasArms: boolean, headPivot: Vector3? } -- seed: from the pet's id (the scratch pick); scratchy: it has back legs or arms
 type Banked = { edges: SelectionBox, coin: BillboardGui, coinImg: ImageLabel, phase: number }
-type FreezeLook = { shell: Part, highlight: Highlight?, crystals: { BasePart }, cracks: { { part: BasePart, face: number, u: number, v: number, turn: number } }, nextChip: number, style: string, cracked: number }
+type Fleck = { part: BasePart, round: number, angle: number, y: number, reach: number }
+type FreezeLook = { shell: Part, highlight: Highlight?, crystals: { BasePart }, cracks: { { part: BasePart, face: number, u: number, v: number, turn: number } }, nextChip: number, style: string, cracked: number,
+	rim: { BasePart }, flecks: { Fleck }, mist: BasePart?, mistFx: ParticleEmitter? } -- the ice front (owner 2026-11-05)
 type Drawn = { model: PVInstance, height: number, offer: BillboardGui?, img: ImageLabel?, born: number, fx: Fx, banked: Banked?,
 	clock: number, freeze: FreezeLook?, zzz: BillboardGui, anim: Anim } -- clock: the pet's own animation time (it slows while held and freezing)
 type CubeLook = { model: PVInstance, edges: SelectionBox, cracks: { { part: BasePart, offset: CFrame } } }
@@ -746,6 +748,8 @@ end
 -- Ice creeps up from the feet as a glassy shell, frost spreads over the pet and its colour cools,
 -- crystals grow along the outline. A layered freeze (big or rare pet, weak gun) also cracks and drops
 -- bits of ice. How far it has got comes from RayController (the server's plan for this hold).
+-- The front (owner 2026-11-05, from a freeze reference clip): mist at the feet first, then the ice climbs
+-- fast and slows near the top, with a bright rim on it and crystal flecks flickering just above.
 local function newFreeze(root: BasePart, d: Drawn, style: string): FreezeLook
 	local h = d.height
 	local shell = fxPart(Vector3.new(h, 0.05, h), Theme.ice, folder) :: Part
@@ -782,7 +786,44 @@ local function newFreeze(root: BasePart, d: Drawn, style: string): FreezeLook
 			table.insert(cracks, { part = k, face = r:NextInteger(0, 3), u = r:NextNumber(-0.35, 0.35), v = r:NextNumber(0.15, 0.85), turn = r:NextNumber(-0.9, 0.9) })
 		end
 	end
-	return { shell = shell, highlight = hl, crystals = crystals, cracks = cracks, nextChip = os.clock() + FZ.chipEvery, style = style, cracked = 0 }
+	-- the front: a bright rim on the ice, flecks flickering just above it, mist rolling in at the feet
+	-- (a flash-freeze is over too fast for any of it)
+	local rim: { BasePart } = {}
+	local flecks: { Fleck } = {}
+	local mist: BasePart? = nil
+	local mistFx: ParticleEmitter? = nil
+	if style ~= "flash" then
+		for _ = 1, 4 do -- a thin bright line round the top edge of the ice (four bars, not a lid)
+			local bar = fxPart(Vector3.new(h, FZ.rim.thick, FZ.rim.thick), Theme.fx.frost, folder)
+			bar.Material = Enum.Material.Neon
+			bar.Transparency = 1
+			table.insert(rim, bar)
+		end
+		for _ = 1, FZ.flecks.count do
+			local c = fxPart(Vector3.one * 0.05, Theme.fx.crystal, folder, "Octa")
+			c.Material = Enum.Material.Neon
+			c.Transparency = 1
+			table.insert(flecks, { part = c, round = -1, angle = 0, y = 0, reach = 1 })
+		end
+		local m = fxPart(Vector3.new(h, 0.1, h), Theme.fx.frost, folder)
+		m.Transparency = 1
+		local e = Instance.new("ParticleEmitter")
+		e.Color = ColorSequence.new(Theme.fx.frost)
+		e.LightEmission = 0.2
+		e.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.3, 0.55), NumberSequenceKeypoint.new(1, 1) })
+		e.Size = NumberSequence.new(0.6, 1.8)
+		e.Speed = NumberRange.new(0.8, 1.8)
+		e.Drag = 2
+		e.Acceleration = Vector3.new(0, -0.5, 0)
+		e.Lifetime = NumberRange.new(0.8, 1.2)
+		e.EmissionDirection = Enum.NormalId.Top
+		e.SpreadAngle = Vector2.new(80, 80)
+		e.Rate = 0
+		e.Parent = m
+		mist, mistFx = m, e
+	end
+	return { shell = shell, highlight = hl, crystals = crystals, cracks = cracks, nextChip = os.clock() + FZ.chipEvery, style = style, cracked = 0,
+		rim = rim, flecks = flecks, mist = mist, mistFx = mistFx }
 end
 
 clearFreeze = function(d: Drawn)
@@ -799,6 +840,15 @@ clearFreeze = function(d: Drawn)
 	end
 	for _, k in f.cracks do
 		k.part:Destroy()
+	end
+	for _, x in f.flecks do
+		x.part:Destroy()
+	end
+	for _, bar in f.rim do
+		bar:Destroy()
+	end
+	if f.mist then
+		f.mist:Destroy()
 	end
 	if d.img then
 		d.img.ImageColor3 = Theme.white
@@ -833,7 +883,9 @@ local function drawFreeze(root: BasePart, d: Drawn, fz: RayController.Freeze, t:
 	local h = d.height
 	local w = h * FZ.shellPad
 	local ground = root.Position - Vector3.new(0, root.Size.Y / 2, 0)
-	local iceH = math.max(0.05, p * h * 1.05)
+	-- the front climbs fast, then slows near the top; the frost colour (from p) trails behind it
+	local front = easeOut(math.clamp(p, 0, 1))
+	local iceH = math.max(0.05, front * h * 1.05)
 	f.shell.Size = Vector3.new(w, iceH, w)
 	f.shell.CFrame = CFrame.new(ground + Vector3.new(0, iceH / 2, 0)) * root.CFrame.Rotation
 	f.shell.Transparency = 0.72 - 0.17 * p -- glassy enough to see the pet inside
@@ -845,7 +897,7 @@ local function drawFreeze(root: BasePart, d: Drawn, fz: RayController.Freeze, t:
 	local n = #f.crystals
 	for i, c in f.crystals do
 		local from = (i - 1) / n
-		local grow = math.clamp((p - from) * n, 0, 1)
+		local grow = math.clamp((front - from) * n, 0, 1)
 		local a = i * 2.4 + 0.3
 		local s = FZ.crystalSize * grow * (0.7 + 0.3 * math.sin(i * 1.7))
 		c.Size = Vector3.new(s * 0.6, math.max(0.05, s * 1.3), s * 0.6)
@@ -854,8 +906,48 @@ local function drawFreeze(root: BasePart, d: Drawn, fz: RayController.Freeze, t:
 		c.CFrame = CFrame.new(ground + Vector3.new(math.cos(a) * w * 0.5, y, math.sin(a) * w * 0.5)) * CFrame.Angles(math.sin(a) * 0.5, 0, -math.cos(a) * 0.5)
 	end
 	-- layered: cracks show on the ice as it passes them; bits of ice fall off now and then
+	-- the rim rides the top of the ice and fades as it reaches the top
+	local open = front > 0.02 and front < 0.97
+	local rimClear = if open then FZ.rim.transparency + (1 - FZ.rim.transparency) * seg(front, 0.8, 0.97) else 1
+	local top = CFrame.new(ground + Vector3.new(0, iceH, 0)) * root.CFrame.Rotation
+	for i, bar in f.rim do
+		bar.Transparency = rimClear
+		bar.Size = Vector3.new(w + FZ.rim.thick, FZ.rim.thick, FZ.rim.thick)
+		bar.CFrame = top * CFrame.Angles(0, (i - 1) * math.pi / 2, 0) * CFrame.new(0, 0, w / 2)
+	end
+	-- flecks flicker in a band just above the rim, each at a new spot every round
+	local FL = FZ.flecks
+	local mine = RayController.current()
+	local myTarget = mine ~= nil and mine.root == root
+	for i, x in f.flecks do
+		local u = t / FL.seconds + i / #f.flecks
+		local round = math.floor(u)
+		if round ~= x.round then
+			x.round = round
+			x.angle = math.random() * math.pi * 2
+			x.y = FL.band[1] + math.random() * (FL.band[2] - FL.band[1])
+			x.reach = 0.7 + math.random() * 0.35
+			if open and myTarget and i == 1 then
+				SoundController.play("ray_crackle", 0.95 + 0.1 * math.random())
+			end
+		end
+		local life = 1 - math.abs(2 * (u - round) - 1) -- 0 -> 1 -> 0 over the round
+		local y = math.min(iceH + x.y * h, h * 1.05)
+		local s = FL.size * life
+		x.part.Transparency = if open and life > 0.05 then 1 - 0.8 * life else 1
+		x.part.Size = Vector3.new(s * 0.6, math.max(0.05, s * 1.3), s * 0.6)
+		x.part.CFrame = CFrame.new(ground + Vector3.new(math.cos(x.angle) * w * 0.5 * x.reach, y, math.sin(x.angle) * w * 0.5 * x.reach))
+			* CFrame.Angles(0, x.angle, 0.4)
+	end
+	-- mist rolls in at the feet first and thins out as the ice takes over
+	if f.mist and f.mistFx then
+		f.mist.Size = Vector3.new(w, 0.1, w)
+		f.mist.CFrame = CFrame.new(ground + Vector3.new(0, 0.1, 0))
+		local low = if SettingsController.get("lowGraphics") == true then 0.5 else 1
+		f.mistFx.Rate = FZ.mist.rate * low * (1 - seg(p, FZ.mist.untilMeter * 0.5, FZ.mist.untilMeter))
+	end
 	for i, k in f.cracks do
-		local show = p >= FZ.cracksFrom and k.v <= p
+		local show = p >= FZ.cracksFrom and k.v <= front
 		k.part.Transparency = if show then 0.1 else 1
 		if show then
 			local side = CFrame.Angles(0, k.face * math.pi / 2, 0)

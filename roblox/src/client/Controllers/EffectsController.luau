@@ -295,16 +295,17 @@ local function snap(data: any)
 	local snapTime = EffectsController.time(F.snapSeconds)
 	TweenService:Create(cube, TweenInfo.new(snapTime, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Size = Vector3.one * size, Transparency = 0.45 }):Play()
 	puff(at.Position, if flash then F.flashPuffParts else F.puffParts)
+	-- the lock: one quick white glow as the ice shuts (owner 2026-11-05); a flash-freeze's is brighter
+	-- and adds a light "tink"
+	local g = glow(Vector3.one * size * 1.3, Theme.fx.flash, nil)
+	g.Shape = Enum.PartType.Ball
+	g.Transparency = if flash then (if reduced() then 0.75 else 0.35) else (if reduced() then 0.85 else 0.65)
+	g.CFrame = at
+	TweenService:Create(g, TweenInfo.new(snapTime * 1.5), { Transparency = 1, Size = Vector3.one * size * 1.8 }):Play()
+	task.delay(snapTime * 1.5, function()
+		g:Destroy()
+	end)
 	if flash then
-		-- a flash-freeze: one quick glow and a light "tink"
-		local g = glow(Vector3.one * size * 1.3, Theme.fx.flash, nil)
-		g.Shape = Enum.PartType.Ball
-		g.Transparency = if reduced() then 0.75 else 0.35
-		g.CFrame = at
-		TweenService:Create(g, TweenInfo.new(snapTime * 1.5), { Transparency = 1, Size = Vector3.one * size * 1.8 }):Play()
-		task.delay(snapTime * 1.5, function()
-			g:Destroy()
-		end)
 		SoundController.play("tink")
 	end
 	if typeof(data.touch) == "string" then
