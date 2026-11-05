@@ -313,6 +313,8 @@ Config.ui = {
 	hideHudFor = { shop = true, equipment = true } :: { [string]: boolean },
 	popupSize = { 0.8, 0.7 }, popupLift = 0.04, promptSize = { 0.27, 0.095 }, -- world prompts keep this screen size at any distance (owner: smaller)
 	bannerSeconds = 3, floatSeconds = 1.2, notYetSeconds = 1.6,
+	-- the "+17.5K" beside the coin counter: shares of the coins block; a size under the number (0.62 tall)
+	gain = { height = 0.46, width = 1.2, y = 0.08, gap = 0.04, rise = 0.55, popSeconds = 0.25, holdSeconds = 0.45 },
 	pressDepth = 0.06, pressSeconds = 0.08, stroke = 3, corner = 0.18,
 	radius = 0.018, -- THE corner radius for every block, as a share of the screen's short side
 	textStroke = 1.5, -- white text's outline (2 plus the block outline read heavy)
@@ -371,14 +373,17 @@ export type Booth = { id: string, label: string, action: string, pos: Vector3 }
 
 Config.world = {
 	maxPlayers = 6, -- one pan per server slot. Owner item: Server Size 6 in Game Settings > Places
-	mapVersion = 5, -- Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges)
+	mapVersion = 6, -- Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges, 6 = bigger square pans)
 	hubZMax = 0, -- the tunnel mouth: the hub is z < 0 (no wild pets, no heat)
-	hub = { xMin = -88, xMax = 88, zMin = -112, wallHeight = 16, colliderHeight = 60 }, -- the pans' back fences sit just in front of the north wall
+	-- wide enough for the row of six pans plus 10 studs at each end; the pans' back fences sit just in front of the north wall
+	hub = { xMin = -132, xMax = 132, zMin = -100, wallHeight = 16, colliderHeight = 60 },
 	spawn = Vector3.new(0, 3, -34),
 	spawnPadRadius = 6,
-	-- the pans: long fenced garden lanes on a thick soil bed, doors facing the plaza
-	pans = { width = 22, length = 48, gap = 5, frontZ = -62, soilHeight = 1, doorWidth = 10, fenceHeight = 2.6, wallHeight = 16,
-		signY = 6.5, gaugeOffset = 7.5, boothOffset = -8 }, -- gauge right of the door, Pan Upgrades stand left of it (x from the lane's middle)
+	-- the pans: nearly square fenced gardens on a thick soil bed, doors facing the plaza. Sizes follow the
+	-- owner's reference shots (2026-11-05): width about 7 avatar heights, depth about 1.05 x width, door
+	-- about half the width, gap about 0.22 x width, fence about chest high (0.8 avatar heights)
+	pans = { width = 34, length = 36, gap = 8, frontZ = -62, soilHeight = 1, doorWidth = 16, fenceHeight = 4, wallHeight = 16,
+		signY = 6.5, gaugeOffset = 10.5, boothOffset = -11 }, -- gauge right of the door, Pan Upgrades stand left of it (x from the lane's middle)
 	tunnel = { width = 72, wallHeight = 18, wallThick = 4, colliderHeight = 60, pathWidth = 16, lampEvery = 28 },
 	gate = { depth = 3, barGap = 3, height = 14 },
 	endCap = { depth = 4, height = 18, glowDepth = 30 },
@@ -456,7 +461,7 @@ Config.world = {
 	panUpgradeAction = "pan", -- the Pan Upgrades popup (Round 4 phase 5)
 	giftBox = Vector3.new(74, 0, -10),
 	-- leaderboards on the hub's side walls, turned to face the plaza
-	boards = { Vector3.new(-84, 0, -46), Vector3.new(-84, 0, -24), Vector3.new(84, 0, -46) },
+	boards = { Vector3.new(-128, 0, -46), Vector3.new(-128, 0, -24), Vector3.new(128, 0, -46) },
 	-- filled in below from the lists above
 	zones = {} :: { Zone },
 	plots = {} :: { { x: number, z: number } },
@@ -546,7 +551,8 @@ Config.guide = {
 Config.ray = { beamCore = 0.28, beamGlow = 0.84, armRaise = 90, tipSize = 0.76, sparkleRate = 20,
 	-- each gun tier: a wider beam, more sparkles along it and at the pet, a curl from tier 5 (beam colours: Theme.guns)
 	beamPerGun = 0.04, sparklePerGun = 4, sparkleSize = 0.3, sparkleSizePerGun = 0.03, curlFromGun = 5, curlAmount = 0.6,
-	tipLightRange = 5, tipLightBrightness = 2 } -- a real gun model: a small light in its glow colour at each barrel tip
+	tipLightRange = 5, tipLightBrightness = 2, -- a real gun model: a small light in its glow colour at each barrel tip
+	putAwayAfterFreeze = true } -- a freeze puts the ray away; it comes back when you carry nothing (owner 2026-11-05)
 -- extra pet looks (prototype syncWild / makeCube)
 Config.petFx = {
 	ringScale = 1.8, ringSpin = 0.5, shadowScale = 1.0, starCount = 3, starRadius = 0.9, starHeight = 1.45, starSpin = 3,
@@ -608,7 +614,7 @@ Config.mapFx = { gateBarsDrop = 13, gateBarsSeconds = 1.2, giftBob = 0.6, giftSw
 	panDoorSeconds = 0.5 }
 -- banked pets stay frozen: ice cubes in a neat grid on the pan, the pet inside wiggles a little,
 -- frost shimmers on the ice and a coin rises from each cube now and then
-Config.panCubes = { cols = 4, gap = 5, frontMargin = 7, backMargin = 3, maxSize = 4.2, wiggle = 0.06, wiggleSpeed = 2.2,
+Config.panCubes = { cols = 6, gap = 5, frontMargin = 7, backMargin = 3, maxSize = 4.2, wiggle = 0.06, wiggleSpeed = 2.2,
 	shimmerSpeed = 1.3, shimmerAmount = 0.12, coinEvery = 3.2, coinRise = 2.6, coinSize = 1.1, drawDistance = 120 }
 -- carried cubes are held in front of you, in your hands (both arms come up while you carry)
 Config.carry = { scale = 0.62, handY = 0.4, front = 0.9, stackGap = 0.15, armRaise = 80 }
