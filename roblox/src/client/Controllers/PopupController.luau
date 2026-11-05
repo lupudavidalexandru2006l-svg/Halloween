@@ -86,10 +86,18 @@ local HEADER_ICONS: { [string]: string } = {
 
 -- text sizes for the open popup, one per role (Config.ui.popupText x the popup's height)
 local px: { [string]: number } = { title = 30, body = 22, small = 16, button = 20 }
+-- each role's size is a cap: text that fits shows at exactly that size (so rows never jump), and only a
+-- word too long for its box ("Glowshroom Mammoth", the X, Pan Upgrades titles) shrinks to fit instead of
+-- being cut off (QA 2026-11-05, PT-04)
 local function sized(t: TextLabel, role: string)
-	t.TextScaled = false
+	local size = px[role] or px.body
 	t.TextWrapped = true
-	t.TextSize = px[role] or px.body
+	t.TextSize = size
+	t.TextScaled = true
+	local c = t:FindFirstChildOfClass("UITextSizeConstraint") or Instance.new("UITextSizeConstraint")
+	c.MaxTextSize = math.max(1, math.floor(size))
+	c.MinTextSize = math.max(1, math.floor(size * 0.5))
+	c.Parent = t
 end
 
 -- a row of blocks laid out left to right; widths are fractions of the row

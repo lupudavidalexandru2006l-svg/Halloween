@@ -4,6 +4,7 @@
 -- (Big Chill, others' big wins, "not yet" answers). Screen places all of them.
 
 local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Theme = require(ReplicatedStorage.Shared.Theme)
@@ -43,11 +44,30 @@ function HudController.banner(textValue: string, color: Color3?, seconds: number
 	end)
 end
 
--- gain text appears beside the coin counter, never on a HUD item
+-- gain text appears beside the coin counter, never on a HUD item. It wears the counter's own look
+-- (white-to-gold fill, the firm outline) a size smaller, starts just past the number's visible end
+-- (owner 2026-11-05: it sat on the last digit in flat yellow), pops in, then drifts up and fades.
 local function floatGain(amount: number)
-	local t = Ui.label(coinsRoot, `+{Ui.short(amount)}`, UDim2.fromScale(0.6, 0.8), UDim2.fromScale(1.05, 0.1))
-	t.TextColor3 = Theme.coin
+	local G = Config.ui.gain
+	local w = math.max(1, coinsRoot.AbsoluteSize.X)
+	local x = coinsText.Position.X.Scale + coinsText.TextBounds.X / w + G.gap
+	local t = Ui.label(coinsRoot, `+{Ui.short(amount)}`, UDim2.fromScale(G.width, G.height), UDim2.fromScale(x, G.y))
+	t.Name = "Gain"
 	t.TextXAlignment = Enum.TextXAlignment.Left
+	local stroke = t:FindFirstChildOfClass("UIStroke") :: UIStroke
+	stroke.Thickness = Config.ui.floatingStroke
+	local gold = Instance.new("UIGradient")
+	gold.Rotation = 90
+	gold.Color = ColorSequence.new(Theme.white, Theme.coin)
+	gold.Parent = t
+	local pop = Instance.new("UIScale")
+	pop.Scale = 0.4
+	pop.Parent = t
+	local still = SettingsController.get("reducedMotion") == true
+	TweenService:Create(pop, TweenInfo.new(G.popSeconds, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	local fade = TweenInfo.new(Config.ui.floatSeconds - G.holdSeconds, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0, false, G.holdSeconds)
+	TweenService:Create(t, fade, { Position = UDim2.fromScale(x, G.y - (if still then 0 else G.rise)), TextTransparency = 1 }):Play()
+	TweenService:Create(stroke, fade, { Transparency = 1 }):Play()
 	task.delay(Config.ui.floatSeconds, function()
 		t:Destroy()
 	end)

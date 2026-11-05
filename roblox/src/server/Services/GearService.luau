@@ -18,6 +18,7 @@ local G = Config.gel
 local held: { [Player]: string } = {}
 local lastThrow: { [Player]: number } = {}
 local lastBuy: { [Player]: number } = {}
+local stowed: { [Player]: boolean } = {} -- the game put the ray away (after a freeze); it brings it back
 type Puddle = { pos: Vector3, untilT: number, part: BasePart }
 local puddles: { Puddle } = {}
 local folder: Folder
@@ -55,10 +56,34 @@ function GearService.slowAt(pos: Vector3): number
 	return 1
 end
 
+-- FreezeService: you just froze a pet, so the ray goes away by itself (owner 2026-11-05)
+function GearService.stowRay(player: Player)
+	if GearService.held(player) == "ray" then
+		stowed[player] = true
+		setHeld(player, "none")
+	end
+end
+
+-- ...and comes back out once you carry nothing (banked, melted, knocked loose), unless the player
+-- picked something on the hotbar since
+function GearService.unstowRay(player: Player)
+	if stowed[player] then
+		stowed[player] = nil
+		if GearService.held(player) == "none" then
+			setHeld(player, "ray")
+		end
+	end
+end
+
+function GearService.isStowed(player: Player): boolean
+	return stowed[player] == true
+end
+
 local function onSetGear(player: Player, id: any)
 	if typeof(id) ~= "string" or (id ~= "ray" and id ~= "gel" and id ~= "none") then
 		return
 	end
+	stowed[player] = nil -- the player's own choice wins
 	if not owns(player, id) then
 		Remotes.notYet(player, "Buy it at the Equipment Booth", "hotbar")
 		return
@@ -175,12 +200,14 @@ function GearService.Start()
 	Remotes.on("ThrowGel", onThrow)
 	Remotes.on("BuyGear", onBuy)
 	DataService.Loaded:Connect(function(player: Player)
+		stowed[player] = nil
 		setHeld(player, "ray")
 		setOwned(player)
 	end)
 	DataService.Changed:Connect(setOwned)
 	Players.PlayerRemoving:Connect(function(p)
 		held[p] = nil
+		stowed[p] = nil
 		lastThrow[p] = nil
 		lastBuy[p] = nil
 	end)

@@ -64,12 +64,29 @@ local function scoreFor(board: Board, d: DataService.Data): number
 	return 0
 end
 
+local cleared: { [number]: boolean } = {}
+
 local function writeScores(player: Player)
 	local d = DataService.get(player)
 	if not d then
 		return
 	end
 	lastWrite[player] = os.clock()
+	-- tester accounts keep the Tester panel on live servers (x10,000 coins, +1B), so their scores would
+	-- push real players off the boards: they never rank, and an old entry is taken off once (QA 2026-11-05, CA-05)
+	if Config.isTester(player.UserId) and not RunService:IsStudio() then
+		if not cleared[player.UserId] then
+			cleared[player.UserId] = true
+			for _, board in LB.boards :: { Board } do
+				local store = storeFor(board)
+				withRetries(function()
+					store:RemoveAsync(tostring(player.UserId))
+					return true
+				end)
+			end
+		end
+		return
+	end
 	for _, board in LB.boards :: { Board } do
 		local score = scoreFor(board, d)
 		if score > 0 then

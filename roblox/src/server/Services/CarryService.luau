@@ -33,9 +33,15 @@ function CarryService.count(player: Player): number
 	return if list then #list else 0
 end
 
+-- how many cubes fit in your hands: the old Backpack upgrade, or your gun's beams if that's more (the
+-- Backpack can't be bought since 2026-11-05, so a many-beam gun's extra beams had no room and its Beams
+-- stat did nothing: QA 2026-11-05, PT-02)
 function CarryService.capacity(player: Player): number
 	local data = DataService.get(player)
-	return if data then data.upgrades.backpack else 1
+	if not data then
+		return 1
+	end
+	return math.max(data.upgrades.backpack, Config.gun(data.guns.equipped).beams)
 end
 
 local function cubeSize(player: Player, def: PetDefs.PetDef): number

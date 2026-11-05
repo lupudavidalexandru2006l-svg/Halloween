@@ -34,7 +34,10 @@ Config.data = {
 	qaStoreSuffix = "_QA", -- Studio and test servers never touch the live store (QA Rules 8)
 	retries = 5,
 	retryBase = 0.5, -- seconds, doubles each retry
-	autosaveSeconds = 90,
+	-- the autosave refreshes the session lock, so it must come well before the lock counts as stale (it was 90 = 90,
+	-- so a slow autosave could let another server take a live save: QA 2026-11-05, CA-03)
+	autosaveSeconds = 60,
+	lockStaleSeconds = 90,
 	bindToCloseSeconds = 25,
 	receiptsKept = 50,
 }
@@ -94,7 +97,10 @@ Config.upgrades = { -- baseCost = the price of level 2; each step costs x1.5 the
 	pen = { name = "Pan", baseCost = 100, costGrowth = 2.5, maxLevel = 7, slotsPerLevel = 1, rebirthGrowth = 6 },
 } :: { [string]: { [string]: any } }
 Config.upgradeIds = { "ray", "boots", "backpack", "pen" } -- every saved upgrade level
-Config.shopUpgradeIds = { "ray", "boots", "backpack" } -- the Shop's; the pan's Slots ("pen") sell at the Pan Upgrades stand
+-- what the coin Shop sells: nothing since the owner removed its Upgrades list (2026-11-05); levels already
+-- bought still count. ShopService only sells what's here, so a faked BuyUpgrade can't buy them (QA 2026-11-05, CA-01).
+-- The pan's Slots ("pen") sell at the Pan Upgrades stand.
+Config.shopUpgradeIds = {} :: { string }
 -- Pen and Storage (owner 2026-10-30): the pen's pets earn; every other banked pet waits in Storage
 -- (kept forever, in the Index, earns nothing). Players equip by hand or press Equip best.
 Config.pen = { baseSlots = 10, maxSlots = 16, storageMax = 500, -- maxSlots: the pan never holds more, whatever adds slots

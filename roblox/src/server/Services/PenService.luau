@@ -508,8 +508,10 @@ local function bank(player: Player)
 		Remotes.notYet(player, "Storage full", "pets")
 	end
 	if #banked > 0 then
-		DataService.saveNow(player)
+		-- the feedback first: the save can take seconds on a slow DataStore, and the pets are already
+		-- in the data (a leave saves them too), so the player shouldn't wait for it (QA 2026-11-05, CA-04)
 		Remotes.fire(player, "Notify", "banked", { banked = banked, income = PenService.incomePerSecond(d) })
+		DataService.saveNow(player)
 	end
 	bankingNow[player] = nil
 end

@@ -272,7 +272,7 @@ local function load(player: Player)
 			return store:UpdateAsync(key, function(old: any)
 				local d = migrate(old)
 				local lock = d.lock
-				if lock and lock.job ~= game.JobId and os.time() - lock.t < 90 then
+				if lock and lock.job ~= game.JobId and os.time() - lock.t < Config.data.lockStaleSeconds then
 					lockedByOther = true
 					return nil -- another server still owns this save: try again shortly
 				end
@@ -291,6 +291,19 @@ local function load(player: Player)
 		task.wait(3)
 	end
 	if not player.Parent then
+		-- they left while the save was loading: free the lock this load just wrote, or a rejoin on another
+		-- server within the stale time waits and is kicked with "couldn't load" (QA 2026-11-05, CA-02)
+		if loaded then
+			withRetries(function()
+				return store:UpdateAsync(key, function(old: any)
+					if typeof(old) == "table" and typeof(old.lock) == "table" and old.lock.job == game.JobId then
+						old.lock = nil
+						return old
+					end
+					return nil
+				end)
+			end)
+		end
 		return
 	end
 	if not loaded then

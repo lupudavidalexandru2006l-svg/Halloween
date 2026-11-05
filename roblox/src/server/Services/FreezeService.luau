@@ -31,8 +31,8 @@ local GearService = require(script.Parent.GearService)
 local FreezeService = {}
 local F = Config.show.freeze
 local A = Config.aim
-local lastFreeze: { [Player]: number } = {}
-type Aim = { kind: string, id: string, extras: { string } }
+-- froze = this shot has shut at least one cube; the ray goes away once every beam of it is done
+type Aim = { kind: string, id: string, extras: { string }, froze: boolean? }
 local aims: { [Player]: Aim } = {} -- what each player shoots at right now
 type Shown = { show: string, key: string, pose: string, mut: string? }
 local shows: { [Player]: { [string]: Shown } } = {} -- cube uid -> the show still playing for it
@@ -189,12 +189,15 @@ local function freezeOne(player: Player, pet: any)
 	if show and (Config.show :: any)[show].shout then
 		Remotes.fireAll("Notify", "shoutout", { name = player.DisplayName, userId = player.UserId, key = info.key, tier = pet.def.tier })
 	end
+	-- the ray goes away once the whole shot is done (tick / clearAim), not here: a many-beam gun's
+	-- first cube to shut used to put it away and thaw the pet you were aiming at (QA 2026-11-05, PT-01)
 end
 
--- one tick of the ray on a pet (the main one or an extra beam's)
-local function pushPet(player: Player, pet: any, data: any, gun: number, dt: number, pushed: { [any]: boolean })
+-- one tick of the ray on a pet (the main one or an extra beam's): "frozen" when its cube shut this
+-- tick, "pushed" when the ice rose, nil when it can't be frozen (or another beam already pushed it)
+local function pushPet(player: Player, pet: any, data: any, gun: number, dt: number, pushed: { [any]: boolean }): string?
 	if pushed[pet] or not canFreeze(player, pet, data) then
-		return
+		return nil
 	end
 	local asleep = pet.state == "wild" and pet.action == "sleep"
 	local seconds, style = FreezeService.plan(pet.def, gun, pet.state == "dazed", asleep)
@@ -204,10 +207,11 @@ local function pushPet(player: Player, pet: any, data: any, gun: number, dt: num
 	pushed[pet] = true
 	local meter = if seconds <= 0 then 1 else pet.meter + dt / seconds
 	WildPetSpawner.setMeter(pet, math.min(meter, 1), style, PlayerTracker.position(player), player)
-	if meter >= 1 and os.clock() - (lastFreeze[player] or 0) >= Config.player.freezeCooldown / 4 then
-		lastFreeze[player] = os.clock()
-		freezeOne(player, pet)
+	if meter >= 1 then
+		freezeOne(player, pet) -- the pet leaves the world here, so it can only shut once
+		return "frozen"
 	end
+	return "pushed"
 end
 
 local function setAiming(player: Player, on: boolean)
@@ -215,10 +219,21 @@ local function setAiming(player: Player, on: boolean)
 	player:SetAttribute("Aiming", on) -- every client raises this player's gun arm
 end
 
+-- you froze something: the ray goes away by itself until you've carried everything home (owner 2026-11-05)
+local function stowAfterShot(player: Player)
+	if Config.ray.putAwayAfterFreeze then
+		GearService.stowRay(player)
+	end
+end
+
 local function clearAim(player: Player)
-	if aims[player] then
+	local aim = aims[player]
+	if aim then
 		aims[player] = nil
 		setAiming(player, false)
+		if aim.froze then
+			stowAfterShot(player) -- let go after a freeze: the shot is over
+		end
 	end
 end
 
@@ -231,15 +246,30 @@ local function tick(dt: number)
 		end
 		local gun = FreezeService.gunTier(player)
 		if aim.kind == "pet" then
+			-- the main pet and every extra beam's pet rise together; each cube shuts on its own, and the
+			-- ray goes away only once nothing of this shot is still freezing
+			local busy = false
 			local pet = WildPetSpawner.get(aim.id)
 			if pet and inRange(player, pet.root.Position, A.rangeGrace) then
-				pushPet(player, pet, data, gun, dt, pushed)
-				for _, x in aim.extras do
-					local e = WildPetSpawner.get(x)
-					if e and e.state == "wild" and inRange(player, e.root.Position, A.rangeGrace) then
-						pushPet(player, e, data, gun, dt, pushed)
+				local r = pushPet(player, pet, data, gun, dt, pushed)
+				aim.froze = aim.froze or r == "frozen"
+				busy = r == "pushed"
+			end
+			local left: { string } = {}
+			for _, x in aim.extras do
+				local e = WildPetSpawner.get(x)
+				if e and e.state == "wild" and inRange(player, e.root.Position, A.rangeGrace) then
+					local r = pushPet(player, e, data, gun, dt, pushed)
+					aim.froze = aim.froze or r == "frozen"
+					if r == "pushed" then
+						busy = true
+						table.insert(left, x)
 					end
 				end
+			end
+			aim.extras = left
+			if aim.froze and not busy and aims[player] == aim then
+				clearAim(player) -- the shot is done: the ray goes away (stowAfterShot)
 			end
 		else
 			local t = targets[aim.kind]
@@ -280,10 +310,11 @@ local function onAim(player: Player, kind: any, id: any)
 			clearAim(player)
 			return
 		end
-		aims[player] = { kind = kind, id = id, extras = pickExtras(player, pet, data, FreezeService.gunTier(player)) }
+		-- a new pick while a shot that already froze something runs on carries that on (the ray still goes away after)
+		aims[player] = { kind = kind, id = id, extras = pickExtras(player, pet, data, FreezeService.gunTier(player)), froze = cur and cur.froze }
 		AnalyticsSvc.funnel(player, "first_zap")
 	elseif targets[kind] and targets[kind].canAim(player, id) then
-		aims[player] = { kind = kind, id = id, extras = {} }
+		aims[player] = { kind = kind, id = id, extras = {}, froze = cur and cur.froze }
 	else
 		clearAim(player)
 		return
@@ -322,6 +353,17 @@ function FreezeService.Start()
 			clearAim(player) -- putting the ray away stops the beam
 		end
 	end)
+	-- a ray the game put away comes back out once you carry nothing (banked, melted, knocked loose)
+	task.spawn(function()
+		while true do
+			task.wait(0.25)
+			for _, p in Players:GetPlayers() do
+				if GearService.isStowed(p) and CarryService.count(p) == 0 then
+					GearService.unstowRay(p)
+				end
+			end
+		end
+	end)
 	-- leaving mid-show keeps the pet: it goes straight into your pan (or Storage), saved on the way out
 	CarryService.setLeaveHandler(function(player: Player, c)
 		local list = shows[player]
@@ -342,7 +384,6 @@ function FreezeService.Start()
 		end
 	end
 	Players.PlayerRemoving:Connect(function(p)
-		lastFreeze[p] = nil
 		aims[p] = nil
 		task.defer(function() -- after CarryService has handed over any mid-show cube
 			shows[p] = nil

@@ -1104,6 +1104,27 @@ local function isAimKey(k: Enum.KeyCode): boolean
 	return table.find(A.keys, k) ~= nil
 end
 
+-- a shot at a pet while the ray is put away (after a freeze, or by hand) did nothing at all, so a kid
+-- thought the game broke: say why, at most once every few seconds (QA 2026-11-05, PT-03)
+local lastHint = 0
+local function hintNoRay(target: Target?)
+	if not target or me:GetAttribute("Held") ~= "none" or os.clock() - lastHint < Config.notYetCooldown then
+		return
+	end
+	lastHint = os.clock()
+	local carrying = false
+	local cubes = workspace:FindFirstChild("Cubes")
+	if cubes then
+		for _, c in cubes:GetChildren() do
+			if c:GetAttribute("OwnerUserId") == me.UserId then
+				carrying = true
+				break
+			end
+		end
+	end
+	State.local_("notYet", { reason = if carrying then "Take your pet home first!" else "Pick the Ice Ray first", at = "hotbar" })
+end
+
 function RayController.Init() end
 
 function RayController.Start()
@@ -1124,6 +1145,14 @@ function RayController.Start()
 			pointer = { pos = Vector2.new(input.Position.X, input.Position.Y), touch = input }
 		elseif isAimKey(input.KeyCode) then
 			autoAim = true
+		end
+		if not holdsRay(me) then
+			local pt = pointer
+			if pt and (input.UserInputType == Enum.UserInputType.MouseButton1 or input == pt.touch) then
+				hintNoRay(pickAt(pt.pos))
+			elseif isAimKey(input.KeyCode) then
+				hintNoRay(pickAuto())
+			end
 		end
 	end)
 	UserInputService.InputChanged:Connect(function(input: InputObject)
