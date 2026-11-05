@@ -1,0 +1,638 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Upgrade Motion Test</title>
+<meta name="description" content="Prototype of the 0.9 s pan upgrade motion: build-up, impact, spring settle and shimmer, with the pan's floor flash and staggered fence swap.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Colours copied from roblox/src/shared/Theme.luau */
+:root {
+  --ink: #1b1433; --go: #3ccf6e; --no: #ff5a5f; --coin: #ffc93c; --info: #3aa8ff; --grey: #9aa5b1;
+  --pan: #3ccf6e; --panel: color-mix(in srgb, var(--pan) 14%, #fff);
+  --sky-top: #7cc6ff; --sky-bottom: #c9ecff;
+  --lip: 5px; --radius: 14px; --stroke: 3px;
+  --bar-h: 52px; --time-h: 96px;
+}
+@media (max-height: 460px) { :root { --bar-h: 42px; --time-h: 66px; --lip: 4px; --radius: 11px; } }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: linear-gradient(var(--sky-top), var(--sky-bottom)); color: var(--ink);
+  font-family: 'Fredoka', system-ui, sans-serif; font-weight: 600; overflow: hidden; user-select: none;
+  display: grid; grid-template-rows: var(--bar-h) 1fr var(--time-h); height: 100dvh;
+}
+.out, button.block.out { color: #fff; -webkit-text-stroke: 3px var(--ink); paint-order: stroke fill; } /* 1.5 px visible outline */
+
+/* Chunky Pop block: a face on a darker lip, one ink outline, a soft light top, a thin bevel line */
+.block {
+  --face: #fff; position: relative; border: var(--stroke) solid var(--ink); border-radius: var(--radius);
+  background: linear-gradient(color-mix(in srgb, var(--face) 80%, #fff), var(--face) 48%, color-mix(in srgb, var(--face) 90%, var(--ink)));
+  box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 var(--lip) 0 0 color-mix(in srgb, var(--face) 50%, var(--ink)), 0 calc(var(--lip) + 3px) 0 0 var(--ink);
+}
+button.block { font: inherit; cursor: pointer; color: inherit; transition: transform .14s cubic-bezier(.34,1.56,.64,1), box-shadow .14s; }
+button.block.down { transform: translateY(var(--lip)); transition: transform .06s cubic-bezier(.25,.46,.45,.94), box-shadow .06s;
+  box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 0 0 0 transparent, 0 3px 0 0 var(--ink); }
+
+/* top bar: test controls (quiet, like the grey Tester tile) */
+#bar { display: flex; align-items: center; gap: 10px; padding: 0 16px; overflow-x: auto; scrollbar-width: none; }
+#bar h1 { margin: 0 6px 0 0; font-size: 17px; white-space: nowrap; }
+.group { display: flex; align-items: center; gap: 4px; font-size: 12px; white-space: nowrap; }
+.group > span { opacity: .7; margin-right: 2px; }
+.opt { --face: #dfe9f6; padding: 2px 9px; font-size: 13px; border-width: 2px; border-radius: 9px; --lip: 3px; }
+.opt.on { --face: var(--grey); color: #fff; }
+
+#stage { display: flex; gap: 16px; padding: 10px 16px 14px; min-height: 0; }
+#popup { --face: var(--panel); flex: 0 1 480px; min-width: 0; display: flex; flex-direction: column; padding: 0; }
+#ribbon { --face: var(--pan); margin: -3px -3px 0; border-radius: var(--radius) var(--radius) 8px 8px; display: flex; align-items: center; gap: 10px; padding: 4px 12px; --lip: 3px; z-index: 2; }
+#ribbon .title { font-size: 22px; flex: 1; }
+#coins { display: flex; align-items: center; gap: 4px; font-size: 18px; }
+#coins img { width: 30px; height: 30px; }
+#list { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 12px; padding: 14px 12px 16px; min-height: 0; }
+
+.card { --face: #fff; flex: 1 1 0; max-height: 110px; min-height: 54px; display: flex; align-items: center; gap: 12px; padding: 6px 10px;
+  --g: 0; --gc: #fff;
+  box-shadow: inset 0 2px 0 rgba(255,255,255,.55), 0 var(--lip) 0 0 color-mix(in srgb, var(--face) 50%, var(--ink)), 0 calc(var(--lip) + 3px) 0 0 var(--ink),
+    0 0 0 calc(var(--g) * 5px) var(--gc), 0 0 calc(var(--g) * 26px) var(--gc); }
+.card .clip { position: absolute; inset: 0; border-radius: calc(var(--radius) - 3px); overflow: hidden; pointer-events: none; z-index: 3; }
+.card .flash { position: absolute; inset: 0; opacity: 0; background: #fff; }
+.card .gloss { position: absolute; top: -20%; bottom: -20%; width: 34%; left: 0; opacity: 0; transform: translateX(-130%) skewX(-18deg);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.85), transparent); }
+.slotwrap { position: relative; height: 88%; aspect-ratio: 1; flex: none; margin-right: 8px; } /* room for the 1.15 pop */
+.aura { position: absolute; inset: -45%; border-radius: 50%; opacity: 0; pointer-events: none;
+  background: radial-gradient(closest-side, var(--ac, #fff) 0%, color-mix(in srgb, var(--ac, #fff) 50%, transparent) 45%, transparent 100%); }
+.tile { --face: #fff; position: absolute; inset: 0; border-radius: var(--radius); --lip: 0px; display: grid; place-items: center; }
+.tile img { width: 84%; height: 84%; object-fit: contain; filter: drop-shadow(0 2px 0 rgba(27,20,51,.25)); }
+.info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.row { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.name { font-size: clamp(16px, 2.6vh + 6px, 24px); font-weight: 700; }
+.chip { --face: var(--info); padding: 0 8px; font-size: 13px; border-width: 2px; --lip: 0px; border-radius: 99px; line-height: 20px; height: 24px; overflow: hidden; position: relative; }
+.chip .num { display: block; }
+.chip .num.incoming { position: absolute; left: 8px; top: 0; }
+.stat { font-size: clamp(13px, 1.8vh + 5px, 18px); }
+.stat .now { color: color-mix(in srgb, var(--grey) 65%, var(--ink)); }
+.stat .arrow { --face: var(--go); line-height: 16px; height: 20px; padding: 0 6px; font-size: 12px; }
+.stat .next { color: color-mix(in srgb, var(--go) 70%, var(--ink)); }
+.stat .unit { font-size: .8em; color: color-mix(in srgb, var(--grey) 65%, var(--ink)); }
+.pips { display: flex; gap: 4px; margin-left: 4px; }
+@media (max-height: 460px) { .pip { width: 9px; height: 9px; } .pips { gap: 3px; } }
+.pip { width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--ink); background: #e6ebf3; }
+.pip.full { background: var(--pc, var(--coin)); }
+.buy { --face: var(--coin); flex: none; min-width: 112px; height: 72%; max-height: 52px; display: flex; align-items: center; justify-content: center; gap: 4px; padding: 0 10px; font-size: 19px; }
+.buy img { width: 26px; height: 26px; }
+.buy.poor { --face: var(--grey); }
+.flatbox { flex: none; min-width: 112px; height: 60%; display: grid; place-items: center; border-radius: var(--radius); border: 2px solid var(--grey); color: var(--grey); background: #dfe9f6; font-size: 18px; }
+
+#panbox { flex: 1 1 0; min-width: 0; position: relative; }
+#pan { position: absolute; inset: 0; width: 100%; height: 100%; }
+#panlabel { position: absolute; left: 0; top: 0; font-size: 14px; opacity: .65; }
+
+#time { position: relative; margin: 0 16px 10px; }
+#tl { width: 100%; height: 100%; display: block; }
+#fx { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+
+@media (max-width: 720px) {
+  #stage { flex-direction: column; }
+  #popup { flex: 1 1 auto; }
+  #panbox { flex: 0 0 34%; }
+}
+</style>
+</head>
+<body>
+<div id="bar">
+  <h1>Upgrade motion</h1>
+  <div class="group" id="speed"><span>Speed</span></div>
+  <div class="group" id="ping"><span>Server</span></div>
+  <div class="group" id="money"><span>Coins</span></div>
+  <div class="group" id="toggles"></div>
+</div>
+<div id="stage">
+  <div id="popup" class="block">
+    <div id="ribbon" class="block"><span class="title out">Pan Upgrades</span><span id="coins" class="out"><img src="assets/icons/coin.webp" alt=""><span id="coinNum">0</span></span></div>
+    <div id="list"></div>
+  </div>
+  <div id="panbox"><canvas id="pan"></canvas><div id="panlabel">Your pan (keys 1, 2, 3 buy)</div></div>
+</div>
+<div id="time"><canvas id="tl"></canvas></div>
+<canvas id="fx"></canvas>
+
+<script>
+'use strict';
+// ---------- numbers (port: Config.motion.upgrade / Config.sounds) ----------
+// All times are seconds. Times after "impact" are measured from the impact frame, which is 0.18 s
+// after the press when the server answers in time, so 0.45 s and 0.90 s from the press.
+const M = {
+  build: 0.18, buildScale: 0.92, buildTilt: -2, cardBuild: 0.97,
+  shiverDeg: 1.2, shiverHz: 26,                        // only while waiting for a slow server
+  pop: 0.08, popScale: 1.15, cardPop: 1.05, peakHold: 0.055,
+  settle: 0.40, springK: 4, springW: 1.5,              // 1 + a * e^(-k x) * cos(w pi x)  (Animation Rules 4)
+  flash: { dur: 0.30, cool: 0.15, alpha: 0.9 },
+  aura: { scale: 1.35, alpha: 0.85, end: 0.52, charge: 0.3 },
+  ring: { dur: 0.25, grow: 0.7, alpha: 0.8 },
+  motes: 10, sparks: 16, sparksBig: 28,
+  tick: { out: 0.10, in: 0.15, chip: 0.2 },
+  pipAt: 0.18, pip: 0.15,
+  inputOpen: 0.27, shimmerAt: 0.42, shimmer: 0.25, total: 0.72,
+  sounds: { charge: 0.02, sparkle: 0.02, chimes: [0.14, 0.22, 0.30] }, // charge: from the press; the rest: from the impact
+  pan: { expand: 0.25, fillFrom: 0.2, fillFull: 0.3, holdTo: 0.45, fadeTo: 0.8, swapFrom: 0.05, swapTo: 0.25, floorSwap: 0.3, cubeAt: 0.08 },
+  flashSoftGap: 0.5, flashSkipGap: 0.34,                // kid-safe: never more than 3 flashes a second
+  streakReset: 1.5, streakMax: 7,
+  reduced: { time: 0.5, popScale: 1.05, buildScale: 0.97, cardPop: 1.02, flashAlpha: 0.35 },
+  coinRoll: 0.4, shake: 0.3,
+};
+
+// pan Looks from Theme.panLooks / Config.pan.looks
+const LOOKS = [
+  { key: 'garden', name: 'Garden', price: 0, post: '#fbfdff', rail: '#f4f8ff', floor: '#6cc24a', stripe: '#9ee373', glow: '#b8ff9a' },
+  { key: 'wood', name: 'Wood', price: 1.2e6, post: '#8a5a36', rail: '#a8703f', floor: '#c08a55', glow: '#ffc27a', lines: '#a8703f' },
+  { key: 'stone', name: 'Stone', price: 18e6, post: '#8d93a6', rail: '#b3b9c9', floor: '#c3c8d6', glow: '#e6ebff', grid: '#a9afc0', thick: 1.45 },
+  { key: 'ice', name: 'Crystal Ice', price: 132e6, post: '#9fe3ff', rail: '#dff6ff', floor: '#d8f1ff', glow: '#9fe8ff', crystal: '#bff1ff' },
+  { key: 'aurora', name: 'Aurora', price: 5.04e9, post: '#5b4fc4', rail: '#5dffb0', floor: '#cfe0ff', glow: '#c88bff', crystal: '#d9c8ff', aurora: ['#5dffb0', '#7fd0ff', '#c88bff'] },
+];
+const coldCost = n => Math.round(250 * Math.pow(4, n - 2)); // stand-in for island n's gate coins
+const KINDS = {
+  slots: { name: 'Slots', icon: 'bag', tile: '#f7e3b0', glow: '#ffd45a', start: 1, max: 7,
+    now: l => String(9 + l), next: l => String(10 + l), unit: 'pets', price: l => Math.round(100 * Math.pow(2.5, l - 1)), panStrength: 0.75 },
+  cold: { name: 'Cold', icon: 'gem', tile: '#bfe9ff', glow: '#7fdcff', start: 2, max: 10,
+    now: l => `Islands 1-${l}`, next: l => `1-${l + 1}`, price: l => coldCost(l + 1), panStrength: 0.85 },
+  look: { name: 'Look', icon: 'star', tile: '#a9cf95', glow: '#b8ff9a', start: 1, max: 5,
+    now: l => LOOKS[l - 1].name, next: l => LOOKS[l].name, price: l => LOOKS[l].price, panStrength: 1 },
+};
+const ORDER = ['slots', 'cold', 'look'];
+
+// ---------- helpers ----------
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const quadOut = t => 1 - (1 - t) * (1 - t);
+const quadIn = t => t * t;
+const quadInOut = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+const sineInOut = t => -(Math.cos(Math.PI * t) - 1) / 2;
+const backOut = t => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+const spring = (x, amp) => 1 + amp * Math.exp(-M.springK * x) * Math.cos(M.springW * Math.PI * x);
+const hex = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+const mix = (a, b, t) => { const A = hex(a), B = hex(b); return `rgb(${A.map((v, i) => Math.round(lerp(v, B[i], t))).join(',')})`; };
+const rgba = (h, a) => { const [r, g, b] = hex(h); return `rgba(${r},${g},${b},${a})`; };
+function fmt(n) {
+  if (n < 1000) return String(Math.round(n));
+  const u = [[1e9, 'B'], [1e6, 'M'], [1e3, 'K']].find(([v]) => n >= v);
+  const v = n / u[0];
+  return (v >= 100 ? Math.round(v) : Math.round(v * 10) / 10) + u[1];
+}
+const $ = s => document.querySelector(s);
+const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+
+// ---------- settings ----------
+const S = { speed: 1, ping: 0.08, reduced: false, sound: true, rich: true };
+function optGroup(id, items, key) {
+  const g = $(id);
+  for (const [label, value] of items) {
+    const b = el('button', 'block opt', label);
+    b.onclick = () => { S[key] = value; [...g.querySelectorAll('.opt')].forEach(x => x.classList.toggle('on', x === b)); if (key === 'rich') resetCoins(); };
+    if (S[key] === value) b.classList.add('on');
+    g.append(b);
+  }
+}
+optGroup('#speed', [['1x', 1], ['0.5x', 0.5], ['0.25x', 0.25]], 'speed');
+optGroup('#ping', [['Fast', 0.08], ['Slow', 0.3], ['Laggy', 0.6]], 'ping');
+optGroup('#money', [['Rich', true], ['Poor', false]], 'rich');
+function toggle(label, key) {
+  const b = el('button', 'block opt' + (S[key] ? ' on' : ''), label);
+  b.onclick = () => { S[key] = !S[key]; b.classList.toggle('on', S[key]); };
+  $('#toggles').append(b);
+}
+toggle('Reduced motion', 'reduced');
+toggle('Sound', 'sound');
+const resetB = el('button', 'block opt', 'Reset');
+resetB.onclick = () => { for (const k of ORDER) { state[k] = KINDS[k].start; cards[k].anim = null; } resetCoins(); renderAll(); pan.reset(); };
+$('#toggles').append(resetB);
+
+// ---------- audio (port: one Sound per name in Config.sounds) ----------
+let ac = null;
+function audio() {
+  if (!ac) { const C = window.AudioContext || window.webkitAudioContext; if (C) ac = new C(); }
+  if (ac && ac.state === 'suspended') ac.resume();
+  return ac;
+}
+function env(g, t, a, peak, d) { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + a + d); }
+function tone(type, f0, f1, peak, a, d, when = 0) {
+  const c = audio(); if (!c || !S.sound) return;
+  const t = c.currentTime + when, o = c.createOscillator(), g = c.createGain();
+  o.type = type; o.frequency.setValueAtTime(f0, t); if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + a + d);
+  env(g, t, a, peak, d); o.connect(g).connect(c.destination); o.start(t); o.stop(t + a + d + 0.05);
+}
+function noise(peak, a, d, filter, f0, f1) {
+  const c = audio(); if (!c || !S.sound) return;
+  const t = c.currentTime, len = Math.ceil(c.sampleRate * (a + d + 0.05)), buf = c.createBuffer(1, len, c.sampleRate), ch = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) ch[i] = Math.random() * 2 - 1;
+  const s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+  s.buffer = buf; f.type = filter; f.frequency.setValueAtTime(f0, t); if (f1) f.frequency.exponentialRampToValueAtTime(f1, t + a + d); f.Q.value = 1.2;
+  env(g, t, a, peak, d); s.connect(f).connect(g).connect(c.destination); s.start(t);
+}
+const vary = () => 0.95 + Math.random() * 0.1; // pitch +-5% so repeats don't grate (Sound Rules 3)
+const SFX = {
+  click: () => tone('triangle', 1300 * vary(), 900, 0.12, 0.003, 0.04),
+  charge: () => { tone('sine', 320, 960, 0.08, 0.12, 0.05); noise(0.05, 0.12, 0.05, 'bandpass', 600, 3200); },
+  hit: () => { tone('sine', 170, 55, 0.4, 0.004, 0.16); noise(0.12, 0.002, 0.07, 'highpass', 2600); tone('square', 520 * vary(), 520, 0.04, 0.002, 0.05); },
+  sparkle: () => { for (let i = 0; i < 4; i++) tone('sine', 2200 + Math.random() * 1600, 2200, 0.025, 0.002, 0.12, i * 0.03); },
+  chime: (i, semis, big) => {
+    const notes = [1046.5, 1318.5, 1568]; const f = notes[i] * Math.pow(2, semis / 12);
+    tone('triangle', f, f, 0.09, 0.004, big ? 0.45 : 0.28); tone('sine', f * 2, f * 2, 0.03, 0.004, 0.18);
+    if (big && i === 2) tone('triangle', f * 4 / 3 * 1.5, f * 2, 0.07, 0.004, 0.6, 0.08);
+  },
+  no: () => tone('sine', 320, 170, 0.18, 0.005, 0.22),
+};
+
+// ---------- clock: sim time runs at the chosen speed ----------
+let sim = 0, lastReal = performance.now();
+const rm = () => (S.reduced ? M.reduced.time : 1);
+
+// ---------- state + cards ----------
+const state = {}; for (const k of ORDER) state[k] = KINDS[k].start;
+let coins = 0, coinShown = 0, coinRoll = null;
+function resetCoins() { coins = S.rich ? 25e9 : 50; coinShown = coins; coinRoll = null; $('#coinNum').textContent = fmt(coins); renderAll(); }
+const cards = {};
+for (const k of ORDER) {
+  const K = KINDS[k], c = el('div', 'card block');
+  c.innerHTML = `
+    <div class="slotwrap"><div class="aura"></div><div class="tile block" style="--face:${K.tile}"><img src="assets/icons/${K.icon}.webp" alt=""></div></div>
+    <div class="info">
+      <div class="row"><span class="name">${K.name}</span><span class="chip block out"><span class="num">LV 1</span></span><div class="pips"></div></div>
+      <div class="row stat"></div>
+    </div>
+    <div class="act"></div>
+    <div class="clip"><div class="flash"></div><div class="gloss"></div></div>`;
+  $('#list').append(c);
+  cards[k] = { kind: k, el: c, tile: c.querySelector('.tile'), wrap: c.querySelector('.slotwrap'), aura: c.querySelector('.aura'), chip: c.querySelector('.chip'),
+    stat: c.querySelector('.stat'), pips: c.querySelector('.pips'), act: c.querySelector('.act'), flash: c.querySelector('.flash'), gloss: c.querySelector('.gloss'), anim: null, shakeAt: -9 };
+}
+function render(k, holdPip) {
+  const K = KINDS[k], C = cards[k], l = state[k], price = l < K.max ? K.price(l) : null;
+  if (!C.tickNew) C.chip.innerHTML = `<span class="num">LV ${l}</span>`;
+  C.stat.innerHTML = `<span class="now">${K.now(l)}</span>` + (price != null ? `<span class="chip arrow block out">&gt;</span><span class="next">${K.next(l)}</span>` : '') + (K.unit ? `<span class="unit">${K.unit}</span>` : '');
+  C.pips.innerHTML = '';
+  for (let i = K.start; i < K.max; i++) {
+    const p = el('span', 'pip' + (i < l && !(holdPip && i === l - 1) ? ' full' : ''));
+    p.style.setProperty('--pc', K.glow); C.pips.append(p);
+  }
+  C.newPip = holdPip ? C.pips.children[l - 1 - K.start] : null;
+  if (price == null) { C.act.innerHTML = '<div class="flatbox">Max</div>'; C.buy = null; return; }
+  C.act.innerHTML = `<button class="buy block out${coins >= price ? '' : ' poor'}"><img src="assets/icons/coin.webp" alt=""><span>${fmt(price)}</span></button>`;
+  C.buy = C.act.firstChild;
+  C.buy.onpointerdown = e => { e.preventDefault(); press(k); };
+}
+function renderAll() { for (const k of ORDER) render(k); }
+
+// ---------- the upgrade ----------
+let lastFlash = -9, lastImpact = -9, streak = 0, lastAnim = null;
+function press(k) {
+  audio();
+  const C = cards[k], K = KINDS[k], a = C.anim;
+  if (state[k] >= K.max) return;
+  if (a) { // a second press: works once input is open, otherwise it is remembered for that moment
+    const e = (sim - a.t0) / a.rm;
+    if (a.impact == null || e < a.impact + M.inputOpen) { a.buffered = true; return; }
+  }
+  if (C.buy) { C.buy.classList.add('down'); setTimeout(() => C.buy && C.buy.classList.remove('down'), 60 / S.speed); }
+  SFX.click();
+  const price = K.price(state[k]);
+  if (coins < price) { C.shakeAt = sim; SFX.no(); return; } // "not yet": a side shake and a low bonk, no build-up
+  const tileNow = parseFloat(C.tile.style.scale) || 1, cardNow = parseFloat(C.el.style.scale) || 1;
+  C.anim = { kind: k, t0: sim, rm: rm(), serverAt: sim + S.ping, impact: null, fired: {}, startTile: tileNow, startCard: cardNow, price };
+  lastAnim = C.anim;
+}
+function serverAnswer(C, a) { // the server charged and saved; from here the show only plays the result
+  const K = KINDS[C.kind];
+  a.oldLevel = state[C.kind]; state[C.kind]++; a.newLevel = state[C.kind];
+  a.big = a.newLevel % 5 === 0 || a.newLevel === K.max;
+  const since = sim - lastFlash;
+  a.strength = since < M.flashSkipGap ? 0 : since < M.flashSoftGap ? 0.5 : 1;
+  if (a.strength > 0) lastFlash = sim;
+  streak = sim - lastImpact < M.streakReset ? Math.min(M.streakMax, streak + 1) : 0;
+  a.streak = streak; lastImpact = sim;
+  a.glow = C.kind === 'look' ? LOOKS[a.newLevel - 1].glow : K.glow;
+  coinRoll = { from: coinShown, to: coins - a.price, t0: sim }; coins -= a.price;
+}
+function onImpact(C, a) { // everything that changes is swapped while the flash hides it
+  C.tickOld = C.chip.querySelector('.num'); C.tickOld.textContent = `LV ${a.oldLevel}`;
+  render(C.kind, true);
+  C.tickNew = el('span', 'num incoming', `LV ${a.newLevel}`); C.chip.innerHTML = ''; C.chip.append(C.tickOld, C.tickNew);
+  for (const k of ORDER) if (k !== C.kind) render(k); // other prices may now be out of reach
+  const r = C.tile.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2, size = C.tile.offsetWidth;
+  fx.ring(cx, cy, size, a.glow, a.big ? 1.4 : 1, a.strength);
+  fx.sparks(cx, cy, size, a.glow, a.big ? M.sparksBig : M.sparks);
+  SFX.hit();
+  pan.upgrade(C.kind, a);
+}
+function stepCard(C) {
+  const a = C.anim, el_ = C.el;
+  // "not yet" shake
+  const sh = (sim - C.shakeAt) / rm();
+  const shakeX = sh < M.shake && !S.reduced ? Math.sin(sh / M.shake * Math.PI * 6) * 6 * (1 - sh / M.shake) : 0;
+  el_.style.translate = shakeX ? `${shakeX}px 0` : '';
+  if (!a) { pulse(C); return; }
+  const R = S.reduced, e = (sim - a.t0) / a.rm;
+  const buildScale = R ? M.reduced.buildScale : M.buildScale, popScale = R ? M.reduced.popScale : M.popScale;
+  const cardPop = R ? M.reduced.cardPop : M.cardPop, tilt0 = R ? 0 : M.buildTilt;
+  if (a.impact == null && sim >= a.serverAt) { serverAnswer(C, a); a.impact = Math.max(M.build, (a.serverAt - a.t0) / a.rm); }
+  const fire = (name, at, fn) => { if (!a.fired[name] && e >= at) { a.fired[name] = true; fn(); } };
+  fire('charge', M.sounds.charge, () => { SFX.charge(); const r = C.tile.getBoundingClientRect(); fx.motes(r.left + r.width / 2, r.top + r.height / 2, C.tile.offsetWidth, KINDS[C.kind].glow); });
+  let ts = 1, tilt = 0, cs = 1, auraA = 0, auraS = 1, flashA = 0, flashC = '#ffffff', g = 0, gloss = -1;
+  if (e < M.build) {
+    const u = sineInOut(clamp(e / M.build));
+    ts = lerp(a.startTile, buildScale, u); cs = lerp(a.startCard, M.cardBuild, u); tilt = tilt0 * u; auraA = M.aura.charge * u;
+  } else if (a.impact == null || e < a.impact) { // waiting for a slow server: hold the breath, tiny shiver
+    ts = buildScale; cs = M.cardBuild; tilt = tilt0 + (R ? 0 : Math.sin(e * Math.PI * 2 * M.shiverHz) * M.shiverDeg); auraA = M.aura.charge;
+  }
+  if (a.impact != null && e >= a.impact) {
+    const p = e - a.impact;
+    fire('impact', a.impact, () => onImpact(C, a));
+    fire('sparkle', a.impact + M.sounds.sparkle, SFX.sparkle);
+    M.sounds.chimes.forEach((t, i) => fire('chime' + i, a.impact + t, () => SFX.chime(i, a.streak, a.big)));
+    fire('pip', a.impact + M.pipAt, () => { if (C.newPip) { C.newPip.classList.add('full'); const r = C.newPip.getBoundingClientRect(); fx.sparks(r.left + r.width / 2, r.top + r.height / 2, 6, a.glow, 5, 0.4); } });
+    if (p < M.pop) { ts = lerp(buildScale, popScale, backOut(p / M.pop)); cs = lerp(M.cardBuild, cardPop, backOut(p / M.pop)); tilt = lerp(tilt0, 0, quadOut(p / M.pop)); }
+    else if (p < M.pop + M.peakHold) { ts = popScale; cs = cardPop; }
+    else { const x = clamp((p - M.pop - M.peakHold) / M.settle); ts = spring(x, popScale - 1); cs = spring(x, cardPop - 1); }
+    // flash: white that cools into the upgrade's colour (the reference's white -> gold -> rest)
+    const fa = R ? M.reduced.flashAlpha : M.flash.alpha;
+    if (p < M.flash.dur) { flashA = fa * a.strength * Math.pow(1 - p / M.flash.dur, 1.5); flashC = mix('#ffffff', a.glow, clamp(p / M.flash.cool)); }
+    // aura and outline glow
+    if (p < 0.04) auraA = lerp(M.aura.charge, M.aura.alpha, p / 0.04);
+    else auraA = M.aura.alpha * clamp(1 - (p - 0.04) / (M.aura.end - 0.04));
+    auraS = lerp(1, M.aura.scale, quadOut(clamp(p / M.aura.end)));
+    g = auraA;
+    // level number tick
+    if (C.tickNew) {
+      const o = clamp(p / M.tick.out), i = clamp(p / M.tick.in);
+      C.tickOld.style.transform = `translateY(${-110 * quadOut(o)}%)`; C.tickOld.style.opacity = 1 - o;
+      C.tickNew.style.transform = `translateY(${110 * (1 - backOut(i))}%)`;
+      const cp = clamp(p / M.tick.chip); C.chip.style.scale = cp < 1 ? 1 + 0.3 * Math.sin(Math.PI * cp) : '';
+      if (p >= M.tick.in) { C.chip.innerHTML = `<span class="num">LV ${a.newLevel}</span>`; C.tickNew = null; C.chip.style.scale = ''; }
+    }
+    // the new pip
+    if (C.newPip) { const q = clamp((p - M.pipAt) / M.pip); C.newPip.style.scale = p < M.pipAt ? 1 : q < .6 ? 1.3 * quadOut(q / .6) : 1.3 - 0.3 * quadInOut((q - .6) / .4); }
+    // shimmer
+    if (p >= M.shimmerAt && p < M.shimmerAt + M.shimmer) gloss = quadInOut((p - M.shimmerAt) / M.shimmer);
+    if (a.buffered && p >= M.inputOpen) { a.buffered = false; C.anim = a; press(C.kind); if (C.anim !== a) return stepCard(C); }
+    if (p >= M.total) { C.anim = null; ts = cs = 1; tilt = 0; }
+  }
+  C.tile.style.scale = ts; C.tile.style.rotate = tilt + 'deg'; el_.style.scale = cs;
+  C.aura.style.opacity = auraA; C.aura.style.scale = auraS; C.aura.style.setProperty('--ac', a.glow || KINDS[C.kind].glow);
+  C.flash.style.opacity = flashA; C.flash.style.background = flashC;
+  el_.style.setProperty('--g', g); el_.style.setProperty('--gc', rgba(a.glow || KINDS[C.kind].glow, 0.9));
+  C.gloss.style.opacity = gloss >= 0 ? 0.6 : 0; C.gloss.style.transform = `translateX(${lerp(-130, 330, Math.max(0, gloss))}%) skewX(-18deg)`;
+  if (C.buy) C.buy.style.scale = '';
+}
+// the focal point: only the first button you can afford pulses (none with reduced motion)
+function pulse(C) {
+  if (!C.buy) return;
+  const focal = ORDER.find(k => cards[k].buy && !cards[k].buy.classList.contains('poor') && !cards[k].anim);
+  const busy = ORDER.some(k => cards[k].anim);
+  C.buy.style.scale = C.kind === focal && !busy && !S.reduced ? 1 + 0.03 * (1 - Math.cos(sim / 0.7 * Math.PI)) : '';
+}
+
+// ---------- UI particles (in Roblox: tweened ImageLabels, ParticleEmitters don't draw in a ScreenGui) ----------
+const fxc = $('#fx'), fctx = fxc.getContext('2d');
+const fx = {
+  list: [],
+  motes(cx, cy, size, col) {
+    if (S.reduced) return;
+    for (let i = 0; i < M.motes; i++) {
+      const ang = Math.random() * Math.PI * 2, r = size * (0.9 + Math.random() * 0.7);
+      this.list.push({ type: 'mote', x0: cx + Math.cos(ang) * r, y0: cy + Math.sin(ang) * r, cx, cy, t0: sim + Math.random() * 0.03, life: M.build - 0.03, col, sz: 2 + Math.random() * 2.5 });
+    }
+  },
+  sparks(cx, cy, size, col, n, speed = 1) {
+    const cols = [col, '#ffffff', '#ffe38a'];
+    for (let i = 0; i < (S.reduced ? Math.ceil(n / 2) : n); i++) {
+      const ang = Math.random() * Math.PI * 2, v = (220 + Math.random() * 320) * speed * (size > 20 ? size / 70 : 1);
+      this.list.push({ type: 'spark', x: cx, y: cy, vx: Math.cos(ang) * v, vy: Math.sin(ang) * v - 60, t0: sim, life: 0.35 + Math.random() * 0.15, col: cols[i % 3], sz: (3 + Math.random() * 4) * (size > 20 ? 1 : 0.7), rot: Math.random() * 3, last: sim });
+    }
+  },
+  ring(cx, cy, size, col, w, strength) {
+    if (strength <= 0) return;
+    this.list.push({ type: 'ring', cx, cy, size, col, w, t0: sim, life: M.ring.dur, a: M.ring.alpha * (S.reduced ? 0.5 : strength) });
+  },
+  step() {
+    fctx.clearRect(0, 0, fxc.width, fxc.height);
+    const d = devicePixelRatio || 1; fctx.setTransform(d, 0, 0, d, 0, 0);
+    this.list = this.list.filter(p => {
+      const t = (sim - p.t0) / rm(); if (t < 0) return true; const u = t / p.life; if (u >= 1) return false;
+      if (p.type === 'mote') {
+        const k = quadIn(u); fctx.globalAlpha = clamp(u * 4) * (1 - k * 0.3);
+        fctx.fillStyle = p.col; fctx.beginPath(); fctx.arc(lerp(p.x0, p.cx, k), lerp(p.y0, p.cy, k), p.sz, 0, 7); fctx.fill();
+      } else if (p.type === 'spark') {
+        const dt = (sim - p.last) / rm(); p.last = sim; p.vx *= Math.pow(0.02, dt); p.vy = p.vy * Math.pow(0.02, dt) + 500 * dt; p.x += p.vx * dt; p.y += p.vy * dt;
+        fctx.globalAlpha = 1 - quadIn(u); star(fctx, p.x, p.y, p.sz * (1 - u * 0.5), p.rot + u * 4, p.col);
+      } else if (p.type === 'ring') {
+        const k = quadOut(u), s = p.size * (1 + M.ring.grow * k) / 2, r = 14 * (1 + k * 0.6);
+        fctx.globalAlpha = p.a * (1 - u); fctx.lineWidth = (6 - 5 * u) * p.w; fctx.strokeStyle = p.col;
+        fctx.beginPath(); fctx.roundRect(p.cx - s, p.cy - s, s * 2, s * 2, r); fctx.stroke();
+      }
+      return true;
+    });
+    fctx.globalAlpha = 1;
+  },
+};
+function star(c, x, y, s, rot, col) { // a 4-point sparkle with an ink edge
+  c.save(); c.translate(x, y); c.rotate(rot); c.beginPath();
+  for (let i = 0; i < 8; i++) { const r = i % 2 ? s * 0.38 : s, a = i * Math.PI / 4; c.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
+  c.closePath(); c.fillStyle = col; c.fill(); c.lineWidth = 1.5; c.strokeStyle = 'rgba(27,20,51,.7)'; c.stroke(); c.restore();
+}
+
+// ---------- the pan (world echo of the reference: a floor flash and a staggered fence swap) ----------
+const pc = $('#pan'), px = pc.getContext('2d');
+const pan = {
+  look: 0, floorLook: 0, slots: 10, segs: [], anim: null, sparks: [], cubePop: null,
+  reset() { this.look = this.floorLook = state.look - 1; this.slots = 9 + state.slots; this.anim = null; this.cubePop = null; this.build(); },
+  build() { // 6 segments a side; a segment owns its start post
+    this.segs = [];
+    const edges = [[[-1, -1], [1, -1]], [[-1, -1], [-1, 1]], [[1, -1], [1, 1]], [[-1, 1], [1, 1]]];
+    edges.forEach(([p, q], ei) => {
+      for (let i = 0; i < 6; i++) {
+        const a = [lerp(p[0], q[0], i / 6), lerp(p[1], q[1], i / 6)], b = [lerp(p[0], q[0], (i + 1) / 6), lerp(p[1], q[1], (i + 1) / 6)];
+        this.segs.push({ a, b, end: i === 5, look: this.look, pop: null, depth: (a[0] + a[1] + b[0] + b[1]) / 2, front: ei >= 2 });
+      }
+    });
+  },
+  upgrade(kind, a) {
+    const t0 = sim;
+    this.anim = { kind, t0, rm: a.rm, strength: KINDS[kind].panStrength * (a.strength || 0.4), glow: a.glow, newLook: kind === 'look' ? a.newLevel - 1 : this.look, swapped: false, cube: false, sparked: false, big: a.big };
+    if (kind === 'look') { // front pieces first, like the reference
+      const sorted = [...this.segs].sort((p, q) => q.depth - p.depth);
+      sorted.forEach((s, i) => { s.swapAt = lerp(M.pan.swapFrom, M.pan.swapTo, i / (sorted.length - 1)); s.toLook = this.anim.newLook; });
+    }
+  },
+  geom() {
+    const w = pc.clientWidth, h = pc.clientHeight;
+    const a = Math.min(w * 0.9 / 4, h * 0.82 / (4 * 0.55 + 0.9)), b = a * 0.55;
+    return { w, h, a, b, cx: w / 2, cy: h * 0.56, fh: a * 0.42 };
+  },
+  step() {
+    const d = devicePixelRatio || 1, G = this.geom();
+    px.setTransform(d, 0, 0, d, 0, 0); px.clearRect(0, 0, G.w, G.h);
+    const P = (x, y) => [G.cx + (x - y) * G.a, G.cy + (x + y) * G.b];
+    const A = this.anim, q = A ? (sim - A.t0) / A.rm : 99;
+    if (A) {
+      if (A.kind === 'look') for (const s of this.segs) if (s.toLook != null && q >= s.swapAt) { s.look = s.toLook; s.toLook = null; s.pop = sim; }
+      if (A.kind === 'look' && q >= M.pan.floorSwap && !A.swapped) { A.swapped = true; this.floorLook = this.look = A.newLook; }
+      if (A.kind === 'slots' && q >= M.pan.cubeAt && !A.cube) { A.cube = true; this.slots = Math.min(16, this.slots + 1); this.cubePop = sim; }
+      if (!A.sparked) { A.sparked = true; this.burst(G, A); }
+      if (q > M.pan.fadeTo) this.anim = null;
+    }
+    // floor, in world space (circles drawn here come out as ellipses)
+    const F = LOOKS[this.floorLook];
+    px.save(); px.transform(G.a, G.b, -G.a, G.b, G.cx, G.cy);
+    px.beginPath(); px.rect(-1, -1, 2, 2); px.save(); px.clip();
+    px.fillStyle = F.floor; px.fillRect(-1, -1, 2, 2);
+    if (F.stripe) { px.fillStyle = F.stripe; for (let i = 0; i < 8; i += 2) px.fillRect(-1 + i * 0.25, -1, 0.25, 2); }
+    if (F.lines) { px.strokeStyle = F.lines; px.lineWidth = 0.012; for (let i = 1; i < 10; i++) { px.beginPath(); px.moveTo(-1, -1 + i * 0.2); px.lineTo(1, -1 + i * 0.2); px.stroke(); } }
+    if (F.grid) { px.strokeStyle = F.grid; px.lineWidth = 0.014; for (let i = 1; i < 6; i++) { px.beginPath(); px.moveTo(-1 + i / 3, -1); px.lineTo(-1 + i / 3, 1); px.moveTo(-1, -1 + i / 3); px.lineTo(1, -1 + i / 3); px.stroke(); } }
+    if (F.crystal) { px.fillStyle = 'rgba(255,255,255,.55)'; for (let i = 0; i < 5; i++) px.fillRect(-0.9 + i * 0.42, -1, 0.07, 2); }
+    if (A && A.strength > 0) this.flash(q, A);
+    px.restore(); px.beginPath(); px.rect(-1, -1, 2, 2); px.lineWidth = 3 / G.a; px.strokeStyle = '#1b1433'; px.stroke(); px.restore();
+    // back fence, cubes, front fence
+    const segs = [...this.segs].sort((p, q2) => p.depth - q2.depth);
+    for (const s of segs) if (!s.front) this.seg(s, P, G);
+    this.cubes(P, G);
+    for (const s of segs) if (s.front) this.seg(s, P, G);
+    // light bleeding over the fence at the peak (bloom)
+    if (A && A.strength > 0 && q < M.pan.fadeTo) {
+      const k = q < M.pan.fillFull ? quadOut(q / M.pan.fillFull) : 1 - clamp((q - M.pan.holdTo) / (M.pan.fadeTo - M.pan.holdTo));
+      px.save(); px.globalCompositeOperation = 'lighter'; px.globalAlpha = 0.35 * k * A.strength;
+      px.scale(1, G.b / G.a); const gy = G.cy * G.a / G.b; // squash a circle into the floor's ellipse
+      const gr = px.createRadialGradient(G.cx, gy, 0, G.cx, gy, G.a * 2.2);
+      gr.addColorStop(0, mix('#ffffff', A.glow, clamp(q / 0.45))); gr.addColorStop(1, 'rgba(0,0,0,0)');
+      px.fillStyle = gr; px.beginPath(); px.arc(G.cx, gy, G.a * 2.2, 0, 7); px.fill(); px.restore();
+    }
+    this.stepSparks();
+  },
+  flash(q, A) { // disk from the centre (white core, coloured rim), then the whole floor tinted, cooling, fading
+    const s = A.strength * (S.reduced ? 0.45 : 1);
+    if (q < M.pan.expand + 0.1) {
+      const r = 1.5 * quadOut(clamp(q / M.pan.expand)), al = q < M.pan.expand ? 1 : 1 - (q - M.pan.expand) / 0.1;
+      if (r > 0.01) {
+        const g = px.createRadialGradient(0, 0, 0, 0, 0, r);
+        g.addColorStop(0, rgba('#ffffff', 0.95 * al * s)); g.addColorStop(0.7, rgba('#ffffff', 0.85 * al * s));
+        g.addColorStop(0.86, rgba(A.glow, al * s)); g.addColorStop(1, rgba(A.glow, 0));
+        px.fillStyle = g; px.beginPath(); px.arc(0, 0, r, 0, 7); px.fill();
+      }
+    }
+    let fa = 0;
+    if (q >= M.pan.fillFrom && q < M.pan.fillFull) fa = (q - M.pan.fillFrom) / (M.pan.fillFull - M.pan.fillFrom);
+    else if (q >= M.pan.fillFull && q < M.pan.holdTo) fa = 1;
+    else if (q >= M.pan.holdTo) fa = 1 - clamp((q - M.pan.holdTo) / (M.pan.fadeTo - M.pan.holdTo));
+    if (fa > 0) { px.globalAlpha = 0.85 * fa * s; px.fillStyle = mix('#ffffff', A.glow, clamp((q - 0.15) / 0.3)); px.fillRect(-1, -1, 2, 2); px.globalAlpha = 1; }
+  },
+  seg(s, P, G) {
+    const L = LOOKS[s.look], t = (sim - (s.pop ?? -9)) / rm();
+    let k = 1; // drop in with a squash: 0.2 -> 1.15 -> 1
+    if (t < 0.14) k = t < 0.08 ? lerp(0.2, 1.15, quadOut(t / 0.08)) : lerp(1.15, 1, quadInOut((t - 0.08) / 0.06));
+    const h = G.fh * k, [ax, ay] = P(...s.a), [bx, by] = P(...s.b);
+    const railCol = L.aurora ? L.aurora[Math.floor((sim * 0.2 * 3 + (s.depth + 2) * 0.4)) % 3] : L.rail;
+    const thick = (L.thick || 1) * G.a * 0.05;
+    for (const f of [0.45, 0.82]) {
+      px.lineCap = 'round'; px.strokeStyle = '#1b1433'; px.lineWidth = thick + 4;
+      px.beginPath(); px.moveTo(ax, ay - h * f); px.lineTo(bx, by - h * f); px.stroke();
+      px.strokeStyle = railCol; px.lineWidth = thick; px.stroke();
+    }
+    const post = (x, y, i) => {
+      const pw = (L.thick || 1) * G.a * 0.075;
+      px.fillStyle = L.post; px.strokeStyle = '#1b1433'; px.lineWidth = 2.5;
+      px.beginPath(); px.roundRect(x - pw / 2, y - h * 1.08, pw, h * 1.08, pw * 0.3); px.fill(); px.stroke();
+      px.fillStyle = 'rgba(255,255,255,.35)'; px.fillRect(x - pw / 2 + 2, y - h * 1.08 + 3, pw * 0.3, h * 0.9);
+      if (L.crystal && i % 2 === 0) { // a crystal on every 2nd post
+        const cy = y - h * 1.08, cs = pw * 0.9; px.fillStyle = L.crystal;
+        px.beginPath(); px.moveTo(x, cy - cs * 1.8); px.lineTo(x + cs * 0.6, cy - cs * 0.5); px.lineTo(x, cy); px.lineTo(x - cs * 0.6, cy - cs * 0.5); px.closePath(); px.fill(); px.stroke();
+      }
+    };
+    const idx = Math.round((s.a[0] + s.a[1] + 2) * 3);
+    post(ax, ay, idx); if (s.end) post(bx, by, idx + 1);
+  },
+  cubes(P, G) { // banked pets frozen in ice cubes, a 4 x 4 grid (Config.panCubes)
+    const list = [];
+    for (let i = 0; i < this.slots; i++) { const c = i % 4, r = Math.floor(i / 4); list.push({ x: -0.6 + c * 0.4, y: -0.6 + r * 0.4, i }); }
+    list.sort((p, q) => (p.x + p.y) - (q.x + q.y));
+    for (const c of list) {
+      let k = 1, drop = 0;
+      if (c.i === this.slots - 1 && this.cubePop != null) {
+        const t = (sim - this.cubePop) / rm();
+        if (t < 0.12) { drop = (1 - quadIn(t / 0.12)) * G.a * 0.6; }
+        else if (t < 0.36) k = spring((t - 0.12) / 0.24, -0.25);
+      }
+      const s = 0.12, hh = G.a * 0.2 * k, [x, y] = P(c.x, c.y);
+      const top = [P(c.x - s, c.y - s), P(c.x + s, c.y - s), P(c.x + s, c.y + s), P(c.x - s, c.y + s)].map(([u, v]) => [u, v - hh - drop]);
+      const base = [P(c.x + s, c.y - s), P(c.x + s, c.y + s), P(c.x - s, c.y + s)].map(([u, v]) => [u, v - drop]);
+      px.lineWidth = 2; px.strokeStyle = '#1b1433'; px.lineJoin = 'round';
+      const poly = (pts, col) => { px.fillStyle = col; px.beginPath(); pts.forEach(([u, v], j) => j ? px.lineTo(u, v) : px.moveTo(u, v)); px.closePath(); px.fill(); px.stroke(); };
+      poly([top[1], top[2], base[1], base[0]], '#7cc4f5');
+      poly([top[2], top[3], base[2], base[1]], '#a8dcff');
+      poly(top, '#dff6ff');
+      px.fillStyle = 'rgba(255,255,255,.7)'; px.beginPath(); px.arc(x - G.a * 0.03, y - hh * 0.75 - drop, G.a * 0.018, 0, 7); px.fill();
+    }
+  },
+  burst(G, A) {
+    const n = Math.round((A.big ? 36 : 22) * (S.reduced ? 0.5 : 1)), cols = [A.glow, '#ffffff', '#ffe38a'];
+    for (let i = 0; i < n; i++) {
+      const ang = Math.random() * Math.PI * 2, v = G.a * (0.8 + Math.random() * 1.6);
+      this.sparks.push({ x: G.cx + Math.cos(ang) * G.a * 0.2, y: G.cy + Math.sin(ang) * G.b * 0.2, vx: Math.cos(ang) * v, vy: -G.a * (1.2 + Math.random() * 1.8), t0: sim, last: sim, life: 0.5 + Math.random() * 0.3, col: cols[i % 3], sz: 3 + Math.random() * 4, rot: Math.random() * 3 });
+    }
+  },
+  stepSparks() {
+    this.sparks = this.sparks.filter(p => {
+      const u = (sim - p.t0) / rm() / p.life; if (u >= 1) return false;
+      const dt = (sim - p.last) / rm(); p.last = sim; p.vy += 900 * dt; p.vx *= Math.pow(0.1, dt); p.x += p.vx * dt; p.y += p.vy * dt;
+      px.globalAlpha = 1 - quadIn(u); star(px, p.x, p.y, p.sz, p.rot + u * 5, p.col); px.globalAlpha = 1; return true;
+    });
+  },
+};
+
+// ---------- timeline strip: the beats of the last upgrade, where we are, and the sound markers ----------
+const tc = $('#tl'), tctx = tc.getContext('2d');
+function drawTimeline() {
+  const d = devicePixelRatio || 1, w = tc.clientWidth, h = tc.clientHeight; tctx.setTransform(d, 0, 0, d, 0, 0); tctx.clearRect(0, 0, w, h);
+  const a = lastAnim, imp = a && a.impact != null ? a.impact : M.build, end = imp + M.total, span = Math.max(0.9, end) + 0.05;
+  const small = h < 80, barY = small ? 18 : 26, barH = small ? 14 : 18, X = t => 8 + (w - 16) * t / span;
+  tctx.font = `600 ${small ? 11 : 12}px Fredoka, sans-serif`; tctx.textBaseline = 'middle';
+  const segs = [[0, M.build, '#3aa8ff', 'build-up'], [M.build, imp, '#9aa5b1', 'server'], [imp, imp + M.pop + M.peakHold, '#ffc93c', 'impact'],
+    [imp + M.pop + M.peakHold, imp + M.shimmerAt, '#3ccf6e', 'spring settle'], [imp + M.shimmerAt, end, '#aa50e6', 'shimmer']];
+  for (const [s, e, c, label] of segs) {
+    if (e - s < 0.001) continue;
+    tctx.fillStyle = c; tctx.strokeStyle = '#1b1433'; tctx.lineWidth = 2;
+    tctx.beginPath(); tctx.roundRect(X(s), barY, X(e) - X(s), barH, 4); tctx.fill(); tctx.stroke();
+    if (X(e) - X(s) > tctx.measureText(label).width + 6) { tctx.fillStyle = '#1b1433'; tctx.fillText(label, X(s) + 4, barY + barH / 2 + 1); }
+  }
+  const marks = [[0, 'click + charge'], [M.sounds.charge, ''], [imp, 'hit'], ...M.sounds.chimes.map(t => [imp + t, 'chime'])];
+  tctx.fillStyle = '#1b1433';
+  marks.forEach(([t, label]) => { const x = X(t); tctx.beginPath(); tctx.moveTo(x, barY - 2); tctx.lineTo(x - 4, barY - 9); tctx.lineTo(x + 4, barY - 9); tctx.fill();
+    if (label) tctx.fillText(label, x + 5, barY - 12); });
+  const io = X(imp + M.inputOpen); tctx.setLineDash([3, 3]); tctx.strokeStyle = '#ff5a5f'; tctx.beginPath(); tctx.moveTo(io, barY - 4); tctx.lineTo(io, barY + barH + 4); tctx.stroke(); tctx.setLineDash([]);
+  // playhead
+  if (a) { const e = clamp((sim - a.t0) / a.rm, 0, span); const x = X(e); tctx.fillStyle = '#1b1433'; tctx.fillRect(x - 1.5, barY - 4, 3, barH + 8); }
+  const C = a && cards[a.kind];
+  const info = a ? `t ${clamp((sim - a.t0) / a.rm, 0, end).toFixed(2)} s   slot x${(parseFloat(C.tile.style.scale) || 1).toFixed(3)}   card x${(parseFloat(C.el.style.scale) || 1).toFixed(3)}   impact at ${imp.toFixed(2)} s, re-press from ${(imp + M.inputOpen).toFixed(2)} s, done ${end.toFixed(2)} s${S.reduced ? '  (reduced: real time x0.5)' : ''}`
+    : 'Press an upgrade. Red dashes = when the button works again.';
+  tctx.fillStyle = '#1b1433'; tctx.fillText(info, 8, barY + barH + (small ? 12 : 18));
+}
+
+// ---------- loop ----------
+function resize() {
+  const d = devicePixelRatio || 1;
+  for (const c of [fxc, pc, tc]) { c.width = Math.round(c.clientWidth * d); c.height = Math.round(c.clientHeight * d); }
+}
+addEventListener('resize', resize);
+addEventListener('keydown', e => { const k = ORDER[+e.key - 1]; if (k && !e.repeat) press(k); });
+function frame(now) {
+  const dt = Math.min(0.05, (now - lastReal) / 1000); lastReal = now; sim += dt * S.speed;
+  for (const k of ORDER) stepCard(cards[k]);
+  if (coinRoll) { const u = clamp((sim - coinRoll.t0) / rm() / M.coinRoll); coinShown = lerp(coinRoll.from, coinRoll.to, quadOut(u)); $('#coinNum').textContent = fmt(coinShown); if (u >= 1) coinRoll = null; }
+  pan.step(); fx.step(); drawTimeline();
+  requestAnimationFrame(frame);
+}
+resetCoins(); pan.reset(); resize(); requestAnimationFrame(frame);
+window.__demo = { M, S, state, cards, pan, get sim() { return sim; } }; // for tests
+</script>
+</body>
+</html>
