@@ -2,9 +2,12 @@
 -- EventService: owns the Big Chill (Game Plan 14). About every 10 minutes, announced 30 s before:
 -- snow everywhere, nothing melts for 60 s, and every pet frozen in it is Frosty (x1.5).
 -- Clients read the world Attributes ChillUntil / NextChill (server time) and hear Notify chillWarn/Start/End.
+-- Also owns the night clock (Config.night): the loop runs from server time; the workspace attribute
+-- NightOffset shifts it (tester "Night now"), and Notify nightStart / nightEnd fire as it turns.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
+local WorldRules = require(ReplicatedStorage.Shared.WorldRules)
 local Remotes = require(script.Parent.Remotes)
 
 local EventService = {}
@@ -12,6 +15,8 @@ local EventService = {}
 local nextAt = 0 -- os.clock() of the next Big Chill
 local untilAt = 0 -- os.clock() when the current one ends (0 = none)
 local warned = false
+local nightOffset = 0
+local wasNight = false
 
 local function serverTime(clockAt: number): number
 	return workspace:GetServerTimeNow() + (clockAt - os.clock())
@@ -24,6 +29,24 @@ end
 
 function EventService.isChill(): boolean
 	return untilAt > 0 and os.clock() < untilAt
+end
+
+function EventService.isNight(): boolean
+	return WorldRules.nightCycle(workspace:GetServerTimeNow(), nightOffset).night
+end
+
+-- tester button: jump the loop to the start of the night, or back to morning if it's night now
+function EventService.toggleNight()
+	nightOffset = WorldRules.skipTo(workspace:GetServerTimeNow(), nightOffset, not EventService.isNight())
+	workspace:SetAttribute("NightOffset", nightOffset)
+end
+
+local function nightTick()
+	local night = EventService.isNight()
+	if night ~= wasNight then
+		wasNight = night
+		Remotes.fireAll("Notify", if night then "nightStart" else "nightEnd", {})
+	end
 end
 
 -- starts one now (dev command; later the paid server-wide Big Chill, Game Plan 15)
@@ -59,10 +82,13 @@ end
 
 function EventService.Start()
 	publish()
+	workspace:SetAttribute("NightOffset", nightOffset)
+	wasNight = EventService.isNight()
 	task.spawn(function()
 		while true do
 			task.wait(0.5)
 			tick()
+			nightTick()
 		end
 	end)
 end

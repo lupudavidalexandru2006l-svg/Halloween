@@ -29,14 +29,21 @@ export type Data = {
 	welcome: { coins: number, awaySeconds: number, capped: boolean, best: string? }?,
 	gift: { lastDay: string, streak: number },
 	funnel: { [string]: boolean },
-	forestUnlocked: boolean,
+	forestUnlocked: boolean, -- kept in step with reach (reach >= 2) for older code
+	reach: number, -- Round 4 phase 6: islands 1..reach have their gates open (rebirth keeps it)
 	superFreezeCharges: number,
 	superCubes: { { key: string, pose: string, mut: string? } }, -- bought Super Freeze cubes not yet banked (back on your back after a rejoin)
 	lastBest: string?, -- best pet banked last session, shown in the welcome back (end on a high, on the return)
 	receipts: { string },
 	settings: Settings,
 	rebirths: number,
+	seenShows: { [string]: boolean }, -- shows watched once (their SKIP button shows after that)
+	guns: { best: number, equipped: number }, -- guns are bought in order, so the best one says which you own (Round 4 phase 4)
+	pan: { cold: number, look: number }, -- the pan's Cold Level and Look (Round 4 phase 5; Slots is upgrades.pen). Rebirth keeps these
 	tester: TesterSettings,
+	gear: { gel: boolean }, -- gear bought at the Equipment Booth's Gear tab (Round 5)
+	codes: { [string]: boolean }, -- codes already redeemed (Round 5)
+	shieldLeft: number, -- seconds of the new-player tag shield still to use (counts down only while playing)
 	createdAt: number,
 	lock: { job: string, t: number }?,
 }
@@ -74,13 +81,20 @@ local function defaults(): Data
 		gift = { lastDay = "", streak = 0 },
 		funnel = {},
 		forestUnlocked = false,
+		reach = 1,
 		superFreezeCharges = 0,
 		superCubes = {},
 		lastBest = nil,
 		receipts = {},
 		settings = table.clone(Config.settingsDefault) :: any,
 		rebirths = 0,
+		seenShows = {},
+		guns = { best = 1, equipped = 1 },
+		pan = { cold = Config.pan.cold.start, look = 1 },
 		tester = testerDefaults(),
+		gear = { gel = false },
+		codes = {},
+		shieldLeft = Config.tag.shieldMinutes * 60,
 		createdAt = os.time(),
 		lock = nil,
 	}
@@ -122,7 +136,7 @@ local function migrate(old: any): Data
 	-- pets: each has an id and an "in the pen" flag; never more in the pen than it has slots
 	d.nextPetId = int(old.nextPetId, 1, 1e9, 1)
 	local seen: { [string]: boolean } = {}
-	local slots = Config.pen.baseSlots + Config.upgrades.pen.slotsPerLevel * (d.upgrades.pen - 1)
+	local slots = Config.panSlots(d.upgrades.pen, int(old.rebirths, 0, 1e6)) -- rebirth slots count too (Round 4 phase 7)
 	local inPen = 0
 	for _, p in tbl(old.pets) do
 		if #d.pets >= Config.pen.storageMax then
@@ -176,6 +190,8 @@ local function migrate(old: any): Data
 		end
 	end
 	d.forestUnlocked = old.forestUnlocked == true
+	d.reach = math.max(int(old.reach, 1, math.max(1, #Config.world.zones), 1), if d.forestUnlocked then 2 else 1) -- old saves: the Forest flag
+	d.forestUnlocked = d.reach >= 2
 	d.superFreezeCharges = int(old.superFreezeCharges, 0, 999)
 	for _, c in tbl(old.superCubes) do
 		if #d.superCubes < 5 and typeof(c) == "table" and typeof(c.key) == "string" and PetDefs.get(c.key) then
@@ -194,6 +210,17 @@ local function migrate(old: any): Data
 		end
 	end
 	d.rebirths = int(old.rebirths, 0, 1e6)
+	for k, v in tbl(old.seenShows) do
+		if typeof(k) == "string" and v == true and (Config.show :: any)[k] then
+			d.seenShows[k] = true
+		end
+	end
+	local gu = tbl(old.guns)
+	d.guns.best = int(gu.best, 1, #Config.guns.list, 1)
+	d.guns.equipped = int(gu.equipped, 1, d.guns.best, d.guns.best)
+	local pa = tbl(old.pan)
+	d.pan.cold = int(pa.cold, Config.pan.cold.start, Config.pan.cold.max, Config.pan.cold.start)
+	d.pan.look = int(pa.look, 1, #Config.pan.looks, 1)
 	local te = tbl(old.tester)
 	d.tester = {
 		mult = num(te.mult, Config.dev.multMin, Config.dev.multMax, 1),
@@ -201,6 +228,13 @@ local function migrate(old: any): Data
 		instantFreeze = te.instantFreeze == true,
 		noMelt = te.noMelt == true,
 	}
+	d.gear.gel = tbl(old.gear).gel == true
+	for k, v in tbl(old.codes) do
+		if typeof(k) == "string" and #k <= Config.codes.maxLength and v == true then
+			d.codes[k] = true
+		end
+	end
+	d.shieldLeft = num(old.shieldLeft, 0, Config.tag.shieldMinutes * 60, 0) -- saves from before the shield was saved aren't new players
 	d.createdAt = num(old.createdAt, 0, 1e12, os.time())
 	d.lastBest = if typeof(old.lastBest) == "string" and PetDefs.get(old.lastBest) then old.lastBest else nil
 	if typeof(old.lock) == "table" and typeof(old.lock.job) == "string" then
@@ -277,7 +311,19 @@ local function save(player: Player, releaseLock: boolean): boolean
 		return false
 	end
 	if s.saving then
-		return false
+		if not releaseLock then
+			return false -- an autosave or purchase save is already writing this data
+		end
+		-- leaving while another save runs (a purchase, then quitting at once): wait for it, then write
+		-- again so the last changes land and the session lock is freed (final QA 2026-11-03: the lock
+		-- stayed, so a rejoin on another server waited 90 s and was kicked)
+		local t0 = os.clock()
+		while s.saving and os.clock() - t0 < Config.data.bindToCloseSeconds do
+			task.wait(0.1)
+		end
+		if s.saving or s.wiping then
+			return false
+		end
 	end
 	s.saving = true
 	s.data.lastSeen = os.time()
@@ -339,8 +385,18 @@ function DataService.Start()
 				pending -= 1
 			end)
 		end
+		-- also wait for saves already running (a PlayerRemoving save makes ours return at once; without
+		-- this the server closed mid-save and the last player's progress was lost, QA 2026-10-31)
+		local function saving(): boolean
+			for _, s in sessions do
+				if s.saving then
+					return true
+				end
+			end
+			return false
+		end
 		local t0 = os.clock()
-		while pending > 0 and os.clock() - t0 < Config.data.bindToCloseSeconds do
+		while (pending > 0 or saving()) and os.clock() - t0 < Config.data.bindToCloseSeconds do
 			task.wait(0.2)
 		end
 	end)
@@ -402,3 +458,4 @@ function DataService.wipe(player: Player)
 end
 
 return DataService
+

@@ -18,7 +18,11 @@ export type Zone = {
 	zMin: number,
 	zMax: number,
 	gateCoins: number, -- coins to open it (owner 2026-10-30: zones open with coins; the pen no longer counts)
-	signPos: Vector3,
+	-- Round 4 phase 6
+	theme: string,
+	ready: boolean, -- its pets are approved and finished; false = a glowing "Coming soon" gate, no pets
+	gateRebirth: number, -- rebirths needed to open its gate (Config.world.rebirthGates), 0 = none
+	iceLife: number, -- its pets' cubes last this many times longer (a colder gun froze them)
 }
 
 local Config = {}
@@ -38,9 +42,9 @@ Config.data = {
 Config.player = {
 	walkSpeed = 16,
 	freezeRange = 10,
-	freezeHold = 1.0,
-	refreezeHold = 0.35,
-	interactHold = 0.4,
+	refreezeHold = 0.35, -- zapping a melted pet back (a first freeze takes Config.show.freeze seconds)
+	interactHold = 0.4, -- hold to pay at a gate (spends coins: no accidental taps)
+	openHold = 0, -- booths, the Pan Upgrades stand and the gift open on a tap (owner 2026-11-02: "E to open doesn't work" = a tap did nothing)
 	freezeCooldown = 0.3,
 	rateLimitPerSecond = 12,
 	maxSpeedTolerance = 1.6, -- server flags positions that move faster than this x walk speed
@@ -63,37 +67,51 @@ Config.poses = {
 	jump = { label = "Jump", bonus = 1.2, seconds = 0.9 },
 	dance = { label = "Dance", bonus = 1.5, seconds = 1.6 },
 	sneeze = { label = "Mid-Sneeze", bonus = 2.0, seconds = 0.7 },
+	sleep = { label = "Sleeping", bonus = 1.5, seconds = 3 }, -- night only: every wild pet sleeps
 } :: { [string]: { label: string, bonus: number, seconds: number } }
 Config.poseLoop = { "idle", "yawn", "idle", "jump", "idle", "dance" }
 Config.sneezeChance = 0.08
 Config.zapSlowdown = 0.5 -- a pet being held with Freeze acts at half speed, so a pose can be caught on purpose
 
+-- chance = per wild spawn, rolled on the server; nightOnly = only while it's night (owner 2026-10-31:
+-- Golden x2, Starry x5 and rarer). Frosty comes from freezing during the Big Chill instead.
+-- One mutation per pet: if two apply, the bigger bonus wins.
 Config.mutations = {
-	Frosty = { bonus = 1.5 },
-} :: { [string]: { bonus: number } }
+	Frosty = { bonus = 1.5, chance = 0 },
+	Golden = { bonus = 2, chance = 1 / 40 },
+	Starry = { bonus = 5, chance = 1 / 150, nightOnly = true },
+} :: { [string]: { bonus: number, chance: number, nightOnly: boolean? } }
+Config.mutationRollOrder = { "Starry", "Golden" } -- rarest first
 
 Config.upgrades = { -- baseCost = the price of level 2; each step costs x1.5 the last (Game Plan 11)
 	-- cube size: +12% a level for the first 4 levels (you can see it), then +2%
-	ray = { name = "Ice Ray", baseCost = 40, costGrowth = 1.5, maxLevel = 20, lifeBonus = 0.02, bridgeBonus = 4, -- +2% cube life a level (owner 2026-10-30)
+	ray = { name = "Ice Ray", baseCost = 40, costGrowth = 1.5, maxLevel = 20, lifeBonus = 0.02, -- +2% cube life a level (owner 2026-10-30)
 		cubeSize = { early = 0.12, earlyLevels = 4, late = 0.02 } },
 	boots = { name = "Boots", baseCost = 64, costGrowth = 1.5, maxLevel = 15, speedBonus = 0.08 },
 	backpack = { name = "Backpack", baseCost = 750, costGrowth = 1.5, maxLevel = 5, slowPerExtraCube = 0.08 },
-	pen = { name = "Pen", baseCost = 150, costGrowth = 1.5, maxLevel = 19, slotsPerLevel = 5 }, -- Game Plan 11: +5 earning slots
+	-- owner 2026-11-05: 100 slots was "insane"; the pan tops out at 16 (10 to start, +1 a level, 7 levels).
+	-- One slot is a bigger share now, so each level costs x2.5 the last (100 -> 9.8K at level 7)
+	pen = { name = "Pan", baseCost = 100, costGrowth = 2.5, maxLevel = 7, slotsPerLevel = 1, rebirthGrowth = 6 },
 } :: { [string]: { [string]: any } }
-Config.upgradeIds = { "ray", "boots", "backpack", "pen" }
+Config.upgradeIds = { "ray", "boots", "backpack", "pen" } -- every saved upgrade level
+Config.shopUpgradeIds = { "ray", "boots", "backpack" } -- the Shop's; the pan's Slots ("pen") sell at the Pan Upgrades stand
 -- Pen and Storage (owner 2026-10-30): the pen's pets earn; every other banked pet waits in Storage
 -- (kept forever, in the Index, earns nothing). Players equip by hand or press Equip best.
-Config.pen = { baseSlots = 10, storageMax = 500,
-	displayMax = 30, displayMargin = 2.5 } -- up to 30 of the pen's pets stand in it (prototype; Storage isn't shown in the world)
+Config.pen = { baseSlots = 10, maxSlots = 16, storageMax = 500, -- maxSlots: the pan never holds more, whatever adds slots
+	displayMax = 32 } -- up to 32 of the pan's pets sit in it, frozen in a grid (Config.panCubes; Storage isn't shown in the world)
 Config.carryHomeMinStuds = 4 -- funnel step 4 counts a cube carried at least this far out of the hub and back
 Config.beachGateCoins = 500
 Config.notYetCooldown = 2 -- seconds between two of the same "not yet" message
+-- a booth's popup closes this many studs before the server's own range ends: its buttons only work at
+-- the booth, so walking away with it open left buttons that did nothing (final QA 2026-11-03)
+Config.boothLeaveMargin = 4
 Config.bigWinRank = 5 -- banking Legendary or better sends a server-wide banner and a light pillar over your pen (Game Plan 14)
 Config.index = { pageBonus = 0.1 } -- each full zone page (its 7 regular pets; the Secret is a bonus slot) = +10% coins forever
 Config.income = { tickSeconds = 1 }
 Config.sync = { seconds = 0.5 } -- the client's copy of its data is sent at most this often
-Config.gatePromptOffset = 2.5 -- the gate prompt stands this far on the hub side of the gate
-Config.oddsPushSeconds = 5 -- each player's own odds go to their zone signs this often (personal rares, own pity)
+Config.gatePromptOffset = 4 -- the gate prompt stands this far on the hub side of the gate
+Config.gateCooldown = 0.4 -- seconds between two tries at the same player's gate (Round 4 phase 6)
+Config.gateGuardStuds = 3 -- PlayerTracker puts anyone this far past a gate they haven't opened back in front of it
 Config.shopOpenedCooldown = 2
 Config.settingsDefault = { music = true, sound = true, reducedMotion = false, lowGraphics = false, unit = "C" }
 -- Tester tools (Round 4 phase 1): only these accounts get the Tester panel ("T" tile / T key) and the
@@ -126,7 +144,8 @@ Config.melt = {
 	shade = 0.5,
 	sun = 1.5,
 	night = 0.6, -- Game Plan 12
-	hubHeat = 0.3,
+	lava = 2.5, -- standing in a lava pool (hot islands, Round 4 phase 6)
+	hubHeat = 0, -- the hub is a safe zone: nothing melts there (Round 4 phase 2)
 	tickSeconds = 0.1, -- server melt tick
 }
 
@@ -141,8 +160,6 @@ Config.temperature = {
 }
 Config.dazedSeconds = 8
 
-Config.server = { maxPlayers = 6 }
-
 Config.spawner = {
 	-- owner 2026-10-30: Common and Uncommon pets are shared by everyone on the server; Rare and up
 	-- spawn just for one player (only they see and can freeze it), each with their own pity
@@ -150,26 +167,78 @@ Config.spawner = {
 	personalMaxPerZone = 3,
 	maxPerZone = 9,
 	respawnSeconds = 1.5,
-	firstPetDistance = 12,
+	firstPetDistance = 10, -- studs past the tunnel mouth (about 3 s from the spawn)
 	-- "always one within about 3 seconds of walking": each zone keeps 2 Commons or Uncommons in its
-	-- near band; other Commons spawn from farZMin; Rare and up only in the far half of the zone
-	near = { [1] = { 8, 34 }, [2] = { 204, 236 } } :: { [number]: { number } },
+	-- near band; other Commons spawn from farZMin; Rare and up only in the far half of the zone.
+	-- Both come from each island's near / farFrom in Config.world (filled in there).
+	near = {} :: { [number]: { number } },
 	nearCount = 2,
-	farZMin = { [1] = 60, [2] = 204 } :: { [number]: number },
+	farZMin = {} :: { [number]: number },
+	wallMargin = 6, -- pets spawn and wander at least this far from the tunnel walls
 	wanderSpeed = 2,
 	pity = { graceFactor = 1.0, perMiss = 0.0015, maxBoost = 3 },
 }
 
-Config.bridge = { baseSeconds = 20 }
 Config.bigChill = { everySeconds = 600, warnSeconds = 30, durationSeconds = 60 }
+
+-- Night (owner 2026-10-31): one 15-minute loop for the whole server, worked out from server time so
+-- every client agrees without messages. day -> sunset -> night -> sunrise. At night pets sleep (freeze
+-- in half the time, Sleeping pose), cubes melt slower (Config.melt.night) and Starry pets can spawn.
+-- Candy night, never scary: deep blue-purple, bright enough to play.
+Config.night = {
+	daySeconds = 600, fadeSeconds = 60, nightSeconds = 180, -- cycle = day + fade + night + fade
+	sleepFreezeFactor = 0.5, -- a sleeping pet's Freeze hold is this much of the normal hold
+	nightAt = 0.5, -- the blend (0 day, 1 night) at which the rules switch to night
+	day = { clock = 14, brightness = 2.5, ambient = Color3.fromRGB(70, 70, 70), outdoor = Color3.fromRGB(70, 70, 70),
+		tint = Color3.new(1, 1, 1), ccBrightness = 0, stars = 0, haze = 0 },
+	night = { clock = 24, brightness = 1.6, ambient = Color3.fromRGB(95, 85, 160), outdoor = Color3.fromRGB(130, 120, 200),
+		tint = Color3.fromRGB(215, 220, 255), ccBrightness = 0.06, atmo = Color3.fromHex("6a5cc4"), stars = 3000,
+		haze = 2.2 }, -- haze paints the night sky blue-purple instead of black
+	lampBoost = 2.5, -- the map's lamps and lanterns shine this much brighter at night
+	zzzEvery = 1.2, -- a little Z rises over a sleeping pet this often
+}
 
 Config.away = { minSeconds = 60, capSeconds = 8 * 3600, rate = 0.25 } -- owner 2026-10-30: 25%, so a night away never skips a zone
 Config.dailyGift = { baseCoins = 50, incomeMinutes = 10, streakBonus = 0.1, streakMax = 7, afterFirstBank = true } -- the gift box opens after your first bank
 
+export type RobuxItem = {
+	id: string, kind: string, name: string, text: string, icon: string, robux: number,
+	productId: number?, passId: number?, -- a developer product, or a game pass (kind "pass")
+	mult: number?, minutes: number?, floor: number?, stack: number?, charges: number?,
+}
 Config.monetization = {
 	-- Owner items: create the developer product in the Creator Dashboard and paste its id here.
 	superFreeze = { productId = 0, robux = 15, minTier = "Rare", walkAwayStuds = 18 },
+	-- the Robux tab of the Shop, top to bottom (owner 2026-11-05). An id of 0 = not made yet: hidden in
+	-- live servers, given free in Studio so it can be tested. Coin packs are minutes of your own income
+	-- (never under floor), so a pack is worth the same at every stage. Bought coins skip the weekly board.
+	shop = {
+		{ id = "doubleCoins", kind = "pass", passId = 0, robux = 149, mult = 2, name = "2x Coins", text = "Your pan earns double, forever", icon = "coin", stack = 2 },
+		{ id = "coinsSmall", kind = "coins", productId = 0, robux = 25, minutes = 30, floor = 1000, name = "Coin Bag", text = "", icon = "coin", stack = 1 },
+		{ id = "coinsMedium", kind = "coins", productId = 0, robux = 79, minutes = 120, floor = 5000, name = "Coin Chest", text = "", icon = "coin", stack = 2 },
+		{ id = "coinsBig", kind = "coins", productId = 0, robux = 199, minutes = 480, floor = 25000, name = "Coin Vault", text = "", icon = "coin", stack = 3 },
+		{ id = "superFreeze3", kind = "charges", productId = 0, robux = 39, charges = 3, name = "Super Freeze", text = "3 for rare pets", icon = "ray", stack = 1 },
+	} :: { RobuxItem },
 }
+
+function Config.robuxItem(id: string): RobuxItem?
+	for _, item in Config.monetization.shop do
+		if item.id == id then
+			return item
+		end
+	end
+	return nil
+end
+
+-- a coin pack's coins at this income (coins per second)
+function Config.robuxCoins(item: RobuxItem, income: number): number
+	return math.max(item.floor or 0, math.floor(income * 60 * (item.minutes or 0)))
+end
+
+-- made in the Creator Dashboard yet? (0 = not yet)
+function Config.robuxReady(item: RobuxItem): boolean
+	return (if item.kind == "pass" then item.passId else item.productId) ~= 0
+end
 
 Config.leaderboards = {
 	size = 10,
@@ -224,6 +293,8 @@ Config.sounds = {
 	ids = {
 		click = 0, zap = 0, freeze = 0, coin = 0, bank = 0, reveal_rare = 0, no = 0, buy = 0,
 		melt = 0, chill = 0, gift = 0, unlock = 0, bridge = 0, music_meadow = 0, music_forest = 0,
+		tink = 0, crack = 0, slam = 0, reveal_secret = 0, -- freeze snap, layered crack, show slam, Secret reveal
+		pan_up = 0, sell = 0, bounce = 0, -- a pan upgrade's burst, a sale, a cube too hot for your pan
 	} :: { [string]: number },
 	maxSame = 3,
 	streakReset = 1.5,
@@ -233,14 +304,47 @@ Config.ui = {
 	tiles = { { id = "pets", label = "Pets" }, { id = "shop", label = "Shop" }, { id = "index", label = "Index" }, { id = "settings", label = "Settings" } },
 	scale = { phone = 1, tablet = 1.2, pc = 1.35 },
 	-- sizes are fractions of the screen's short side (Scale only, UI Rules); the Screen module places them
-	tileSize = 0.13, tileGap = 0.02, coinsSize = { 0.3, 0.1 }, goalSize = { 0.42, 0.075 }, tempSize = { 0.21, 0.09 },
+	-- owner 2026-10-31: smaller side tiles (still over 10% of the short side for small fingers);
+	-- the goal bar and temperature chip share one height so their edges line up
+	tileSize = 0.105, tileGap = 0.016, coinsSize = { 0.3, 0.1 }, goalSize = { 0.42, 0.08 }, tempSize = { 0.21, 0.08 },
 	topInset = 0.02, sideInset = 0.03, touchLift = 0.28, -- the coins sit above the thumbstick on touch screens
-	popupSize = { 0.92, 0.78 }, popupLift = 0.04, promptSize = { 0.36, 0.115 }, -- world prompts keep this screen size at any distance
+	-- these menus hide the HUD (tiles, coins, goal, temperature, hotbar) and the world prompts while open,
+	-- so the shop is the only thing on screen (owner 2026-11-05); the banner still shows answers
+	hideHudFor = { shop = true, equipment = true } :: { [string]: boolean },
+	popupSize = { 0.8, 0.7 }, popupLift = 0.04, promptSize = { 0.27, 0.095 }, -- world prompts keep this screen size at any distance (owner: smaller)
 	bannerSeconds = 3, floatSeconds = 1.2, notYetSeconds = 1.6,
 	pressDepth = 0.06, pressSeconds = 0.08, stroke = 3, corner = 0.18,
-	gamepadKeys = { close = Enum.KeyCode.ButtonB, superFreeze = Enum.KeyCode.ButtonY, menu = Enum.KeyCode.ButtonSelect },
-	keys = { pets = Enum.KeyCode.P, shop = Enum.KeyCode.B, index = Enum.KeyCode.I, close = Enum.KeyCode.Backspace, superFreeze = Enum.KeyCode.F, tester = Enum.KeyCode.T }, -- Escape belongs to Roblox's own menu,
+	radius = 0.018, -- THE corner radius for every block, as a share of the screen's short side
+	textStroke = 1.5, -- white text's outline (2 plus the block outline read heavy)
+	floatingStroke = 2.5, -- text with no block behind it (the coin counter) needs a firmer outline
+	cardStroke = 2, -- the thin outline round a list card
+	panelTint = 0.86, -- a popup body is its menu colour this far toward white, so body and ribbon match
+	promptHoldFill = 0.55, -- the white sweep that fills a world prompt while you hold (transparency)
+	promptFade = 0.45, -- a world prompt's pill is this see-through so the pet under it shows (its words stay solid)
+	promptLift = -0.6, -- studs from the prompt's attachment (1 stud over the pet's head) down onto the pet
+	lipDepth = 0.012, -- every block's lip is this share of the screen's short side, so a big panel gets the same thin lip as a tile
+	-- popup text sizes as shares of the popup's height: one size per role, so rows never jump in size
+	popupText = { title = 0.075, body = 0.052, small = 0.04, button = 0.05 },
+	headerHeight = 0.13, -- the coloured title ribbon at the top of a popup
+	listInset = 0.015, -- scrolling lists keep this gap on every side so outlines and lips aren't clipped
+	-- a block face's dressing (Ui.block): white wash at the top, a shade toward the lip, a bevel line (transparencies)
+	face = { topLight = 0.75, bottomShade = 0.82, rimInset = 0.035, rimThickness = 2, rimTop = 0.35 },
+	gamepadKeys = { close = Enum.KeyCode.ButtonB, superFreeze = Enum.KeyCode.ButtonY, menu = Enum.KeyCode.ButtonSelect, skip = Enum.KeyCode.ButtonA },
+	keys = { pets = Enum.KeyCode.P, shop = Enum.KeyCode.B, index = Enum.KeyCode.I, close = Enum.KeyCode.Backspace, superFreeze = Enum.KeyCode.F, tester = Enum.KeyCode.T, skip = Enum.KeyCode.Return }, -- Escape belongs to Roblox's own menu,
 	testerTile = { id = "tester", label = "Tester" }, -- only testers see it
+}
+
+-- Text out in the world (Shared/WorldText). Sizes in studs on signs; pet tags and the gift label are
+-- pixel-sized pills (the same size on screen at any distance) that only show up close.
+Config.worldText = {
+	pixelsPerStud = 100, -- 40 rendered soft and blurry up close
+	lightInfluence = 0, -- signs stay bright at night and in shade
+	outlineRatio = 0.08, -- outline thickness = text size x this
+	signPadding = 0.06,
+	board = { title = 1.4, row = 1.05, footer = 0.75 }, -- leaderboards (14 x 18 studs, 12 lines of 1.44 studs)
+	gate = 1.9, -- the gate signs (biggest size; long names shrink to fit)
+	tag = { textPx = 19, heightPx = 32, padPx = 22, maxDistance = 45, offset = 0.9 }, -- pet name pills (45: the camera sits ~30 studs back)
+	gift = { textPx = 24, heightPx = 44, padPx = 30, maxDistance = 80 },
 }
 
 Config.lighting = {
@@ -250,40 +354,166 @@ Config.lighting = {
 	saturation = 0.1,
 }
 
--- World layout in studs. North (hub) is -Z, zones run south (+Z).
-Config.world = {
-	bounds = { xMin = -78, xMax = 78, zMin = -62, zMax = 372 },
-	spawn = Vector3.new(0, 3, -6),
-	hubZMax = -2,
-	-- one pen per player, up to 6 per server (owner 2026-10-30): two rows of three around the hub.
-	-- Owner item: set the place's Server Size to 6 in Game Settings > Places.
-	plots = {
-		{ x = -52, z = -20 },
-		{ x = 0, z = -20 },
-		{ x = 52, z = -20 },
-		{ x = -52, z = -44 },
-		{ x = 0, z = -44 },
-		{ x = 52, z = -44 },
-	},
-	penSize = Vector3.new(26, 1, 18),
-	giftBox = Vector3.new(-26, 0, -8), -- between the front pens, by the path out
-	boards = { Vector3.new(-52, 0, -60), Vector3.new(0, 0, -60), Vector3.new(52, 0, -60) }, -- the back of the hub, behind the back row of pens (six pens leave no room at the front), turned to face the spawn
-	zones = {
-		{ id = 1, key = "meadow", name = "Snowy Meadow", heat = 0.5, zMin = -2, zMax = 166, gateCoins = 0, signPos = Vector3.new(-16, 0, 4) },
-		{ id = 2, key = "forest", name = "Pine Forest", heat = 0.8, zMin = 194, zMax = 372, gateCoins = 1000, signPos = Vector3.new(-16, 0, 202) }, -- starts at the gate
-	} :: { Zone },
-	river = { zMin = 168, zMax = 182, depth = 30 },
-	mainBridge = { xMin = -74, xMax = -62 }, -- the free bridge is the long way round
-	iceBridgeSpot = { xMin = -6, xMax = 6 }, -- the ice bridge sits on the straight line from the gate to the pens (frozen from either bank)
-	gate = { z = 194, xMin = -10, xMax = 10 },
-	beachGate = { z = 368 }, -- Sunny Beach (zone 3) starts here
+-- World layout in studs (Round 4 phase 2: a row of pans and the tunnel). The hub is north (-Z): a
+-- safe spawn plaza with one fenced pan per server slot side by side in one row. One straight walled
+-- tunnel leaves the hub's mouth (z = 0) and runs south (+Z) through every open island in order, one
+-- section per entry in `islands`, then ends in a "New island coming soon" cap. A new island is one
+-- new entry (plus its art and pets); room is left for 20 sections (about 3,400 studs of tunnel).
+export type Island = {
+	key: string, name: string, open: boolean, theme: string,
+	length: number?, heat: number?, gateCoins: number?,
+	ready: boolean?, iceLife: number?, lava: { count: number, r: { number } }?, -- Round 4 phase 6
+	landmark: string?, landmarkAt: { x: number, z: number }?, -- z is measured from the section's start
+	trees: { kind: string, count: number, r: { number } }?, sun: { count: number, r: { number } }?,
+	near: { number }?, farFrom: number?, -- spawn bands, measured from the section's start
 }
+export type Booth = { id: string, label: string, action: string, pos: Vector3 }
+
+Config.world = {
+	maxPlayers = 6, -- one pan per server slot. Owner item: Server Size 6 in Game Settings > Places
+	mapVersion = 5, -- Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges)
+	hubZMax = 0, -- the tunnel mouth: the hub is z < 0 (no wild pets, no heat)
+	hub = { xMin = -88, xMax = 88, zMin = -112, wallHeight = 16, colliderHeight = 60 }, -- the pans' back fences sit just in front of the north wall
+	spawn = Vector3.new(0, 3, -34),
+	spawnPadRadius = 6,
+	-- the pans: long fenced garden lanes on a thick soil bed, doors facing the plaza
+	pans = { width = 22, length = 48, gap = 5, frontZ = -62, soilHeight = 1, doorWidth = 10, fenceHeight = 2.6, wallHeight = 16,
+		signY = 6.5, gaugeOffset = 7.5, boothOffset = -8 }, -- gauge right of the door, Pan Upgrades stand left of it (x from the lane's middle)
+	tunnel = { width = 72, wallHeight = 18, wallThick = 4, colliderHeight = 60, pathWidth = 16, lampEvery = 28 },
+	gate = { depth = 3, barGap = 3, height = 14 },
+	endCap = { depth = 4, height = 18, glowDepth = 30 },
+	-- Round 4 phase 6: 10 islands at launch, room for 20. You freeze pets in hotter and hotter places.
+	-- open  = built into the tunnel (a section, gate, sign and tester teleport). An entry with open = false
+	--         isn't built: the first one only tints the end cap ("New island coming soon").
+	-- ready = its pets are approved and finished. An island that isn't ready stays behind a glowing
+	--         "Coming soon" gate and has no wild pets (never placeholder pets).
+	-- heat  = how fast a carried cube melts while you're on this island (x shade / sun / lava, Config.melt).
+	-- iceLife = its pets' cubes last this many times longer, so the trip home still works from far out.
+	-- gateCoins + rebirthGates (below) = what opening its gate costs. Prices tuned in phase 7 with the playtest bot (ServerStorage.GrindBot): even islands to the time table, odd islands 3x the gate before.
+	-- Retuned 2026-11-05 for the 16-slot pan and no coin Shop upgrades: gates from island 4, coin guns 4+, pan Looks
+	-- and Cold Level (it follows the gates) x0.2; Rebirth 1 520K -> 150K; island 2 2,500 -> 5,000. GrindBot: everything in ~6.9 h typical.
+	-- Hazards: sun patches (sun) and lava pools (lava) melt cubes faster and glow so you see them from far.
+	islands = {
+		{ key = "meadow", name = "Snowy Meadow", open = true, ready = true, theme = "meadow", length = 168, heat = 0.5, iceLife = 1, gateCoins = 0,
+			landmark = "snowman", landmarkAt = { x = 46, z = 112 }, -- landmarks stand in the cliffs, tall enough to show over them (World Rules 9)
+			trees = { kind = "snowpine", count = 14, r = { 4, 6.5 } }, sun = { count = 5, r = { 7, 11 } },
+			near = { 8, 34 }, farFrom = 60 },
+		{ key = "forest", name = "Pine Forest", open = true, ready = true, theme = "forest", length = 176, heat = 0.8, iceLife = 1, gateCoins = 5000,
+			landmark = "mushroom", landmarkAt = { x = -46, z = 104 },
+			trees = { kind = "pine", count = 34, r = { 4.5, 7.5 } }, sun = { count = 3, r = { 6, 10 } },
+			near = { 10, 42 }, farFrom = 10 },
+		{ key = "grove", name = "Mushroom Grove", open = true, ready = false, theme = "grove", length = 172, heat = 1.0, iceLife = 1.6, gateCoins = 7500,
+			landmark = "toadstoolTower", landmarkAt = { x = 46, z = 100 },
+			trees = { kind = "toadstool", count = 22, r = { 4, 7 } }, sun = { count = 3, r = { 6, 9 } },
+			near = { 10, 40 }, farFrom = 12 },
+		{ key = "beach", name = "Sunny Beach", open = true, ready = false, theme = "beach", length = 172, heat = 1.3, iceLife = 2.4, gateCoins = 2e6,
+			landmark = "lighthouse", landmarkAt = { x = -46, z = 104 },
+			trees = { kind = "palm", count = 14, r = { 4, 6 } }, sun = { count = 7, r = { 7, 11 } },
+			near = { 10, 40 }, farFrom = 12 },
+		{ key = "jungle", name = "Jungle Falls", open = true, ready = false, theme = "jungle", length = 176, heat = 1.6, iceLife = 3.3, gateCoins = 6e6,
+			landmark = "waterfall", landmarkAt = { x = 36, z = 108 }, -- pours from the cliff face
+			trees = { kind = "jungle", count = 28, r = { 4.5, 7.5 } }, sun = { count = 4, r = { 6, 9 } },
+			near = { 10, 42 }, farFrom = 12 },
+		{ key = "desert", name = "Desert Dunes", open = true, ready = false, theme = "desert", length = 176, heat = 2.0, iceLife = 4.4, gateCoins = 30e6,
+			landmark = "cactus", landmarkAt = { x = -46, z = 104 },
+			trees = { kind = "cactus", count = 9, r = { 3.5, 5 } }, sun = { count = 9, r = { 8, 12 } },
+			near = { 10, 42 }, farFrom = 12 },
+		{ key = "canyon", name = "Canyon Mesa", open = true, ready = false, theme = "canyon", length = 180, heat = 2.4, iceLife = 5.7, gateCoins = 90e6,
+			landmark = "arch", landmarkAt = { x = 0, z = 112 },
+			trees = { kind = "hoodoo", count = 10, r = { 4, 6 } }, sun = { count = 8, r = { 8, 12 } },
+			near = { 10, 42 }, farFrom = 12 },
+		{ key = "volcano", name = "Volcano Slopes", open = true, ready = false, theme = "volcano", length = 180, heat = 2.9, iceLife = 7.2, gateCoins = 220e6,
+			landmark = "volcano", landmarkAt = { x = 50, z = 108 }, -- beside the tunnel, rising over the cliffs
+			trees = { kind = "charred", count = 8, r = { 4, 6 } }, sun = { count = 3, r = { 6, 9 } }, lava = { count = 5, r = { 5, 8 } },
+			near = { 10, 42 }, farFrom = 12 },
+		{ key = "lavalake", name = "Lava Lake", open = true, ready = false, theme = "lavalake", length = 184, heat = 3.4, iceLife = 9, gateCoins = 660e6,
+			landmark = "spire", landmarkAt = { x = -46, z = 112 },
+			trees = { kind = "obsidian", count = 8, r = { 4, 6 } }, lava = { count = 8, r = { 6, 10 } },
+			near = { 10, 42 }, farFrom = 12 },
+		{ key = "magma", name = "Magma Core", open = true, ready = false, theme = "magma", length = 184, heat = 4.0, iceLife = 11, gateCoins = 8.4e9,
+			landmark = "core", landmarkAt = { x = 0, z = 116 },
+			trees = { kind = "obsidian", count = 7, r = { 4, 6 } }, lava = { count = 10, r = { 5, 9 } },
+			near = { 10, 42 }, farFrom = 12 },
+		-- the next update (not built): its colour glows behind the end cap. Later updates add islands 11-20
+		-- past extreme heat into the sky and space (Sun Temple, Solar Flare Fields, Starfall Sky, Comet
+		-- Drift, Moon Base, Nebula Reef): one entry each, plus its Theme look and pets.
+		{ key = "suntemple", name = "Sun Temple", open = false, theme = "suntemple" },
+	} :: { Island },
+	-- rebirths needed to open an island's gate (island number -> rebirths). A rebirth gate on every odd
+	-- island from 3, the gaps widening; updates add 11 = 9, 13 = 12, 15 = 15, 17 = 18, 19 = 21.
+	rebirthGates = { [3] = 1, [5] = 2, [7] = 4, [9] = 6 } :: { [number]: number },
+	-- booths by the tunnel mouth, in front of the hub's south wall, facing the plaza. Their features
+	-- come in phases (Equipment phase 4, Sell + Pan Upgrades phase 5, Rebirth phase 7); action = what the
+	-- prompt does ("equipment" opens the Equipment Booth, "shop" the Shop, "soon" says it's coming).
+	-- The client reads the action from here, so a saved map's prompts follow a change.
+	booths = {
+		-- Round 5 booths: cozy wooden chalets (14 wide plus a lean-to on the outer side), clear of the tunnel towers
+		{ id = "sell", label = "Sell Booth", action = "sell", pos = Vector3.new(-54, 0, -8) },
+		{ id = "equipment", label = "Equipment Booth", action = "equipment", pos = Vector3.new(54, 0, -8) },
+		{ id = "rebirth", label = "Rebirth Booth", action = "rebirth", pos = Vector3.new(-77, 0, -8) },
+	} :: { Booth },
+	boothSign = { y = 8.8, w = 9, h = 2.2, z = -3.2, text = 1.5 }, -- the chalet's sign, standing on its porch beam (text = letter height in studs) -- the shop sign on the roof's front edge (MapArt frames it)
+	panUpgradeAction = "pan", -- the Pan Upgrades popup (Round 4 phase 5)
+	giftBox = Vector3.new(74, 0, -10),
+	-- leaderboards on the hub's side walls, turned to face the plaza
+	boards = { Vector3.new(-84, 0, -46), Vector3.new(-84, 0, -24), Vector3.new(84, 0, -46) },
+	-- filled in below from the lists above
+	zones = {} :: { Zone },
+	plots = {} :: { { x: number, z: number } },
+	penSize = Vector3.zero,
+	bounds = { xMin = 0, xMax = 0, zMin = 0, zMax = 0 },
+	tunnelEnd = 0,
+	nextIsland = nil :: Island?,
+	readyCount = 0, -- islands 1..readyCount have their pets (filled in below)
+}
+
+do
+	local W = Config.world
+	-- the pans, side by side in one row, centred on the hub
+	local P = W.pans
+	local row = W.maxPlayers * P.width + (W.maxPlayers - 1) * P.gap
+	for i = 1, W.maxPlayers do
+		table.insert(W.plots, { x = -row / 2 + P.width / 2 + (i - 1) * (P.width + P.gap), z = P.frontZ - P.length / 2 })
+	end
+	W.penSize = Vector3.new(P.width, 1, P.length)
+	-- the tunnel's sections: one per open island, end to end from the mouth
+	local z = W.hubZMax
+	for _, isl in W.islands do
+		if not isl.open then
+			W.nextIsland = W.nextIsland or isl
+			continue
+		end
+		local id = #W.zones + 1
+		local len = isl.length :: number
+		table.insert(W.zones, {
+			id = id, key = isl.key, name = isl.name, heat = isl.heat :: number, zMin = z, zMax = z + len,
+			gateCoins = isl.gateCoins or 0,
+			theme = isl.theme, ready = isl.ready == true, gateRebirth = W.rebirthGates[id] or 0, iceLife = isl.iceLife or 1,
+		})
+		if isl.ready == true and W.readyCount == id - 1 then
+			W.readyCount = id
+		end
+		local near = isl.near or { 8, 34 }
+		Config.spawner.near[id] = { z + near[1], z + near[2] }
+		Config.spawner.farZMin[id] = z + (isl.farFrom or 10)
+		z += len
+	end
+	W.tunnelEnd = z
+	local half = W.tunnel.width / 2
+	W.bounds = { xMin = -half, xMax = half, zMin = W.hub.zMin, zMax = z }
+end
 
 -- Uploaded images (the prototype's painted icons and pet sprites, roblox/assets/images)
 Config.images = {
 	icons = {
 		coin = "rbxassetid://114690725766316", bag = "rbxassetid://76257814527627", book = "rbxassetid://103706811541834",
 		gear = "rbxassetid://84856334538368", gift = "rbxassetid://86444394737076", trophy = "rbxassetid://96802650316741",
+		-- 2026-10-31 batch (prototype/ice-ray-for-pets/icons, cleaned with tools/icon_cleanup.ps1)
+		ray = "rbxassetid://139931668460856", boots = "rbxassetid://82792097425872", pen = "rbxassetid://92747015965127",
+		music = "rbxassetid://110832713318779", sound = "rbxassetid://117928774777865", motion = "rbxassetid://87612144122340",
+		graphics = "rbxassetid://136668522918870", temp = "rbxassetid://72963487370215",
+		paint = "rbxassetid://133624884100688", -- 2026-11-03: the Pan Upgrades Look card (icons/paint.png)
+		robux = "rbxasset://textures/ui/common/robux.png", -- Roblox's own Robux mark, on every Robux price
 	} :: { [string]: string },
 	-- pets with no 3D model yet are drawn as these painted sprites, facing the camera (prototype)
 	pets = {
@@ -297,7 +527,11 @@ Config.images = {
 }
 
 Config.ui.tileIcons = { pets = Config.images.pets.snowbun, shop = Config.images.icons.bag, index = Config.images.icons.book, settings = Config.images.icons.gear }
-Config.ui.silhouetteTransparency = 0.25
+-- painted icons on the Shop and Settings rows
+local I = Config.images.icons
+Config.ui.upgradeIcons = { ray = I.ray, boots = I.boots, backpack = I.bag, pen = I.pen } :: { [string]: string }
+Config.ui.settingIcons = { music = I.music, sound = I.sound, reducedMotion = I.motion, lowGraphics = I.graphics, unit = I.temp } :: { [string]: string }
+Config.ui.silhouetteTransparency = 0
 Config.ui.petSpriteScale = 1.25 -- a pet sprite is this many times the pet's height wide
 
 -- The world teaches (prototype client.js): a green arrow to a pet in your first minutes and home while
@@ -309,51 +543,107 @@ Config.guide = {
 	beaconRadius = 3.2, beaconHeight = 70, beaconTransparency = 0.78, beaconPulse = 0.06,
 }
 -- the ice ray: a small gun in every player's right hand, a beam while you hold Freeze
-Config.ray = { beamCore = 0.28, beamGlow = 0.84, armRaise = 90, tipSize = 0.76, sparkleRate = 20 }
+Config.ray = { beamCore = 0.28, beamGlow = 0.84, armRaise = 90, tipSize = 0.76, sparkleRate = 20,
+	-- each gun tier: a wider beam, more sparkles along it and at the pet, a curl from tier 5 (beam colours: Theme.guns)
+	beamPerGun = 0.04, sparklePerGun = 4, sparkleSize = 0.3, sparkleSizePerGun = 0.03, curlFromGun = 5, curlAmount = 0.6,
+	tipLightRange = 5, tipLightBrightness = 2 } -- a real gun model: a small light in its glow colour at each barrel tip
 -- extra pet looks (prototype syncWild / makeCube)
 Config.petFx = {
 	ringScale = 1.8, ringSpin = 0.5, shadowScale = 1.0, starCount = 3, starRadius = 0.9, starHeight = 1.45, starSpin = 3,
 	rareSparkleRate = 2, frostySparkleRate = 6, crackBelow = 0.35, crackLines = 9, edgeTransparency = 0.45,
 	popSeconds = 0.25,
+	mutSparkleRate = 5, mutOutline = 0.35, -- Golden / Starry pets (colours in Theme.mut)
+	mutSparkleSize = { Golden = 0.3, Starry = 0.6 } :: { [string]: number }, -- Starry's twinkles are big enough to read on a phone
+	sleepTilt = 0.4, -- radians a sleeping pet leans over onto its side
 }
-Config.mapFx = { gateBarsDrop = 9, gateBarsSeconds = 1.2, giftBob = 0.6, giftSway = 0.15, bridgeFlashSeconds = 4 }
+-- pet motion (PetVisuals): no rigs yet, so each action is squash, stretch, lean, hop and turn on the whole
+-- pet around its feet. Heights, steps and sways are fractions of the pet's height (PetDefs.sizeHeight);
+-- beat times are fractions of the action's Config.poses seconds; angles in radians (pitch > 0 = nose up).
+Config.petAnim = {
+	farDistance = 110, -- studs: farther away or off-screen a pet just stands (cheap on phones)
+	reducedAmp = 0.35, -- reduced motion: every hop, lean and squash this much smaller, no twirls
+	blendSeconds = 0.15, -- quick crossfade between actions, so nothing pops
+	sleepBlendSeconds = 0.9, -- lying down at night and getting up are slow
+	follow = 12, turn = 7, -- how fast the drawn pet glides after and turns to its server root (10 Hz steps)
+	snapDistance = 8, -- farther than this from its root it jumps there instead of gliding
+	walkAt = 0.5, -- full walk cycle from this fraction of Config.spawner.wanderSpeed
+	walkFade = 6, -- how fast the walk fades in and out as it starts and stops
+	-- pets split into a body and legs (a Model with Leg parts that carry Hip / Swing / Front attributes,
+	-- owner 2026-11-03: "move its limbs"): radians each leg swings round its hip. Diagonal pairs swing
+	-- together while walking; front legs reach forward and back legs kick back in the air (jump)
+	limbs = { walk = 0.42, dance = 0.3, tuck = 0.45, tuckHeight = 0.25 }, -- owner 2026-11-04: "tweak it a bit" (was 0.6 / 0.4 / 0.55)
+	-- the other split parts (Role head / ear / tail, each turning round its Pivot; ears ride on the head):
+	-- the head looks around and nods with the steps, ears twitch now and then and flop as it moves,
+	-- the tail wags (faster in a dance). Radians, periods in seconds
+	parts = { headLook = 0.22, headLookPeriod = 3.7, headNod = 0.1, earTwitch = 0.5, earTwitchEvery = 2.6,
+		earTwitchSeconds = 0.22, earFlop = 0.3, tailWag = 0.3, tailHz = 1.4, tailDanceWag = 0.55, tailDanceHz = 3.2 },
+	-- some idles become a scratch (owner 2026-11-04: "scratching or smth"): a back leg (or an arm) comes up
+	-- and rubs behind the ear on one side while the head tilts into it. Looks only: picked from the pet's
+	-- id and its ActionStart, so every player sees the same scratch and the pose (and income) don't change
+	scratch = { chance = 0.45, start = 0.3, seconds = 1.6, ramp = 0.22, leg = 1.2, arm = 2.5, out = 0.35, rub = 0.22,
+		rubHz = 7, headRoll = 0.32, headPitch = 0.15, earFlap = 0.45, lean = 0.1 },
+	idle = { breathe = 0.035, breathePeriod = 1.8, lookYaw = 0.25, lookPeriod = 6 },
+	yawn = { rise = 0.3, settle = 0.72, stretch = 0.26, lean = 0.45, roll = 0.12, sag = 0.08 },
+	jump = { crouch = 0.2, land = 0.7, height = 0.9, squash = 0.25, tuck = 0.3 },
+	dance = { beats = 4, hop = 0.2, twirlHop = 1.5, roll = 0.3, sway = 0.4, step = 0.12, squash = 0.12 },
+	sneeze = { build = 0.55, snap = 0.64, stretch = 0.15, lean = 0.32, snapLean = 0.5, squash = 0.24, recoil = 0.18,
+		puff = 10, puffSize = 0.18, puffSpeed = 6, puffLife = 0.5 },
+	sleep = { flatten = 0.12, breathe = 0.05, breathePeriod = 4, sink = 0.06 },
+	dazed = { tilt = 0.25, wobble = 3, spin = 1.6, sway = 0.06 },
+	-- walk cycle per rig family (PetDefs.rig, or gaitFor): stride = pet heights per step; bob/bobHz = idle hover
+	gait = {
+		Quadruped = { stride = 0.35, hop = 0.08, pitch = 0.1, roll = 0.04, yaw = 0.04, squash = 0.08, lean = 0.1, bob = 0, bobHz = 0 },
+		Hopper = { stride = 0.6, hop = 0.24, pitch = 0.15, roll = 0, yaw = 0, squash = 0.2, lean = 0.12, bob = 0, bobHz = 0 },
+		Biped = { stride = 0.28, hop = 0.05, pitch = 0.03, roll = 0.18, yaw = 0.12, squash = 0.05, lean = 0.04, bob = 0, bobHz = 0 },
+		Bird = { stride = 0.5, hop = 0.18, pitch = 0.08, roll = 0.03, yaw = 0.03, squash = 0.14, lean = 0.12, bob = 0.06, bobHz = 1.4 },
+		Blob = { stride = 0.55, hop = 0.2, pitch = 0.02, roll = 0.03, yaw = 0, squash = 0.24, lean = 0.05, bob = 0, bobHz = 0 },
+		Swimmer = { stride = 0.4, hop = 0.05, pitch = 0.05, roll = 0.08, yaw = 0.25, squash = 0.12, lean = 0.03, bob = 0, bobHz = 0 },
+		Custom = { stride = 0.4, hop = 0.09, pitch = 0.08, roll = 0.06, yaw = 0.05, squash = 0.08, lean = 0.08, bob = 0, bobHz = 0 },
+	},
+	gaitFor = { snowbun = "Hopper", hopsprout = "Hopper" } :: { [string]: string }, -- bunnies hop
+}
+Config.mapFx = { gateBarsDrop = 13, gateBarsSeconds = 1.2, giftBob = 0.6, giftSway = 0.15,
+	gateGlowPulse = 1.6, -- seconds per breath of a gate's glowing arch (the next goal glows)
+	lightTweenSeconds = 1.5, -- each island's own tint fades in as you walk into it
+	panDoorSeconds = 0.5 }
+-- banked pets stay frozen: ice cubes in a neat grid on the pan, the pet inside wiggles a little,
+-- frost shimmers on the ice and a coin rises from each cube now and then
+Config.panCubes = { cols = 4, gap = 5, frontMargin = 7, backMargin = 3, maxSize = 4.2, wiggle = 0.06, wiggleSpeed = 2.2,
+	shimmerSpeed = 1.3, shimmerAmount = 0.12, coinEvery = 3.2, coinRise = 2.6, coinSize = 1.1, drawDistance = 120 }
+-- carried cubes are held in front of you, in your hands (both arms come up while you carry)
+Config.carry = { scale = 0.62, handY = 0.4, front = 0.9, stackGap = 0.15, armRaise = 80 }
 
--- Trees (shade) and sun patches: prototype config.js buildScenery(), same seed and ranges, so the
--- shade and sun spots are exactly where the artifact has them (Shared/Scenery makes the list)
+-- Trees (shade) and sun patches, placed with the prototype's generator (mulberry32) so the same seed
+-- always gives the same map. Each island's own list (Config.world.islands) says how many and how big;
+-- Shared/Scenery spreads them across that section of the tunnel.
 Config.scenery = {
 	seed = 1234,
 	pathHalfWidth = 9, -- the main path stays open
-	riverClear = { 160, 200 }, -- and both river banks
-	bands = {
-		{ kind = "snowpine", trees = 26, x = { -72, 72 }, z = { 14, 160 }, r = { 4, 6.5 },
-			sun = 7, sunX = { -60, 60 }, sunZ = { 30, 150 }, sunR = { 7, 12 } },
-		{ kind = "pine", trees = 70, x = { -74, 74 }, z = { 204, 368 }, r = { 4.5, 7.5 },
-			sun = 4, sunX = { -55, 55 }, sunZ = { 215, 355 }, sunR = { 6, 10 } },
-	},
+	wallMargin = 5, -- trees keep this far from the tunnel walls
+	treeBand = 20, -- shade trees stand between this |x| and the walls, so the middle of each island stays open (World Rules 9)
+	gateClear = 20, -- and this far from a gate or the end cap (they stay in view)
+	startClear = 12, -- the first studs of a section stay open (its sign and the near pets)
 }
 
--- The look of the world (MapArt, ported from prototype scenery.js). Shapes come from
--- ReplicatedStorage.SceneryMeshes (roblox/tools/make_scenery_meshes.ps1); plain parts stand in if missing.
+-- The look of the world (MapArt). Shapes come from ReplicatedStorage.SceneryMeshes
+-- (roblox/tools/make_scenery_meshes.ps1); plain parts stand in if missing.
 Config.art = {
 	seed = 77, -- props (mounds, rocks, mushrooms...) are placed with the prototype's generator too
 	treeUnitRadius = 2.4, -- a tree of shade radius r is drawn at scale r / 2.4 (prototype)
-	hillTrees = 160, -- decorative trees on the hills outside the play area
-	hills = { cell = 8, reach = 96, maxHeight = 34, falloff = 14, power = 1.6, scale = 6, base = -12 },
-	waterY = -0.8, -- the river surface; you fall through it onto the catcher and land back on the bank
-	catcherY = -3,
-	bedY = -4,
-	bankStones = 90,
-	props = { mounds = 40, rocks = 22, crystals = 14, mushrooms = 40, bushes = 50, logs = 10 },
-	lanternEvery = 18,
-	penFenceGap = 10, -- the open side of each pen faces the path
+	props = { meadow = { mounds = 10, rocks = 8, crystals = 6 }, forest = { mushrooms = 14, bushes = 14, logs = 4 } },
+	wallTreesEvery = 14, -- a row of trees behind each tunnel wall, so the corridor reads as a valley
+	wallBumpEvery = 16, -- the wall's rounded top (snow drifts, hedges)
+	landmarkScale = 1.8, -- landmarks are big enough to see from the section before
+	-- World Rules 9 (clear centre, rich edges): the islands' props sit only in this band of |x| at the foot
+	-- of the cliffs, between the pets' wander limit (spawner.wallMargin) and the wall; a strip of earth
+	-- (the floor darkened toward the cliff rock by stripDarken) blends the floor into the cliffs there
+	edge = { from = 31, to = 35.5, stripFrom = 32, stripHeight = 0.2, stripDarken = 0.4 },
+	canopyClear = 6.5, -- a shade pine's lowest branches start this high, above an avatar's head, so pets under it stay in view
 	penPostEvery = 3.2,
-	gatePostEvery = 4,
-	beachPostEvery = 3.5,
-	statue = Vector3.new(-26, 0, -56),
-	snowman = Vector3.new(46, 0, 112),
-	giantMushroom = Vector3.new(-44, 0, 296),
-	lamps = { Vector3.new(-12, 0, -3), Vector3.new(12, 0, -3), Vector3.new(-26, 0, -32), Vector3.new(26, 0, -32) },
-	benches = { { pos = Vector3.new(-12, 0, -58), ry = 0 }, { pos = Vector3.new(12, 0, -58), ry = 0 } },
+	statue = Vector3.new(0, 0, -50),
+	lamps = { Vector3.new(-20, 0, -4), Vector3.new(20, 0, -4), Vector3.new(-30, 0, -40), Vector3.new(30, 0, -40) },
+	benches = { { pos = Vector3.new(76, 0, -24), ry = math.pi / 2 }, { pos = Vector3.new(76, 0, -32), ry = math.pi / 2 } },
+	farPeaks = 14,
 	clouds = { cover = 0.55, density = 0.6 },
 }
 
@@ -361,6 +651,372 @@ Config.camera = { fov = 70, minZoom = 10, maxZoom = 40, carryFov = 74, fovSecond
 	-- the prototype's framing at spawn: high and behind, looking ahead, so carried cubes never hide you
 	startHeight = 15, startBack = 21, startLookAhead = 10, frameSettleSeconds = 0.25 }
 Config.effects = { pillarSeconds = 8, pillarHeight = 60, burstParts = 12, beamSeconds = 0.15, snowRate = 60, showRank = 4 } -- showRank: Epic and up get a pillar in your pen
+
+-- Freezing that looks great (Round 4 phase 3). Every freeze timing and every show beat lives here
+-- (Animation Rules 1). Reduced motion halves the client's look timings and every show beat.
+export type Beat = { name: string, time: number, keepOnSkip: boolean? }
+Config.show = {}
+Config.show.freeze = {
+	-- how long a freeze takes (FreezeService times it on the server): tierSeconds x sizeFactor / the gun's power (Config.guns)
+	tierSeconds = { Common = 0.9, Uncommon = 1.0, Rare = 1.3, Epic = 1.6, Legendary = 2.1, Mythic = 2.7, Secret = 3.4 } :: { [string]: number },
+	sizeFactor = { S = 1, M = 1.12, L = 1.3 } :: { [string]: number },
+	minSeconds = 0.2,
+	flashBelow = 0.45, -- this quick or quicker: a flash-freeze (a snap, a puff of frost, a light "tink")
+	layeredFrom = 1.9, -- this slow or slower: layers, cracks, falling ice, and a bar that fights back a little
+	fightBack = { amount = 0.12, pushes = 3 }, -- the bar slips back this much, this many times (always ends at 100%)
+	holdSeconds = 600, -- the prompt's own hold never finishes by itself: FreezeService decides when the cube shuts
+	-- higher gun tiers add their own finishing touch when the cube shuts (the highest one that applies)
+	touches = { { fromGun = 3, touch = "spikes" }, { fromGun = 6, touch = "aurora" }, { fromGun = 9, touch = "stars" } },
+	-- the look while you hold (PetVisuals)
+	slowdown = 0.85, -- the pet's moves slow to 15% as the ice climbs
+	struggle = { amp = 0.14, speed = 13 }, -- a cute wiggle (radians, per second), biggest half-way up
+	crystals = 8, crystalSize = 0.55, -- crystals grow along the outline as the ice rises
+	shellPad = 1.12, -- the creeping ice is this much wider than the pet
+	cracksFrom = 0.3, cracks = 6, -- layered freezes crack from 30% up
+	chipEvery = 0.4, chipFall = 2.2, chipSeconds = 0.55, chipSize = 0.32, -- bits of ice falling off a layered freeze
+	frostFill = 0.55, -- the frost overlay at 100% (Highlight fill, 0 = none)
+	-- the snap at 100% (EffectsController)
+	snapSeconds = 0.16, snapScale = 1.22, puffParts = 14, flashPuffParts = 22, flySeconds = 0.3,
+	touchSeconds = 0.8, spikeCount = 6, spikeHeight = 1.6, starCount = 7, auroraBands = 3,
+	-- which tiers get a show instead of the plain snap (smaller for Legendary and Mythic)
+	shows = { Legendary = "legendaryFreeze", Mythic = "mythicFreeze", Secret = "secretFreeze" } :: { [string]: string },
+	graceExtra = 1.5, -- the shown cube doesn't melt while its show runs (plus this much)
+}
+-- Secret pets: the full in-world show (Animation Rules 3). The server has already put the pet in
+-- your hands; the show only plays it. SKIP shows after your first viewing and jumps to the reveal.
+Config.show.secretFreeze = {
+	beats = {
+		{ name = "pillar", time = 1.1 }, -- a light pillar in the tier colour
+		{ name = "push", time = 0.9 }, -- the camera pushes in from the far side
+		{ name = "slam", time = 0.35, keepOnSkip = true }, -- the ice slams shut
+		{ name = "burst", time = 0.55 }, -- a burst (one flash at most)
+		{ name = "name", time = 2.2, keepOnSkip = true }, -- the name slams in
+		{ name = "fly", time = 0.6, keepOnSkip = true }, -- the cube flies into your hands, camera back
+	} :: { Beat },
+	pillar = true, camera = true, flash = true, shout = true, burstParts = 46, rays = 8, title = "SECRET!",
+	pushDistance = 11, pushHeight = 3.5, kick = 0.25, slamDrop = 7,
+}
+Config.show.mythicFreeze = {
+	beats = {
+		{ name = "pillar", time = 0.7 },
+		{ name = "push", time = 0.7 },
+		{ name = "slam", time = 0.3, keepOnSkip = true },
+		{ name = "burst", time = 0.4 },
+		{ name = "name", time = 1.6, keepOnSkip = true },
+		{ name = "fly", time = 0.5, keepOnSkip = true },
+	} :: { Beat },
+	pillar = true, camera = true, flash = true, shout = false, burstParts = 30, rays = 6, title = "MYTHIC!",
+	pushDistance = 10, pushHeight = 3, kick = 0.2, slamDrop = 5,
+}
+Config.show.legendaryFreeze = {
+	beats = {
+		{ name = "slam", time = 0.3, keepOnSkip = true },
+		{ name = "burst", time = 0.35 },
+		{ name = "name", time = 1.3, keepOnSkip = true },
+		{ name = "fly", time = 0.45, keepOnSkip = true },
+	} :: { Beat },
+	pillar = false, camera = false, flash = true, shout = false, burstParts = 20, rays = 0, title = "LEGENDARY!",
+	pushDistance = 0, pushHeight = 0, kick = 0.15, slamDrop = 4,
+}
+Config.show.ui = { titleSize = { 0.7, 0.16 }, nameSize = { 0.6, 0.1 }, titleY = 0.3, skipSize = { 0.22, 0.09 }, skipY = 0.86,
+	slamFrom = 2.2, flashAlpha = 0.55, softFlashAlpha = 0.85, flashSeconds = 0.25 }
+
+-- buying a gun at the Equipment Booth (Round 4 phase 4, Animation Rules 3): the new gun spins in,
+-- its stat bars fill from your old gun's values, and the old gun drops into your locker. The server
+-- has already charged and given the gun; the show only plays it. SKIP from the second viewing.
+Config.show.gunBuy = {
+	beats = {
+		{ name = "spinIn", time = 0.7, keepOnSkip = true }, -- the gun flies in, turning (SKIP keeps the gun and its bars)
+		{ name = "bars", time = 1.1, keepOnSkip = true }, -- the 4 stat bars fill from the old gun's values
+		{ name = "locker", time = 0.7 }, -- the old gun shrinks into the locker
+		{ name = "rest", time = 0.6 }, -- a moment to look before it goes
+	} :: { Beat },
+	turns = 1.5, -- the gun turns this many times while it flies in
+	slowSpin = 0.6, -- turns a second afterwards
+	viewSize = 0.34, -- the gun's window, a share of the screen's height (square)
+	barWidth = 0.4, barHeight = 0.045, barGap = 0.012,
+	title = "NEW GUN!",
+}
+
+-- Guns (Round 4 phase 4): 10 at launch and about one more with each island an update adds, up to 20.
+-- A list that grows without code changes; each gun is clearly better than the one before it.
+-- At most 4 stats (bars on the gun card):
+--   power = how fast it freezes (a freeze takes Config.show.freeze seconds / power; gun 1 = 1)
+--   range = studs from you to the pet
+--   cold  = the hottest island whose pets it can freeze (its place in Config.world.islands)
+--   beams = how many pets one hold freezes at once
+-- Bought in order at the Equipment Booth. rebirths = the Rebirth needed; price = coins. The rebirth
+-- guns (3, 5, 7, 9) come free with their rebirth ("rebirth gives the next gun tier", Round 4 prompt 7);
+-- gun 10 needs Rebirth 7 and coins. Coin prices (phase 7, GrindBot): 0.35x the gate of the island its Cold first reaches; gun 10 0.6x island 10's gate
+-- against the grind budget. Looks: Theme.guns[i]. A real model goes in ReplicatedStorage.GunModels.<key>
+-- once the painted line-up is approved and turned into 3D (Pet Rules 5); until then each gun is the
+-- part-built stand-in from RayController.
+export type Gun = { key: string, name: string, power: number, range: number, cold: number, beams: number, price: number, rebirths: number }
+Config.guns = {
+	list = {
+		{ key = "frost_popper", name = "Frost Popper", power = 1, range = 10, cold = 2, beams = 1, price = 0, rebirths = 0 },
+		{ key = "snowball_blaster", name = "Snowball Blaster", power = 1.35, range = 11, cold = 2, beams = 1, price = 875, rebirths = 0 },
+		{ key = "icicle_repeater", name = "Icicle Repeater", power = 1.7, range = 12, cold = 4, beams = 1, price = 0, rebirths = 1 },
+		{ key = "glacier_cannon", name = "Glacier Cannon", power = 2.05, range = 13, cold = 4, beams = 2, price = 700e3, rebirths = 0 },
+		{ key = "blizzard_beam", name = "Blizzard Beam", power = 2.4, range = 14, cold = 6, beams = 2, price = 0, rebirths = 2 },
+		{ key = "aurora_ray", name = "Aurora Ray", power = 2.75, range = 15, cold = 6, beams = 2, price = 10.5e6, rebirths = 0 },
+		{ key = "cryo_lance", name = "Cryo Lance", power = 3.1, range = 16, cold = 8, beams = 3, price = 0, rebirths = 4 },
+		{ key = "polar_vortex", name = "Polar Vortex", power = 3.45, range = 17, cold = 8, beams = 3, price = 77e6, rebirths = 0 },
+		{ key = "absolute_zero", name = "Absolute Zero", power = 3.8, range = 18, cold = 10, beams = 3, price = 0, rebirths = 6 },
+		{ key = "starfrost_nova", name = "Starfrost Nova", power = 4.15, range = 19, cold = 10, beams = 4, price = 5.04e9, rebirths = 7 },
+	} :: { Gun },
+	-- the card's bars are scaled to the game's 20-island maximum, not to gun 10, so later guns fill them further
+	stats = { "power", "range", "cold", "beams" },
+	statLabels = { power = "Power", range = "Range", cold = "Cold", beams = "Beams" } :: { [string]: string },
+	statMax = { power = 8, range = 30, cold = 20, beams = 6 } :: { [string]: number },
+	boothRange = 30, -- studs: guns are bought standing at the Equipment Booth
+	buyCooldown = 0.4, -- seconds between two buys (spam is dropped; a double charge can't happen anyway)
+	maxRange = 0, -- the longest range of any gun (filled in below): the pet prompts' own reach on the server
+	-- a pet too warm for your gun gives a small side shake (Animation Rules 2: shake), never a freeze
+	tooWarmShake = { seconds = 0.3, amp = 0.22, speed = 40 },
+	-- the part-built stand-in gun (until the image-to-3D guns arrive): longer and fancier each tier,
+	-- one barrel tip per beam; fins from gun 3, a glowing ring from gun 5, a crystal from gun 9
+	standIn = { barrel = 1.4, barrelPerGun = 0.07, tipRing = 0.24, finsFrom = 3, ringFrom = 5, gemFrom = 9 },
+	-- the picked gun turning on the Equipment card (owner 2026-11-05: a 360 preview). Seconds per full
+	-- turn (slower with Reduced motion), camera pitch (degrees, looking down), field of view, fit margin
+	preview = { spinSeconds = 6, spinSecondsReduced = 14, pitch = 14, fov = 30, margin = 1.0, tint = 0.72 },
+}
+for _, g in Config.guns.list do
+	Config.guns.maxRange = math.max(Config.guns.maxRange, g.range)
+end
+
+-- Rebirth (Round 4 phase 7): part of the journey, not an ending. The first comes after island 2 and
+-- every odd island after that has a rebirth gate (Config.world.rebirthGates). No cap: updates add gates.
+--   resets: coins and the pan's Slots upgrade (upgrades.pen)
+--   keeps:  pets, the index, guns, opened gates (reach), Cold Level, Look (and gear later)
+--   gives:  +50% coin income per rebirth (no pan slot since 2026-11-05: the pan caps at 16), and its gun tier (the free
+--           rebirth guns in Config.guns.list; the next island pair comes from the rebirth gates)
+-- Cost rises x costGrowth a step (1.3-1.6, Game Design Rules 3). Bought at the Rebirth Booth, decided
+-- on the server inside one data change. fullAt = the rebirth the 4-8 hour "full game" ends on.
+Config.rebirth = {
+	incomePer = 0.5,
+	slotsPer = 0, -- pan slots a rebirth adds (0 = none: the 16-slot pan comes from the Slots upgrade only)
+	baseCost = 150000, -- Rebirth 1
+	costGrowth = 1.6,
+	fullAt = 7,
+	boothRange = 30, -- studs from the Rebirth Booth (the server's position)
+	cooldown = 1, -- seconds between two tries
+	typicalFactor = 1.5, -- a typical free player takes the playtest bot's time x this (Round 4 prompt 7)
+	maxWait = 600, -- seconds of typical play: never longer than this without something to buy (Round 4 prompt 7)
+}
+
+function Config.rebirthIncome(rebirths: number): number
+	return 1 + Config.rebirth.incomePer * rebirths
+end
+
+-- the coins rebirth number n costs (n = 1 for the first)
+function Config.rebirthCost(n: number): number
+	return math.round(Config.rebirth.baseCost * Config.rebirth.costGrowth ^ (n - 1))
+end
+
+-- Gear (planned for after this round, Round 4 prompt 9): the Equipment Booth's Gear tab shows these
+-- slots locked, as silhouettes with "Coming soon". shape = the silhouette drawn from UI shapes.
+Config.gear = {
+	{ key = "wool_coat", shape = "coat" }, { key = "sun_hat", shape = "hat" }, { key = "cooling_vest", shape = "vest" },
+	{ key = "lava_boots", shape = "boots" }, { key = "heat_suit", shape = "suit" },
+}
+
+-- Pan upgrades (Round 4 phase 5): three upgrades at your own pan's Pan Upgrades stand.
+--   slots = how many pets your pan holds: the old "pen" upgrade (Config.upgrades.pen, saved in
+--           upgrades.pen). Rebirth (phase 7) resets it.
+--   cold  = Cold Level: the hottest island whose pets your pan keeps frozen, as that island's place
+--           in Config.world.islands (saved in pan.cold; the same scale as a gun's Cold stat). A pet
+--           from a hotter island can't go in: its cube bounces back and the gauge flashes the level
+--           it needs. It only goes as far as the open islands. Rebirth keeps it.
+--   look  = straw -> wood -> stone -> crystal ice -> aurora (saved in pan.look; colours Theme.panLooks).
+--           Rebirth keeps it.
+-- Bought like guns: decided on the server at the stand, checked again inside the one data change that
+-- charges, plus a cooldown. Prices tuned in phase 7 (GrindBot): Cold Level n = island n's gate, Look n = 0.6x island 2n's gate, Slots x6 a rebirth.
+Config.pan = {
+	order = { "slots", "cold", "look" },
+	names = { slots = "Slots", cold = "Cold Level", look = "Look" } :: { [string]: string },
+	standRange = 16, -- studs from your own Pan Upgrades stand (the server's position)
+	buyCooldown = 0.4,
+	cold = { start = 2, max = 20, gateShare = 1 }, -- Cold Level n costs this share of island n's gate coins (Round 4 phase 7: priced with the island it opens)
+	looks = {
+		{ key = "garden", name = "Garden", price = 0 }, -- Round 5: white fences on a striped lawn (was straw)
+		{ key = "wood", name = "Wood", price = 1.2e6 },
+		{ key = "stone", name = "Stone", price = 18e6 },
+		{ key = "ice", name = "Crystal Ice", price = 132e6 },
+		{ key = "aurora", name = "Aurora", price = 5.04e9 },
+	} :: { { key: string, name: string, price: number } },
+	-- a cube too hot for your pan: you're pushed back out of the door, the cube shakes, the gauge flashes
+	bounce = { push = 30, up = 18, flashSeconds = 2.4, flashEvery = 0.3, again = 2.5 }, -- again: seconds before it can bounce again
+	crystalEvery = 2, -- crystal ice: a crystal on every 2nd fence post
+	auroraSpeed = 0.2, -- aurora: the rails' colours drift this many cycles a second
+	drawDistance = 160, -- studs: pans farther than this keep their look but stop animating
+}
+
+-- what the next level of a pan upgrade costs (nil = at the top)
+function Config.panMax(kind: string): number
+	if kind == "slots" then
+		return Config.upgrades.pen.maxLevel
+	elseif kind == "cold" then
+		return math.clamp(Config.world.readyCount, Config.pan.cold.start, Config.pan.cold.max) -- as far as the islands with pets
+	end
+	return #Config.pan.looks
+end
+
+
+-- what Cold Level n costs: a share of island n's gate, so it's priced with the island it lets you keep
+function Config.panColdCost(n: number): number
+	local zone = Config.world.zones[n]
+	return math.round((if zone then zone.gateCoins else 0) * Config.pan.cold.gateShare)
+end
+function Config.panPrice(kind: string, level: number, rebirths: number?): number?
+	if level >= Config.panMax(kind) then
+		return nil
+	elseif kind == "slots" then
+		return Config.slotsCost(level + 1, rebirths or 0)
+	elseif kind == "cold" then
+		return Config.panColdCost(level + 1)
+	end
+	local look = Config.pan.looks[level + 1]
+	return if look then look.price else nil
+end
+
+-- the Sell Booth (Round 4 phase 5): sell pets from your pan or Storage for coins. A pet sells for this
+-- many minutes of its own income (its pose and mutation count, and a tester's money multiplier; the Index bonus doesn't).
+-- Epic and up ask first; identical pets (same pet, pose and mutation) can be sold in one go.
+Config.sell = {
+	incomeMinutes = 5,
+	confirmFromRank = 4, -- Epic
+	boothRange = 30, -- studs from the Sell Booth (the server's position)
+	cooldown = 0.35, -- seconds between two sales (spam can't sell a pet twice anyway: it's gone)
+	maxPerSale = 500,
+}
+
+function Config.sellValue(income: number, mult: number?): number
+	return math.max(1, math.floor(income * 60 * Config.sell.incomeMinutes * (mult or 1)))
+end
+
+-- a pan upgrade's show (Animation Rules 3): a glow builds up on the pan, the old pieces pop off, new
+-- ones drop in with a squash, a burst and a sound, coins fly from your counter into the pan. The server
+-- has already charged and upgraded; the show only plays it. Bigger upgrades get longer shows.
+Config.show.panUpgrade = {
+	beats = {
+		{ name = "glow", time = 0.6 },
+		{ name = "popOff", time = 0.45 },
+		{ name = "dropIn", time = 0.75, keepOnSkip = true }, -- SKIP keeps the new pieces landing
+		{ name = "burst", time = 0.35, keepOnSkip = true },
+		{ name = "coins", time = 0.6 },
+		{ name = "rest", time = 0.35 },
+	} :: { Beat },
+	kindScale = { slots = 0.6, cold = 0.85, look = 1.25 } :: { [string]: number }, -- a new look is the biggest
+	perLevel = 0.05, maxScale = 1.9, -- and each level a little longer than the last
+	camBack = 30, camUp = 17, camLookUp = 1, -- the camera looks at your pan from the plaza
+	dropHeight = 7, squash = 0.4, popSpeed = 16, popUp = 10, popSpin = 7,
+	glowTransparency = 0.35, burstParts = 26, coins = 8, coinSize = 0.07,
+	title = { slots = "MORE SLOTS!", cold = "COLDER PAN!", look = "NEW LOOK!" } :: { [string]: string },
+}
+
+-- a rebirth (Round 4 phase 7, Animation Rules 3): the camera pushes in to face you at the booth, an ice
+-- burst with one flash, then REBIRTH n! and the new coin multiplier slam in. The server has already
+-- rebirthed and saved; the show only plays it. SKIP from the second rebirth; reduced motion halves it.
+Config.show.rebirth = {
+	beats = {
+		{ name = "push", time = 0.9 },
+		{ name = "burst", time = 0.5 },
+		{ name = "slam", time = 1.9, keepOnSkip = true }, -- SKIP still shows what you got
+		{ name = "back", time = 0.5, keepOnSkip = true },
+	} :: { Beat },
+	pushDistance = 9, pushHeight = 2.5, angle = 40, burstParts = 44, rays = 8, flash = true, -- angle: degrees round from "straight away from the booth"
+}
+
+-- ---------- Round 5 (owner 2026-11-02, prototype/ice-ray-for-pets/ROUND5-PROMPT.md) ----------
+-- Shooting the ray: hold the mouse / your finger on a target (E or gamepad R2 aims at the nearest one
+-- in front of you). Every target has a freeze meter on the server: it rises while someone aims at it
+-- (1 / the freeze's seconds, Config.show.freeze, x timeScale) and melts back when nobody does. Up to
+-- stuckAt a pet is scared and runs away; from stuckAt on it is stuck in the ice; at 1 the cube shuts.
+Config.aim = {
+	tickSeconds = 0.1,
+	timeScale = 2.2, -- a shot freeze takes this much longer than the old prompt hold (time to see it run)
+	thawPerSecond = 0.3, -- meter lost each second nobody aims at it
+	stuckAt = 0.5,
+	fleeSpeed = 4.5, -- studs a second while scared (wandering is Config.spawner.wanderSpeed; you walk 16)
+	rangeGrace = 2, -- studs past the gun's range the server still accepts (lag)
+	pickRadius = 0.12, -- a click / touch picks the nearest target this close on screen (share of the short side)
+	autoAimDot = 0.3, -- E / R2: only targets in front of the camera (dot product) within range
+	keys = { Enum.KeyCode.E, Enum.KeyCode.ButtonR2 },
+	sendEvery = 0.1, -- the client sends a changed aim at most this often
+	step = 0.02, -- the meter reaches clients in steps of this size
+	refreezeSeconds = 0.6, -- zapping a dazed pet back
+	reticle = 0.16, -- the aim ring on the nearest target, a share of the screen's short side
+}
+
+-- the hotbar (bottom middle): tap a slot to hold that thing, tap it again to put it away
+Config.hotbar = {
+	slots = {
+		{ id = "ray", label = "Ice Ray", key = Enum.KeyCode.One },
+		{ id = "gel", label = "Slow Gel", key = Enum.KeyCode.Two },
+	},
+	gamepadPrev = Enum.KeyCode.ButtonL1, gamepadNext = Enum.KeyCode.ButtonR1,
+	size = 0.12, gap = 0.018, bottomInset = 0.025, -- shares of the screen's short side
+}
+
+-- Slow Gel (Gear tab of the Equipment Booth): equipped, click / tap throws a puddle; pets and Heat
+-- Critters in it move at x slow. A cooldown, no ammo.
+Config.gel = { price = 3000, slow = 0.6, radius = 7, seconds = 6, cooldown = 10, throwRange = 45, flySeconds = 0.45 }
+
+-- the Thaw Machine in every pan: cubes you bring home wait in a line, the machine thaws one at a time,
+-- then the pet hops out and wanders your pan (and starts earning). Each pan Slots level makes it x
+-- perLevel faster; a second machine comes with Slots level secondAt. Waiting cubes thaw while you're away.
+Config.thaw = {
+	seconds = { Common = 4, Uncommon = 6, Rare = 10, Epic = 15, Legendary = 22, Mythic = 32, Secret = 45 } :: { [string]: number },
+	perLevel = 1.33, -- 7 Slots levels: about x5.5 at the top, as fast as the old 19 levels at x1.1
+	secondAt = Config.upgrades.pen.maxLevel - 1,
+	tickSeconds = 0.25,
+	machine = { x = -5.5, z = 5.5, gap = 7 }, -- machine 1 from the middle of the pan's back fence (x across, z toward the door); machine 2 is gap further right
+	queueGap = 3.4, queueX = 2.4, queueFrom = 5.5, -- waiting cubes line up along the left fence (queueX in from it), from the machine toward the door
+	queueShown = 8, -- at most this many waiting cubes are drawn
+	wander = { speed = 2.4, pause = { 1.5, 4.5 }, margin = 2.5 }, -- thawed pets stroll around the pan (drawn on each client)
+}
+
+-- Heat Critters (island 3 and on): hot, cheeky animals that want your ice cube to cool off. They chase
+-- whoever carries a cube on their own island (each stays inside its island, so a long trip home is a
+-- relay), knock the top cube loose if they reach you (its pet is dazed: only you can zap it back), and
+-- can be frozen with the ray for frozenBase / the island's heat seconds.
+Config.chasers = {
+	fromIsland = 3,
+	perIsland = 3,
+	wanderSpeed = 3,
+	chaseSpeed = 13, -- a bit slower than walking (16), so you can always get away
+	aggroRange = 45,
+	catchRange = 3.5,
+	afterCatch = 4, -- seconds a critter sits happily cooling down after a catch
+	freezeSeconds = 1.6, -- with gun 1 (the gun's power speeds it up, like pets)
+	frozenBase = 10, -- seconds frozen = frozenBase / island heat (hotter = shorter)
+	frozenMin = 3, frozenMax = 20,
+	size = 3.2,
+	look = { pet = "conehog" } :: { [string]: string }, -- which pet's art a critter wears until its own art exists
+}
+
+-- Ray-tag (owner 2026-11-02, overrides the old "no theft" rule): shoot a player who carries a cube and
+-- their meter fills; at 1 they tumble over and their top cube pops out as a dazed pet anyone can zap.
+-- Never in the hub, never your banked pets; a shield for a new player's first minutes of play (two-way: you
+-- can't tag anyone while you have it) and a short one after you've been tagged.
+Config.tag = {
+	freezeSeconds = 1.4, -- with gun 1
+	thawPerSecond = 0.5,
+	ragdollSeconds = 2.2,
+	shieldMinutes = 15, -- of play time, once per player (saved), not per server
+	afterTagShield = 10, -- seconds
+}
+
+-- Codes (Settings): unlocked after catching needPets pets. The codes themselves live on the server only
+-- (ServerStorage.Codes), so nobody can read them from the client.
+Config.codes = { needPets = 25, maxLength = 20, cooldown = 1.5 }
+
+-- the gun a player holds (1 when the number is missing or out of range)
+function Config.gun(index: number?): Gun
+	local list = Config.guns.list
+	return list[math.clamp(math.floor(tonumber(index) or 1), 1, #list)]
+end
 
 function Config.tier(name: string): Tier
 	for _, t in Config.tiers do
@@ -374,6 +1030,18 @@ end
 function Config.upgradeCost(id: string, level: number): number
 	local u = Config.upgrades[id]
 	return math.round(u.baseCost * u.costGrowth ^ (level - 2)) -- level 2 costs baseCost
+end
+
+-- the pan's Slots upgrade (upgrades.pen) after some rebirths: rebirth resets Slots, and each rebirth
+-- makes the rebuild cost x rebirthGrowth more (still x1.5 a level), so it fills the wait after a rebirth
+function Config.slotsCost(level: number, rebirths: number): number
+	return math.round(Config.upgradeCost("pen", level) * Config.upgrades.pen.rebirthGrowth ^ rebirths)
+end
+
+-- how many pets the pan holds at a Slots level (+ Config.rebirth.slotsPer a rebirth), never over maxSlots
+function Config.panSlots(level: number, rebirths: number): number
+	local n = Config.pen.baseSlots + Config.upgrades.pen.slotsPerLevel * (level - 1) + Config.rebirth.slotsPer * rebirths
+	return math.min(n, Config.pen.maxSlots)
 end
 
 function Config.cubeSizeFactor(rayLevel: number): number
@@ -392,3 +1060,4 @@ function Config.zone(id: number): Zone?
 end
 
 return Config
+

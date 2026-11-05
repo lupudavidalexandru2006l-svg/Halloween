@@ -1,5 +1,6 @@
 --!strict
--- ShopService: owns upgrade prices and buying (Ray, Boots, Backpack, Pen). Prices come from
+-- ShopService: owns upgrade prices and buying (Ray, Boots, Backpack; the pan's Slots moved to PanService
+-- in Round 4 phase 5, though its level is still upgrades.pen). Prices come from
 -- Config.upgradeCost: level 2 costs baseCost and each step costs x1.5 the last. Coins are looked up
 -- on the server; the client only says which upgrade it wants.
 
@@ -9,7 +10,6 @@ local Remotes = require(script.Parent.Remotes)
 local DataService = require(script.Parent.DataService)
 local AnalyticsSvc = require(script.Parent.AnalyticsSvc)
 local PlayerTracker = require(script.Parent.PlayerTracker)
-local PenService = require(script.Parent.PenService)
 
 local ShopService = {}
 local lastOpened: { [Player]: number } = {}
@@ -25,7 +25,7 @@ end
 
 local function buy(player: Player, id: any)
 	local d = DataService.get(player)
-	if not d or typeof(id) ~= "string" or not table.find(Config.upgradeIds, id) then
+	if not d or typeof(id) ~= "string" or not table.find(Config.shopUpgradeIds, id) then
 		return
 	end
 	local level = d.upgrades[id]
@@ -42,9 +42,6 @@ local function buy(player: Player, id: any)
 	DataService.mutate(player, function(x)
 		x.coins -= cost
 		x.upgrades[id] = level + 1
-		if id == "pen" then
-			PenService.fillEmptySlots(x)
-		end
 	end)
 	if id == "boots" or id == "backpack" then
 		PlayerTracker.updateSpeed(player)

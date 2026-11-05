@@ -12,7 +12,10 @@ local Remotes = {}
 local NAMES = {
 	-- client -> server (intent)
 	"BuyUpgrade", "CollectWelcome", "RequestSuperFreeze", "SetMenuOpen", "ShopOpened",
-	"EquipPet", "EquipBest", "SetSetting", "Tester",
+	"EquipPet", "EquipBest", "SetSetting", "Tester", "ShowDone", "BuyGun", "EquipGun", "BuyPanUpgrade", "SellPets",
+	"Aim", "SetGear", "ThrowGel", "BuyGear", "RedeemCode", -- Round 5: shooting the ray, the hotbar, Slow Gel, codes
+	"Rebirth", -- Round 4 phase 7: the Rebirth Booth
+	"BuyRobux", -- the Shop's Robux tab (MonetizationService shows Roblox's own prompt)
 	-- server -> client (what happened)
 	"Data", "Notify", "BoardRank",
 }
@@ -99,3 +102,4 @@ function Remotes.isId(v: any, maxLen: number?): boolean
 end
 
 return Remotes
+

@@ -1,20 +1,62 @@
 --!strict
--- RayController: the ice ray (prototype avatar + beam). Every character on this client gets a small
--- ice-ray gun in its right hand (built locally, so it costs the server nothing). While you hold
--- Freeze on a pet or the ice bridge, your arm comes up and a white beam with a cyan glow runs from
--- the gun's tip to the target, with sparkles where it lands. The server still decides the freeze.
+-- RayController: the ice ray. Every character on this client gets its gun in its right hand while the
+-- ray is in their hands (the "Held" attribute, GearService; built locally, so it costs the server
+-- nothing): the one that player holds (the GunTier attribute). A gun's model comes from
+-- ReplicatedStorage.GunModels.<key> once the image-to-3D guns exist; until then a part-built STAND-IN
+-- (buildGun) in the gun's colours, one barrel tip per beam.
+-- Round 5 (owner 2026-11-02): the ray is SHOT. Hold the mouse or a finger on a pet, a Heat Critter or a
+-- player who carries a cube (a forgiving pick: the nearest target near your finger; once locked, it
+-- stays locked while you hold and it's in range). E / gamepad R2 aim at the nearest target in front.
+-- This client tells the server what it aims at ("Aim"); the server moves each target's freeze meter
+-- and publishes it ("Meter", "FreezeStyle", "AimedBy"), so every client draws every player's beams and
+-- the ice creeping up (PetVisuals reads freezeOf). An aim ring sits on the target you'd hit.
+-- It also owns the arm poses: the gun arm is held out in front while the gun is in the hand, and anyone carrying cubes holds
+-- both arms out in front (the cubes sit in their hands, CarryService), on every client for every character.
 
 local Players = game:GetService("Players")
-local ProximityPromptService = game:GetService("ProximityPromptService")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Theme = require(ReplicatedStorage.Shared.Theme)
+local State = require(script.Parent.State)
+local InputController = require(script.Parent.InputController)
 
 local RayController = {}
 local R = Config.ray
+local A = Config.aim
 local me = Players.LocalPlayer
-local guns: { [Model]: Model } = {}
-local active: { beams: { Beam }, sparkle: ParticleEmitter?, prompt: ProximityPrompt, shoulder: Motor6D?, c0: CFrame? }? = nil
+local guns: { [Model]: { model: Model, tier: number } } = {}
+export type Freeze = {
+	root: BasePart, style: string, gun: number,
+	u: number, -- the server's meter (0-1)
+	p: number, -- how frozen it looks (0-1, eased toward the meter)
+}
+type Target = { kind: string, id: string, part: BasePart }
+local shakes: { [BasePart]: number } = setmetatable({}, { __mode = "k" }) :: any -- pet root -> when its "too warm" shake ends
+local baseC0: { [Instance]: CFrame } = setmetatable({}, { __mode = "k" }) :: any -- each shoulder's rest pose
+local looks: { [BasePart]: Freeze } = setmetatable({}, { __mode = "k" }) :: any -- each target's eased freeze look
+local skip: { [BasePart]: number } = setmetatable({}, { __mode = "k" }) :: any -- targets the server said no to, until then
+-- input: the pointer (mouse / one finger) held on the screen, or the auto-aim key held
+local pointer: { pos: Vector2, touch: InputObject? }? = nil
+local autoAim = false
+local locked: Target? = nil
+local sentKey = "none"
+local lastSent = 0
+type BeamSet = { beams: { Beam }, sparkles: { ParticleEmitter } }
+local beamSets: { [string]: BeamSet } = {}
+local reticle: { gui: BillboardGui, ring: Frame, fill: Frame, hint: TextLabel }? = nil
+
+local function holdsRay(p: Player?): boolean
+	local h = p and p:GetAttribute("Held")
+	return h == nil or h == "ray"
+end
+
+-- the gun is in the hand while the ray or the Slow Gel is held: the gel is shot out of the gun
+-- (owner 2026-11-03); only putting everything away ("none") empties the hand
+local function showsGun(p: Player?): boolean
+	return (p and p:GetAttribute("Held")) ~= "none"
+end
 
 local function piece(shape: Enum.PartType, size: Vector3, color: Color3, parent: Instance): Part
 	local p = Instance.new("Part")
@@ -31,39 +73,145 @@ local function piece(shape: Enum.PartType, size: Vector3, color: Color3, parent:
 	return p
 end
 
-local function weld(a: BasePart, b: BasePart, c0: CFrame)
+local function weld(a: BasePart, b: BasePart, c0: CFrame): Weld
 	local w = Instance.new("Weld")
 	w.Part0 = a
 	w.Part1 = b
 	w.C0 = c0
 	w.Parent = b
+	return w
 end
 
--- barrel, glowing tip and a small tank, pointing along the hand's forward direction
+local function gunTierOf(p: Player?): number
+	local t = p and p:GetAttribute("GunTier")
+	return if typeof(t) == "number" then math.clamp(math.floor(t), 1, math.min(#Theme.guns, #Config.guns.list)) else 1
+end
+
+-- one part of the stand-in gun, placed relative to its body (the body sits at the origin)
+local function place(body: BasePart, p: BasePart, at: CFrame)
+	p.CFrame = body.CFrame * at
+	local w = Instance.new("WeldConstraint")
+	w.Part0 = body
+	w.Part1 = p
+	w.Parent = p
+end
+
+-- gun `tier`, pointing along the body's +X (the barrel axis). The real model when
+-- ReplicatedStorage.GunModels.<key> exists (a PrimaryPart called Body and RayTip attachments);
+-- until then the STAND-IN: a barrel that grows each tier, one glowing tip per beam, a tank in the
+-- gun's glow, fins (3+), a glowing ring (5+) and a crystal (9+). Also used by the buy show.
+function RayController.buildGun(tier: number): Model
+	local g = Config.gun(tier)
+	local models = ReplicatedStorage:FindFirstChild("GunModels")
+	local real = models and models:FindFirstChild(g.key)
+	if real and real:IsA("Model") and real.PrimaryPart then
+		local m = real:Clone()
+		m.Name = "IceRay"
+		-- painted glow comes out flat in 3D, so each barrel tip gets a small light in the gun's glow (Pet Rules 5)
+		local look = Theme.guns[tier] or Theme.guns[1]
+		for _, a in m:GetDescendants() do
+			if a:IsA("Attachment") and a.Name:sub(1, 6) == "RayTip" then
+				local l = Instance.new("PointLight")
+				l.Color = look.glow
+				l.Range = R.tipLightRange
+				l.Brightness = R.tipLightBrightness
+				l.Parent = a
+			end
+		end
+		return m
+	end
+	local S = Config.guns.standIn
+	local look = Theme.guns[tier] or Theme.guns[1]
+	local m = Instance.new("Model")
+	m.Name = "IceRay"
+	local len = S.barrel + S.barrelPerGun * (tier - 1)
+	local body = piece(Enum.PartType.Cylinder, Vector3.new(len, 0.74, 0.74), Theme.fx.gunBody, m)
+	body.Name = "Body"
+	body.CFrame = CFrame.new()
+	m.PrimaryPart = body
+	-- one tip per beam: one in the middle, or a ring of them round the muzzle
+	for i = 1, g.beams do
+		local tip = piece(Enum.PartType.Ball, Vector3.one * R.tipSize * (if g.beams > 1 then 0.7 else 1), look.glow, m)
+		tip.Material = Enum.Material.Neon
+		local a = if g.beams > 1 then (i - 1) / g.beams * math.pi * 2 else 0
+		local r = if g.beams > 1 then S.tipRing else 0
+		place(body, tip, CFrame.new(len / 2 + 0.05, math.cos(a) * r, math.sin(a) * r))
+		local at = Instance.new("Attachment")
+		at.Name = if i == 1 then "RayTip" else "RayTip" .. i
+		at.Parent = tip
+	end
+	local tank = piece(Enum.PartType.Cylinder, Vector3.new(0.7, 0.6, 0.6), look.glow, m)
+	tank.Transparency = 0.15
+	place(body, tank, CFrame.new(-len * 0.12, 0.42, 0) * CFrame.Angles(0, 0, math.pi / 2))
+	if tier >= S.finsFrom then
+		for _, side in { -1, 1 } do
+			local fin = piece(Enum.PartType.Block, Vector3.new(0.5, 0.08, 0.36), look.glow, m)
+			place(body, fin, CFrame.new(-len * 0.25, 0, side * 0.42) * CFrame.Angles(0, 0, side * 0.3))
+		end
+	end
+	if tier >= S.ringFrom then
+		local ring = piece(Enum.PartType.Cylinder, Vector3.new(0.16, 0.9, 0.9), look.spark, m)
+		ring.Material = Enum.Material.Neon
+		place(body, ring, CFrame.new(len * 0.28, 0, 0))
+	end
+	if tier >= S.gemFrom then
+		local gem = piece(Enum.PartType.Ball, Vector3.new(0.34, 0.5, 0.34), look.spark, m)
+		gem.Material = Enum.Material.Neon
+		place(body, gem, tank.CFrame * CFrame.new(0.42, 0, 0)) -- the body sits at the origin while it's built
+	end
+	return m
+end
+
+-- the held gun, pointing along the hand's forward direction
 local function giveGun(character: Model)
-	if guns[character] then
+	local p = Players:GetPlayerFromCharacter(character)
+	local tier = gunTierOf(p)
+	local had = guns[character]
+	if not showsGun(p) then -- everything is put away (hotbar): no gun in the hand
+		if had then
+			had.model:Destroy()
+			guns[character] = nil
+		end
+		return
+	end
+	if had and had.tier == tier then
 		return
 	end
 	local hand = character:WaitForChild("RightHand", 5) or character:FindFirstChild("Right Arm")
-	if not hand or not hand:IsA("BasePart") then
+	if not hand or not hand:IsA("BasePart") or not character.Parent then
 		return
 	end
-	local m = Instance.new("Model")
-	m.Name = "IceRay"
-	local barrel = piece(Enum.PartType.Cylinder, Vector3.new(1.6, 0.74, 0.74), Theme.fx.gunBody, m)
-	local base = CFrame.new(0, -hand.Size.Y / 2, -0.5) * CFrame.Angles(0, math.pi / 2, 0) -- cylinder axis X -> forward
-	weld(hand, barrel, base)
-	local tip = piece(Enum.PartType.Ball, Vector3.one * R.tipSize, Theme.fx.gunTip, m)
-	tip.Material = Enum.Material.Neon
-	weld(barrel, tip, CFrame.new(0.85, 0, 0)) -- the barrel's +X points forward out of the hand
-	local tank = piece(Enum.PartType.Cylinder, Vector3.new(0.7, 0.6, 0.6), Theme.fx.gunTip, m)
-	tank.Transparency = 0.15
-	weld(barrel, tank, CFrame.new(-0.2, 0.42, 0) * CFrame.Angles(0, 0, math.pi / 2))
-	local a = Instance.new("Attachment")
-	a.Name = "RayTip"
-	a.Parent = tip
+	had = guns[character]
+	if had then
+		if had.tier == tier then
+			return
+		end
+		had.model:Destroy()
+		guns[character] = nil
+	end
+	local m = RayController.buildGun(tier)
+	local body = m.PrimaryPart :: BasePart
+	for _, d in m:GetDescendants() do
+		if d:IsA("BasePart") then
+			d.Anchored = false
+			d.CanCollide, d.CanQuery, d.CanTouch, d.Massless = false, false, false, true
+		end
+	end
+	-- the arm is held out in front while the gun is in it (poseArms), so the hand's -Y points forward and
+	-- its -Z points up: the barrel (+X of the stand-in, and of a real model's Grip, which is turned to
+	-- face its barrel) goes along -Y and the gun's top along -Z, so it points straight ahead
+	-- (owner 2026-11-03: it hung down at the hip)
+	local base = CFrame.new(0, -hand.Size.Y / 2, 0) * CFrame.fromMatrix(Vector3.zero, -Vector3.yAxis, -Vector3.zAxis, Vector3.xAxis)
+	-- a real model is held by its Grip attachment (set at import), centred in the hand
+	local grip = body:FindFirstChild("Grip")
+	local c1 = CFrame.new()
+	if grip and grip:IsA("Attachment") then
+		c1 = grip.CFrame
+	end
+	m:PivotTo(hand.CFrame * base * c1:Inverse() * body.PivotOffset) -- the weld holds it there from now on
+	weld(hand, body, base).C1 = c1
 	m.Parent = character
-	guns[character] = m
+	guns[character] = { model = m, tier = tier }
 	character.Destroying:Once(function()
 		guns[character] = nil
 	end)
@@ -74,25 +222,136 @@ local function watchPlayer(p: Player)
 	if p.Character then
 		task.spawn(giveGun, p.Character)
 	end
+	for _, attr in { "GunTier", "Held" } do
+		p:GetAttributeChangedSignal(attr):Connect(function()
+			if p.Character then
+				task.spawn(giveGun, p.Character) -- a better gun, or the ray put away / taken out
+			end
+		end)
+	end
 end
 
-local function stop()
-	local a = active
-	if not a then
+-- ---------- targets ----------
+local function myRoot(): BasePart?
+	local c = me.Character
+	return if c then c:FindFirstChild("HumanoidRootPart") :: BasePart? else nil
+end
+
+-- everything the ray could hit right now: wild pets I can see, Heat Critters, players who can be tagged
+local function candidates(): { Target }
+	local out: { Target } = {}
+	local wild = workspace:FindFirstChild("WildPets")
+	if wild then
+		for _, r in wild:GetChildren() do
+			local owner = r:GetAttribute("OwnerUserId")
+			if r:IsA("BasePart") and (owner == 0 or owner == me.UserId) then
+				table.insert(out, { kind = "pet", id = r:GetAttribute("PetId") :: string, part = r })
+			end
+		end
+	end
+	local critters = workspace:FindFirstChild("Critters")
+	if critters then
+		for _, r in critters:GetChildren() do
+			if r:IsA("BasePart") and r:GetAttribute("State") ~= "frozen" then
+				table.insert(out, { kind = "critter", id = r:GetAttribute("CritterId") :: string, part = r })
+			end
+		end
+	end
+	for _, p in Players:GetPlayers() do
+		local hrp = p ~= me and p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+		if hrp and hrp:IsA("BasePart") and p:GetAttribute("Taggable") == true and me:GetAttribute("Shielded") ~= true then
+			table.insert(out, { kind = "player", id = tostring(p.UserId), part = hrp })
+		end
+	end
+	return out
+end
+
+local function inReach(t: Target, from: Vector3): boolean
+	local range = Config.gun(gunTierOf(me)).range
+	local d = Vector3.new(t.part.Position.X - from.X, 0, t.part.Position.Z - from.Z).Magnitude
+	return d <= range and (skip[t.part] or 0) < os.clock() and typeof(t.id) == "string"
+end
+
+-- the target nearest a spot on the screen (a forgiving pick for small fingers)
+local function pickAt(screen: Vector2): Target?
+	local cam = workspace.CurrentCamera
+	local root = myRoot()
+	if not cam or not root then
+		return nil
+	end
+	local short = math.min(cam.ViewportSize.X, cam.ViewportSize.Y)
+	local best, bestD = nil, A.pickRadius * short
+	for _, t in candidates() do
+		if inReach(t, root.Position) then
+			local v, onScreen = cam:WorldToViewportPoint(t.part.Position)
+			local d = (Vector2.new(v.X, v.Y) - screen).Magnitude
+			if onScreen and d < bestD then
+				best, bestD = t, d
+			end
+		end
+	end
+	return best
+end
+
+-- E / R2: the nearest target in front of the camera, in reach
+local function pickAuto(): Target?
+	local cam = workspace.CurrentCamera
+	local root = myRoot()
+	if not cam or not root then
+		return nil
+	end
+	local look = cam.CFrame.LookVector * Vector3.new(1, 0, 1)
+	look = if look.Magnitude > 0 then look.Unit else Vector3.zAxis
+	local best, bestD = nil, math.huge
+	for _, t in candidates() do
+		local to = (t.part.Position - root.Position) * Vector3.new(1, 0, 1)
+		if inReach(t, root.Position) and (to.Magnitude < 3 or to.Unit:Dot(look) >= A.autoAimDot) and to.Magnitude < bestD then
+			best, bestD = t, to.Magnitude
+		end
+	end
+	return best
+end
+
+local function stillValid(t: Target): boolean
+	local root = myRoot()
+	return t.part.Parent ~= nil and root ~= nil and inReach(t, root.Position)
+		and not (t.kind == "critter" and t.part:GetAttribute("State") == "frozen")
+		and not (t.kind == "player" and t.part.Parent and Players:GetPlayerFromCharacter(t.part.Parent :: Model) and (Players:GetPlayerFromCharacter(t.part.Parent :: Model) :: Player):GetAttribute("Taggable") ~= true)
+end
+
+local function send(force: boolean?)
+	local key = if locked then locked.kind .. ":" .. locked.id else "none"
+	if key == sentKey then
 		return
 	end
-	for _, b in a.beams do
-		b:Destroy()
+	if not force and os.clock() - lastSent < A.sendEvery then
+		return -- sent on a later frame
 	end
-	if a.sparkle then
-		a.sparkle:Destroy()
+	sentKey, lastSent = key, os.clock()
+	if locked then
+		State.send("Aim", locked.kind, locked.id)
+	else
+		State.send("Aim", "none")
 	end
-	if a.shoulder and a.c0 then
-		a.shoulder.C0 = a.c0
-	end
-	active = nil
 end
 
+local function aiming(): boolean
+	return (pointer ~= nil or autoAim) and holdsRay(me)
+end
+
+local function updateAim()
+	if not aiming() then
+		locked = nil
+	elseif locked and not stillValid(locked) then
+		locked = nil
+	end
+	if aiming() and not locked then
+		locked = if pointer then pickAt(pointer.pos) else pickAuto()
+	end
+	send(locked == nil)
+end
+
+-- ---------- beams ----------
 local function beam(from: Attachment, to: Attachment, width: number, color: Color3, transparency: number): Beam
 	local b = Instance.new("Beam")
 	b.Attachment0 = from
@@ -102,41 +361,331 @@ local function beam(from: Attachment, to: Attachment, width: number, color: Colo
 	b.Transparency = NumberSequence.new(transparency)
 	b.LightEmission = 1
 	b.FaceCamera = true
-	b.Segments = 1
+	b.Segments = 12
 	b.Parent = from
 	return b
 end
 
-local function start(prompt: ProximityPrompt)
-	stop()
-	local target = prompt.Parent
-	local gun = me.Character and guns[me.Character]
-	local tip = gun and gun:FindFirstChild("RayTip", true)
-	if not target or not target:IsA("Attachment") or not tip or not tip:IsA("Attachment") then
+local function sparkle(parent: Instance, color: Color3, gun: number, speed: number): ParticleEmitter
+	local e = Instance.new("ParticleEmitter")
+	e.Color = ColorSequence.new(color)
+	e.LightEmission = 0.6
+	e.Rate = R.sparkleRate + R.sparklePerGun * (gun - 1)
+	e.Speed = NumberRange.new(speed * 0.5, speed)
+	e.Lifetime = NumberRange.new(0.3, 0.5)
+	e.SpreadAngle = Vector2.new(180, 180)
+	e.Size = NumberSequence.new(R.sparkleSize + R.sparkleSizePerGun * (gun - 1), 0)
+	e.Parent = parent
+	return e
+end
+
+local function aimAttachment(part: BasePart): Attachment
+	local a = part:FindFirstChild("Aim") or part:FindFirstChild("AimLocal")
+	if a and a:IsA("Attachment") then
+		return a
+	end
+	local n = Instance.new("Attachment")
+	n.Name = "AimLocal"
+	n.Parent = part
+	return n
+end
+
+local function makeBeams(tip: Attachment, part: BasePart, tier: number): BeamSet
+	local look = Theme.guns[tier] or Theme.guns[1]
+	local w = R.beamPerGun * (tier - 1)
+	local target = aimAttachment(part)
+	return {
+		beams = { beam(tip, target, R.beamGlow + w * 2, look.glow, 0.5), beam(tip, target, R.beamCore + w, look.core, 0.05) },
+		sparkles = { sparkle(target, look.spark, tier, 4), sparkle(tip, look.glow, tier, 2) },
+	}
+end
+
+local function dropBeams(set: BeamSet)
+	for _, b in set.beams do
+		b:Destroy()
+	end
+	for _, s in set.sparkles do
+		s:Destroy()
+	end
+end
+
+-- who shoots what this frame: my own lock (drawn at once) plus every target the server says a player aims at
+local function drawBeams()
+	local want: { [string]: { player: Player, part: BasePart, n: number } } = {}
+	local count: { [Player]: number } = {}
+	local function add(p: Player, part: BasePart)
+		local n = (count[p] or 0) + 1
+		count[p] = n
+		want[p.UserId .. ">" .. part:GetFullName() .. "#" .. tostring(part)] = { player = p, part = part, n = n }
+	end
+	if locked and aiming() then
+		add(me, locked.part)
+	end
+	local byId: { [number]: Player } = {}
+	for _, p in Players:GetPlayers() do
+		byId[p.UserId] = p
+	end
+	local function scan(folder: Instance?)
+		if not folder then
+			return
+		end
+		for _, r in folder:GetChildren() do
+			local by = r:GetAttribute("AimedBy")
+			local p = typeof(by) == "number" and by ~= 0 and byId[by]
+			if p and r:IsA("BasePart") and (p ~= me or not locked or locked.part ~= r) and ((r:GetAttribute("Meter") or 0) :: number) > 0 then
+				add(p, r)
+			end
+		end
+	end
+	scan(workspace:FindFirstChild("WildPets"))
+	scan(workspace:FindFirstChild("Critters"))
+	for _, p in Players:GetPlayers() do
+		local hrp = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+		local by = hrp and hrp:GetAttribute("AimedBy")
+		local shooter = typeof(by) == "number" and by ~= 0 and byId[by]
+		if shooter and hrp:IsA("BasePart") and (shooter ~= me or not locked or locked.part ~= hrp) then
+			add(shooter, hrp)
+		end
+	end
+	for key, set in beamSets do
+		if not want[key] then
+			dropBeams(set)
+			beamSets[key] = nil
+		end
+	end
+	for key, w in want do
+		if beamSets[key] then
+			continue
+		end
+		local gun = w.player.Character and guns[w.player.Character]
+		if gun then
+			local tip = gun.model:FindFirstChild("RayTip" .. w.n, true) or gun.model:FindFirstChild("RayTip", true)
+			if tip and tip:IsA("Attachment") then
+				beamSets[key] = makeBeams(tip, w.part, gun.tier)
+			end
+		end
+	end
+	-- higher guns: the beam curls a little as it pushes the cold in
+	local c = math.sin(os.clock() * 9) * R.curlAmount
+	for key, set in beamSets do
+		local w = want[key]
+		if w and gunTierOf(w.player) >= R.curlFromGun then
+			for _, b in set.beams do
+				b.CurveSize0, b.CurveSize1 = c, -c
+			end
+		end
+	end
+end
+
+-- ---------- the aim ring ----------
+local function hintText(): string
+	local d = InputController.device()
+	return if d == "touch" then "HOLD" elseif d == "gamepad" then "HOLD R2" else "HOLD CLICK"
+end
+
+local function makeReticle(): { gui: BillboardGui, ring: Frame, fill: Frame, hint: TextLabel }
+	local gui = Instance.new("BillboardGui")
+	gui.Name = "AimRing"
+	gui.AlwaysOnTop = true
+	gui.LightInfluence = 0
+	gui.ResetOnSpawn = false
+	local ring = Instance.new("Frame")
+	ring.Name = "Ring"
+	ring.AnchorPoint = Vector2.new(0.5, 0.5)
+	ring.Position = UDim2.fromScale(0.5, 0.42)
+	ring.Size = UDim2.fromScale(0.62, 0.62)
+	ring.BackgroundTransparency = 1
+	local rc = Instance.new("UICorner")
+	rc.CornerRadius = UDim.new(0.5, 0)
+	rc.Parent = ring
+	local st = Instance.new("UIStroke")
+	st.Thickness = 4
+	st.Color = Theme.round5.reticle
+	st.Parent = ring
+	ring.Parent = gui
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.AnchorPoint = Vector2.new(0.5, 0.5)
+	fill.Position = UDim2.fromScale(0.5, 0.5)
+	fill.Size = UDim2.fromScale(0, 0)
+	fill.BackgroundColor3 = Theme.round5.reticleFull
+	fill.BackgroundTransparency = 0.45
+	local fc = Instance.new("UICorner")
+	fc.CornerRadius = UDim.new(0.5, 0)
+	fc.Parent = fill
+	fill.Parent = ring
+	local hint = Instance.new("TextLabel")
+	hint.Name = "Hint"
+	hint.BackgroundTransparency = 1
+	hint.AnchorPoint = Vector2.new(0.5, 0)
+	hint.Position = UDim2.fromScale(0.5, 0.76)
+	hint.Size = UDim2.fromScale(1.6, 0.24)
+	hint.Font = Theme.font
+	hint.TextScaled = true
+	hint.TextColor3 = Theme.white
+	local hs = Instance.new("UIStroke")
+	hs.Thickness = 2
+	hs.Color = Theme.ink
+	hs.Parent = hint
+	hint.Parent = gui
+	gui.Parent = me:WaitForChild("PlayerGui")
+	return { gui = gui, ring = ring, fill = fill, hint = hint }
+end
+
+local function drawReticle()
+	local cam = workspace.CurrentCamera
+	local t = if aiming() then locked else nil
+	if not t and holdsRay(me) and not aiming() then
+		t = pickAuto() -- the target you'd hit: the ring shows it before you shoot
+	end
+	if not reticle then
+		reticle = makeReticle()
+	end
+	local r = reticle :: { gui: BillboardGui, ring: Frame, fill: Frame, hint: TextLabel }
+	if not t or not cam then
+		r.gui.Enabled = false
+		r.gui.Adornee = nil
 		return
 	end
-	local sparkle = Instance.new("ParticleEmitter")
-	sparkle.Color = ColorSequence.new(Theme.fx.frost)
-	sparkle.Rate = R.sparkleRate
-	sparkle.Speed = NumberRange.new(2, 4)
-	sparkle.Lifetime = NumberRange.new(0.3, 0.5)
-	sparkle.SpreadAngle = Vector2.new(180, 180)
-	sparkle.Size = NumberSequence.new(0.3)
-	sparkle.Parent = target
-	-- raise the right arm toward the target (the Animator only moves Transform, so C0 stays ours)
-	local shoulder = me.Character and me.Character:FindFirstChild("RightShoulder", true)
-	local c0: CFrame? = nil
-	if shoulder and shoulder:IsA("Motor6D") then
-		c0 = shoulder.C0
-		shoulder.C0 = shoulder.C0 * CFrame.Angles(math.rad(R.armRaise), 0, 0)
+	local short = math.min(cam.ViewportSize.X, cam.ViewportSize.Y)
+	local px = A.reticle * short
+	r.gui.Size = UDim2.fromOffset(px, px * 1.35)
+	r.gui.Adornee = t.part
+	r.gui.Enabled = true
+	local meter = (t.part:GetAttribute("Meter") or 0) :: number
+	local pulse = if aiming() then 1 else 1 + 0.08 * math.sin(os.clock() * 5)
+	r.ring.Size = UDim2.fromScale(0.62 * pulse, 0.62 * pulse * (1 / 1.35))
+	r.fill.Size = UDim2.fromScale(meter, meter)
+	local stroke = r.ring:FindFirstChildOfClass("UIStroke") :: UIStroke
+	stroke.Color = if t.kind == "player" then Theme.round5.reticlePlayer elseif t.kind == "critter" then Theme.round5.critter else Theme.round5.reticle
+	-- teach by showing: a two-word hint until you've frozen a few pets
+	local v = State.view
+	r.hint.Visible = not aiming() and v ~= nil and v.stats.frozen < 5
+	r.hint.Text = hintText()
+end
+
+-- ---------- what other controllers read ----------
+-- how frozen this target looks (nil when it has no ice): every player's freeze, from the server's meter
+function RayController.freezeOf(root: BasePart): Freeze?
+	local m = root:GetAttribute("Meter")
+	local f = looks[root]
+	if typeof(m) ~= "number" or m <= 0 then
+		if f and f.p > 0.01 then
+			f.u = 0
+			return f -- eases back down
+		end
+		looks[root] = nil
+		return nil
 	end
-	active = {
-		beams = { beam(tip, target, R.beamGlow, Theme.fx.beamGlow, 0.5), beam(tip, target, R.beamCore, Theme.fx.beamCore, 0.05) },
-		sparkle = sparkle,
-		prompt = prompt,
-		shoulder = if shoulder and shoulder:IsA("Motor6D") then shoulder else nil,
-		c0 = c0,
-	}
+	if not f then
+		f = { root = root, style = "normal", gun = 1, u = 0, p = 0 }
+		looks[root] = f
+	end
+	local ff = f :: Freeze
+	ff.u = m
+	local style = root:GetAttribute("FreezeStyle")
+	ff.style = if typeof(style) == "string" then style else "normal"
+	return ff
+end
+
+-- the target I'm shooting right now (nil when none)
+function RayController.current(): Freeze?
+	return if locked and aiming() then RayController.freezeOf(locked.part) else nil
+end
+
+-- the "too warm for your gun" shake: a small side wiggle (radians) while it lasts, 0 otherwise
+function RayController.shakeOf(root: BasePart, reduced: boolean): number
+	local untilT = shakes[root]
+	local left = if untilT then untilT - os.clock() else 0
+	if left <= 0 then
+		return 0
+	end
+	local S = Config.guns.tooWarmShake
+	return math.sin(os.clock() * S.speed) * S.amp * (left / S.seconds) * (if reduced then 0.5 else 1)
+end
+
+local function petRoot(id: any): BasePart?
+	local wild = workspace:FindFirstChild("WildPets")
+	if typeof(id) ~= "string" or not wild then
+		return nil
+	end
+	for _, r in wild:GetChildren() do
+		if r:IsA("BasePart") and r:GetAttribute("PetId") == id then
+			return r
+		end
+	end
+	return nil
+end
+
+local function update(dt: number)
+	updateAim()
+	drawBeams()
+	drawReticle()
+	-- every look eases toward its meter (the server sends it in steps)
+	for root, f in looks do
+		f.p += (f.u - f.p) * math.min(1, dt * 10)
+	end
+end
+
+-- arm poses, every physics step: the right arm points the gun forward while the gun is in the hand,
+-- and both arms hold the cubes out in front while someone carries. Classic rigs use a Motor6D (we turn
+-- its C0; the Animator only moves Transform). Newer avatars use an AnimationConstraint, which only
+-- follows its Transform, so we overwrite that after the Animator (only while posing). Both turn round
+-- the torso's own side axis, so the arm swings forward whatever angle the joint is set at.
+-- A posed arm is held still (owner 2026-11-03: walking with a cube looked strange): the walk
+-- animation's swing is cleared from its shoulder, elbow and wrist, so the hands stay on the cube and
+-- the gun stays level; the cubes are welded to the torso, so they bob and lean with the body.
+local function poseArms()
+	local carriers: { [number]: boolean } = {}
+	local cubes = workspace:FindFirstChild("Cubes")
+	if cubes then
+		for _, c in cubes:GetChildren() do
+			local owner = c:GetAttribute("OwnerUserId")
+			if typeof(owner) == "number" then
+				carriers[owner] = true
+			end
+		end
+	end
+	for _, p in Players:GetPlayers() do
+		local character = p.Character
+		if not character then
+			continue
+		end
+		local carrying = carriers[p.UserId] == true
+		local holding = guns[character] ~= nil -- the gun arm stays up while the gun is in the hand, not only while shooting
+		for _, side in { "Right", "Left" } do
+			local joint = character:FindFirstChild(side .. "Shoulder", true)
+			local angle = if carrying then Config.carry.armRaise elseif side == "Right" and holding then R.armRaise else 0
+			local turn = CFrame.Angles(math.rad(angle), 0, 0)
+			if joint and joint:IsA("Motor6D") then
+				local base = baseC0[joint]
+				if not base then
+					base = joint.C0
+					baseC0[joint] = base
+				end
+				local b = base :: CFrame
+				joint.C0 = CFrame.new(b.Position) * turn * b.Rotation
+			elseif joint and joint:IsA("AnimationConstraint") and angle ~= 0 and joint.Attachment0 then
+				local r = joint.Attachment0.CFrame.Rotation
+				joint.Transform = r:Inverse() * turn * r
+			end
+			if angle ~= 0 then
+				if joint and joint:IsA("Motor6D") then
+					joint.Transform = CFrame.identity
+				end
+				for _, part in { "Elbow", "Wrist" } do
+					local j = character:FindFirstChild(side .. part, true)
+					if j and (j:IsA("Motor6D") or j:IsA("AnimationConstraint")) then
+						j.Transform = CFrame.identity
+					end
+				end
+			end
+		end
+	end
+end
+
+local function isAimKey(k: Enum.KeyCode): boolean
+	return table.find(A.keys, k) ~= nil
 end
 
 function RayController.Init() end
@@ -146,19 +695,67 @@ function RayController.Start()
 		watchPlayer(p)
 	end
 	Players.PlayerAdded:Connect(watchPlayer)
-	ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt: ProximityPrompt)
-		if prompt.ActionText == "Freeze" then
-			start(prompt)
+	RunService.Stepped:Connect(poseArms) -- after the Animator, before physics
+	RunService.RenderStepped:Connect(update)
+	-- shooting: hold the mouse or a finger on a target; E / R2 aim at the nearest one in front
+	UserInputService.InputBegan:Connect(function(input: InputObject, processed: boolean)
+		if processed or UserInputService:GetFocusedTextBox() then
+			return
+		end
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			pointer = { pos = Vector2.new(input.Position.X, input.Position.Y), touch = nil }
+		elseif input.UserInputType == Enum.UserInputType.Touch and not pointer then
+			pointer = { pos = Vector2.new(input.Position.X, input.Position.Y), touch = input }
+		elseif isAimKey(input.KeyCode) then
+			autoAim = true
 		end
 	end)
-	ProximityPromptService.PromptButtonHoldEnded:Connect(function(prompt: ProximityPrompt)
-		if active and active.prompt == prompt then
-			stop()
+	UserInputService.InputChanged:Connect(function(input: InputObject)
+		local pt = pointer
+		if not pt then
+			return
+		end
+		if (input.UserInputType == Enum.UserInputType.MouseMovement and not pt.touch) or input == pt.touch then
+			pt.pos = Vector2.new(input.Position.X, input.Position.Y)
 		end
 	end)
-	ProximityPromptService.PromptHidden:Connect(function(prompt: ProximityPrompt)
-		if active and active.prompt == prompt then
-			stop()
+	UserInputService.InputEnded:Connect(function(input: InputObject)
+		local pt = pointer
+		if pt and ((input.UserInputType == Enum.UserInputType.MouseButton1 and not pt.touch) or input == pt.touch) then
+			pointer = nil
+		elseif isAimKey(input.KeyCode) then
+			autoAim = false
+		end
+	end)
+	State.Notify:Connect(function(kind: string, data: any)
+		if kind == "frozen" then
+			locked = nil -- the cube shut: hold on to pick the next one
+		elseif kind == "tagged" and typeof(data) == "table" then
+			-- ray-tag: this client owns its character's physics, so it lies the Humanoid down (the server
+			-- loosened the joints) and gets up again when the tumble ends
+			locked = nil
+			local c = me.Character
+			local hum = c and c:FindFirstChildOfClass("Humanoid")
+			local hrp = c and c:FindFirstChild("HumanoidRootPart")
+			if hum and hrp and hrp:IsA("BasePart") then
+				hum:ChangeState(Enum.HumanoidStateType.Physics)
+				hrp:ApplyImpulse((hrp.CFrame.LookVector * -6 + Vector3.new(0, 10, 0)) * hrp.AssemblyMass)
+				task.delay(if typeof(data.seconds) == "number" then data.seconds else Config.tag.ragdollSeconds, function()
+					if hum.Parent then
+						hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+					end
+				end)
+			end
+		elseif kind == "tooWarm" and typeof(data) == "table" then
+			-- this gun can't freeze that island's pets: no beam, the pet shakes a little
+			local root = petRoot(data.id)
+			if root then
+				shakes[root] = os.clock() + Config.guns.tooWarmShake.seconds
+				skip[root] = os.clock() + 1.5
+				if locked and locked.part == root then
+					locked = nil
+				end
+			end
 		end
 	end)
 end

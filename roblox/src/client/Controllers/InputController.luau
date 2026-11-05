@@ -1,6 +1,7 @@
 --!strict
 -- InputController: the one owner of input. Movement is Roblox's own (WASD, thumbstick, gamepad stick);
--- freezing is the world's ProximityPrompts (E, a tap on the prompt, gamepad X / A). This adds the menu
+-- shooting the ray is RayController's (hold mouse / finger on a target, or E / R2), the hotbar is
+-- GearController's (1-2, L1 / R1), world prompts open booths and gates (E, a tap, gamepad X). This adds the menu
 -- actions on every input: keyboard shortcuts, gamepad B closes, Y presses Super Freeze, Select picks
 -- the menu tiles (GuiService.SelectedObject). Other controllers listen to Action.
 

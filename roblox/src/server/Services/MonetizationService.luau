@@ -3,6 +3,9 @@
 -- Super Freeze (15 R$, Rare and up, at most once per run, no timer, Game Plan 15): the cube is
 -- written into the save (superCubes) and saved BEFORE PurchaseGranted. If the pet is gone by the
 -- time the receipt arrives, the player gets a Super Freeze charge instead, so Robux is never lost.
+-- The Shop's Robux tab (owner 2026-11-05, Config.monetization.shop): coin packs and Super Freeze packs
+-- are developer products granted here the same way (saved before PurchaseGranted, receipt ids stop a
+-- double grant); 2x Coins is a game pass, checked with Roblox on join and after buying (PenService).
 
 local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
@@ -16,6 +19,7 @@ local AnalyticsSvc = require(script.Parent.AnalyticsSvc)
 local PlayerTracker = require(script.Parent.PlayerTracker)
 local WildPetSpawner = require(script.Parent.WildPetSpawner)
 local CarryService = require(script.Parent.CarryService)
+local PenService = require(script.Parent.PenService)
 
 local MonetizationService = {}
 
@@ -96,6 +100,83 @@ local function requestSuperFreeze(player: Player, petId: any)
 	MarketplaceService:PromptProductPurchase(player, SF.productId)
 end
 
+-- ---------- the Shop's Robux tab ----------
+local function productItem(productId: number): Config.RobuxItem?
+	if productId == 0 then
+		return nil
+	end
+	for _, item in Config.monetization.shop do
+		if item.kind ~= "pass" and item.productId == productId then
+			return item
+		end
+	end
+	return nil
+end
+
+-- puts one Robux shop product into the save; returns what to tell the player once it's saved.
+-- Coin packs are worth minutes of the income you have right now. Bought coins go straight onto your
+-- coins, not through PenService.addCoins, so they never count on the weekly "coins earned" board.
+local function grantItem(player: Player, item: Config.RobuxItem): { [string]: any }?
+	local d = DataService.get(player)
+	if not d then
+		return nil
+	end
+	local coins = if item.kind == "coins" then Config.robuxCoins(item, PenService.incomePerSecond(d)) else 0
+	local charges = if item.kind == "charges" then item.charges or 0 else 0
+	DataService.mutate(player, function(x)
+		x.coins = math.min(x.coins + coins, 1e15)
+		x.superFreezeCharges = math.min(x.superFreezeCharges + charges, 999)
+	end)
+	return { name = item.name, coins = coins, charges = charges }
+end
+
+local function checkPass(player: Player)
+	local item = Config.robuxItem("doubleCoins")
+	if not item or (item.passId or 0) == 0 then
+		return
+	end
+	local ok, owns = pcall(function()
+		return MarketplaceService:UserOwnsGamePassAsync(player.UserId, item.passId :: number)
+	end)
+	if ok and owns then
+		PenService.setDoubleCoins(player, true)
+	end
+end
+
+local function buyRobux(player: Player, id: any)
+	if not Remotes.isId(id) then
+		return
+	end
+	local item = Config.robuxItem(id)
+	if not item or not DataService.get(player) then
+		return
+	end
+	if item.kind == "pass" then
+		if PenService.hasDoubleCoins(player) then
+			return
+		end
+		if (item.passId or 0) ~= 0 then
+			MarketplaceService:PromptGamePassPurchase(player, item.passId :: number)
+		elseif RunService:IsStudio() then
+			PenService.setDoubleCoins(player, true) -- Studio test until the owner makes the pass (not saved)
+			Remotes.fire(player, "Notify", "robuxBought", { name = item.name, coins = 0, charges = 0 })
+		else
+			Remotes.notYet(player, "Not available yet")
+		end
+		return
+	end
+	if (item.productId or 0) ~= 0 then
+		MarketplaceService:PromptProductPurchase(player, item.productId :: number)
+	elseif RunService:IsStudio() then
+		local note = grantItem(player, item) -- Studio test until the owner makes the product
+		if note and DataService.saveNow(player) then
+			Remotes.fire(player, "Notify", "robuxBought", note)
+		end
+	else
+		Remotes.notYet(player, "Not available yet")
+	end
+end
+
 local function processReceipt(receipt: { [string]: any }): Enum.ProductPurchaseDecision
 	local player = Players:GetPlayerByUserId(receipt.PlayerId)
 	local d = player and DataService.get(player)
@@ -105,6 +186,22 @@ local function processReceipt(receipt: { [string]: any }): Enum.ProductPurchaseD
 	local purchaseId = tostring(receipt.PurchaseId)
 	if table.find(d.receipts, purchaseId) then
 		return Enum.ProductPurchaseDecision.PurchaseGranted -- already granted (a retry)
+	end
+	local item = productItem(receipt.ProductId)
+	if item then
+		local note = grantItem(player, item)
+		DataService.mutate(player, function(x)
+			table.insert(x.receipts, purchaseId)
+			while #x.receipts > Config.data.receiptsKept do
+				table.remove(x.receipts, 1)
+			end
+		end)
+		if not note or not DataService.saveNow(player) then
+			return Enum.ProductPurchaseDecision.NotProcessedYet -- not saved: Roblox asks again, the receipt id stops a double grant
+		end
+		Remotes.fire(player, "Notify", "robuxBought", note)
+		AnalyticsSvc.event(player, "offer_bought", { offer = item.id, robux = item.robux })
+		return Enum.ProductPurchaseDecision.PurchaseGranted
 	end
 	if receipt.ProductId ~= SF.productId or SF.productId == 0 then
 		return Enum.ProductPurchaseDecision.NotProcessedYet
@@ -128,10 +225,28 @@ function MonetizationService.Init() end
 function MonetizationService.Start()
 	MarketplaceService.ProcessReceipt = processReceipt
 	Remotes.on("RequestSuperFreeze", requestSuperFreeze)
+	Remotes.on("BuyRobux", buyRobux)
 	Players.PlayerAdded:Connect(loadPolicy)
 	for _, p in Players:GetPlayers() do
 		task.spawn(loadPolicy, p)
 	end
+	-- 2x Coins: asked of Roblox once the save is loaded (the flag lives with the save's session)
+	DataService.Loaded:Connect(function(player: Player)
+		task.spawn(checkPass, player)
+	end)
+	for _, p in Players:GetPlayers() do
+		if DataService.get(p) then
+			task.spawn(checkPass, p) -- loaded before this service started
+		end
+	end
+	MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player: Player, passId: number, bought: boolean)
+		local item = Config.robuxItem("doubleCoins")
+		if bought and item and passId == item.passId and passId ~= 0 then
+			PenService.setDoubleCoins(player, true)
+			Remotes.fire(player, "Notify", "robuxBought", { name = item.name, coins = 0, charges = 0 })
+			AnalyticsSvc.event(player, "offer_bought", { offer = item.id, robux = item.robux })
+		end
+	end)
 	Players.PlayerRemoving:Connect(function(p)
 		randomItemsOk[p] = nil
 	end)

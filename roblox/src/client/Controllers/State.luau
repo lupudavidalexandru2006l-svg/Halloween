@@ -16,19 +16,22 @@ export type View = {
 	pages: { Page },
 	gift: { ready: boolean, locked: boolean, streak: number, nextStreak: number, coins: number },
 	forestUnlocked: boolean,
+	reach: number?, -- Round 4 phase 6: islands 1..reach have their gates open
 	welcome: { coins: number, awaySeconds: number, capped: boolean, best: string? }?,
 	settings: { music: boolean, sound: boolean, reducedMotion: boolean, lowGraphics: boolean, unit: string },
 	superFreezeCharges: number,
+	doubleCoins: boolean?, -- owns the 2x Coins game pass (the server checks it with Roblox)
 	stats: { frozen: number, banked: number, melts: number, coinsEarned: number },
 	plot: number?,
 	rebirths: number,
+	seenShows: { [string]: boolean }?, -- shows watched once (SKIP shows after that)
+	pan: { cold: number, look: number }?, -- the pan's Cold Level and Look (Round 4 phase 5; Slots = slots)
 	tester: { mult: number, walk: number, instantFreeze: boolean, noMelt: boolean }?, -- only sent to testers
 }
 
 local State = {}
 State.view = nil :: View?
 State.ranks = {} :: { [string]: number }
-State.odds = {} :: { [string]: { [string]: number } }
 
 local changed = Instance.new("BindableEvent")
 local notify = Instance.new("BindableEvent")
@@ -71,9 +74,6 @@ function State.connect(data: RemoteEvent, note: RemoteEvent, rank: RemoteEvent)
 		changed:Fire(v)
 	end)
 	note.OnClientEvent:Connect(function(kind: string, payload: any)
-		if kind == "odds" then
-			State.odds = payload
-		end
 		notify:Fire(kind, payload)
 	end)
 	rank.OnClientEvent:Connect(function(r: { [string]: number })

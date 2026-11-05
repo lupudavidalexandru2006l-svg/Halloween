@@ -60,33 +60,37 @@ local PetDefs: { PetDef } = {
 	pet("mapleguard_bear", "Mapleguard Bear", 2, "Legendary", "Quadruped", "L", "b51f2c"),
 	pet("bloomhorn_stag", "Bloomhorn Stag", 2, "Mythic", "Custom", "M", "d6286f", { "Antlers", "Hooves", "LeafEmblem" }),
 	pet("glowshroom_mammoth", "Glowshroom Mammoth", 2, "Secret", "Custom", "M", "1f5a6a", { "Mushrooms" }),
-	-- Sunny Beach (zone 3): concepts made (4 full size, 4 previews)
-	pet("puffsy", "Puffsy", 3, "Common", "Swimmer", "S", "f07a1e"),
-	pet("starbit", "Starbit", 3, "Common", "Blob", "S", "e0157a"),
-	pet("flopseal", "Flopseal", 3, "Uncommon", "Swimmer", "M", "1f3fd6"),
-	pet("pearlsnail", "Pearlsnail", 3, "Rare", "Blob", "S", "f3cf1c"),
-	pet("glowfin", "Glowfin", 3, "Epic", "Swimmer", "M", "1d7a63", { "Pearl" }),
-	pet("reefback_turtle", "Reefback Turtle", 3, "Legendary", "Swimmer", "L", "e8413a"),
-	pet("prismapus", "Prismapus", 3, "Mythic", "Custom", "M", "7a2fb0", { "TentacleTips", "Gem" }),
-	pet("beacon_orca", "Beacon Orca", 3, "Secret", "Swimmer", "M", "1a1a1a", { "Lamp" }),
-	-- Desert Dunes (zone 4): roster designed, no art yet
-	pet("catcus", "Catcus", 4, "Common", "Quadruped", "S", "3f9a3a"),
-	pet("fenny", "Fenny", 4, "Common", "Quadruped", "S", "f0742a"),
-	pet("lumpkin", "Lumpkin", 4, "Uncommon", "Quadruped", "M", "6a3f22"),
-	pet("scarabit", "Scarabit", 4, "Rare", "Custom", "S", "5a2a9a"),
-	pet("sunfrill", "Sunfrill", 4, "Epic", "Quadruped", "M", "c41f2a", { "Frill" }),
-	pet("dunehorn_ram", "Dunehorn Ram", 4, "Legendary", "Quadruped", "L", "d64f86"),
-	pet("solaris_sphinx", "Solaris Sphinx", 4, "Mythic", "Custom", "M", "e3a81c", { "Wings", "SunGem", "TailTip" }),
-	pet("mirage_manta", "Mirage Manta", 4, "Secret", "Swimmer", "M", "14837f", { "WingDots" }),
-	-- Volcano (zone 5): roster designed, no art yet
-	pet("emberpup", "Emberpup", 5, "Common", "Quadruped", "S", "f37a1b"),
-	pet("magmallow", "Magmallow", 5, "Common", "Blob", "S", "c4204f"),
-	pet("obby", "Obby", 5, "Uncommon", "Quadruped", "M", "26232e"),
-	pet("sizzlemander", "Sizzlemander", 5, "Rare", "Quadruped", "S", "8ccf2a"),
-	pet("flarechick", "Flarechick", 5, "Epic", "Bird", "S", "e0207e", { "Crest" }),
-	pet("geodillo", "Geodillo", 5, "Legendary", "Quadruped", "L", "5b2aa6", { "Geodes", "Crown" }),
-	pet("pyrokoi", "Pyrokoi", 5, "Mythic", "Swimmer", "M", "e8a21c", { "Fins", "Tail" }),
-	pet("lavalamp_jelly", "Lavalamp Jelly", 5, "Secret", "Blob", "M", "2a2f8f", { "Blobs" }),
+	-- Round 4 phase 6 moved the next three rosters to their places on the 10-island ladder (beach 3 -> 4,
+	-- desert 4 -> 6, volcano 5 -> 8). They are designs waiting for the owner's line-up approval: until
+	-- their island is ready (Config.world.islands ready = true) inZone gives nothing, so they never spawn.
+	-- Islands 3, 5, 7, 9 and 10 have roster cards only (vault: Games/Ice Ray for Pets/Pet Roster).
+	-- Sunny Beach (zone 4): concepts made (4 full size, 4 previews)
+	pet("puffsy", "Puffsy", 4, "Common", "Swimmer", "S", "f07a1e"),
+	pet("starbit", "Starbit", 4, "Common", "Blob", "S", "e0157a"),
+	pet("flopseal", "Flopseal", 4, "Uncommon", "Swimmer", "M", "1f3fd6"),
+	pet("pearlsnail", "Pearlsnail", 4, "Rare", "Blob", "S", "f3cf1c"),
+	pet("glowfin", "Glowfin", 4, "Epic", "Swimmer", "M", "1d7a63", { "Pearl" }),
+	pet("reefback_turtle", "Reefback Turtle", 4, "Legendary", "Swimmer", "L", "e8413a"),
+	pet("prismapus", "Prismapus", 4, "Mythic", "Custom", "M", "7a2fb0", { "TentacleTips", "Gem" }),
+	pet("beacon_orca", "Beacon Orca", 4, "Secret", "Swimmer", "M", "1a1a1a", { "Lamp" }),
+	-- Desert Dunes (zone 6): roster designed, no art yet
+	pet("catcus", "Catcus", 6, "Common", "Quadruped", "S", "3f9a3a"),
+	pet("fenny", "Fenny", 6, "Common", "Quadruped", "S", "f0742a"),
+	pet("lumpkin", "Lumpkin", 6, "Uncommon", "Quadruped", "M", "6a3f22"),
+	pet("scarabit", "Scarabit", 6, "Rare", "Custom", "S", "5a2a9a"),
+	pet("sunfrill", "Sunfrill", 6, "Epic", "Quadruped", "M", "c41f2a", { "Frill" }),
+	pet("dunehorn_ram", "Dunehorn Ram", 6, "Legendary", "Quadruped", "L", "d64f86"),
+	pet("solaris_sphinx", "Solaris Sphinx", 6, "Mythic", "Custom", "M", "e3a81c", { "Wings", "SunGem", "TailTip" }),
+	pet("mirage_manta", "Mirage Manta", 6, "Secret", "Swimmer", "M", "14837f", { "WingDots" }),
+	-- Volcano Slopes (zone 8): roster designed, no art yet
+	pet("emberpup", "Emberpup", 8, "Common", "Quadruped", "S", "f37a1b"),
+	pet("magmallow", "Magmallow", 8, "Common", "Blob", "S", "c4204f"),
+	pet("obby", "Obby", 8, "Uncommon", "Quadruped", "M", "26232e"),
+	pet("sizzlemander", "Sizzlemander", 8, "Rare", "Quadruped", "S", "8ccf2a"),
+	pet("flarechick", "Flarechick", 8, "Epic", "Bird", "S", "e0207e", { "Crest" }),
+	pet("geodillo", "Geodillo", 8, "Legendary", "Quadruped", "L", "5b2aa6", { "Geodes", "Crown" }),
+	pet("pyrokoi", "Pyrokoi", 8, "Mythic", "Swimmer", "M", "e8a21c", { "Fins", "Tail" }),
+	pet("lavalamp_jelly", "Lavalamp Jelly", 8, "Secret", "Blob", "M", "2a2f8f", { "Blobs" }),
 }
 
 local byKey: { [string]: PetDef } = {}
@@ -105,8 +109,14 @@ function M.get(key: string): PetDef?
 	return byKey[key]
 end
 
+-- the pets of a zone that can be met in the game: nothing for an island whose pets aren't approved
+-- and finished yet (it waits behind a "Coming soon" gate, never with placeholder pets)
 function M.inZone(zone: number, tier: string?): { PetDef }
 	local out = {}
+	local z = Config.zone(zone)
+	if not z or not z.ready then
+		return out
+	end
 	for _, p in PetDefs do
 		if p.zone == zone and (tier == nil or p.tier == tier) then
 			table.insert(out, p)

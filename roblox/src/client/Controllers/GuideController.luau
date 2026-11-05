@@ -84,8 +84,9 @@ local function freezable(r: Instance, v: State.View?): boolean
 	if typeof(owner) == "number" and owner ~= 0 and owner ~= me.UserId then
 		return false
 	end
-	if r:GetAttribute("Zone") == 2 and not (v and v.forestUnlocked) then
-		return false
+	local zone = r:GetAttribute("Zone")
+	if typeof(zone) == "number" and zone > ((v and v.reach) or 1) then
+		return false -- behind a gate you haven't opened yet
 	end
 	return r:GetAttribute("State") ~= "dazed" or r:GetAttribute("OfferUserId") == me.UserId
 end
@@ -136,7 +137,7 @@ local function step()
 		arrow.Parent = nil
 	end
 	-- marker: the nearest pet just out of reach, while your hands are free
-	local mk = if not holding and not showArrow then nearestPet(pos, Config.player.freezeRange, G.markerRange, nil) else nil
+	local mk = if not holding and not showArrow then nearestPet(pos, Config.gun(me:GetAttribute("GunTier") :: number?).range, G.markerRange, nil) else nil -- just out of your gun's reach
 	if mk then
 		local tier = mk:GetAttribute("Tier")
 		marker.Color = if typeof(tier) == "string" then Theme.tiers[tier] or Theme.white else Theme.white

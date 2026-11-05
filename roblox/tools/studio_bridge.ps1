@@ -28,12 +28,20 @@ $stdin.AutoFlush = $true
 $proc.BeginErrorReadLine()
 
 $script:nextId = 1
-function Send-Rpc([string]$method, $params) {
+$script:pending = $null # a read still waiting from a call that timed out (its late answer is skipped by id)
+function Send-Rpc([string]$method, $params, [int]$timeoutSec = 150) {
     $id = $script:nextId; $script:nextId++
     $msg = @{ jsonrpc = '2.0'; id = $id; method = $method; params = $params } | ConvertTo-Json -Depth 50 -Compress
     $stdin.WriteLine($msg)
+    $deadline = (Get-Date).AddSeconds($timeoutSec)
     while ($true) {
-        $line = $proc.StandardOutput.ReadLine()
+        if (-not $script:pending) { $script:pending = $proc.StandardOutput.ReadLineAsync() }
+        $left = [int]($deadline - (Get-Date)).TotalMilliseconds
+        if ($left -le 0 -or -not $script:pending.Wait($left)) {
+            # one stuck call (e.g. screen_capture with Studio minimised) must not freeze the bridge
+            return (@{ error = "no answer from Studio after $timeoutSec s" } | ConvertTo-Json -Compress)
+        }
+        $line = $script:pending.Result; $script:pending = $null
         if ($null -eq $line) { throw 'StudioMCP closed its output' }
         if ($line -match ('"id"\s*:\s*' + $id + '\b')) { return $line }
     }

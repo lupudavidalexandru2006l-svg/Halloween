@@ -1,13 +1,14 @@
 --!strict
 -- Scenery: the trees (shade) and sun patches, made with the prototype's own random generator
--- (mulberry32, seed in Config.scenery) so they land exactly where they are in the artifact.
--- WorldService turns them into shade/sun areas; MapArt draws the trees on the same spots.
+-- (mulberry32, seed in Config.scenery), per island section of the tunnel; the trees keep to the side
+-- bands so the middle stays open (World Rules 9). WorldService turns them into
+-- shade/sun areas; MapArt draws the trees on the same spots.
 
 local Config = require(script.Parent.Config)
 
 export type Tree = { x: number, z: number, r: number, kind: string }
 export type Sun = { x: number, z: number, r: number }
-export type List = { trees: { Tree }, sun: { Sun } }
+export type List = { trees: { Tree }, sun: { Sun }, lava: { Sun } } -- lava pools (hot islands, Round 4 phase 6)
 
 local Scenery = {}
 
@@ -34,33 +35,85 @@ end
 
 local cached: List? = nil
 
--- prototype config.js buildScenery(), step for step (the order of the random calls matters)
+-- each open island's trees and sun patches, spread over its own section of the tunnel. The order of
+-- the random calls is fixed (island by island, trees then sun), so the map is the same every time,
+-- and adding an island at the end never moves the ones before it.
 function Scenery.get(): List
 	if cached then
 		return cached
 	end
-	local S = Config.scenery
+	local S, W = Config.scenery, Config.world
 	local r = Scenery.rng(S.seed)
 	local trees: { Tree } = {}
 	local sun: { Sun } = {}
-	local function clear(x: number, z: number): boolean
-		return math.abs(x) < S.pathHalfWidth or (z > S.riverClear[1] and z < S.riverClear[2])
-	end
-	for _, band in S.bands do
-		for _ = 1, band.trees do
-			local x = band.x[1] + r() * (band.x[2] - band.x[1])
-			local z = band.z[1] + r() * (band.z[2] - band.z[1])
-			if not clear(x, z) then
-				table.insert(trees, { x = x, z = z, r = band.r[1] + r() * (band.r[2] - band.r[1]), kind = band.kind })
+	local lava: { Sun } = {}
+	local half = W.tunnel.width / 2 - S.wallMargin
+	local open = 0
+	for _, isl in W.islands do
+		if not isl.open then
+			continue
+		end
+		open += 1
+		local zone = W.zones[open]
+		local z0, z1 = zone.zMin + S.startClear, zone.zMax - S.gateClear
+		local s = isl.sun
+		if s then
+			for _ = 1, s.count do
+				local x = -half + 4 + r() * (half * 2 - 8)
+				local z = z0 + 10 + r() * (z1 - z0 - 10)
+				table.insert(sun, { x = x, z = z, r = s.r[1] + r() * (s.r[2] - s.r[1]) })
 			end
 		end
-		for _ = 1, band.sun do
-			local x = band.sunX[1] + r() * (band.sunX[2] - band.sunX[1])
-			local z = band.sunZ[1] + r() * (band.sunZ[2] - band.sunZ[1])
-			table.insert(sun, { x = x, z = z, r = band.sunR[1] + r() * (band.sunR[2] - band.sunR[1]) })
+		-- lava pools beside the path (never on it: the path stays a safe way through), clear of each other
+		local first = #lava + 1
+		local l = isl.lava
+		if l then
+			for _ = 1, l.count do
+				local rad = l.r[1] + r() * (l.r[2] - l.r[1])
+				for _ = 1, 8 do
+					local side = if r() < 0.5 then -1 else 1
+					local x = side * (S.pathHalfWidth + 2 + rad + r() * math.max(0, half - S.pathHalfWidth - 4 - rad * 2))
+					local z = z0 + 10 + r() * (z1 - z0 - 10)
+					local ok = true
+					for _, p in lava do
+						if (p.x - x) ^ 2 + (p.z - z) ^ 2 < (p.r + rad + 3) ^ 2 then
+							ok = false
+						end
+					end
+					if ok then
+						table.insert(lava, { x = x, z = z, r = rad })
+						break
+					end
+				end
+			end
+		end
+		-- shade trees in the side bands only (S.treeBand to the walls): the middle, where pets are easiest to
+		-- spot, stays open (World Rules 9). A few tries each for a spot whose shade stays off this island's lava.
+		local t = isl.trees
+		if t then
+			for _ = 1, t.count do
+				local rad = t.r[1] + r() * (t.r[2] - t.r[1])
+				for _ = 1, 6 do
+					local side = if r() < 0.5 then -1 else 1
+					local outer = math.max(S.treeBand, half - rad * 0.5)
+					local x = side * (S.treeBand + r() * (outer - S.treeBand))
+					local z = z0 + r() * (z1 - z0)
+					local ok = true
+					for i = first, #lava do
+						local p = lava[i]
+						if (p.x - x) ^ 2 + (p.z - z) ^ 2 < (p.r + rad) ^ 2 then
+							ok = false
+						end
+					end
+					if ok then
+						table.insert(trees, { x = x, z = z, r = rad, kind = t.kind })
+						break
+					end
+				end
+			end
 		end
 	end
-	cached = { trees = trees, sun = sun }
+	cached = { trees = trees, sun = sun, lava = lava }
 	return cached :: List
 end
 

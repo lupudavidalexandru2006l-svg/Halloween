@@ -13,6 +13,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Theme = require(ReplicatedStorage.Shared.Theme)
 local WorldRules = require(ReplicatedStorage.Shared.WorldRules)
+local WorldText = require(ReplicatedStorage.Shared.WorldText)
 local Remotes = require(script.Parent.Remotes)
 local DataService = require(script.Parent.DataService)
 local WorldService = require(script.Parent.WorldService)
@@ -125,18 +126,21 @@ local function draw(index: number, board: Board, rows: { Row })
 	if not part then
 		return
 	end
+	local B = Config.worldText.board
 	local sg = part:FindFirstChild("Board") :: SurfaceGui?
 	if not sg then
-		local g = Instance.new("SurfaceGui")
-		g.Name = "Board"
-		g.Face = Enum.NormalId.Front
-		g.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-		g.PixelsPerStud = 30
+		local g = WorldText.surface(part, "Board")
 		local frame = Instance.new("Frame")
 		frame.Name = "List"
 		frame.Size = UDim2.fromScale(1, 1)
 		frame.BackgroundColor3 = Theme.board
 		frame.Parent = g
+		local pad = Instance.new("UIPadding")
+		pad.PaddingLeft = UDim.new(0.05, 0)
+		pad.PaddingRight = UDim.new(0.05, 0)
+		pad.PaddingTop = UDim.new(0.02, 0)
+		pad.PaddingBottom = UDim.new(0.02, 0)
+		pad.Parent = frame
 		local layout = Instance.new("UIListLayout")
 		layout.SortOrder = Enum.SortOrder.LayoutOrder
 		layout.Parent = frame
@@ -145,37 +149,38 @@ local function draw(index: number, board: Board, rows: { Row })
 	end
 	local frame = (sg :: SurfaceGui):FindFirstChild("List") :: Frame
 	for _, c in frame:GetChildren() do
-		if c:IsA("TextLabel") then
+		if c:IsA("Frame") then
 			c:Destroy()
 		end
 	end
 	local lines = 2 + LB.size
-	local function line(order: number, text: string, color: Color3)
-		local t = Instance.new("TextLabel")
-		t.LayoutOrder = order
-		t.Size = UDim2.fromScale(1, 1 / lines)
-		t.BackgroundTransparency = 1
-		t.TextScaled = true
-		t.Font = Theme.font
-		t.TextColor3 = color
-		t.Text = text
-		local stroke = Instance.new("UIStroke")
-		stroke.Color = Theme.ink
-		stroke.Thickness = 2
-		stroke.Parent = t
-		t.Parent = frame
+	-- one row: the name on the left, the score on the right (lined up in a column), one size per role
+	local function line(order: number, left: string, right: string, color: Color3, studs: number, centred: boolean?)
+		local row = Instance.new("Frame")
+		row.Name = "Row" .. order
+		row.LayoutOrder = order
+		row.Size = UDim2.fromScale(1, 1 / lines)
+		row.BackgroundTransparency = 1
+		row.Parent = frame
+		local l = WorldText.label(row, left, WorldText.px(studs), color, true, UDim2.fromScale(if centred then 1 else 0.7, 1))
+		l.TextXAlignment = if centred then Enum.TextXAlignment.Center else Enum.TextXAlignment.Left
+		l.TextTruncate = Enum.TextTruncate.AtEnd
+		if right ~= "" then
+			local r = WorldText.label(row, right, WorldText.px(studs), color, true, UDim2.fromScale(0.3, 1), UDim2.fromScale(0.7, 0))
+			r.TextXAlignment = Enum.TextXAlignment.Right
+		end
 	end
-	line(0, board.title, Theme.coin)
+	line(0, board.title, "", Theme.coin, B.title, true)
 	for i, r in rows do
 		if i > LB.size then
 			break
 		end
-		line(i, `{i}. {displayName(r.userId)}   {scoreText(board, r.score)}`, Theme.white)
+		line(i, `{i}. {displayName(r.userId)}`, scoreText(board, r.score), if i <= LB.weeklyTopReward then Theme.coin else Theme.white, B.row)
 	end
 	if #rows == 0 then
-		line(1, "Be the first!", Theme.white)
+		line(1, "Be the first!", "", Theme.white, B.row, true)
 	end
-	line(LB.size + 1, if board.kind == "weekly" then LB.weeklyResetLabel else "All time", Theme.ice)
+	line(LB.size + 1, if board.kind == "weekly" then LB.weeklyResetLabel else "All time", "", Theme.ice, B.footer, true)
 end
 
 local function refresh()

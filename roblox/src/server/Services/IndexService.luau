@@ -20,6 +20,9 @@ end
 function IndexService.pages(found: { [string]: boolean }): { Page }
 	local out: { Page } = {}
 	for _, z in Config.world.zones do
+		if not z.ready then
+			continue -- an island behind a "Coming soon" gate gets its page with its pets (Round 4 phase 6)
+		end
 		local page: Page = { zone = z.id, found = 0, total = 0, complete = false, secretFound = false }
 		for _, def in PetDefs.inZone(z.id) do
 			if isRegular(def) then

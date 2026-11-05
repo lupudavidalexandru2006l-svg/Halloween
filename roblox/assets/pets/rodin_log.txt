@@ -1,0 +1,6 @@
+11:06:58 start, key type: free trial
+11:07:01 waddles: ERROR submit refused: {"error": "API_INSUFFICIENT_FUNDS", "message": "The fund in your wallet is insufficient to perform this operation."}
+11:07:01 finished
+11:16:10 start: tripo, 1 pets
+11:16:14 waddles: ERROR refused: Tripo code 2010: You don't have enough credit to create this task
+11:16:14 finished

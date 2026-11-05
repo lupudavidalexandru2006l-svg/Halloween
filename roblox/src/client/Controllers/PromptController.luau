@@ -2,7 +2,10 @@
 -- PromptController: draws every world prompt (they use ProximityPromptStyle.Custom) as a Chunky Pop
 -- block floating on its object: what it is, what it does, the key (E / X / Hold) and a hold bar.
 -- On touch the block itself is the hold button. The server still decides what a prompt does.
--- Also hides prompts that can't do anything for you right now (open gate, gift before the first bank).
+-- Also hides prompts that can't do anything for you right now (open gate, gift before the first bank,
+-- another player's Pan Upgrades), and runs the booth prompts (Round 4 phase 2: each booth opens what
+-- it can so far; its own feature comes in a later phase).
+
 
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local TweenService = game:GetService("TweenService")
@@ -12,6 +15,8 @@ local Theme = require(ReplicatedStorage.Shared.Theme)
 local Ui = require(script.Parent.Parent.Lib.Ui)
 local State = require(script.Parent.State)
 local InputController = require(script.Parent.InputController)
+local PopupController = require(script.Parent.PopupController)
+local Screen = require(script.Parent.Screen)
 
 local PromptController = {}
 local playerGui: Instance
@@ -34,57 +39,102 @@ local function show(prompt: ProximityPrompt)
 	local short = if cam then math.min(cam.ViewportSize.X, cam.ViewportSize.Y) else 720
 	local ps = Config.ui.promptSize
 	gui.Size = UDim2.fromOffset(ps[1] * short, ps[2] * short)
-	gui.StudsOffset = Vector3.new(0, 2, 0)
+	gui.StudsOffset = Vector3.new(0, Config.ui.promptLift, 0) -- on the pet, just over its head (it floated well above before)
 	gui.Adornee = prompt.Parent :: any
 	gui.Active = true
-	-- the prototype's white card: dark text, the key in a small outlined box, a hold bar in the action's colour
-	local b = Ui.block(gui, "Block", Theme.white, "", nil)
-	b.root.Size = UDim2.fromScale(1, 1)
-	b.text.TextColor3 = Theme.ink
-	local textStroke = b.text:FindFirstChildOfClass("UIStroke")
-	if textStroke then
-		textStroke.Enabled = false
+	-- a pill in the action's colour (owner 2026-10-31: the white card was "buns"): a white key badge,
+	-- the action big in white, what it's on small under it, and the hold filling the pill left to right
+	-- see-through, so the pet under it stays in view (owner 2026-10-31). A CanvasGroup fades the pill
+	-- as one layer (fading face and lip apart went dark where they overlap); the words and key sit on
+	-- an overlay outside it and stay solid. The margin keeps the outline from being clipped.
+	local m = Config.ui.stroke + 1
+	local fade = Instance.new("CanvasGroup")
+	fade.Name = "Fade"
+	fade.BackgroundTransparency = 1
+	fade.Position = UDim2.fromOffset(-m, -m)
+	fade.Size = UDim2.new(1, 2 * m, 1, 2 * m)
+	fade.GroupTransparency = Config.ui.promptFade
+	fade.Parent = gui
+	local b = Ui.block(fade, "Block", color(prompt), "", nil)
+	b.root.Position = UDim2.fromOffset(m, m)
+	b.root.Size = UDim2.new(1, -2 * m, 1, -2 * m)
+	local top = Instance.new("TextButton") -- the face's twin above the fade: the words, the key, the touch target
+	top.Name = "Top"
+	top.Text = ""
+	top.AutoButtonColor = false
+	top.BackgroundTransparency = 1
+	top.Size = b.face.Size
+	top.Parent = gui
+	b.face:GetPropertyChangedSignal("Size"):Connect(function()
+		top.Size = b.face.Size
+	end)
+	b.text.Parent = top
+	for _, part in { b.root, b.face } do
+		local c = part:FindFirstChildOfClass("UICorner") :: UICorner
+		c.CornerRadius = UDim.new(0.5, 0)
 	end
-	b.text.Size = UDim2.fromScale(0.68, 0.7)
-	b.text.Position = UDim2.fromScale(0.29, 0.1)
-	b.text.Text = if prompt.ObjectText ~= "" then `{prompt.ActionText} {prompt.ObjectText}` else prompt.ActionText
+	local bar = Instance.new("Frame") -- under the text, over the face's colour
+	bar.Name = "Hold"
+	bar.BackgroundColor3 = Theme.white
+	bar.BackgroundTransparency = Config.ui.promptHoldFill
+	bar.BorderSizePixel = 0
+	bar.Size = UDim2.fromScale(0, 1)
+	bar.ZIndex = 0
+	Ui.corner(bar, 0.5)
+	bar.Parent = b.face
 	local keyBox = Instance.new("Frame")
 	keyBox.Name = "Key"
-	keyBox.BackgroundColor3 = Theme.ice
-	keyBox.Size = UDim2.fromScale(0.2, 0.62)
-	keyBox.Position = UDim2.fromScale(0.05, 0.14)
-	Ui.corner(keyBox, 0.25)
+	keyBox.BackgroundColor3 = Theme.white
+	keyBox.AnchorPoint = Vector2.new(0, 0.5)
+	keyBox.Position = UDim2.fromScale(0.04, 0.5)
+	keyBox.Size = UDim2.fromScale(0.5, 0.74)
+	local ka = Instance.new("UIAspectRatioConstraint")
+	ka.Parent = keyBox
+	Ui.corner(keyBox, 0.5)
 	Ui.stroke(keyBox, 2)
-	keyBox.Parent = b.face
-	local key = Ui.label(keyBox, InputController.keyHint(prompt), UDim2.fromScale(0.8, 0.8), UDim2.fromScale(0.1, 0.1))
-	key.TextColor3 = Theme.ink
-	local keyStroke = key:FindFirstChildOfClass("UIStroke")
-	if keyStroke then
-		keyStroke.Enabled = false
+	keyBox.Parent = top
+	local key = Ui.inkLabel(keyBox, InputController.keyHint(prompt), UDim2.fromScale(0.8, 0.7), UDim2.fromScale(0.1, 0.15))
+	local function fitKey()
+		ka.AspectRatio = if #key.Text > 1 then 1.5 else 1 -- "Tap" / "Hold" on touch gets a wider badge
+		-- the words start right after the badge, so a wide badge never covers them (final QA 2026-11-03:
+		-- on a phone "Tap" hid the "Up" of "Upgrade" and the "Op" of "Open")
+		local x = 0.04 + 0.74 * ka.AspectRatio * ps[2] / ps[1] + 0.03
+		for _, t in { b.text, top:FindFirstChild("What") } do
+			if t and t:IsA("GuiObject") then
+				t.Position = UDim2.fromScale(x, t.Position.Y.Scale)
+				t.Size = UDim2.fromScale(0.97 - x, t.Size.Y.Scale)
+			end
+		end
 	end
-	local bar = Instance.new("Frame")
-	bar.Name = "Hold"
-	bar.BackgroundColor3 = color(prompt)
-	bar.BackgroundTransparency = 0
-	bar.BorderSizePixel = 0
-	bar.Size = UDim2.fromScale(0, 0.12)
-	bar.Position = UDim2.fromScale(0, 0.88)
-	bar.Parent = b.face
+	b.text.Text = prompt.ActionText
+	b.text.TextXAlignment = Enum.TextXAlignment.Left
+	local hasObject = prompt.ObjectText ~= ""
+	b.text.Size = UDim2.fromScale(0.62, if hasObject then 0.5 else 0.7)
+	b.text.Position = UDim2.fromScale(0.33, if hasObject then 0.08 else 0.15)
+	if hasObject then
+		local what = Ui.label(top, prompt.ObjectText, UDim2.fromScale(0.62, 0.32), UDim2.fromScale(0.33, 0.57))
+		what.Name = "What"
+		what.TextXAlignment = Enum.TextXAlignment.Left
+		what.TextTransparency = 0.1
+	end
+	fitKey()
+	gui.Enabled = not Screen.menuHidden -- a shop is open: its booth's pill stays out of the way
 	gui.Parent = playerGui
 	local conns: { RBXScriptConnection } = {}
 	-- touch and mouse: the block is the hold button
-	table.insert(conns, b.face.InputBegan:Connect(function(input: InputObject)
+	table.insert(conns, top.InputBegan:Connect(function(input: InputObject)
 		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
 			prompt:InputHoldBegin()
 		end
 	end))
-	table.insert(conns, b.face.InputEnded:Connect(function(input: InputObject)
+	table.insert(conns, top.InputEnded:Connect(function(input: InputObject)
 		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
 			prompt:InputHoldEnd()
 		end
 	end))
 	table.insert(conns, InputController.DeviceChanged:Connect(function()
 		key.Text = InputController.keyHint(prompt)
+		fitKey()
 	end))
 	shown[prompt] = { gui = gui, bar = bar, conns = conns }
 end
@@ -106,15 +156,28 @@ local function refreshWorldPrompts(v: State.View)
 	if not map then
 		return
 	end
-	local gate = map:FindFirstChild("GatePromptSpot", true)
-	local gp = gate and gate:FindFirstChildWhichIsA("ProximityPrompt", true)
-	if gp then
-		gp.Enabled = not v.forestUnlocked
+	-- every island's gate (Round 4 phase 6): only the next one you can open asks you to pay
+	local reach = v.reach or 1
+	for _, z in Config.world.zones do
+		local gate = if z.id > 1 then map:FindFirstChild("GatePromptSpot" .. z.id, true) else nil
+		local gp = gate and gate:FindFirstChildWhichIsA("ProximityPrompt", true)
+		if gp then
+			gp.Enabled = z.ready and z.id == reach + 1
+		end
 	end
 	local gift = map:FindFirstChild("GiftBox", true)
 	local gift_p = gift and gift:FindFirstChildWhichIsA("ProximityPrompt", true)
 	if gift_p then
 		gift_p.Enabled = v.gift.ready
+	end
+	-- Pan Upgrades: only at your own pan
+	for i in Config.world.plots do
+		local plot = map:FindFirstChild("Plot" .. i)
+		local stand = plot and plot:FindFirstChild("PanUpgrade")
+		local pp = stand and stand:FindFirstChildWhichIsA("ProximityPrompt", true)
+		if pp then
+			pp.Enabled = v.plot == i
+		end
 	end
 end
 
@@ -129,20 +192,80 @@ function PromptController.Start()
 		end
 	end)
 	ProximityPromptService.PromptHidden:Connect(hide)
+	Screen.MenuHiddenChanged:Connect(function(hidden: boolean)
+		for _, s in shown do
+			s.gui.Enabled = not hidden
+		end
+		-- the ProximityPrompt itself still listens for its key: a press with the shop open would reopen it
+		ProximityPromptService.Enabled = not hidden
+	end)
 	ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt: ProximityPrompt)
 		local s = shown[prompt]
 		if s then
-			s.bar.Size = UDim2.fromScale(0, 0.12)
-			TweenService:Create(s.bar, TweenInfo.new(prompt.HoldDuration, Enum.EasingStyle.Linear), { Size = UDim2.fromScale(1, 0.12) }):Play()
+			s.bar.Size = UDim2.fromScale(0, 1)
+			if prompt.ActionText ~= "Freeze" and prompt.ActionText ~= "Zap" then -- a freeze's bar follows the freeze (below)
+				TweenService:Create(s.bar, TweenInfo.new(prompt.HoldDuration, Enum.EasingStyle.Linear), { Size = UDim2.fromScale(1, 1) }):Play()
+			end
 		end
 	end)
+	-- (Round 5: pets are shot, not prompted; RayController's aim ring shows how frozen a target is)
 	ProximityPromptService.PromptButtonHoldEnded:Connect(function(prompt: ProximityPrompt)
 		local s = shown[prompt]
 		if s then
-			TweenService:Create(s.bar, TweenInfo.new(0.1), { Size = UDim2.fromScale(0, 0.12) }):Play()
+			TweenService:Create(s.bar, TweenInfo.new(0.1), { Size = UDim2.fromScale(0, 1) }):Play()
 		end
 	end)
 	State.Changed:Connect(refreshWorldPrompts)
+	-- booths: the prompt card is the way in (no HUD button)
+	ProximityPromptService.PromptTriggered:Connect(function(prompt: ProximityPrompt)
+		local booth = prompt:GetAttribute("Booth")
+		if typeof(booth) ~= "string" then
+			return
+		end
+		-- what it does comes from Config (a prompt in the saved map keeps the attribute it was built with)
+		local action = prompt:GetAttribute("Action")
+		for _, b in Config.world.booths do
+			if b.id == booth then
+				action = b.action
+			end
+		end
+		if booth == "pan" then
+			action = Config.world.panUpgradeAction -- your pan's stand (Round 4 phase 5: the Pan Upgrades popup)
+		end
+		if action == "shop" or action == "equipment" or action == "pan" or action == "sell" or action == "rebirth" then
+			PopupController.open(action)
+			-- a booth's buttons only work at the booth (the server checks its own range), so its popup
+			-- closes when you walk away (final QA 2026-11-03: Buy far away did nothing, with no answer)
+			local range = ({ equipment = Config.guns.boothRange, sell = Config.sell.boothRange, rebirth = Config.rebirth.boothRange, pan = Config.pan.standRange } :: { [string]: number })[action]
+			local at: Vector3? = nil
+			for _, b in Config.world.booths do
+				if b.id == booth then
+					at = b.pos
+				end
+			end
+			local parent = prompt.Parent
+			if not at and parent then
+				at = if parent:IsA("Attachment") then parent.WorldPosition elseif parent:IsA("BasePart") then parent.Position else nil
+			end
+			if range and at then
+				local center, limit = at :: Vector3, range - Config.boothLeaveMargin
+				task.spawn(function()
+					local me = game:GetService("Players").LocalPlayer
+					while PopupController.openName() == action do
+						local root = me.Character and me.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+						if root and Vector2.new(root.Position.X - center.X, root.Position.Z - center.Z).Magnitude > limit then
+							PopupController.close()
+							break
+						end
+						task.wait(0.25)
+					end
+				end)
+			end
+		else
+			State.local_("comingSoon", { label = prompt.ObjectText })
+		end
+	end)
 end
 
 return PromptController
+

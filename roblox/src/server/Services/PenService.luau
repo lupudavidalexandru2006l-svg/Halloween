@@ -7,6 +7,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
+local Theme = require(ReplicatedStorage.Shared.Theme)
 local PetDefs = require(ReplicatedStorage.Shared.PetDefs)
 local WorldRules = require(ReplicatedStorage.Shared.WorldRules)
 local Remotes = require(script.Parent.Remotes)
@@ -26,15 +27,75 @@ local incomeCarry: { [Player]: number } = {}
 local sessionBest: { [Player]: number } = {}
 local dirty: { [Player]: boolean } = {}
 local bankingNow: { [Player]: boolean } = {}
+local bouncedAt: { [Player]: number } = {} -- when a too-hot cube last bounced off this player's pan
 local penShown: { [Player]: { key: string, parts: { [string]: Part } } } = {}
+-- Round 5, the Thaw Machine: banked pets wait in their cubes (not earning yet), the pan's machine(s)
+-- thaw them one at a time, then they wander the pan. Kept for this session only: a waiting cube left
+-- behind when you leave is thawed by your next join (nothing is lost).
+type Thawing = { queue: { string }, active: { [number]: { id: string, endsAt: number, total: number } } }
+local thawing: { [Player]: Thawing } = {}
+local waiting: { [any]: { [string]: boolean } } = {} -- the save's data table -> pet ids still frozen
+-- the save's data table -> owns the 2x Coins game pass. Not saved: Roblox owns the pass, and
+-- MonetizationService asks it on every join (and after a purchase)
+local doubled: { [any]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+local DOUBLE = Config.robuxItem("doubleCoins")
 
--- the pen's pets stand in the player's plot, seen by everyone (prototype syncPen). Each is an
--- invisible anchor with PetKey; clients draw the pet on it (PetVisuals). Rebuilt only when the
--- set of pets in the pen changes; each pet keeps its own spot (seeded by its id).
+-- the pan's pets sit frozen in ice cubes, in a neat grid from the door to the back, seen by everyone.
+-- Each cube is a see-through ice Part with PetKey; clients draw the pet inside it with a little wiggle,
+-- the frost shimmer and the rising coins (PetVisuals). Rebuilt only when the set of pets changes; a pet
+-- keeps its grid spot (the order of the pan's list).
+local function gridSpot(plot: number, n: number): Vector3
+	local G, P = Config.panCubes, Config.world.pans
+	local spot = Config.world.plots[plot]
+	local col, row = (n - 1) % G.cols, (n - 1) // G.cols
+	local x = spot.x + (col - (G.cols - 1) / 2) * G.gap
+	local z = P.frontZ - G.frontMargin - row * G.gap
+	return Vector3.new(x, P.soilHeight + 0.2, z)
+end
+
+-- where Thaw Machine m stands in a pan (also used by MapArt to build it)
+function PenService.machineSpot(plot: number, m: number): Vector3
+	local T, P = Config.thaw, Config.world.pans
+	local spot = Config.world.plots[plot]
+	return Vector3.new(spot.x + T.machine.x + (m - 1) * T.machine.gap, P.soilHeight + 0.2, P.frontZ - P.length + T.machine.z)
+end
+
+-- the k-th waiting cube, lined up along the left fence from the machine toward the door
+local function queueSpot(plot: number, k: number): Vector3
+	local T, P = Config.thaw, Config.world.pans
+	local spot = Config.world.plots[plot]
+	return Vector3.new(spot.x - P.width / 2 + T.queueX, P.soilHeight + 0.2, P.frontZ - P.length + T.machine.z + T.queueFrom + (k - 1) * T.queueGap)
+end
+
+local function machines(d: Data): number
+	return if d.upgrades.pen >= Config.thaw.secondAt then 2 else 1
+end
+
+local function thawSpeed(d: Data): number
+	return Config.thaw.perLevel ^ (d.upgrades.pen - 1)
+end
+
+-- where each waiting pet is: "queue" k, or "machine" m (nil = out and wandering)
+local function thawSpot(player: Player, id: string): (string?, number)
+	local t = thawing[player]
+	if not t then
+		return nil, 0
+	end
+	for m, a in t.active do
+		if a.id == id then
+			return "machine", m
+		end
+	end
+	local k = table.find(t.queue, id)
+	if k then
+		return "queue", k
+	end
+	return nil, 0
+end
+
 local function drawPen(player: Player, d: Data)
 	local plot = WorldService.plotOf(player)
-	local spot = plot and Config.world.plots[plot]
-	if not spot then
+	if not plot then
 		return
 	end
 	local show: { PetEntry } = {}
@@ -45,9 +106,15 @@ local function drawPen(player: Player, d: Data)
 	end
 	local ids = {}
 	for _, p in show do
-		table.insert(ids, p.id)
+		local st, n = thawSpot(player, p.id)
+		table.insert(ids, p.id .. (st or "") .. n)
 	end
-	local key = table.concat(ids, ",")
+	local key = table.concat(ids, ",") .. "|" .. machines(d)
+	local map = workspace:FindFirstChild("Map")
+	local plotPart = map and map:FindFirstChild("Plot" .. plot)
+	if plotPart then
+		plotPart:SetAttribute("Machines", machines(d)) -- clients show the second machine from this
+	end
 	local state = penShown[player] or { key = "", parts = {} }
 	penShown[player] = state
 	if state.key == key then
@@ -56,33 +123,52 @@ local function drawPen(player: Player, d: Data)
 	state.key = key
 	local keep: { [string]: boolean } = {}
 	local folder = WorldService.petsFolder("PenPets")
-	local half, m = Config.world.penSize / 2, Config.pen.displayMargin
+	local outN = 0
 	for _, p in show do
+		local st, k = thawSpot(player, p.id)
+		if st == "queue" and k > Config.thaw.queueShown then
+			continue -- a long line: only the front of it is drawn
+		end
 		keep[p.id] = true
 		local def = PetDefs.get(p.key)
-		if def and not state.parts[p.id] then
-			local h = PetDefs.sizeHeight[def.size]
-			local seed = 0
-			for i = 1, #p.id do
-				seed = (seed * 31 + string.byte(p.id, i)) % 2147483647
-			end
-			local r = Random.new(seed + player.UserId % 100000)
-			local x = spot.x - half.X + m + r:NextNumber() * (half.X * 2 - m * 2)
-			local z = spot.z - half.Z + m + r:NextNumber() * (half.Z * 2 - m * 2)
-			local root = Instance.new("Part")
-			root.Name = "PenPet"
-			root.Size = Vector3.one * h
-			root.CFrame = CFrame.new(x, h / 2 + 0.3, z) * CFrame.Angles(0, (r:NextNumber() - 0.5) * 1.2, 0)
-			root.Anchored = true
-			root.CanCollide = false
-			root.CanQuery = false
-			root.CanTouch = false
-			root.Transparency = 1
-			root:SetAttribute("PetKey", p.key)
-			root:SetAttribute("PenOwner", player.UserId)
-			root:SetAttribute("Mut", p.mut)
-			root.Parent = folder
-			state.parts[p.id] = root
+		local s = if def then math.min(PetDefs.cubeSize[def.size], Config.panCubes.maxSize) else 0
+		local at
+		if st == "machine" then
+			at = PenService.machineSpot(plot, k)
+		elseif st == "queue" then
+			at = queueSpot(plot, k)
+		else
+			outN += 1
+			at = gridSpot(plot, outN) -- its home spot; each client walks it round the pan
+		end
+		local cube = state.parts[p.id]
+		if def and not cube then
+			cube = Instance.new("Part")
+			cube.Name = "PenPet"
+			cube.Size = Vector3.one * s
+			cube.Anchored = true
+			cube.CanCollide = false
+			cube.CanQuery = false
+			cube.CanTouch = false
+			cube.Material = Enum.Material.Glass
+			cube.Color = Theme.ice
+			cube.Transparency = 0.5
+			cube.CastShadow = false
+			cube:SetAttribute("PetKey", p.key)
+			cube:SetAttribute("PenOwner", player.UserId)
+			cube:SetAttribute("Mut", p.mut)
+			cube:SetAttribute("Action", if p.pose == "sleep" then "sleep" else nil) -- frozen asleep, it naps in your pen
+			cube:SetAttribute("Banked", true)
+			cube.Parent = folder
+			state.parts[p.id] = cube
+		end
+		if cube then
+			cube.CFrame = CFrame.new(at + Vector3.new(0, s / 2, 0)) -- facing the door
+			cube:SetAttribute("Plot", plot)
+			cube:SetAttribute("Thaw", st or "out")
+			local a = if st == "machine" then (thawing[player] :: Thawing).active[k] else nil
+			cube:SetAttribute("ThawEnd", if a then workspace:GetServerTimeNow() + (a.endsAt - os.clock()) else nil)
+			cube:SetAttribute("ThawTotal", if a then a.total else nil)
 		end
 	end
 	for id, part in state.parts do
@@ -109,7 +195,7 @@ local function earn(p: PetEntry): number
 end
 
 function PenService.slots(d: Data): number
-	return Config.pen.baseSlots + Config.upgrades.pen.slotsPerLevel * (d.upgrades.pen - 1)
+	return Config.panSlots(d.upgrades.pen, d.rebirths)
 end
 
 function PenService.equippedCount(d: Data): number
@@ -122,16 +208,32 @@ function PenService.equippedCount(d: Data): number
 	return n
 end
 
--- only the pen's pets earn; each full Index page adds 10%; a tester's money multiplier on top
+-- only the pen's pets earn; each full Index page adds 10%, each rebirth 50%; a tester's money multiplier on top
 -- (DataService resets it to 1 for everyone who isn't a tester)
 function PenService.incomePerSecond(d: Data): number
 	local sum = 0
+	local frozen = waiting[d]
 	for _, p in d.pets do
-		if p.eq then
+		if p.eq and not (frozen and frozen[p.id]) then -- a pet still in its cube waits for the Thaw Machine
 			sum += earn(p)
 		end
 	end
-	return sum * IndexService.multiplier(d.found) * d.tester.mult
+	local pass = if doubled[d] and DOUBLE then DOUBLE.mult or 2 else 1 -- the 2x Coins game pass
+	return sum * IndexService.multiplier(d.found) * Config.rebirthIncome(d.rebirths) * d.tester.mult * pass -- +50% a rebirth (Round 4 phase 7)
+end
+
+-- MonetizationService: this player owns the 2x Coins pass
+function PenService.setDoubleCoins(player: Player, on: boolean)
+	local d = DataService.get(player)
+	if d then
+		doubled[d] = if on then true else nil
+		dirty[player] = true
+	end
+end
+
+function PenService.hasDoubleCoins(player: Player): boolean
+	local d = DataService.get(player)
+	return d ~= nil and doubled[d] == true
 end
 
 local function byEarnings(list: { PetEntry }): { PetEntry }
@@ -170,6 +272,24 @@ function PenService.fillEmptySlots(d: Data)
 	end
 end
 
+-- fewer slots than pets in the pan (a rebirth resets Slots): the best earners stay, the rest go to
+-- Storage (kept forever, nothing lost)
+function PenService.fitSlots(d: Data)
+	local slots = PenService.slots(d)
+	if PenService.equippedCount(d) <= slots then
+		return
+	end
+	local inPan = {}
+	for _, p in d.pets do
+		if p.eq then
+			table.insert(inPan, p)
+		end
+	end
+	for i, p in byEarnings(inPan) do
+		p.eq = i <= slots
+	end
+end
+
 -- every coin the game pays goes through here (weekly board counter included)
 function PenService.addCoins(d: Data, n: number)
 	if n <= 0 then
@@ -194,6 +314,25 @@ function PenService.addPet(d: Data, key: string, pose: string, mut: string?): bo
 	d.nextPetId += 1
 	d.found[key] = true
 	return true
+end
+
+-- the Sell Booth (SellService): take these pets out of the pan / Storage and give back what was taken.
+-- Runs inside the caller's DataService.mutate, so the removal and the payment land together; an id
+-- that's already gone (a second press, spam) is simply not there any more.
+function PenService.removePets(d: Data, ids: { [string]: boolean }): { PetEntry }
+	local kept, taken = {}, {}
+	for _, p in d.pets do
+		if ids[p.id] then
+			table.insert(taken, p)
+		else
+			table.insert(kept, p)
+		end
+	end
+	if #taken > 0 then
+		d.pets = kept
+		PenService.fillEmptySlots(d) -- a sold pan pet's slot takes the best one from Storage
+	end
+	return taken
 end
 
 -- ---------- daily gift ----------
@@ -288,6 +427,9 @@ local function bank(player: Player)
 	if not d or bankingNow[player] or CarryService.count(player) == 0 then
 		return
 	end
+	if os.clock() - (bouncedAt[player] or -math.huge) < Config.pan.bounce.again then
+		return -- it just bounced: one bounce, not one every tick while you stand in the pan
+	end
 	if #d.pets >= Config.pen.storageMax then
 		Remotes.notYet(player, "Storage full", "pets") -- the cubes stay on your back
 		return
@@ -296,9 +438,16 @@ local function bank(player: Player)
 	local cubes = CarryService.takeAll(player)
 	local banked = {}
 	local handBack = {}
+	local need = 0 -- the Cold Level a too-hot cube needs (Round 4 phase 5)
 	for _, c in cubes do
 		local def = PetDefs.get(c.key)
 		if not def then
+			continue
+		end
+		if def.zone > d.pan.cold then
+			-- from an island hotter than this pan's Cold Level: it can't stay frozen here, it bounces back
+			table.insert(handBack, c)
+			need = math.max(need, def.zone)
 			continue
 		end
 		if #d.pets >= Config.pen.storageMax then
@@ -307,9 +456,18 @@ local function bank(player: Player)
 		end
 		local rank = Config.tier(def.tier).rank
 		local firstTime = not d.found[c.key]
-		local eq = PenService.equippedCount(d) < PenService.slots(d) -- a free pen slot: it starts earning; else Storage
+		local eq = PenService.equippedCount(d) < PenService.slots(d) -- a free pen slot: it goes in the Thaw Machine's line; else Storage
 		DataService.mutate(player, function(x)
-			table.insert(x.pets, { id = "q" .. x.nextPetId, key = c.key, pose = c.pose, mut = c.mut, at = os.time(), eq = eq })
+			local id = "q" .. x.nextPetId
+			if eq then
+				local t = thawing[player] or { queue = {}, active = {} }
+				thawing[player] = t
+				table.insert(t.queue, id)
+				local w = waiting[x] or {}
+				waiting[x] = w
+				w[id] = true
+			end
+			table.insert(x.pets, { id = id, key = c.key, pose = c.pose, mut = c.mut, at = os.time(), eq = eq })
 			x.nextPetId += 1
 			x.found[c.key] = true
 			x.stats.banked += 1
@@ -340,7 +498,11 @@ local function bank(player: Player)
 		-- nothing is lost: cubes that don't fit go back on your back (paid ones back into the save)
 		CarryService.addCube(player, { key = c.key, zone = c.zone, pose = c.pose, mut = c.mut, superFrozen = c.superFrozen, superUsed = c.superUsed, offered = c.offered })
 	end
-	if #handBack > 0 then
+	if need > 0 then
+		bouncedAt[player] = os.clock()
+		Remotes.notYet(player, `Your pan needs Cold Level {need}`, "pan")
+		Remotes.fire(player, "Notify", "panBounce", { need = need, cold = d.pan.cold, plot = WorldService.plotOf(player) })
+	elseif #handBack > 0 then
 		Remotes.notYet(player, "Storage full", "pets")
 	end
 	if #banked > 0 then
@@ -383,10 +545,27 @@ local function equipBest(player: Player)
 end
 
 -- ---------- zone gates (owner 2026-10-30: pay coins at the gate) ----------
-local function openGate(player: Player)
+-- Round 4 phase 6: every island after the first has a gate, opened in order (reach = the last one open).
+-- A gate costs its coins and, on the odd islands from 3, a number of rebirths (Config.world.rebirthGates).
+-- An island whose pets aren't ready stays shut ("coming soon"). Checked again inside the one data change.
+local gateCooldown: { [Player]: number } = {}
+local function openGate(player: Player, id: number)
 	local d = DataService.get(player)
-	local zone = Config.zone(2)
-	if not d or not zone or d.forestUnlocked or not nearPart(player, WorldService.gatePrompt, 4) then
+	local zone = Config.zone(id)
+	if not d or not zone or id ~= d.reach + 1 or not nearPart(player, WorldService.gatePrompts[id], 4) then
+		return
+	end
+	local now = os.clock()
+	if now < (gateCooldown[player] or 0) then
+		return
+	end
+	gateCooldown[player] = now + Config.gateCooldown
+	if not zone.ready then
+		Remotes.fire(player, "Notify", "comingSoon", { label = zone.name })
+		return
+	end
+	if d.rebirths < zone.gateRebirth then
+		Remotes.notYet(player, `Needs Rebirth {zone.gateRebirth}`, "gate")
 		return
 	end
 	local price = zone.gateCoins
@@ -394,12 +573,20 @@ local function openGate(player: Player)
 		Remotes.notYet(player, `Need {math.ceil(price - d.coins)} more coins`, "gate")
 		return
 	end
+	local opened = false
 	DataService.mutate(player, function(x)
-		x.coins -= price
-		x.forestUnlocked = true
+		if x.reach + 1 == id and x.coins >= price and x.rebirths >= zone.gateRebirth then
+			x.coins -= price
+			x.reach = id
+			x.forestUnlocked = x.reach >= 2
+			opened = true
+		end
 	end)
+	if not opened then
+		return
+	end
 	DataService.saveNow(player) -- paid and opened in the same save
-	WorldService.setForestOpen(player, true)
+	WorldService.setReach(player, id)
 	AnalyticsSvc.funnel(player, "first_coins_spent")
 	Remotes.fire(player, "Notify", "zoneUnlocked", { zone = zone.id, price = price })
 end
@@ -420,12 +607,16 @@ local function view(player: Player, d: Data): { [string]: any }
 		pages = IndexService.pages(d.found),
 		gift = PenService.giftState(d),
 		forestUnlocked = d.forestUnlocked,
+		reach = d.reach,
 		welcome = d.welcome,
 		settings = d.settings,
 		superFreezeCharges = d.superFreezeCharges,
+		doubleCoins = doubled[d] == true,
 		stats = d.stats,
 		plot = WorldService.plotOf(player),
 		rebirths = d.rebirths,
+		seenShows = d.seenShows,
+		pan = d.pan, -- Cold Level and Look (Slots = slots / upgrades.pen)
 		tester = if Config.isTester(player.UserId) then d.tester else nil, -- only testers learn the panel exists
 	}
 end
@@ -445,9 +636,7 @@ function PenService.Start()
 		if not WorldService.assignPlot(player) then
 			warn(`[PenService] no free pen for {player.UserId}: set the place's Server Size to {#Config.world.plots}`)
 		end
-		if data.forestUnlocked then
-			WorldService.setForestOpen(player, true)
-		end
+		WorldService.setReach(player, data.reach)
 		local w = WorldRules.weekId(os.time())
 		if data.week.id ~= w then
 			data.week = { id = w, coins = 0 }
@@ -459,10 +648,17 @@ function PenService.Start()
 		dirty[player] = true
 	end)
 	Players.PlayerRemoving:Connect(function(player)
+		local d = DataService.get(player)
+		if d then
+			waiting[d] = nil
+		end
+		thawing[player] = nil -- waiting cubes are thawed by the next join (they're saved as normal pan pets)
 		incomeCarry[player] = nil
 		sessionBest[player] = nil
 		dirty[player] = nil
 		bankingNow[player] = nil
+		bouncedAt[player] = nil
+		gateCooldown[player] = nil
 		clearPen(player)
 	end)
 	PlayerTracker.EnteredPen:Connect(bank)
@@ -473,10 +669,60 @@ function PenService.Start()
 	if gift then
 		gift.Triggered:Connect(claimGift)
 	end
-	local gate = WorldService.gatePrompt
-	if gate then
-		gate.Triggered:Connect(openGate)
+	for id, gate in WorldService.gatePrompts do
+		gate.Triggered:Connect(function(player: Player)
+			openGate(player, id)
+		end)
 	end
+	-- the Thaw Machine(s): each takes the next cube in line and lets its pet out when the time is up
+	task.spawn(function()
+		while true do
+			task.wait(Config.thaw.tickSeconds)
+			local now = os.clock()
+			for player, t in thawing do
+				local d = DataService.get(player)
+				if not d then
+					continue
+				end
+				local w = waiting[d] or {}
+				waiting[d] = w
+				local moved = false
+				for m = 1, 2 do
+					local a = t.active[m]
+					if a and now >= a.endsAt then
+						t.active[m] = nil
+						w[a.id] = nil
+						moved = true
+						for _, p in d.pets do
+							if p.id == a.id then
+								Remotes.fire(player, "Notify", "thawed", { key = p.key, income = earn(p), plot = WorldService.plotOf(player), machine = m })
+							end
+						end
+					end
+					if not t.active[m] and m <= machines(d) and #t.queue > 0 then
+						local id = table.remove(t.queue, 1) :: string
+						local entry: PetEntry? = nil
+						for _, p in d.pets do
+							if p.id == id then
+								entry = p
+							end
+						end
+						local def = entry and entry.eq and PetDefs.get(entry.key)
+						if def then
+							local secs = (Config.thaw.seconds[def.tier] or 5) / thawSpeed(d)
+							t.active[m] = { id = id, endsAt = now + secs, total = secs }
+						else
+							w[id] = nil -- sold or put in Storage while waiting
+						end
+						moved = true
+					end
+				end
+				if moved then
+					dirty[player] = true
+				end
+			end
+		end
+	end)
 	-- income: the pen's pets earn every second (whole coins; the rest carries over)
 	task.spawn(function()
 		while true do
@@ -512,3 +758,4 @@ function PenService.Start()
 end
 
 return PenService
+

@@ -16,6 +16,8 @@ local EventService = require(script.Parent.EventService)
 local WildPetSpawner = require(script.Parent.WildPetSpawner)
 local WorldService = require(script.Parent.WorldService)
 local PlayerTracker = require(script.Parent.PlayerTracker)
+local CritterService = require(script.Parent.CritterService)
+local WorldRules = require(ReplicatedStorage.Shared.WorldRules)
 
 local TesterService = {}
 local D = Config.dev
@@ -81,17 +83,38 @@ ACTIONS.teleport = function(player, id)
 	end
 end
 
+-- every gate open (the "Coming soon" ones too, so a tester can walk the whole tunnel), or all shut again
 ACTIONS.openGates = function(player)
+	local n = #Config.world.zones
 	change(player, function(d)
+		d.reach = n
 		d.forestUnlocked = true
 	end)
-	WorldService.setForestOpen(player, true)
+	WorldService.setReach(player, n)
+end
+
+ACTIONS.closeGates = function(player)
+	change(player, function(d)
+		d.reach = 1
+		d.forestUnlocked = false
+	end)
+	WorldService.setReach(player, 1)
 end
 
 ACTIONS.rebirths = function(player, n)
 	if finite(n) then
 		change(player, function(d)
 			d.rebirths = math.clamp(math.floor(n), 0, D.maxRebirths)
+		end)
+	end
+end
+
+-- own guns 1..n and hold gun n (Round 4 phase 4: re-test buying from any gun)
+ACTIONS.gun = function(player, n)
+	if finite(n) then
+		change(player, function(d)
+			d.guns.best = math.clamp(math.floor(n), 1, #Config.guns.list)
+			d.guns.equipped = d.guns.best
 		end)
 	end
 end
@@ -114,6 +137,28 @@ ACTIONS.upgrade = function(player, id, level)
 		return
 	end
 	PlayerTracker.updateSpeed(player)
+end
+
+-- the pan's Cold Level or Look (Round 4 phase 5; Slots is the "pen" upgrade above)
+ACTIONS.pan = function(player, kind, level)
+	if (kind == "cold" or kind == "look") and finite(level) then
+		change(player, function(d)
+			if kind == "cold" then
+				d.pan.cold = math.clamp(math.floor(level), Config.pan.cold.start, Config.pan.cold.max)
+			else
+				d.pan.look = math.clamp(math.floor(level), 1, #Config.pan.looks)
+			end
+		end)
+	end
+end
+
+-- every pan pet into Storage (income 0, so money tests can see an exact charge); Equip best undoes it
+ACTIONS.storeAll = function(player)
+	change(player, function(d)
+		for _, p in d.pets do
+			p.eq = false
+		end
+	end)
 end
 
 ACTIONS.givePet = function(player, key, mut)
@@ -158,6 +203,19 @@ ACTIONS.spawnTier = function(player, tier)
 	end
 end
 
+-- one chosen pet, wild, in a chosen zone (0 = right next to you): test any pet in any zone
+ACTIONS.spawnPet = function(player, key, zone)
+	if typeof(key) ~= "string" or not PetDefs.get(key) then
+		return
+	end
+	if not (finite(zone) and zone == math.floor(zone) and (zone == 0 or Config.zone(zone))) then
+		return
+	end
+	if not WildPetSpawner.devSpawnPet(player, key, zone) then
+		Remotes.notYet(player, "No spot for a pet there")
+	end
+end
+
 ACTIONS.walk = function(player, n)
 	if finite(n) then
 		change(player, function(d)
@@ -185,6 +243,41 @@ end
 
 ACTIONS.chill = function()
 	EventService.startNow()
+end
+
+-- jump the whole server to nightfall, or to morning if it's night
+ACTIONS.night = function()
+	EventService.toggleNight()
+end
+
+-- Round 5: Heat Critters on the island you stand on (islands 3+ aren't built yet); press again for off
+ACTIONS.critters = function(player)
+	local pos = PlayerTracker.position(player)
+	local zone = if pos then WorldRules.zoneAt(pos) else 0
+	if zone > 0 then
+		CritterService.force(zone, not CritterService.forced(zone))
+	end
+end
+
+-- Round 5: drop the new-player shield now (to test ray-tag)
+ACTIONS.shieldOff = function(player)
+	player:SetAttribute("ShieldUntil", 0)
+end
+
+-- Round 5: own Slow Gel or not
+ACTIONS.gel = function(player)
+	change(player, function(d)
+		d.gear.gel = not d.gear.gel
+	end)
+end
+
+-- Round 5: set how many pets you've caught (Codes unlock at Config.codes.needPets)
+ACTIONS.caught = function(player, n)
+	if finite(n) then
+		change(player, function(d)
+			d.stats.frozen = math.clamp(math.floor(n), 0, 1e9)
+		end)
+	end
 end
 
 ACTIONS.heat = function(_player, n)

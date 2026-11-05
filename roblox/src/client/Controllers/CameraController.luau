@@ -29,6 +29,35 @@ function CameraController.setCarrying(on: boolean)
 	end
 end
 
+-- shows borrow the camera and hand it back (Animation Rules 6); only one borrower at a time
+local borrowed: { cframe: CFrame }? = nil
+function CameraController.borrow(): Camera?
+	local cam = workspace.CurrentCamera
+	if not cam or borrowed then
+		return nil
+	end
+	borrowed = { cframe = cam.CFrame }
+	cam.CameraType = Enum.CameraType.Scriptable
+	return cam
+end
+
+function CameraController.giveBack()
+	local cam = workspace.CurrentCamera
+	if not borrowed then
+		return
+	end
+	if cam then
+		cam.CameraType = Enum.CameraType.Custom
+	end
+	borrowed = nil
+	apply()
+end
+
+-- where the camera was when the show borrowed it (the show flies back there before handing it over)
+function CameraController.homeCFrame(): CFrame?
+	return if borrowed then borrowed.cframe else nil
+end
+
 function CameraController.Init()
 	player.CameraMinZoomDistance = Config.camera.minZoom
 	player.CameraMaxZoomDistance = Config.camera.maxZoom

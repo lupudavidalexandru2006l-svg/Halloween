@@ -70,7 +70,7 @@ end
 local NOTIFY_SOUNDS: { [string]: string } = {
 	frozen = "freeze", banked = "bank", melted = "melt", notYet = "no", upgraded = "buy",
 	giftClaimed = "gift", welcomeCollected = "coin", zoneUnlocked = "unlock", bridge = "bridge",
-	chillStart = "chill", bigWin = "reveal_rare", pageDone = "reveal_rare",
+	chillStart = "chill", bigWin = "reveal_rare", pageDone = "reveal_rare", gunBought = "buy", gunEquipped = "click",
 }
 
 function SoundController.Init() end
