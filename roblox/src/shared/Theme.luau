@@ -147,6 +147,8 @@ local Theme = {
 		boothWood = Color3.fromHex("b77b48"), boothCounter = Color3.fromHex("fff8ec"), awningStripe = Color3.fromHex("fff8ec"),
 		endCap = Color3.fromHex("dff6ff"), endCapGlow = Color3.fromHex("bfe9ff"),
 	},
+	-- the fast pan upgrade's flash cools into these (a new Look uses its own glow, panLooks)
+	upgradeGlow = { slots = Color3.fromHex("ffd45a"), cold = Color3.fromHex("7fdcff") } :: { [string]: Color3 },
 	booths = {
 		sell = Color3.fromHex("ffc93c"), equipment = Color3.fromHex("3aa8ff"), rebirth = Color3.fromHex("aa50e6"), pan = Color3.fromHex("3ccf6e"),
 	} :: { [string]: Color3 },

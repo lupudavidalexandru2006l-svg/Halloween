@@ -902,7 +902,7 @@ function Show.Start()
 			task.spawn(Show.gunBuy, data)
 		elseif kind == "rebirthed" then
 			task.spawn(Show.rebirth, data)
-		elseif kind == "panUpgraded" then
+		elseif kind == "panUpgraded" and not Config.motion.upgrade.fastPan then -- the fast one is UpgradeMotion's
 			task.spawn(Show.panUpgrade, data)
 		end
 	end)

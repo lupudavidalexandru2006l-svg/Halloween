@@ -15,6 +15,7 @@ local Ui = require(script.Parent.Parent.Lib.Ui)
 local State = require(script.Parent.State)
 local EquipmentPopup = require(script.Parent.EquipmentPopup)
 local SettingsController = require(script.Parent.SettingsController)
+local UpgradeMotion = require(script.Parent.UpgradeMotion)
 
 local PanPopup = {}
 local P = Config.pan
@@ -203,7 +204,12 @@ function PanPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
 		-- the name and its level badge
 		local top = line(face, "Title", 0.1, 0.38)
 		word(top, NAMES[kind] or kind, Theme.ink, "title", h, 1)
-		chip(top, `LV {level}`, Theme.info, "small", h, 2, 0.72)
+		local lv = chip(top, `LV {level}`, Theme.info, "small", h, 2, 0.72)
+		-- the fast upgrade motion follows this card (and the next one, after the rebuild)
+		local tile = face:FindFirstChild("Icon") :: GuiObject?
+		if tile then
+			UpgradeMotion.bind(kind, { card = card.root, tile = tile, chip = lv })
+		end
 		-- now > next, the next value in green
 		local stat = line(face, "Stat", 0.52, 0.36)
 		word(stat, now, if nxt then Theme.tiers.Common:Lerp(Theme.ink, 0.35) else Theme.ink, "body", h, 1)
@@ -220,7 +226,14 @@ function PanPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
 		end
 		local afford = v.coins >= price
 		local b = h.button(face, if afford then Theme.coin else Theme.tiers.Common, Ui.commas(price), 0.7, 0.28, function()
-			State.send("BuyPanUpgrade", kind) -- the server checks the stand, the price and the level
+			local send = function()
+				State.send("BuyPanUpgrade", kind) -- the server checks the stand, the price and the level
+			end
+			if Config.motion.upgrade.fastPan then
+				UpgradeMotion.press(kind, level, afford, send) -- the build-up starts now; a press mid-motion waits its turn
+			else
+				send()
+			end
 		end)
 		b.root.Name = "Buy_" .. kind
 		if h.priceTag then

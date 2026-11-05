@@ -295,6 +295,7 @@ Config.sounds = {
 		melt = 0, chill = 0, gift = 0, unlock = 0, bridge = 0, music_meadow = 0, music_forest = 0,
 		tink = 0, crack = 0, slam = 0, reveal_secret = 0, -- freeze snap, layered crack, show slam, Secret reveal
 		pan_up = 0, sell = 0, bounce = 0, -- a pan upgrade's burst, a sale, a cube too hot for your pan
+		upgrade_charge = 0, upgrade_hit = 0, upgrade_chime = 0, -- the fast upgrade (Config.motion.upgrade): wind-up, impact, rising chime
 		-- the shot (Config.ray.anim): charge whoosh, mechanical clack, fire, the hold's hum (looped), the
 		-- airy tail after a lock, a fizz when you let go early, and soft crackles as ice flecks form
 		ray_charge = 0, ray_clack = 0, ray_fire = 0, ray_hum = 0, ray_tail = 0, ray_fizz = 0, ray_crackle = 0,
@@ -946,6 +947,31 @@ Config.sell = {
 function Config.sellValue(income: number, mult: number?): number
 	return math.max(1, math.floor(income * 60 * Config.sell.incomeMinutes * (mult or 1)))
 end
+
+-- the fast pan upgrade (owner 2026-11-05: a reference clip, then prototype/ice-ray-for-pets/upgrade-demo.html).
+-- 0.9 s in the popup, which stays open: a build-up on the press (it also hides the server's answer
+-- time), the impact when the answer lands, a spring settle and a shimmer. Buying again works from
+-- 0.45 s. The pan answers in the world with a floor flash. Times in seconds from the impact unless
+-- said; reduced motion halves them. fastPan = false brings back the long camera show below.
+Config.motion = {
+	upgrade = {
+		fastPan = true,
+		build = 0.18, buildScale = 0.92, buildTilt = -2, cardBuild = 0.97, -- from the press
+		shiverDeg = 1.2, shiverHz = 26, maxWait = 1.5, -- a slow server: hold with a tiny shiver; no answer by maxWait = let go
+		pop = 0.08, popScale = 1.15, cardPop = 1.05, peakHold = 0.055,
+		settle = 0.4, springK = 4, springW = 1.5, -- 1 + a * e^(-k x) * cos(w pi x) (Animation Rules 4)
+		flash = 0.3, flashCool = 0.15, flashAlpha = 0.9, -- white cooling into the upgrade's colour
+		glow = 0.52, glowStroke = 4, -- the card's outline glows in that colour
+		ring = 0.25, ringGrow = 0.7, sparks = 16, sparksBig = 28, motes = 10, chipPop = 0.2,
+		inputOpen = 0.27, shimmerAt = 0.42, shimmer = 0.25, total = 0.72,
+		chimes = { 0.14, 0.22, 0.3 }, streakReset = 1.5, streakMax = 7, -- each buy within streakReset plays a semitone higher
+		flashSoftGap = 0.5, flashSkipGap = 0.34, -- kid-safe: never more than 3 flashes a second
+		reduced = { time = 0.5, popScale = 1.05, buildScale = 0.97, cardPop = 1.02, flashAlpha = 0.35 },
+		pan = { expand = 0.25, fillFrom = 0.2, fillFull = 0.3, holdTo = 0.45, fadeTo = 0.8, light = 6, lightRange = 40,
+			popOff = 0.12, dropIn = 0.4, burst = 22, burstBig = 36,
+			strength = { slots = 0.75, cold = 0.85, look = 1 } :: { [string]: number } },
+	},
+}
 
 -- a pan upgrade's show (Animation Rules 3): a glow builds up on the pan, the old pieces pop off, new
 -- ones drop in with a squash, a burst and a sound, coins fly from your counter into the pan. The server
