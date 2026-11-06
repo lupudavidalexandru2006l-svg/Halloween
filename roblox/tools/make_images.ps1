@@ -60,8 +60,10 @@ $out = Join-Path $PSScriptRoot "..\assets\images"
 New-Item -ItemType Directory -Force $out | Out-Null
 
 # pet sprites from the approved concepts (key = file name with - instead of _)
-foreach ($s in Get-ChildItem "$proto\assets\sprites" -Filter *.webp) {
-  $key = $s.BaseName
+$keys = @(Get-ChildItem "$proto\assets\sprites" -Filter *.webp | ForEach-Object { $_.BaseName })
+# Mushroom Grove (island 3) has no prototype sprites; its concepts are cut out the same way
+$keys += @("toddle", "puffball", "trufflet", "glimmermoth", "shimmerfrog", "capcrown_badger", "sporewing_drake", "myco_golem")
+foreach ($key in $keys) {
   $concept = Join-Path "$proto\pets" (($key -replace "_", "-") + "-v1.png")
   if ($key -eq "bloomhorn_stag") { $concept = Join-Path "$proto\pets" "bloomhorn-stag-v2.png" }
   if (-not (Test-Path $concept)) { "skip $key (no concept)"; continue }

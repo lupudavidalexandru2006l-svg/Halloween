@@ -60,6 +60,16 @@ local PetDefs: { PetDef } = {
 	pet("mapleguard_bear", "Mapleguard Bear", 2, "Legendary", "Quadruped", "L", "b51f2c"),
 	pet("bloomhorn_stag", "Bloomhorn Stag", 2, "Mythic", "Custom", "M", "d6286f", { "Antlers", "Hooves", "LeafEmblem" }),
 	pet("glowshroom_mammoth", "Glowshroom Mammoth", 2, "Secret", "Custom", "M", "1f5a6a", { "Mushrooms" }),
+	-- Mushroom Grove (zone 3): roster and concepts approved (2026-11-05); 3D + rig done for Toddle,
+	-- Puffball, Trufflet (2026-11-06), the other five are next
+	pet("toddle", "Toddle", 3, "Common", "Quadruped", "S", "e8641c"),
+	pet("puffball", "Puffball", 3, "Common", "Blob", "S", "c2185b"),
+	pet("trufflet", "Trufflet", 3, "Uncommon", "Quadruped", "S", "5c3a26"),
+	pet("glimmermoth", "Glimmermoth", 3, "Rare", "Bird", "S", "33307a"),
+	pet("shimmerfrog", "Shimmerfrog", 3, "Epic", "Quadruped", "M", "117a76", { "Gem" }),
+	pet("capcrown_badger", "Capcrown Badger", 3, "Legendary", "Quadruped", "L", "6b2763", { "Crown" }),
+	pet("sporewing_drake", "Sporewing Drake", 3, "Mythic", "Custom", "M", "b3152f", { "WingGills" }),
+	pet("myco_golem", "Myco Golem", 3, "Secret", "Custom", "M", "0f8fa3", { "Mushrooms" }),
 	-- Round 4 phase 6 moved the next three rosters to their places on the 10-island ladder (beach 3 -> 4,
 	-- desert 4 -> 6, volcano 5 -> 8). They are designs waiting for the owner's line-up approval: until
 	-- their island is ready (Config.world.islands ready = true) inZone gives nothing, so they never spawn.

@@ -422,7 +422,7 @@ Config.world = {
 			landmark = "mushroom", landmarkAt = { x = -46, z = 104 },
 			trees = { kind = "pine", count = 34, r = { 4.5, 7.5 } }, sun = { count = 3, r = { 6, 10 } },
 			near = { 10, 42 }, farFrom = 10 },
-		{ key = "grove", name = "Mushroom Grove", open = true, ready = false, theme = "grove", length = 172, heat = 1.0, iceLife = 1.6, gateCoins = 7500,
+		{ key = "grove", name = "Mushroom Grove", open = true, ready = true, theme = "grove", length = 172, heat = 1.0, iceLife = 1.6, gateCoins = 7500,
 			landmark = "toadstoolTower", landmarkAt = { x = 46, z = 100 },
 			trees = { kind = "toadstool", count = 22, r = { 4, 7 } }, sun = { count = 3, r = { 6, 9 } },
 			near = { 10, 40 }, farFrom = 12 },
@@ -544,6 +544,10 @@ Config.images = {
 		hopsprout = "rbxassetid://95878437320181", capmouse = "rbxassetid://107833749569236", mossfawn = "rbxassetid://117305047075010",
 		lanternbug = "rbxassetid://74192529771490", mapleguard_bear = "rbxassetid://75624001245030", bloomhorn_stag = "rbxassetid://81929702575504",
 		glowshroom_mammoth = "rbxassetid://88722165161459",
+		-- Mushroom Grove (island 3)
+		toddle = "rbxassetid://117747190893131", puffball = "rbxassetid://134110767591106", trufflet = "rbxassetid://123445413435843",
+		glimmermoth = "rbxassetid://82844804865391", shimmerfrog = "rbxassetid://81305476693408", capcrown_badger = "rbxassetid://108878977839888",
+		sporewing_drake = "rbxassetid://90224936160282", myco_golem = "rbxassetid://119241536493295",
 	} :: { [string]: string },
 }
 
