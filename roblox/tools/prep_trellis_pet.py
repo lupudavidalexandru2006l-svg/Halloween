@@ -197,7 +197,7 @@ if any(k in OPTS for k in ("hue", "sat", "val")):
         img.pixels[:] = px.ravel()
         img.pack()
 
-tris =sum(len(p.vertices) - 2 for p in obj.data.polygons)
+tris = sum(len(p.vertices) - 2 for p in obj.data.polygons)
 if tris > MAX_TRIS:
     dec = obj.modifiers.new("Reduce", "DECIMATE")
     dec.ratio = MAX_TRIS / tris * 0.98
@@ -206,6 +206,10 @@ bpy.ops.object.mode_set(mode="EDIT")
 bpy.ops.mesh.select_all(action="SELECT")
 bpy.ops.mesh.quads_convert_to_tris()
 bpy.ops.object.mode_set(mode="OBJECT")
+# TRELLIS meshes arrive flat-shaded (every triangle shows as a facet): smooth them like clay
+if obj.data.has_custom_normals:
+    bpy.ops.mesh.customdata_custom_splitnormals_clear()
+bpy.ops.object.shade_smooth()
 
 # 1 unit tall, centred on X/Y, feet on the ground (the game rescales it anyway)
 pts = [obj.matrix_world @ v.co for v in obj.data.vertices]
