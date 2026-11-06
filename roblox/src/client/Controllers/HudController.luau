@@ -90,12 +90,7 @@ local function goalFor(v: State.View): (string, number)
 		return `Save for {soon}: {Ui.short(v.coins)} / {Ui.short(Config.beachGateCoins)}`, v.coins / Config.beachGateCoins
 	end
 	beachSeen = true
-	for _, page in v.pages do
-		if not page.complete then
-			local z = Config.zone(page.zone)
-			return `Fill the {if z then z.name else "zone"} page: {page.found} / {page.total}`, page.found / math.max(1, page.total)
-		end
-	end
+	-- no "Fill the page" step here: the Index already tracks pages (owner 2026-11-06)
 	-- the next island isn't open yet (its pets are coming), so the next real goal is a rebirth
 	-- (final QA 2026-11-03: the bar said "Every page full! Mushroom Grove is next" for the rest of the game)
 	local n = (v.rebirths or 0) + 1
@@ -137,7 +132,7 @@ local function render(v: State.View)
 	local textValue, frac = goalFor(v)
 	goal.text.Text = textValue
 	goalFill.Size = UDim2.fromScale(math.clamp(frac, 0, 1), 1)
-	goal.root.Visible = #v.pets > 0 -- shows with the first pet, so it starts at a real 1 / 8
+	goal.root.Visible = #v.pets > 0 -- shows with the first pet, so it never starts empty
 end
 
 local function updateTemp()
