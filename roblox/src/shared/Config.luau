@@ -620,8 +620,14 @@ Config.petAnim = {
 	-- the other split parts (Role head / ear / tail, each turning round its Pivot; ears ride on the head):
 	-- the head looks around and nods with the steps, ears twitch now and then and flop as it moves,
 	-- the tail wags (faster in a dance). Radians, periods in seconds
+	-- a hat (Role "hat", e.g. Toddle's toadstool cap) rides on the head; on a jump it pops off at take-off,
+	-- floats hatLift pet heights over the head, lands just after the pet (hatOff / hatOn: fractions of the
+	-- jump), does a tiny re-hop (hatHop heights, hatHopSeconds) and wobbles hatTilt radians, settling on a
+	-- damped spring over hatSettle seconds
 	parts = { headLook = 0.22, headLookPeriod = 3.7, headNod = 0.1, earTwitch = 0.5, earTwitchEvery = 2.6,
-		earTwitchSeconds = 0.22, earFlop = 0.3, tailWag = 0.3, tailHz = 1.4, tailDanceWag = 0.55, tailDanceHz = 3.2 },
+		earTwitchSeconds = 0.22, earFlop = 0.3, tailWag = 0.3, tailHz = 1.4, tailDanceWag = 0.55, tailDanceHz = 3.2,
+		hatLift = 0.25, hatOff = 0.24, hatOn = 0.8, hatHop = 0.05, hatHopSeconds = 0.14, hatTilt = 0.22, hatSettle = 0.7,
+		hatShowAt = 0.16 }, -- a LiftedOnly hat part (the cap's underside) shows once the hat is this far off the head
 	-- some idles become a scratch (owner 2026-11-04: "scratching or smth"): a back leg (or an arm) comes up
 	-- and rubs behind the ear on one side while the head tilts into it. Looks only: picked from the pet's
 	-- id and its ActionStart, so every player sees the same scratch and the pose (and income) don't change

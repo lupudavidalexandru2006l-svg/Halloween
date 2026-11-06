@@ -31,7 +31,7 @@ type Pose = { x: number, y: number, z: number, pitch: number, yaw: number, roll:
 type Gait = { stride: number, hop: number, pitch: number, roll: number, yaw: number, squash: number, lean: number, bob: number, bobHz: number }
 type Anim = { key: string, start: any, t: number, clock: number, from: Pose?, blend: number, blendLen: number, last: Pose, base: CFrame,
 	walk: number, phase: number, gait: Gait, parts: { { part: BasePart, size: Vector3, rel: CFrame, hip: Vector3?, swing: number, front: boolean,
-	role: string, pivot: Vector3?, side: number, hang: boolean } }, sneezed: boolean, culled: boolean,
+	role: string, pivot: Vector3?, side: number, hang: boolean, liftedOnly: boolean } }, sneezed: boolean, culled: boolean,
 	seed: number, scratchy: boolean, hasArms: boolean, headPivot: Vector3? } -- seed: from the pet's id (the scratch pick); scratchy: it has back legs or arms
 type Banked = { edges: SelectionBox, coin: BillboardGui, coinImg: ImageLabel, phase: number }
 type Fleck = { part: BasePart, round: number, angle: number, y: number, reach: number }
@@ -380,7 +380,7 @@ local function newAnim(def: PetDefs.PetDef, model: PVInstance, img: ImageLabel?,
 					hip = if typeof(hip) == "Vector3" then hip * scale else nil, swing = if typeof(swing) == "number" then swing else 0,
 					front = p:GetAttribute("Front") == true, role = if typeof(role) == "string" then role else "",
 					pivot = if typeof(at) == "Vector3" then at * scale else nil, side = if typeof(side) == "number" then side else 0,
-					hang = p:GetAttribute("Hang") == true })
+					hang = p:GetAttribute("Hang") == true, liftedOnly = p:GetAttribute("LiftedOnly") == true })
 				if role == "head" and typeof(at) == "Vector3" then
 					headPivot = at * scale
 				end
@@ -392,7 +392,7 @@ local function newAnim(def: PetDefs.PetDef, model: PVInstance, img: ImageLabel?,
 		end
 	elseif not img and model:IsA("BasePart") then -- the coloured ball stand-in
 		table.insert(parts, { part = model, size = model.Size, rel = CFrame.identity, hip = nil, swing = 0, front = false,
-			role = "", pivot = nil, side = 0, hang = false })
+			role = "", pivot = nil, side = 0, hang = false, liftedOnly = false })
 	end
 	local gaits: { [string]: Gait } = A.gait :: any
 	return { key = "", start = nil, t = 0, clock = math.random() * 10, from = nil, blend = 0, blendLen = 0, last = REST,
@@ -509,6 +509,35 @@ local function animate(root: BasePart, d: Drawn, dt: number, now: number, cam: C
 	a.culled = not near
 	a.last = pose
 
+	-- a hat pops off on a jump (Toddle's signature: the cap bounces off and back on), timed from the jump's
+	-- start like every other beat: off at take-off, over the head, back on just after the landing, a tiny
+	-- re-hop, then a wobble that settles on a damped spring
+	local PA = A.parts
+	local hatLift, hatRoll = 0, 0
+	if near and key == "jump" then
+		local len = Config.poses.jump.seconds
+		local u = a.t / len
+		local side = if a.seed % 2 == 0 then 1 else -1
+		local reduce = if SettingsController.get("reducedMotion") == true then A.reducedAmp else 1
+		if u > PA.hatOff and u < PA.hatOn then
+			local s = (u - PA.hatOff) / (PA.hatOn - PA.hatOff)
+			local arc = math.sin(math.pi * s ^ 0.8) -- peaks a little after the middle, like it's still rising
+			hatLift = PA.hatLift * h * arc
+			hatRoll = PA.hatTilt * arc * side
+		elseif u >= PA.hatOn then
+			local x = (u - PA.hatOn) * len -- seconds since it landed
+			if x < PA.hatHopSeconds then
+				hatLift = PA.hatHop * h * math.sin(math.pi * x / PA.hatHopSeconds)
+			end
+			local w = x / PA.hatSettle
+			if w < 1 then
+				hatRoll = -PA.hatTilt * math.exp(-4 * w) * math.cos(1.5 * math.pi * w) * side
+			end
+		end
+		hatLift *= reduce
+		hatRoll *= reduce
+	end
+
 	local pop = math.max(0.05, backOut(math.min(1, (now - d.born) / P.popSeconds)))
 	local sx, sy = pose.sx * pop, pose.sy * pop
 	if d.img then
@@ -549,6 +578,16 @@ local function animate(root: BasePart, d: Drawn, dt: number, now: number, cam: C
 				place = hipAt * CFrame.Angles(angle, 0, out) * hipAt:Inverse() * place
 			elseif role == "head" then
 				place = headTurn * place
+			elseif role == "hat" then
+				-- rides on the head, lifted by the hat's own bounce and tipped a little round its rim
+				local pv = part.pivot or rp
+				local base = CFrame.new(pv.X * sx, feet + (pv.Y - feet) * sy, pv.Z * sx)
+				place = CFrame.new(0, hatLift, 0) * headTurn * base * CFrame.Angles(hatLift / h * 0.12, 0, hatRoll)
+					* base:Inverse() * place
+				if part.liftedOnly then
+					-- e.g. the cap's underside: inside the head at rest, only shown while the hat is off
+					part.part.LocalTransparencyModifier = if hatLift > A.parts.hatShowAt * h then 0 else 1
+				end
 			elseif role == "ear" and part.pivot then
 				-- twitch outward (an upright ear tips out with -side, a hanging one with +side), flop with the steps,
 				-- and flap on the side being scratched; ears ride on the head
