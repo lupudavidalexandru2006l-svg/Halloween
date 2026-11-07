@@ -50,6 +50,9 @@ local skip: { [BasePart]: number } = setmetatable({}, { __mode = "k" }) :: any -
 local pointer: { pos: Vector2, touch: InputObject? }? = nil
 local autoAim = false
 local locked: Target? = nil
+-- a click (tap, E) that hits a target keeps shooting it after you let go, until the cube shuts, the
+-- target leaves your reach or you click again (owner 2026-11-07: a quick click froze nothing)
+local shot = false
 local sentKey = "none"
 local lastSent = 0
 type BeamSet = { beams: { Beam }, sparkles: { ParticleEmitter } }
@@ -345,23 +348,27 @@ local function send(force: boolean?)
 end
 
 local function aiming(): boolean
-	return (pointer ~= nil or autoAim) and holdsRay(me)
+	return (pointer ~= nil or autoAim or shot) and holdsRay(me)
 end
 
 local function updateAim()
-	if not aiming() then
+	if not aiming() or (locked and not stillValid(locked :: Target)) then
 		locked = nil
-	elseif locked and not stillValid(locked) then
-		locked = nil
+	end
+	if not locked then
+		shot = false -- the shot is over (frozen, out of reach, ray put away)
 	end
 	if aiming() and not locked then
 		locked = if pointer then pickAt(pointer.pos) else pickAuto()
-		-- the ring says "HOLD CLICK" on the pet in front, not "click on it": a mouse hold away from every
+		-- the ring says "CLICK" on the pet in front, not "click on it": a mouse click away from every
 		-- pet shoots the ringed one (it did nothing, and the ring vanished). Not for a finger: one drag
 		-- turns the camera, and that must not shoot.
 		if not locked and pointer and not pointer.touch then
 			locked = pickAuto()
 		end
+	end
+	if locked then
+		shot = true
 	end
 	send(locked == nil)
 end
@@ -843,7 +850,7 @@ end
 -- ---------- the aim ring ----------
 local function hintText(): string
 	local d = InputController.device()
-	return if d == "touch" then "HOLD" elseif d == "gamepad" then "HOLD R2" else "HOLD CLICK"
+	return if d == "touch" then "TAP" elseif d == "gamepad" then "R2" else "CLICK"
 end
 
 local function makeReticle(): { gui: BillboardGui, ring: Frame, fill: Frame, hint: TextLabel }
@@ -1147,8 +1154,9 @@ function RayController.Start()
 		end
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
 			pointer = { pos = Vector2.new(input.Position.X, input.Position.Y), touch = nil }
+			locked, shot = nil, false -- a new click picks again (clicking the same pet keeps the shot going)
 		elseif input.UserInputType == Enum.UserInputType.Touch and not pointer then
-			pointer = { pos = Vector2.new(input.Position.X, input.Position.Y), touch = input }
+			pointer = { pos = Vector2.new(input.Position.X, input.Position.Y), touch = input } -- a drag turns the camera: the shot keeps going
 		elseif isAimKey(input.KeyCode) then
 			autoAim = true
 		end
