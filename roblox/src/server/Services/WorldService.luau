@@ -137,20 +137,13 @@ local function buildHub()
 	local sw = -half - H.xMin
 	collider("HubWallSW", Vector3.new(sw, hc, 2), CFrame.new(H.xMin + sw / 2, hc / 2, W.hubZMax + 1), map)
 	collider("HubWallSE", Vector3.new(sw, hc, 2), CFrame.new(H.xMax - sw / 2, hc / 2, W.hubZMax + 1), map)
-	-- the pans: a thick soil bed per lane, walls on every side, an open doorway at the front anyone can
-	-- walk through (owner 2026-11-07: visiting other pans is fine; every pan action checks your own pan)
+	-- the pans: a thick soil bed per lane with no walls at all, so anyone can walk in from any side
+	-- (owner 2026-11-07: visiting other pans is fine; every pan action checks your own pan). The fences
+	-- are art only (no collision).
 	for i, pl in W.plots do
-		local x0, x1 = pl.x - P.width / 2, pl.x + P.width / 2
 		local pan = part("Plot" .. i, Vector3.new(P.width, P.soilHeight, P.length), CFrame.new(pl.x, P.soilHeight / 2, pl.z), HA.soil, map, { Material = Enum.Material.Ground })
 		pan:SetAttribute("PlotIndex", i)
 		CollectionService:AddTag(pan, "Plot")
-		local ph = P.wallHeight
-		collider("PanWallL", Vector3.new(1, ph, P.length), CFrame.new(x0 - 0.5, ph / 2, pl.z), pan)
-		collider("PanWallR", Vector3.new(1, ph, P.length), CFrame.new(x1 + 0.5, ph / 2, pl.z), pan)
-		collider("PanWallB", Vector3.new(P.width + 2, ph, 1), CFrame.new(pl.x, ph / 2, pl.z - P.length / 2 - 0.5), pan)
-		local side = (P.width - P.doorWidth) / 2
-		collider("PanWallFL", Vector3.new(side, ph, 1), CFrame.new(x0 + side / 2, ph / 2, P.frontZ + 0.5), pan)
-		collider("PanWallFR", Vector3.new(side, ph, 1), CFrame.new(x1 - side / 2, ph / 2, P.frontZ + 0.5), pan)
 		-- the temperature gauge right of the door, facing the plaza (the name sign over the door was
 		-- removed, owner 2026-11-03)
 		local front = Vector3.new(pl.x, 0, P.frontZ + 40)
@@ -327,9 +320,9 @@ local function findExisting(): boolean
 			d.HoldDuration = Config.player.openHold
 		end
 	end
-	-- pan doors are open to everyone now (owner 2026-11-07): drop the old door colliders a saved map still has
+	-- pans are open from every side now (owner 2026-11-07): drop the old door and wall colliders a saved map still has
 	for _, d in map:GetDescendants() do
-		if d.Name == "PanDoor" and d:IsA("BasePart") then
+		if d:IsA("BasePart") and (d.Name == "PanDoor" or string.sub(d.Name, 1, 7) == "PanWall") then
 			d:Destroy()
 		end
 	end

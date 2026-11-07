@@ -426,7 +426,7 @@ Config.world = {
 	-- tall, 3.3 across the arms) and the reference's 4-stud floor tiles: width about 7 avatar heights,
 	-- depth 1.1 x width, door 0.4 x width, gap 0.2 x width, about one width of open ground behind,
 	-- fence about shoulder high (0.8 avatar heights)
-	pans = { width = 40, length = 44, gap = 8, frontZ = -62, soilHeight = 0.2, backSpace = 40, doorWidth = 16, fenceHeight = 4.5, wallHeight = 16,
+	pans = { width = 40, length = 44, gap = 8, frontZ = -62, soilHeight = 0.2, backSpace = 40, doorWidth = 16, fenceHeight = 4.5,
 		signY = 6.5, gaugeOffset = 10.5, boothOffset = -11 }, -- gauge right of the door, Pan Upgrades stand left of it (x from the lane's middle)
 	-- owner 2026-11-07: bigger pets are coming, so the tunnel is wide (about 34 avatar widths, was 22)
 	-- and the entrance and the island gates are scaled up with it (archScale: their towers, roofs and
