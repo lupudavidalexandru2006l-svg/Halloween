@@ -356,6 +356,12 @@ local function updateAim()
 	end
 	if aiming() and not locked then
 		locked = if pointer then pickAt(pointer.pos) else pickAuto()
+		-- the ring says "HOLD CLICK" on the pet in front, not "click on it": a mouse hold away from every
+		-- pet shoots the ringed one (it did nothing, and the ring vanished). Not for a finger: one drag
+		-- turns the camera, and that must not shoot.
+		if not locked and pointer and not pointer.touch then
+			locked = pickAuto()
+		end
 	end
 	send(locked == nil)
 end
