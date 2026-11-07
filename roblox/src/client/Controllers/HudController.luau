@@ -399,9 +399,9 @@ function HudController.Start()
 				HudController.banner(`{data.name} froze a {string.upper(def.tier)} {def.name}!`, Theme.tierGlow[def.tier] or Theme.coin)
 			end
 		elseif kind == "banked" then
-			local total, best = 0, nil :: PetDefs.PetDef?
+			-- no "+N/s in your pan" banner (owner 2026-11-07: take the income text off); Epic and up still get named
+			local best = nil :: PetDefs.PetDef?
 			for _, b in data.banked do
-				total += b.income
 				local def = PetDefs.get(b.key)
 				if def and (not best or Config.tier(def.tier).rank > Config.tier(best.tier).rank) then
 					best = def
@@ -409,8 +409,6 @@ function HudController.Start()
 			end
 			if best and Config.tier(best.tier).rank >= Config.effects.showRank then
 				HudController.banner(`{string.upper(best.tier)}! {best.name}`, Theme.tiers[best.tier]) -- prototype: Epic and up get the show
-			else
-				HudController.banner(`+{Ui.short(total)}/s in your pan`, Theme.go)
 			end
 		elseif kind == "zoneUnlocked" then
 			local z = Config.zone(if typeof(data.zone) == "number" then data.zone else 2)
@@ -446,9 +444,6 @@ function HudController.Start()
 			end
 		elseif kind == "gearBought" then
 			HudController.banner("Slow Gel is on your hotbar!", Theme.go)
-		elseif kind == "thawed" then
-			local def = PetDefs.get(data.key)
-			HudController.banner(`{if def then def.name else "Your pet"} is out! +{Ui.short(data.income or 0)}/s`, Theme.go)
 		elseif kind == "critterCaught" then
 			HudController.banner("A Heat Critter grabbed your cube! Zap it back", Theme.round5.critter)
 		elseif kind == "tagged" then
