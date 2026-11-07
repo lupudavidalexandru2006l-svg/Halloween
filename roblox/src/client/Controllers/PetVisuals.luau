@@ -40,7 +40,7 @@ type FreezeLook = { shell: Part, highlight: Highlight?, crystals: { BasePart }, 
 	rim: { BasePart }, flecks: { Fleck }, mist: BasePart?, mistFx: ParticleEmitter? } -- the ice front (owner 2026-11-05)
 type Drawn = { model: PVInstance, height: number, offer: BillboardGui?, img: ImageLabel?, born: number, fx: Fx, banked: Banked?,
 	clock: number, freeze: FreezeLook?, zzz: BillboardGui, anim: Anim } -- clock: the pet's own animation time (it slows while held and freezing)
-type CubeLook = { model: PVInstance, edges: SelectionBox, cracks: { { part: BasePart, offset: CFrame } } }
+type CubeLook = { model: PVInstance, edges: SelectionBox, cracks: { { part: BasePart, offset: CFrame } }, onGround: boolean } -- onGround: frozen, waiting for E
 local drawn: { [BasePart]: Drawn } = {}
 local cubes: { [BasePart]: CubeLook } = {}
 local folder: Folder
@@ -758,6 +758,13 @@ local function addCube(part: Instance)
 	if not def then
 		return
 	end
+	local onGround = part.Parent ~= nil and part.Parent.Name == "GroundCubes"
+	if onGround and part:GetAttribute("OwnerUserId") ~= me.UserId then
+		local prompt = part:FindFirstChildWhichIsA("ProximityPrompt", true)
+		if prompt then
+			prompt.Enabled = false -- someone else's frozen pet: only they can pick it up
+		end
+	end
 	local model, img = standIn(def, part.Size.Y * 0.6)
 	model.Parent = folder
 	mutationLook(model, img, part, part:GetAttribute("Mut"))
@@ -769,7 +776,7 @@ local function addCube(part: Instance)
 	edges.Transparency = P.edgeTransparency
 	edges.SurfaceTransparency = 1
 	edges.Parent = folder
-	cubes[part] = { model = model, edges = edges, cracks = makeCracks(part) }
+	cubes[part] = { model = model, edges = edges, cracks = makeCracks(part), onGround = onGround }
 end
 
 local function removeCube(part: Instance)
@@ -1198,7 +1205,7 @@ local function step(dt: number)
 			removeCube(part)
 			continue
 		end
-		if part:GetAttribute("OwnerUserId") == me.UserId then
+		if part:GetAttribute("OwnerUserId") == me.UserId and not c.onGround then
 			mine += 1
 		end
 		-- hidden on this screen while its snap or show plays at the pet's spot (a local attribute)
@@ -1291,6 +1298,7 @@ function PetVisuals.Start()
 		addPet(root)
 	end, removePet)
 	watch("Cubes", addCube, removeCube)
+	watch("GroundCubes", addCube, removeCube)
 	RunService.RenderStepped:Connect(step)
 	InputController.Action:Connect(function(a: string)
 		if a == "superFreeze" then

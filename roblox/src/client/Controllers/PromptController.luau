@@ -17,6 +17,7 @@ local State = require(script.Parent.State)
 local InputController = require(script.Parent.InputController)
 local PopupController = require(script.Parent.PopupController)
 local Screen = require(script.Parent.Screen)
+local SettingsController = require(script.Parent.SettingsController)
 
 local PromptController = {}
 local playerGui: Instance
@@ -24,7 +25,7 @@ local shown: { [ProximityPrompt]: { gui: BillboardGui, bar: Frame, conns: { RBXS
 
 local function color(prompt: ProximityPrompt): Color3
 	local a = prompt.ActionText
-	return if a == "Freeze" or a == "Zap" then Theme.info elseif a == "Open" then Theme.go else Theme.info
+	return if a == "Freeze" or a == "Zap" then Theme.info elseif a == "Open" or a == "Pick up" then Theme.go else Theme.info
 end
 
 local function show(prompt: ProximityPrompt)
@@ -38,8 +39,14 @@ local function show(prompt: ProximityPrompt)
 	local cam = workspace.CurrentCamera
 	local short = if cam then math.min(cam.ViewportSize.X, cam.ViewportSize.Y) else 720
 	local ps = Config.ui.promptSize
-	gui.Size = UDim2.fromOffset(ps[1] * short, ps[2] * short)
+	local compact = prompt:GetAttribute("Compact") == true
+	local k = if compact then Config.ui.promptCompact else 1
+	gui.Size = UDim2.fromOffset(ps[1] * short * k, ps[2] * short * k)
 	gui.StudsOffset = Vector3.new(0, Config.ui.promptLift, 0) -- on the pet, just over its head (it floated well above before)
+	if compact then
+		gui.StudsOffset = Vector3.zero
+		gui.SizeOffset = Vector2.new(0, 0.6) -- its bottom edge rests on the attachment (the top of a frozen pet's cube)
+	end
 	gui.Adornee = prompt.Parent :: any
 	gui.Active = true
 	-- a pill in the action's colour (owner 2026-10-31: the white card was "buns"): a white key badge,
@@ -118,8 +125,25 @@ local function show(prompt: ProximityPrompt)
 		what.TextTransparency = 0.1
 	end
 	fitKey()
+	if compact then
+		-- it rests above the cube, so nothing under it needs to show through: a solid pill reads crisper
+		fade.GroupTransparency = 0
+		-- outlines shrink with the pill (UI Rules: after scaling, recheck outline weight), never under 1.5 px
+		for _, s in { b.root:FindFirstChildOfClass("UIStroke"), keyBox:FindFirstChildOfClass("UIStroke") } do
+			if s then
+				s.Thickness = math.max(1.5, s.Thickness * k)
+			end
+		end
+	end
 	gui.Enabled = not (Screen.menuHidden or Screen.showHidden) -- a shop is open or a show plays: the pill stays out of the way
 	gui.Parent = playerGui
+	if compact then
+		-- pops up off the cube (Animation Rules: pop, Back Out); the bottom stays on the cube as it grows
+		local full = gui.Size
+		local reduced = SettingsController.get("reducedMotion") == true
+		gui.Size = UDim2.fromOffset(full.X.Offset * 0.3, full.Y.Offset * 0.3)
+		TweenService:Create(gui, TweenInfo.new(Config.motion.promptPop * (if reduced then 0.5 else 1), Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Size = full }):Play()
+	end
 	local conns: { RBXScriptConnection } = {}
 	-- touch and mouse: the block is the hold button
 	table.insert(conns, top.InputBegan:Connect(function(input: InputObject)

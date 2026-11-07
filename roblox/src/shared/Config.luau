@@ -363,6 +363,11 @@ Config.ui = {
 	promptHoldFill = 0.55, -- the white sweep that fills a world prompt while you hold (transparency)
 	promptFade = 0.45, -- a world prompt's pill is this see-through so the pet under it shows (its words stay solid)
 	promptLift = -0.6, -- studs from the prompt's attachment (1 stud over the pet's head) down onto the pet
+	-- a "Compact" prompt (the Pick up on a frozen pet's small cube): this much smaller, and resting on
+	-- top of its object instead of over it, so the pet inside stays in view (owner 2026-11-07). Nothing
+	-- is under it, so it's solid (not promptFade), and its outlines shrink with it (UI Rules: after
+	-- scaling, recheck outline weight)
+	promptCompact = 0.7,
 	lipDepth = 0.012, -- every block's lip is this share of the screen's short side, so a big panel gets the same thin lip as a tile
 	-- popup text sizes as shares of the popup's height: one size per role, so rows never jump in size
 	popupText = { title = 0.075, body = 0.052, small = 0.04, button = 0.05 },
@@ -727,7 +732,11 @@ Config.coinPop = {
 }
 
 -- carried cubes are held in front of you, in your hands (both arms come up while you carry)
-Config.carry = { scale = 0.62, handY = 0.4, front = 0.9, stackGap = 0.15, armRaise = 80 }
+Config.carry = { scale = 0.62, handY = 0.4, front = 0.9, stackGap = 0.15, armRaise = 80,
+	-- a freeze leaves the cube on the ground where the pet stood; E picks it up (owner 2026-11-07).
+	-- Only the player who froze it can. Left alone this long, it thaws back into a dazed pet that
+	-- only you can zap, so a forgotten cube never blocks your hands.
+	pickUpRange = 10, groundSeconds = 60 }
 
 -- Trees (shade) and sun patches, placed with the prototype's generator (mulberry32) so the same seed
 -- always gives the same map. Each island's own list (Config.world.islands) says how many and how big;
@@ -1037,6 +1046,8 @@ end
 -- 0.45 s. The pan answers in the world with a floor flash. Times in seconds from the impact unless
 -- said; reduced motion halves them. fastPan = false brings back the long camera show below.
 Config.motion = {
+	-- a compact world prompt (Pick up on a frozen pet) pops up off the cube (Animation Rules: pop, Back Out)
+	promptPop = 0.25,
 	upgrade = {
 		fastPan = true,
 		build = 0.18, buildScale = 0.92, buildTilt = -2, cardBuild = 0.97, -- from the press

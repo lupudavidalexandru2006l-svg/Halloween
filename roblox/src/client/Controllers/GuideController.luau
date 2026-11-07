@@ -112,6 +112,15 @@ local function step()
 	local t = os.clock()
 	local still = SettingsController.get("reducedMotion") == true
 	local holding = carrying()
+	-- my frozen pet still waiting on the ground for E (CarryService.dropCube)
+	local waiting: Vector3? = nil
+	local gf = workspace:FindFirstChild("GroundCubes")
+	for _, g in (if gf then gf:GetChildren() else {}) do
+		if g:IsA("BasePart") and g:GetAttribute("OwnerUserId") == me.UserId then
+			waiting = g.Position
+			break
+		end
+	end
 	if not root or not v then
 		arrow.Parent, marker.Parent, beacon.Parent = nil, nil, nil
 		return
@@ -121,6 +130,8 @@ local function step()
 	local goal: Vector3? = nil
 	if holding and v.plot then
 		goal = WorldRules.plotCenter(v.plot)
+	elseif waiting then
+		goal = waiting -- go back and pick it up
 	elseif #v.pets < G.earlyPets then
 		local p = nearestPet(pos, 0, math.huge, 1)
 		goal = if p then p.Position else nil
@@ -137,7 +148,7 @@ local function step()
 		arrow.Parent = nil
 	end
 	-- marker: the nearest pet just out of reach, while your hands are free
-	local mk = if not holding and not showArrow then nearestPet(pos, Config.gun(me:GetAttribute("GunTier") :: number?).range, G.markerRange, nil) else nil -- just out of your gun's reach
+	local mk = if not holding and not waiting and not showArrow then nearestPet(pos, Config.gun(me:GetAttribute("GunTier") :: number?).range, G.markerRange, nil) else nil -- just out of your gun's reach
 	if mk then
 		local tier = mk:GetAttribute("Tier")
 		marker.Color = if typeof(tier) == "string" then Theme.tiers[tier] or Theme.white else Theme.white

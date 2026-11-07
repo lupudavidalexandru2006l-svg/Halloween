@@ -3,6 +3,9 @@
 -- nothing melts during the Big Chill or in a Super Freeze cube). A melted cube becomes a dazed pet
 -- (only you can zap it back, free, always) and, for Rare and up, a Super Freeze offer at most once per run.
 -- The cube Part is welded to the character so everyone sees it; clients draw the pet inside and the melt.
+-- A fresh freeze first waits on the ground where the pet stood (owner 2026-11-07): only the player who
+-- froze it picks it up, with E, and then it's carried like any other cube. Ground cubes don't melt;
+-- one left alone for Config.carry.groundSeconds thaws back into a dazed pet.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -24,13 +27,21 @@ export type Cube = CubeInfo & { uid: string, life: number, lifeMax: number, sinc
 
 local CarryService = {}
 local carrying: { [Player]: { Cube } } = {}
+local ground: { [Player]: { Cube } } = {} -- frozen, waiting where the pet stood for its owner's E
 local nextUid = 1
 local folder: Folder
+local groundFolder: Folder
 local leaveHandler: ((Player, Cube) -> ())? = nil -- FreezeService: keeps a pet whose show was still playing
 
 function CarryService.count(player: Player): number
 	local list = carrying[player]
 	return if list then #list else 0
+end
+
+-- carried plus waiting on the ground: what counts against your hands' room
+function CarryService.load(player: Player): number
+	local list = ground[player]
+	return CarryService.count(player) + (if list then #list else 0)
 end
 
 -- how many cubes fit in your hands: the old Backpack upgrade, or your gun's beams if that's more (the
@@ -130,6 +141,19 @@ local function makePart(player: Player, c: Cube): Part
 	return p
 end
 
+local function newCube(def: PetDefs.PetDef, data: any, info: CubeInfo, graceSeconds: number?): Cube
+	local home = Config.zone(def.zone)
+	local lifeMax = Config.tier(def.tier).cubeLife * (1 + Config.upgrades.ray.lifeBonus * (data.upgrades.ray - 1))
+		* (if home then home.iceLife else 1) -- a hotter island's pets were frozen by a colder gun: their ice lasts longer (Round 4 phase 6)
+	local c: Cube = {
+		key = info.key, zone = info.zone, pose = info.pose, mut = info.mut, superFrozen = info.superFrozen, superUsed = info.superUsed, offered = info.offered,
+		uid = "c" .. nextUid, life = lifeMax, lifeMax = lifeMax, since = os.clock(), part = nil, shownFrac = 1,
+		graceUntil = os.clock() + (graceSeconds or 0),
+	}
+	nextUid += 1
+	return c
+end
+
 local function changed(player: Player)
 	PlayerTracker.setCarrying(player, CarryService.count(player))
 	layout(player)
@@ -149,15 +173,7 @@ function CarryService.addCube(player: Player, info: CubeInfo, restoring: boolean
 			table.insert(d.superCubes, { key = info.key, pose = info.pose, mut = info.mut })
 		end)
 	end
-	local home = Config.zone(def.zone)
-	local lifeMax = Config.tier(def.tier).cubeLife * (1 + Config.upgrades.ray.lifeBonus * (data.upgrades.ray - 1))
-		* (if home then home.iceLife else 1) -- a hotter island's pets were frozen by a colder gun: their ice lasts longer (Round 4 phase 6)
-	local c: Cube = {
-		key = info.key, zone = info.zone, pose = info.pose, mut = info.mut, superFrozen = info.superFrozen, superUsed = info.superUsed, offered = info.offered,
-		uid = "c" .. nextUid, life = lifeMax, lifeMax = lifeMax, since = os.clock(), part = nil, shownFrac = 1,
-		graceUntil = os.clock() + (graceSeconds or 0),
-	}
-	nextUid += 1
+	local c = newCube(def, data, info, graceSeconds)
 	c.part = makePart(player, c)
 	local list = carrying[player] or {}
 	table.insert(list, c)
@@ -166,11 +182,100 @@ function CarryService.addCube(player: Player, info: CubeInfo, restoring: boolean
 	return c.uid
 end
 
+-- a fresh freeze: the cube stays on the ground where the pet stood, bottom on the pet's ground, until
+-- its owner picks it up with E (pickUp). Returns its uid (it keeps it in your hands, for the show's grace).
+function CarryService.dropCube(player: Player, info: CubeInfo, petAt: Vector3, graceSeconds: number?): string?
+	local def = PetDefs.get(info.key)
+	local data = DataService.get(player)
+	if not def or not data then
+		return nil
+	end
+	local c = newCube(def, data, info, graceSeconds)
+	local p = makePart(player, c)
+	local s = p.Size.Y
+	-- the same spot the client's snap draws it at (EffectsController.cubeAt)
+	p.CFrame = CFrame.new(petAt - Vector3.new(0, PetDefs.sizeHeight[def.size] / 2, 0) + Vector3.new(0, s / 2, 0))
+	p.Anchored = true
+	local a = Instance.new("Attachment")
+	a.Position = Vector3.new(0, s / 2 + 0.15, 0) -- the top of the cube: the compact pill rests here, the pet stays in view
+	a.Parent = p
+	local pp = Instance.new("ProximityPrompt")
+	pp:SetAttribute("Compact", true) -- PromptController draws it small, above the cube
+	pp.ActionText = "Pick up"
+	pp.ObjectText = def.name
+	pp.HoldDuration = 0
+	pp.KeyboardKeyCode = Enum.KeyCode.E
+	pp.MaxActivationDistance = Config.carry.pickUpRange
+	pp.RequiresLineOfSight = false
+	pp.Style = Enum.ProximityPromptStyle.Custom -- drawn by PromptController; other players' clients hide it (PetVisuals)
+	pp.Parent = a
+	pp.Triggered:Connect(function(who: Player)
+		if who == player then
+			CarryService.pickUp(player, c.uid)
+		end
+	end)
+	c.part = p
+	p.Parent = groundFolder
+	local list = ground[player] or {}
+	table.insert(list, c)
+	ground[player] = list
+	return c.uid
+end
+
+-- E on your own cube on the ground: it goes into your hands (the client flies it there), and only
+-- starts melting from now
+function CarryService.pickUp(player: Player, uid: string)
+	local list = ground[player]
+	local p = PlayerTracker.position(player)
+	local c: Cube? = nil
+	for i, g in list or {} do
+		local at = g.part and g.part.Position
+		local near = p ~= nil and at ~= nil and (Vector3.new(p.X, 0, p.Z) - Vector3.new(at.X, 0, at.Z)).Magnitude <= Config.carry.pickUpRange + 2
+		if g.uid == uid and near then
+			c = table.remove(list :: { Cube }, i)
+			break
+		end
+	end
+	if not c then
+		return
+	end
+	local cube = c :: Cube
+	local from = if cube.part then cube.part.CFrame else CFrame.new()
+	if cube.part then
+		cube.part:Destroy()
+	end
+	cube.part = makePart(player, cube)
+	cube.since = os.clock()
+	local hands = carrying[player] or {}
+	table.insert(hands, cube)
+	carrying[player] = hands
+	changed(player)
+	Remotes.fire(player, "Notify", "pickedUp", { uid = cube.uid, key = cube.key, from = from })
+end
+
+-- left on the ground too long: the pet wakes up dazed where it stood (only you can zap it back)
+local function thawOnGround(player: Player, c: Cube)
+	local list = ground[player]
+	local i = list and table.find(list, c)
+	if i then
+		table.remove(list :: { Cube }, i)
+	end
+	local at = if c.part then c.part.Position else PlayerTracker.position(player) or Vector3.zero
+	if c.part then
+		c.part:Destroy()
+	end
+	WildPetSpawner.spawnDazed({ key = c.key, zone = c.zone, pose = c.pose, mut = c.mut, superUsed = c.superUsed, offered = c.offered },
+		Vector3.new(at.X, 0, at.Z), player, false)
+	Remotes.fire(player, "Notify", "melted", { key = c.key, offer = false })
+end
+
 -- the show for this cube finished (or was skipped): it melts normally from now on
 function CarryService.endGrace(player: Player, uid: string)
-	for _, c in carrying[player] or {} do
-		if c.uid == uid then
-			c.graceUntil = math.min(c.graceUntil, os.clock())
+	for _, list in { carrying[player] or {}, ground[player] or {} } do
+		for _, c in list do
+			if c.uid == uid then
+				c.graceUntil = math.min(c.graceUntil, os.clock())
+			end
 		end
 	end
 end
@@ -283,7 +388,7 @@ function CarryService.superFreezeOffer(player: Player): boolean
 	for _, root in WildPets:GetChildren() do
 		if root:GetAttribute("OfferUserId") == player.UserId then
 			local pet = WildPetSpawner.get(root:GetAttribute("PetId") :: string)
-			if pet and CarryService.count(player) < CarryService.capacity(player) then
+			if pet and CarryService.load(player) < CarryService.capacity(player) then
 				local info = { key = pet.def.key, zone = pet.zone, pose = pet.pose or "idle", mut = pet.mut, superFrozen = true, superUsed = true, offered = true }
 				WildPetSpawner.remove(pet.id)
 				CarryService.addCube(player, info)
@@ -295,6 +400,22 @@ function CarryService.superFreezeOffer(player: Player): boolean
 end
 
 local function tick(dt: number)
+	-- cubes waiting on the ground: the ice clears up as their time runs out (same look as a melt), then the pet wakes up
+	local now = os.clock()
+	for player, list in ground do
+		for _, c in table.clone(list) do
+			local left = Config.carry.groundSeconds - (now - math.max(c.since, c.graceUntil))
+			if left <= 0 then
+				thawOnGround(player, c)
+				continue
+			end
+			local frac = math.clamp(left / Config.carry.groundSeconds, 0, 1)
+			if c.part and math.abs(frac - c.shownFrac) > 0.01 then
+				c.shownFrac = frac
+				c.part:SetAttribute("LifeFrac", frac)
+			end
+		end
+	end
 	local chill = EventService.isChill()
 	local nightFactor = if EventService.isNight() then Config.melt.night else 1 -- cubes melt slower at night
 	for player, list in carrying do
@@ -327,6 +448,7 @@ end
 
 function CarryService.Init()
 	folder = WorldService.petsFolder("Cubes")
+	groundFolder = WorldService.petsFolder("GroundCubes")
 end
 
 function CarryService.Start()
@@ -352,7 +474,11 @@ function CarryService.Start()
 	Players.PlayerRemoving:Connect(function(player)
 		-- free cubes aren't owned pets yet (nothing owned is lost); paid ones are already in the save
 		-- except a cube whose freeze show was still playing: leaving mid-show keeps that pet (FreezeService)
-		local list: { Cube } = carrying[player] or {}
+		local list: { Cube } = table.clone(carrying[player] or {})
+		for _, c in ground[player] or {} do
+			table.insert(list, c) -- one still on the ground goes the same way (it isn't yours until you bank it)
+		end
+		ground[player] = nil
 		for _, c in list do
 			if leaveHandler and os.clock() < c.graceUntil and not c.superFrozen then
 				local ok, err = pcall(leaveHandler, player, c)

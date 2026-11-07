@@ -71,7 +71,7 @@ local function requestSuperFreeze(player: Player, petId: any)
 	if not d or not pet then
 		return
 	end
-	if CarryService.count(player) >= CarryService.capacity(player) then
+	if CarryService.load(player) >= CarryService.capacity(player) then
 		Remotes.notYet(player, "Backpack full", "offer")
 		return
 	end

@@ -221,25 +221,44 @@ function EffectsController.touch(kind: string, at: CFrame, size: number)
 	end
 end
 
--- the cube I'm carrying for this freeze (it replicates with the freeze; wait a moment if needed)
+-- the real cube for this freeze: waiting on the ground (right after the freeze) or in my hands (after E).
+-- It replicates with the notice; wait a moment if needed.
 function EffectsController.realCube(uid: any): BasePart?
 	if typeof(uid) ~= "string" then
 		return nil
 	end
-	local folder = workspace:FindFirstChild("Cubes")
 	local t0 = os.clock()
 	while os.clock() - t0 < 1 do
-		if folder then
-			for _, c in folder:GetChildren() do
+		for _, name in { "Cubes", "GroundCubes" } do
+			local folder = workspace:FindFirstChild(name)
+			for _, c in (if folder then folder:GetChildren() else {}) do
 				if c:GetAttribute("CubeUid") == uid and c:IsA("BasePart") then
 					return c
 				end
 			end
 		end
 		task.wait()
-		folder = folder or workspace:FindFirstChild("Cubes")
 	end
 	return nil
+end
+
+-- E on my cube on the ground: it flies from there into my hands (the same fly as a freeze used to end with)
+local function pickUp(data: any)
+	local def = PetDefs.get(data.key)
+	if not def then
+		return
+	end
+	local real = EffectsController.realCube(data.uid)
+	local size = if real then real.Size.X else PetDefs.cubeSize[def.size] * Config.carry.scale
+	local model = PetVisuals.frozenCube(data.key, size)
+	if not model then
+		return
+	end
+	if real then
+		real:SetAttribute("ShowHidden", true)
+	end
+	model:PivotTo(data.from)
+	EffectsController.flyHome(model, real, EffectsController.time(F.flySeconds))
 end
 
 -- move the shown cube into your hands, then show the real one again
@@ -357,6 +376,8 @@ function EffectsController.Start()
 			if not data.show then -- Legendary and up: the Show module plays it
 				task.spawn(snap, data)
 			end
+		elseif kind == "pickedUp" and typeof(data) == "table" and typeof(data.from) == "CFrame" then
+			task.spawn(pickUp, data)
 		elseif kind == "banked" then
 			local v = State.view
 			if v and v.plot then

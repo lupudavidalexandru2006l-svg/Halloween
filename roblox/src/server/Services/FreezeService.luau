@@ -113,7 +113,7 @@ local function canFreeze(player: Player, pet: any, data: any, loud: boolean?): b
 		end
 		return false
 	end
-	if CarryService.count(player) >= CarryService.capacity(player) then
+	if CarryService.load(player) >= CarryService.capacity(player) then
 		if loud then
 			Remotes.notYet(player, "Backpack full", "pet")
 		end
@@ -130,7 +130,7 @@ end
 -- you aim at, so two shows never start at once.
 local function pickExtras(player: Player, main: any, data: any, gun: number): { string }
 	local extras: { string } = {}
-	local want = math.min(Config.gun(gun).beams - 1, CarryService.capacity(player) - CarryService.count(player) - 1)
+	local want = math.min(Config.gun(gun).beams - 1, CarryService.capacity(player) - CarryService.load(player) - 1)
 	local p = PlayerTracker.position(player)
 	if want <= 0 or not p then
 		return extras
@@ -168,7 +168,7 @@ local function freezeOne(player: Player, pet: any)
 	local show = if dazed then nil else F.shows[pet.def.tier]
 	WildPetSpawner.remove(id)
 	-- the result is decided and stored before any show plays (Animation Rules 3)
-	local uid = CarryService.addCube(player, info, false, if show then showSeconds(show) else 0)
+	local uid = CarryService.dropCube(player, info, at, if show then showSeconds(show) else 0) -- waits on the ground for your E
 	DataService.mutate(player, function(d)
 		d.stats.frozen += 1
 	end)
@@ -353,12 +353,12 @@ function FreezeService.Start()
 			clearAim(player) -- putting the ray away stops the beam
 		end
 	end)
-	-- a ray the game put away comes back out once you carry nothing (banked, melted, knocked loose)
+	-- a ray the game put away comes back out once you carry nothing and nothing waits on the ground (banked, melted, knocked loose)
 	task.spawn(function()
 		while true do
 			task.wait(0.25)
 			for _, p in Players:GetPlayers() do
-				if GearService.isStowed(p) and CarryService.count(p) == 0 then
+				if GearService.isStowed(p) and CarryService.load(p) == 0 then
 					GearService.unstowRay(p)
 				end
 			end

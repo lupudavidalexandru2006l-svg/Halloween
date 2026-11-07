@@ -1117,6 +1117,24 @@ local function isAimKey(k: Enum.KeyCode): boolean
 	return table.find(A.keys, k) ~= nil
 end
 
+-- my frozen pets waiting on the ground for E (CarryService.dropCube); near = within pick-up reach
+local function myGroundCube(near: boolean): boolean
+	local folder = workspace:FindFirstChild("GroundCubes")
+	local c = me.Character
+	local hrp = c and c:FindFirstChild("HumanoidRootPart")
+	for _, g in (if folder then folder:GetChildren() else {}) do
+		if g:IsA("BasePart") and g:GetAttribute("OwnerUserId") == me.UserId then
+			if not near then
+				return true
+			end
+			if hrp and hrp:IsA("BasePart") and (g.Position - hrp.Position).Magnitude <= Config.carry.pickUpRange then
+				return true
+			end
+		end
+	end
+	return false
+end
+
 -- a shot at a pet while the ray is put away (after a freeze, or by hand) did nothing at all, so a kid
 -- thought the game broke: say why, at most once every few seconds (QA 2026-11-05, PT-03)
 local lastHint = 0
@@ -1135,7 +1153,8 @@ local function hintNoRay(target: Target?)
 			end
 		end
 	end
-	State.local_("notYet", { reason = if carrying then "Take your pet home first!" else "Pick the Ice Ray first", at = "hotbar" })
+	local reason = if carrying then "Take your pet home first!" elseif myGroundCube(false) then "Pick up your pet first!" else "Pick the Ice Ray first"
+	State.local_("notYet", { reason = reason, at = "hotbar" })
 end
 
 function RayController.Init() end
@@ -1157,6 +1176,8 @@ function RayController.Start()
 			locked, shot = nil, false -- a new click picks again (clicking the same pet keeps the shot going)
 		elseif input.UserInputType == Enum.UserInputType.Touch and not pointer then
 			pointer = { pos = Vector2.new(input.Position.X, input.Position.Y), touch = input } -- a drag turns the camera: the shot keeps going
+		elseif input.KeyCode == Enum.KeyCode.E and myGroundCube(true) then
+			return -- E next to my frozen pet picks it up (its prompt), it doesn't aim
 		elseif isAimKey(input.KeyCode) then
 			autoAim = true
 		end
