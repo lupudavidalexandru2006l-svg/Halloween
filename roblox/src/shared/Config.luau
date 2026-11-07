@@ -986,6 +986,13 @@ Config.motion = {
 		pan = { expand = 0.25, fillFrom = 0.2, fillFull = 0.3, holdTo = 0.45, fadeTo = 0.8, light = 6, lightRange = 40,
 			popOff = 0.12, dropIn = 0.4, burst = 22, burstBig = 36,
 			strength = { slots = 0.75, cold = 0.85, look = 1 } :: { [string]: number } },
+		-- the front view (owner 2026-11-07, the reference clip): when the answer lands the popup and HUD
+		-- hide, the camera glides to the front of your pan, the pan upgrades there, the camera glides
+		-- back and the popup returns, where the card then pops. Seconds; reduced motion halves them.
+		-- frontView = false keeps the camera on you and the popup open (the 0.9 s version).
+		frontView = true,
+		trip = { go = 0.45, watch = 0.9, back = 0.4, -- glide there, watch the pan, glide home
+			camBack = 24, camUp = 13, lookUp = 1, lookIn = 0.42 }, -- studs in front of the pan's front edge, height; looks this far into the pan
 	},
 }
 

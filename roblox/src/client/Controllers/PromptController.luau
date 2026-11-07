@@ -118,7 +118,7 @@ local function show(prompt: ProximityPrompt)
 		what.TextTransparency = 0.1
 	end
 	fitKey()
-	gui.Enabled = not Screen.menuHidden -- a shop is open: its booth's pill stays out of the way
+	gui.Enabled = not (Screen.menuHidden or Screen.showHidden) -- a shop is open or a show plays: the pill stays out of the way
 	gui.Parent = playerGui
 	local conns: { RBXScriptConnection } = {}
 	-- touch and mouse: the block is the hold button
@@ -192,13 +192,16 @@ function PromptController.Start()
 		end
 	end)
 	ProximityPromptService.PromptHidden:Connect(hide)
-	Screen.MenuHiddenChanged:Connect(function(hidden: boolean)
+	local function stepAside()
+		local hidden = Screen.menuHidden or Screen.showHidden
 		for _, s in shown do
 			s.gui.Enabled = not hidden
 		end
 		-- the ProximityPrompt itself still listens for its key: a press with the shop open would reopen it
 		ProximityPromptService.Enabled = not hidden
-	end)
+	end
+	Screen.MenuHiddenChanged:Connect(stepAside)
+	Screen.ShowHiddenChanged:Connect(stepAside)
 	ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt: ProximityPrompt)
 		local s = shown[prompt]
 		if s then

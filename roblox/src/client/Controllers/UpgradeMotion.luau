@@ -7,6 +7,9 @@
 -- three rising chimes and a gloss sweep. The button works again at 0.45 s; a press before that is
 -- kept and sent at that moment. In the world, the pan lights up from the middle and cools, and a new
 -- Look's pieces pop off and drop in under the light.
+-- Front view (owner 2026-11-07, Config.motion.upgrade.frontView): when the answer lands, Show.panTrip hides
+-- the popup and HUD and glides the camera to the front of your pan; the pan's upgrade plays there, the
+-- camera glides back, the popup returns and only then does the card pop (its impact waits out the trip).
 -- Prototype and timeline: prototype/ice-ray-for-pets/upgrade-demo.html. Numbers: Config.motion.upgrade.
 -- Cards are rebuilt whenever a level changes, so the motion is kept per upgrade kind and drawn on
 -- whichever card PanPopup has bound for that kind (UpgradeMotion.bind).
@@ -20,6 +23,7 @@ local SettingsController = require(script.Parent.SettingsController)
 local SoundController = require(script.Parent.SoundController)
 local EffectsController = require(script.Parent.EffectsController)
 local PanLooks = require(script.Parent.PanLooks)
+local Show = require(script.Parent.Show)
 local Ui = require(script.Parent.Parent.Lib.Ui)
 
 local UpgradeMotion = {}
@@ -39,6 +43,7 @@ type Anim = {
 	strength: number,
 	big: boolean,
 	streak: number,
+	trip: boolean, -- the front view played: the pan had the hit sound, the card only chimes
 }
 type Fx = { kind: string, t0: number, life: number, gui: GuiObject, [string]: any }
 type PanFx = { t0: number, rm: number, strength: number, glow: Color3, disk: Part, slab: Part, light: PointLight, maxD: number }
@@ -370,7 +375,9 @@ end
 -- ---------- the card ----------
 local function impact(kind: string, a: Anim)
 	local p = bound[kind]
-	SoundController.play("upgrade_hit")
+	if not a.trip then
+		SoundController.play("upgrade_hit")
+	end
 	if p and p.card.Parent then
 		ring(p, a.glow, if a.big then 1.4 else 1)
 		sparks(p, p.tile, a.glow, if a.big then C.sparksBig else C.sparks, 1)
@@ -474,7 +481,10 @@ local function land(kind: string, a: Anim, data: any?)
 		return
 	end
 	local now = os.clock()
-	a.impact = math.max(C.build, (now - a.t0) / a.rm)
+	local landed = math.max(C.build, (now - a.t0) / a.rm)
+	a.trip = C.frontView == true
+	-- with the front view the card pops when the popup comes back
+	a.impact = if a.trip then landed + C.trip.go + C.trip.watch + C.trip.back else landed
 	local level = if data and typeof(data.level) == "number" then data.level else a.from + 1
 	a.glow = glowOf(kind, level)
 	a.big = level % 5 == 0 or (Config.panMax(kind) == level)
@@ -557,7 +567,7 @@ function UpgradeMotion.press(kind: string, level: number, canAfford: boolean, se
 	local na: Anim = {
 		t0 = os.clock(), rm = if reduced() then C.reduced.time else 1, from = level, impact = nil,
 		startTile = tileNow, startCard = cardNow, buffered = nil, fired = {}, glow = glowOf(kind, level + 1),
-		strength = 1, big = false, streak = 0,
+		strength = 1, big = false, streak = 0, trip = false,
 	}
 	anims[kind] = na
 	SoundController.play("upgrade_charge")
@@ -583,12 +593,20 @@ function UpgradeMotion.Start()
 		if not a then -- bought some other way (a buffered press already ended, a second device): still answer it
 			a = {
 				t0 = os.clock() - C.build, rm = if reduced() then C.reduced.time else 1, from = (data.level or 2) - 1, impact = nil,
-				startTile = 1, startCard = 1, buffered = nil, fired = {}, glow = glowOf(k, data.level or 1), strength = 1, big = false, streak = 0,
+				startTile = 1, startCard = 1, buffered = nil, fired = {}, glow = glowOf(k, data.level or 1), strength = 1, big = false, streak = 0, trip = false,
 			}
 			anims[k] = a
 		end
 		land(k, a, data)
-		panEcho(k, data, a)
+		if a.trip then
+			local anim = a
+			task.spawn(Show.panTrip, data, a.rm, function()
+				SoundController.play("upgrade_hit")
+				panEcho(k, data, anim)
+			end)
+		else
+			panEcho(k, data, a)
+		end
 	end)
 end
 

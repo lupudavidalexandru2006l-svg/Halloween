@@ -25,6 +25,10 @@ local main: Frame? = nil
 local menuHiddenEvent = Instance.new("BindableEvent")
 Screen.menuHidden = false
 Screen.MenuHiddenChanged = menuHiddenEvent.Event -- (hidden)
+-- a show is playing (setHidden): the world prompts step aside too (PromptController)
+local showHiddenEvent = Instance.new("BindableEvent")
+Screen.showHidden = false
+Screen.ShowHiddenChanged = showHiddenEvent.Event -- (hidden)
 
 local function gui(name: string, order: number): ScreenGui
 	local g = Instance.new("ScreenGui")
@@ -182,6 +186,10 @@ function Screen.setHidden(hidden: boolean)
 		if g then
 			g.Enabled = not hidden
 		end
+	end
+	if Screen.showHidden ~= hidden then
+		Screen.showHidden = hidden
+		showHiddenEvent:Fire(hidden)
 	end
 end
 

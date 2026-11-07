@@ -9,7 +9,8 @@
 -- It also plays the gun buy show (Round 4 phase 4, Config.show.gunBuy): the new gun spins in, its stat
 -- bars fill from your old gun's values, and the old gun drops into your locker. The server has already
 -- charged and given the gun; the show only plays it. It hides the HUD but doesn't hold the character.
--- And the pan upgrade show (Round 4 phase 5, Config.show.panUpgrade), at your pan, with PanLooks.
+-- And the pan upgrade show (Round 4 phase 5, Config.show.panUpgrade), at your pan, with PanLooks, and
+-- the fast upgrade's front view of the pan (Show.panTrip, timed by UpgradeMotion).
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -735,6 +736,70 @@ function Show.panUpgrade(data: any)
 	finish(ctx)
 	if not ok then
 		warn("[Show] pan upgrade show failed:", err)
+	end
+end
+
+-- ---------- the fast upgrade's front view (Config.motion.upgrade.trip, owner 2026-11-07) ----------
+-- UpgradeMotion calls this when the server's answer lands: the popup and HUD hide, the camera glides
+-- to the front of your pan, onArrive() plays the pan's upgrade there, the camera glides back and
+-- everything comes back. rm: the time scale (0.5 with reduced motion). Fixed length, so UpgradeMotion
+-- can time the card's pop for the moment the popup returns.
+function Show.panTrip(data: any, rm: number, onArrive: () -> ())
+	local T = Config.motion.upgrade.trip
+	local pl = typeof(data) == "table" and typeof(data.plot) == "number" and Config.world.plots[data.plot]
+	if not pl then
+		onArrive()
+		return
+	end
+	if running then
+		finish(running) -- one show at a time
+	end
+	local ctx: Ctx = {
+		name = "panTrip", cfg = T, data = {}, def = nil, reduced = rm < 1,
+		skipped = false, finished = false, model = nil, cube = nil, real = nil, at = CFrame.new(), size = 0,
+		color = Theme.coin, gui = nil, cam = nil, frost = nil, controls = nil, conn = nil,
+	}
+	running = ctx
+	local arrived = false
+	local ok, err = pcall(function()
+		local gui = Instance.new("ScreenGui")
+		gui.Name = "Show"
+		gui.ResetOnSpawn = false
+		gui.Parent = me:WaitForChild("PlayerGui")
+		ctx.gui = gui
+		Screen.setHidden(true) -- the popup stays open underneath and comes back as it was
+		local hum = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
+		if hum then
+			ctx.controls = { hum = hum, walk = hum.WalkSpeed, jump = hum.JumpPower, jumpH = hum.JumpHeight, rotate = hum.AutoRotate }
+			hum.WalkSpeed, hum.JumpPower, hum.JumpHeight, hum.AutoRotate = 0, 0, 0, false
+		end
+		ctx.cam = CameraController.borrow()
+		local W = Config.world.pans
+		local target = Vector3.new(pl.x, T.lookUp, W.frontZ - W.length * T.lookIn)
+		local from = Vector3.new(pl.x, T.camUp, W.frontZ + T.camBack)
+		local function glide(to: CFrame, seconds: number)
+			local cam = ctx.cam
+			if cam then
+				TweenService:Create(cam, TweenInfo.new(seconds, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), { CFrame = to }):Play()
+			end
+		end
+		glide(CFrame.lookAt(from, target), T.go * rm) -- a smooth glide, never a spin round the player
+		hold(ctx, T.go * rm, true)
+		arrived = true
+		onArrive()
+		hold(ctx, T.watch * rm, true)
+		local home = CameraController.homeCFrame()
+		if home then
+			glide(home, T.back * rm)
+		end
+		hold(ctx, T.back * rm, true)
+	end)
+	if not arrived then
+		onArrive() -- the pan still upgrades in the world
+	end
+	finish(ctx)
+	if not ok then
+		warn("[Show] pan front view failed:", err)
 	end
 end
 
