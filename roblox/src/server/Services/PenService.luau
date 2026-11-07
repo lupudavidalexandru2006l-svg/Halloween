@@ -57,7 +57,7 @@ end
 function PenService.machineSpot(plot: number, m: number): Vector3
 	local T, P = Config.thaw, Config.world.pans
 	local spot = Config.world.plots[plot]
-	return Vector3.new(spot.x + T.machine.x + (m - 1) * T.machine.gap, P.soilHeight + 0.2, P.frontZ - P.length + T.machine.z)
+	return Vector3.new(spot.x + T.machine.x + (m - 1) * T.machine.gap, P.soilHeight + T.machine.padTop, P.frontZ - P.length + T.machine.z) -- on its heat pad
 end
 
 -- the k-th waiting cube, lined up along the left fence from the machine toward the door
@@ -169,6 +169,7 @@ local function drawPen(player: Player, d: Data)
 			cube.CFrame = CFrame.new(at + Vector3.new(0, s / 2, 0)) -- facing the door
 			cube:SetAttribute("Plot", plot)
 			cube:SetAttribute("Thaw", st or "out")
+			cube:SetAttribute("Machine", if st == "machine" then k else nil) -- which Thaw Machine it sits in (ThawMachines lights that one up)
 			local a = if st == "machine" then (thawing[player] :: Thawing).active[k] else nil
 			cube:SetAttribute("ThawEnd", if a then workspace:GetServerTimeNow() + (a.endsAt - os.clock()) else nil)
 			cube:SetAttribute("ThawTotal", if a then a.total else nil)

@@ -318,6 +318,7 @@ Config.sounds = {
 		island = 0, -- the island banner dropping in
 		tink = 0, crack = 0, slam = 0, reveal_secret = 0, -- freeze snap, layered crack, show slam, Secret reveal
 		pan_up = 0, sell = 0, bounce = 0, -- a pan upgrade's burst, a sale, a cube too hot for your pan
+		thaw_done = 0, -- your Thaw Machine lets a pet out
 		upgrade_charge = 0, upgrade_hit = 0, upgrade_chime = 0, -- the fast upgrade (Config.motion.upgrade): wind-up, impact, rising chime
 		-- the shot (Config.ray.anim): charge whoosh, mechanical clack, fire, the hold's hum (looped), the
 		-- airy tail after a lock, a fizz when you let go early, and soft crackles as ice flecks form
@@ -414,7 +415,7 @@ export type RayCue = { at: number, sound: string?, fx: string?, kick: string? }
 
 Config.world = {
 	maxPlayers = 6, -- one pan per server slot. Owner item: Server Size 6 in Game Settings > Places
-	mapVersion = 12, -- Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges, 6 = bigger square pans, 7 = pans measured against the real avatar, 8 = open gaps, open ground behind, level pans, 9 = no flush overlapping surfaces, 10 = booth details: sign bulbs, log ends, scalloped awnings, chalk coin, 11 = wide tunnel and big entrance for big pets, a clean road, 12 = booths shaped like what they do: treasure chest, gear workshop, ring portal)
+	mapVersion = 13, -- Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges, 6 = bigger square pans, 7 = pans measured against the real avatar, 8 = open gaps, open ground behind, level pans, 9 = no flush overlapping surfaces, 10 = booth details: sign bulbs, log ends, scalloped awnings, chalk coin, 11 = wide tunnel and big entrance for big pets, a clean road, 12 = booths shaped like what they do: treasure chest, gear workshop, ring portal, 13 = the detailed sci-fi Thaw Machine)
 	hubZMax = 0, -- the tunnel mouth: the hub is z < 0 (no wild pets, no heat)
 	-- wide enough for the row of six pans plus 10 studs at each end; zMin is worked out below (behind the pans' backSpace)
 	hub = { xMin = -150, xMax = 150, zMin = 0, wallHeight = 16, colliderHeight = 60 },
@@ -1139,10 +1140,32 @@ Config.thaw = {
 	perLevel = 1.33, -- 7 Slots levels: about x5.5 at the top, as fast as the old 19 levels at x1.1
 	secondAt = Config.upgrades.pen.maxLevel - 1,
 	tickSeconds = 0.25,
-	machine = { x = -5.5, z = 5.5, gap = 7 }, -- machine 1 from the middle of the pan's back fence (x across, z toward the door); machine 2 is gap further right
+	-- machine 1 from the middle of the pan's back fence (x across, z toward the door); machine 2 is gap
+	-- further right. padTop: the cube sits on the raised heat pad this high. haloY / haloRadius: the
+	-- floating ring over the pad (MapArt builds it, ThawMachines spins it)
+	machine = { x = -6.25, z = 5.5, gap = 8.5, padTop = 0.75, haloY = 6.5, haloRadius = 2.55 },
 	queueGap = 3.4, queueX = 2.4, queueFrom = 5.5, -- waiting cubes line up along the left fence (queueX in from it), from the machine toward the door
 	queueShown = 8, -- at most this many waiting cubes are drawn
 	wander = { speed = 2.4, pause = { 1.5, 4.5 }, margin = 2.5 }, -- thawed pets stroll around the pan (drawn on each client)
+	-- the machine coming to life on each client (ThawMachines): idle it breathes in ice blue; thawing,
+	-- the heat climbs from ice blue through amber to hot orange as the time runs out, every light,
+	-- beam and gauge following it; the pet's release is one burst. Kid-safe: smooth pulses, no strobes.
+	fx = {
+		drawDistance = 120, -- nothing moves beyond this (phones)
+		scanEvery = 0.25, -- how often each machine looks for the cube it's thawing
+		heatFollow = 5, -- how fast the shown heat catches up with the real progress (per second)
+		chase = { idle = 2.5, from = 6, to = 22, tail = 3 }, -- the rim lights' running light: steps a second idle, active from -> to as it heats; lit tail length
+		halo = { idleSpin = 0.35, spinFrom = 1.2, spinTo = 4.2, bob = 0.12, bobSpeed = 1.1, innerSpin = -1.6 }, -- radians a second; the inner ring turns the other way
+		gauge = { idleLevel = 0.06, breathe = 0.03 }, -- the core tube's fill while idle (share of its height)
+		pulse = { speed = 2.2, beam = 0.25, strip = 0.35 }, -- the beams' and pylon strips' soft pulse (Hz, depth)
+		beam = { from = 0.16, to = 0.34, transparency = 0.25 }, -- widths at the emitter and at the cube
+		beacon = { idle = 0.5, active = 1.2 }, -- the antenna light's slow pulse (Hz), never a strobe
+		light = { range = 12, idle = 0.35, from = 0.9, to = 2.4 },
+		steam = { idle = 1.2, from = 3, to = 12 }, -- puffs a second from the two stacks
+		mist = { from = 5, to = 16 }, -- melt vapour off the cube while it thaws
+		burst = { sparks = 26, mist = 18, ring = 0.55, ringFrom = 3, ringTo = 10, flash = 0.6, outFor = 2.2 },
+		scanline = 2.6, -- seconds for the screen's scan line to sweep down
+	},
 }
 
 -- Heat Critters (island 3 and on): hot, cheeky animals that want your ice cube to cool off. They chase

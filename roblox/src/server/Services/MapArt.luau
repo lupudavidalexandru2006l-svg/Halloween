@@ -15,7 +15,7 @@
 -- side bands, pines' branches above head height), the props sit on an earth strip at the cliffs' foot,
 -- and the landmarks stand in the cliffs, rising over them.
 -- Contracts other scripts rely on: Art.Hub.Pan<i> holds FencePost / PostCap / FenceRail / PanFloor /
--- LawnStripe / DoorGlow / ThawMachine1-2 (PanLooks, MapController); GateBars<id> and GateGlow parts
+-- LawnStripe / DoorGlow / ThawMachine1-2 (PanLooks, MapController, ThawMachines); GateBars<id> and GateGlow parts
 -- (MapController); GiftArt (MapController bobs it); Lights anywhere in the map (WorldService, night).
 -- Shapes Roblox has no primitive for (cone, crystal, rock, dome, ring, arch) are MeshParts in
 -- ReplicatedStorage.SceneryMeshes; plain parts stand in when they're missing.
@@ -360,40 +360,150 @@ local function fence(parent: Instance, x1: number, z1: number, x2: number, z2: n
 	end
 end
 
-local function thawMachine(parent: Instance, name: string, at: Vector3)
+-- the Thaw Machine (owner 2026-11-07: "much more detailed ... techy and futuristic"): a sci-fi thaw pod
+-- facing the door. A round two-step deck with 12 running rim lights; a raised diamond-plate heat pad
+-- with two glowing coils and a core disc (the cube sits on it); a reactor tower behind it with a
+-- see-through core tube that fills as the pet thaws, a holo screen, status lights, orange vent fins,
+-- two steam stacks and an antenna beacon; an overhead arm with an emitter pointing down; two pylons
+-- with light strips and emitter heads aimed at the cube; and a floating halo ring with six emitter
+-- nodes and a thin inner ring. Only the shapes are built here: ThawMachines (client) animates the
+-- named parts (Chase with I = 1..12, Coil, CoilCore, GaugeFill, Strip, Led with I = 1..3, Beacon,
+-- Nozzle, Emitter, HaloNode, the Halo model round HaloCenter, HaloInner, Screen, Stack).
+local function thawMachine(parent: Instance, name: string, ground: Vector3)
 	local R5 = Theme.round5
+	local M = Config.thaw.machine
 	local m = Instance.new("Model")
 	m.Name = name
-	local base = CFrame.new(at.X, at.Y - 0.2, at.Z) -- faces the door (+Z)
-	cyl(2.5, 0.35, base * CFrame.new(0, 0.18, 0), R5.machineTrim, m)
-	quiet(glow(cyl(2.7, 0.15, base * CFrame.new(0, 0.1, 0), R5.machineGlow, m), 0.2))
-	for _, x in { -2.7, 2.7 } do
-		block(Vector3.new(1, 5.6, 1.2), base * CFrame.new(x, 2.8, -0.3), R5.machine, m, true)
-		block(Vector3.new(1.3, 0.35, 1.5), base * CFrame.new(x, 5.75, -0.3), R5.machineTrim, m)
+	m.ModelStreamingMode = Enum.ModelStreamingMode.Atomic -- it streams in whole (the client animates its parts)
+	local cf = CFrame.new(ground) -- faces the door (+Z)
+	local function at(x: number, y: number, z: number): CFrame
+		return cf * CFrame.new(x, y, z)
 	end
-	block(Vector3.new(6.6, 1, 1.6), base * CFrame.new(0, 6.3, -0.3), R5.machine, m)
-	block(Vector3.new(6.4, 4.8, 0.4), base * CFrame.new(0, 3, -1.7), R5.machineTrim, m)
-	-- the warm-up gauge on the back panel and three heat lamps glowing down onto the pad
-	quiet(glow(block(Vector3.new(0.5, 3.6, 0.1), base * CFrame.new(-2, 3, -1.45), R5.machineGlow, m), 0.1))
-	for k = -1, 1 do
-		local lamp = quiet(glow(block(Vector3.new(1, 0.5, 1), base * CFrame.new(k * 2, 5.6, -0.3), R5.machineGlow, m), 0.05))
-		if k == 0 then
-			light(lamp, R5.machineGlow, 10, 1.2)
+	local dark, metal, body, accent, cold = R5.machineDark, R5.machineMetal, R5.machineTrim, R5.machine, R5.machineCold
+	local pad = M.padTop
+	local up = CFrame.Angles(math.pi / 2, 0, 0) -- turns an upright cylinder to lie along z
+
+	-- the deck: a navy base, a cream step with four bolts, 12 rim lights on the ledge between them
+	cyl(3.7, 0.3, at(0, 0.15, 0), dark, m, false, Enum.Material.Metal)
+	cyl(3.45, 0.22, at(0, 0.41, 0), body, m)
+	for k = 0, 11 do
+		local c = named(quiet(glow(block(Vector3.new(0.62, 0.1, 0.2), cf * CFrame.Angles(0, k * math.pi / 6, 0) * CFrame.new(0, 0.35, 3.575), cold, m), 0.6)), "Chase")
+		c:SetAttribute("I", k + 1)
+	end
+	for k = 0, 3 do
+		quiet(cyl(0.13, 0.08, cf * CFrame.Angles(0, k * math.pi / 2 + math.pi / 4, 0) * CFrame.new(0, 0.54, 3.08), metal, m, false, Enum.Material.Metal))
+	end
+
+	-- the heat pad: diamond plate on an orange band, two glowing coils and a core disc under the cube
+	cyl(2.8, 0.14, at(0, pad - 0.1, 0), accent, m)
+	cyl(2.65, 0.25, at(0, pad - 0.125, 0), metal, m, false, Enum.Material.DiamondPlate)
+	for _, d in { 4.4, 2.2 } do
+		named(quiet(glow(shape("Ring", Vector3.new(d, 0.08, d), at(0, pad + 0.02, 0), cold, m), 0.2)), "Coil")
+	end
+	local core = named(quiet(glow(cyl(0.45, 0.06, at(0, pad + 0.01, 0), cold, m), 0.1)), "CoilCore")
+	light(core, cold, Config.thaw.fx.light.range, Config.thaw.fx.light.idle)
+
+	-- the reactor tower behind the pad: a navy plinth, a cream body, orange fins with vent slats
+	local tz = -3.6
+	local fz = tz + 0.75 -- its front face
+	block(Vector3.new(3.1, 0.6, 2), at(0, 0.6, tz), dark, m, true, Enum.Material.Metal)
+	block(Vector3.new(2.6, 8, 1.5), at(0, 4.9, tz), body, m, true)
+	for _, sx in { -1, 1 } do
+		block(Vector3.new(0.5, 7, 1.9), at(sx * 1.55, 4.4, tz - 0.05), accent, m, true)
+		wedge(Vector3.new(0.5, 1, 1.9), at(sx * 1.55, 8.4, tz - 0.05) * CFrame.Angles(0, math.pi, 0), accent, m)
+		for j = 0, 3 do
+			quiet(block(Vector3.new(0.08, 0.16, 1.3), at(sx * 1.83, 2.2 + j * 0.5, tz - 0.05), dark, m))
 		end
 	end
-	-- a little chimney puffing steam
-	cyl(0.45, 1.6, base * CFrame.new(2, 7.4, -0.9), R5.machine, m)
-	local puff = Instance.new("ParticleEmitter")
-	puff.Color = ColorSequence.new(Theme.white)
-	puff.Transparency = NumberSequence.new(0.3, 1)
-	puff.Size = NumberSequence.new(0.5, 1.4)
-	puff.Lifetime = NumberRange.new(1, 1.6)
-	puff.Speed = NumberRange.new(1.5, 2.5)
-	puff.Rate = 3
-	puff.EmissionDirection = Enum.NormalId.Top
-	local spot = block(Vector3.one * 0.3, base * CFrame.new(2, 8.3, -0.9), R5.machine, m)
-	spot.Transparency = 1
-	puff.Parent = spot
+	-- the front: a navy panel, the core tube (glass, a glowing fill, metal caps, orange clamps) with a
+	-- scale either side, the holo screen in a cream bezel, status lights down the left fin, grille right
+	quiet(block(Vector3.new(2.2, 6.9, 0.1), at(0, 4.9, fz + 0.04), dark, m))
+	local tubeZ = fz + 0.05
+	local glass = quiet(cyl(0.42, 4.3, at(0, 3.55, tubeZ), R5.machineGlass, m))
+	glass.Transparency = 0.6
+	named(quiet(glow(cyl(0.3, 4.1, at(0, 3.55, tubeZ), cold, m))), "GaugeFill")
+	for _, y in { 1.25, 5.85 } do
+		cyl(0.52, 0.4, at(0, y, tubeZ), metal, m, false, Enum.Material.Metal)
+	end
+	for _, y in { 2.6, 4.5 } do
+		quiet(cyl(0.46, 0.1, at(0, y, tubeZ), accent, m))
+	end
+	for _, sx in { -1, 1 } do
+		for j = 0, 4 do
+			local long = j % 2 == 0
+			quiet(block(Vector3.new(if long then 0.32 else 0.18, 0.06, 0.05), at(sx * (if long then 0.78 else 0.71), 1.6 + j * 0.95, fz + 0.1), body, m))
+		end
+	end
+	quiet(block(Vector3.new(2.15, 1.45, 0.08), at(0, 7.55, fz + 0.1), body, m))
+	named(quiet(block(Vector3.new(1.95, 1.25, 0.06), at(0, 7.55, fz + 0.15), R5.machineScreen, m)), "Screen")
+	for j = 1, 3 do
+		local led = named(quiet(glow(ball(0.14, at(-1.55, 6.2 + j * 0.55, tz + 0.95).Position, cold, m), 0.1)), "Led")
+		led:SetAttribute("I", j)
+		quiet(block(Vector3.new(0.3, 0.3, 0.05), at(1.55, 6.2 + j * 0.55, tz + 0.88), dark, m))
+	end
+	-- the top: a navy cap, a cream dome, two steam stacks and an antenna with its beacon
+	block(Vector3.new(3, 0.35, 2.1), at(0, 9.07, tz), dark, m, false, Enum.Material.Metal)
+	shape("Dome", Vector3.new(2.2, 1, 1.6), at(0, 9.75, tz), body, m)
+	for _, sx in { -1, 1 } do
+		cyl(0.28, 1.1, at(sx * 1.05, 9.8, tz - 0.55), metal, m, false, Enum.Material.Metal)
+		quiet(cyl(0.34, 0.16, at(sx * 1.05, 10.38, tz - 0.55), accent, m))
+		local vent = named(quiet(block(Vector3.one * 0.3, at(sx * 1.05, 10.5, tz - 0.55), dark, m)), "Stack")
+		vent.Transparency = 1
+		vent.CanQuery = false
+	end
+	cyl(0.07, 1.5, at(0.55, 10.6, tz - 0.2), metal, m, false, Enum.Material.Metal)
+	named(quiet(glow(ball(0.22, at(0.55, 11.45, tz - 0.2).Position, R5.machineReady, m))), "Beacon")
+	-- power: two conduits from the tower's back into sockets in the ground
+	for _, sx in { -0.7, 0.7 } do
+		cyl(0.22, 0.45, at(sx, 0.5, tz - 0.95) * up, dark, m, false, Enum.Material.Metal)
+		quiet(cyl(0.27, 0.12, at(sx, 0.5, tz - 0.95) * up, accent, m))
+		block(Vector3.new(0.6, 0.7, 0.45), at(sx, 0.35, tz - 1.35), dark, m, false, Enum.Material.Metal) -- clear of the back fence posts
+	end
+
+	-- the overhead arm: out of the tower over the pad, a navy head and an emitter pointing down
+	block(Vector3.new(0.8, 0.55, 3.2), at(0, 8.5, -1.35), body, m)
+	quiet(block(Vector3.new(0.5, 0.08, 3), at(0, 8.2, -1.3), accent, m))
+	cyl(0.75, 0.6, at(0, 8.45, 0), dark, m, false, Enum.Material.Metal)
+	quiet(cyl(0.82, 0.14, at(0, 8.45, 0), accent, m))
+	shape("Cone", Vector3.new(1, 0.8, 1), at(0, 7.8, 0) * CFrame.Angles(math.pi, 0, 0), metal, m)
+	named(quiet(glow(ball(0.2, at(0, 7.35, 0).Position, cold, m))), "Nozzle")
+
+	-- two pylons beside the pad, each with a light strip facing it and an emitter head aimed at the cube
+	local aim = at(0, pad + 2, 0).Position
+	for _, side in { -1, 1 } do
+		local p = cf * CFrame.Angles(0, side * math.rad(125), 0) * CFrame.new(0, 0, 3.25) -- its -Z faces the pad
+		cyl(0.55, 0.4, p * CFrame.new(0, 0.7, 0), dark, m, true, Enum.Material.Metal)
+		cyl(0.42, 4.6, p * CFrame.new(0, 2.95, 0), body, m, true)
+		for _, y in { 2, 4 } do
+			quiet(cyl(0.47, 0.18, p * CFrame.new(0, y, 0), accent, m))
+		end
+		cyl(0.5, 0.3, p * CFrame.new(0, 5.4, 0), dark, m, false, Enum.Material.Metal)
+		quiet(block(Vector3.new(0.26, 3.4, 0.1), p * CFrame.new(0, 3, -0.4), dark, m))
+		named(quiet(glow(block(Vector3.new(0.14, 3.2, 0.08), p * CFrame.new(0, 3, -0.45), cold, m), 0.2)), "Strip")
+		local head = CFrame.lookAt((p * CFrame.new(0, 5.9, 0)).Position, aim)
+		block(Vector3.new(0.7, 0.6, 0.9), head, dark, m, false, Enum.Material.Metal)
+		quiet(block(Vector3.new(0.78, 0.12, 0.95), head * CFrame.new(0, 0.3, 0), accent, m))
+		named(quiet(glow(cyl(0.22, 0.12, head * CFrame.new(0, 0, -0.48) * up, cold, m))), "Emitter")
+	end
+
+	-- the floating halo: a cream ring with a glowing edge and six emitter nodes under it (they turn
+	-- together round HaloCenter), and a thin inner ring just below that turns the other way
+	local hc = at(0, M.haloY, 0)
+	local R = M.haloRadius
+	local halo = Instance.new("Model")
+	halo.Name = "Halo"
+	halo.Parent = m
+	local centre = named(quiet(block(Vector3.one * 0.2, hc, dark, halo)), "HaloCenter")
+	centre.Transparency = 1
+	centre.CanQuery = false
+	shape("Ring", Vector3.new(R * 2 - 0.2, 0.4, R * 2 - 0.2), hc, body, halo)
+	named(quiet(glow(shape("Ring", Vector3.new(R * 2, 0.14, R * 2), hc, cold, halo), 0.1)), "HaloGlow")
+	for k = 0, 5 do
+		local ncf = hc * CFrame.Angles(0, k * math.pi / 3 + math.pi / 6, 0) * CFrame.new(0, -0.3, R * 0.78)
+		block(Vector3.new(0.5, 0.3, 0.5), ncf, dark, halo, false, Enum.Material.Metal)
+		named(quiet(glow(ball(0.15, (ncf * CFrame.new(0, -0.2, 0)).Position, cold, halo))), "HaloNode")
+	end
+	named(quiet(glow(shape("Ring", Vector3.new(2.6, 0.1, 2.6), hc * CFrame.new(0, -0.55, 0), cold, m), 0.3)), "HaloInner")
 	m.Parent = parent
 end
 
@@ -449,7 +559,7 @@ local function panArt(parent: Instance, i: number, pl: { x: number, z: number },
 	-- the Thaw Machines at the back (the second one shows once the pan has it: PanLooks)
 	local T = Config.thaw
 	for m = 1, 2 do
-		thawMachine(f, "ThawMachine" .. m, Vector3.new(pl.x + T.machine.x + (m - 1) * T.machine.gap, y + 0.2, zb + T.machine.z))
+		thawMachine(f, "ThawMachine" .. m, Vector3.new(pl.x + T.machine.x + (m - 1) * T.machine.gap, y, zb + T.machine.z)) -- on the ground; the pad lifts the cube to padTop
 	end
 end
 

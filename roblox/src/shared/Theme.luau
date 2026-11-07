@@ -251,6 +251,11 @@ local Theme = {
 		critter = Color3.fromHex("ff7a3c"), critterGlow = Color3.fromHex("ffb35c"), critterSteam = Color3.fromHex("fff1e6"),
 		shield = Color3.fromHex("7fd0ff"), tagged = Color3.fromHex("bfe9ff"),
 		machine = Color3.fromHex("ff8f5a"), machineTrim = Color3.fromHex("fff8ec"), machineGlow = Color3.fromHex("ffd47a"),
+		-- the Thaw Machine's sci-fi parts: navy frame, brushed metal, a see-through core tube, the
+		-- holo screen, and the heat it glows with (ice blue idle -> amber -> hot orange as it thaws)
+		machineDark = Color3.fromHex("2c3654"), machineMetal = Color3.fromHex("c3cede"), machineGlass = Color3.fromHex("d8f6ff"),
+		machineScreen = Color3.fromHex("0f1d36"), machineCold = Color3.fromHex("6fe3ff"), machineWarm = Color3.fromHex("ffc24d"),
+		machineHot = Color3.fromHex("ff7a45"), machineReady = Color3.fromHex("5cf29a"),
 		codes = Color3.fromHex("3ccf6e"),
 	},
 
