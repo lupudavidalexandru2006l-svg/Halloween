@@ -3,9 +3,8 @@
 -- register them here. Sizes are fractions of the screen's short side, turned into Scale (no Offset)
 -- each time the screen size, the device or a piece changes. The ScreenGuis use the core-UI safe
 -- insets, so nothing sits under Roblox's top bar; on touch the coins sit above the thumbstick.
--- HUD (5 at most): tile grid (left, centred), coins (bottom left), goal bar (top centre),
--- temperature chip (beside the goal bar), the hotbar (bottom centre, Round 5) and the banner (only
--- while it shows).
+-- HUD (5 at most): tile grid (left, centred), coins (bottom left), the island banner (top centre,
+-- only while it shows), the hotbar (bottom centre, Round 5) and the banner (only while it shows).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -78,23 +77,20 @@ function Screen.layout()
 		coins.Position = UDim2.fromScale(sx(U.sideInset), 1 - sy(U.sideInset + lift))
 		coinsTop = 1 - sy(U.sideInset + lift + U.coinsSize[2])
 	end
-	local goal = items.goal
-	if goal then
-		goal.AnchorPoint = Vector2.new(0.5, 0)
-		goal.Size = UDim2.fromScale(sx(U.goalSize[1]), sy(U.goalSize[2]))
-		goal.Position = UDim2.fromScale(0.5, sy(U.topInset))
-	end
-	local temp = items.temp
-	if temp then
-		temp.AnchorPoint = Vector2.new(0, 0)
-		temp.Size = UDim2.fromScale(sx(U.tempSize[1]), sy(U.tempSize[2]))
-		temp.Position = UDim2.fromScale(0.5 + sx(U.goalSize[1] / 2 + U.tileGap), sy(U.topInset))
+	local IB = U.islandBanner
+	local island = items.island
+	if island then
+		-- a fixed slot at the top centre; the strip inside it slides (HudController animates the inside only)
+		island.AnchorPoint = Vector2.new(0.5, 0)
+		island.Size = UDim2.fromScale(math.min(1, sx(IB.width)), sy(IB.height))
+		island.Position = UDim2.fromScale(0.5, sy(U.topInset))
 	end
 	local banner = items.banner
 	if banner then
+		-- under the island banner, so the two never overlap
 		banner.AnchorPoint = Vector2.new(0.5, 0)
-		banner.Size = UDim2.fromScale(sx(U.goalSize[1] * 1.2), sy(U.goalSize[2] * 1.1))
-		banner.Position = UDim2.fromScale(0.5, sy(U.topInset * 2 + U.goalSize[2]))
+		banner.Size = UDim2.fromScale(sx(U.bannerSize[1]), sy(U.bannerSize[2]))
+		banner.Position = UDim2.fromScale(0.5, sy(U.topInset * 2 + IB.height))
 	end
 	-- the hotbar: bottom centre, between the thumbstick and the jump button on touch screens
 	local hotbar = items.hotbar
@@ -127,7 +123,7 @@ function Screen.layout()
 	end
 end
 
--- name: "tiles" | "coins" | "goal" | "temp" | "banner" | "hotbar"; count = number of tiles for "tiles"
+-- name: "tiles" | "coins" | "island" | "banner" | "hotbar"; count = number of tiles for "tiles"
 -- (the hotbar's slot count is its "Slots" attribute)
 function Screen.register(name: string, obj: GuiObject, count: number?)
 	items[name] = obj
@@ -146,14 +142,14 @@ function Screen.setTileCount(count: number)
 	Screen.layout()
 end
 
--- the popup layer: centred in the band under the goal bar and temperature chip, so a popup never
--- covers them (QA 2026-10-31: the panel cut the goal text in half). Sizes are Scale with a fixed
+-- the popup layer: centred in the band under the top of the screen (the island banner waits while a
+-- popup is open, so the two never meet; QA 2026-10-31: a panel over top-HUD text looked broken). Sizes are Scale with a fixed
 -- aspect, so a popup is the same share of the screen everywhere.
 function Screen.popupFrame(): Frame
 	local cam = workspace.CurrentCamera
 	local short = if cam then math.min(cam.ViewportSize.X, cam.ViewportSize.Y) else 720
 	local h = if Screen.popups and Screen.popups.AbsoluteSize.Y > 0 then Screen.popups.AbsoluteSize.Y elseif cam then math.max(1, cam.ViewportSize.Y) else 720
-	local top = (U.topInset + U.tempSize[2] + U.tileGap) * short / h
+	local top = (U.topInset + U.islandBanner.height * U.islandBanner.nameRow + U.tileGap) * short / h
 	local bottom = 1 - U.sideInset * short / h
 	local f = Instance.new("Frame")
 	f.Name = "Popup"

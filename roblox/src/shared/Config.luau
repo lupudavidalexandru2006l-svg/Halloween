@@ -23,6 +23,7 @@ export type Zone = {
 	ready: boolean, -- its pets are approved and finished; false = a glowing "Coming soon" gate, no pets
 	gateRebirth: number, -- rebirths needed to open its gate (Config.world.rebirthGates), 0 = none
 	iceLife: number, -- its pets' cubes last this many times longer (a colder gun froze them)
+	feel: string, -- how hot it feels, the vault's word for it (Round 4 Prompt 6), on the island banner
 }
 
 local Config = {}
@@ -299,6 +300,7 @@ Config.sounds = {
 	ids = {
 		click = 0, zap = 0, freeze = 0, coin = 0, bank = 0, reveal_rare = 0, no = 0, buy = 0,
 		melt = 0, chill = 0, gift = 0, unlock = 0, bridge = 0, music_meadow = 0, music_forest = 0,
+		island = 0, -- the island banner dropping in
 		tink = 0, crack = 0, slam = 0, reveal_secret = 0, -- freeze snap, layered crack, show slam, Secret reveal
 		pan_up = 0, sell = 0, bounce = 0, -- a pan upgrade's burst, a sale, a cube too hot for your pan
 		upgrade_charge = 0, upgrade_hit = 0, upgrade_chime = 0, -- the fast upgrade (Config.motion.upgrade): wind-up, impact, rising chime
@@ -315,10 +317,21 @@ Config.ui = {
 	scale = { phone = 1, tablet = 1.2, pc = 1.35 },
 	-- sizes are fractions of the screen's short side (Scale only, UI Rules); the Screen module places them
 	-- owner 2026-10-31: smaller side tiles (still over 10% of the short side for small fingers);
-	-- the goal bar and temperature chip share one height so their edges line up
-	tileSize = 0.105, tileGap = 0.016, coinsSize = { 0.3, 0.1 }, goalSize = { 0.42, 0.08 }, tempSize = { 0.21, 0.08 },
+	-- owner 2026-11-07: the goal bar and temperature chip are gone; the island banner (below) took their place
+	tileSize = 0.105, tileGap = 0.016, coinsSize = { 0.3, 0.1 }, bannerSize = { 0.5, 0.088 },
 	topInset = 0.02, sideInset = 0.03, touchLift = 0.28, -- the coins sit above the thumbstick on touch screens
-	-- these menus hide the HUD (tiles, coins, goal, temperature, hotbar) and the world prompts while open,
+	-- the island banner (owner 2026-11-07, from a reference clip): walking onto an island drops a strip
+	-- in from above the top edge, top centre: the island's name in its colour, the thermometer and its
+	-- feel + degrees, then "Recommended: <gun>". It holds, then fades up and out. A dark see-through
+	-- strip with soft ends, no box. Sizes: shares of the screen's short side; times in seconds
+	-- (reduced motion halves them and drops the slide). nameRow / infoRow: shares of the strip's height.
+	islandBanner = {
+		width = 1.25, height = 0.15, nameRow = 0.56, infoRow = 0.36, iconSize = 0.9,
+		stripTransparency = 0.45, stripEnds = 0.22, -- the strip fades to clear over this share at each end
+		drop = 1.25, inSeconds = 0.34, holdSeconds = 2.8, outSeconds = 0.24, rise = 0.25, -- drop/rise: strip heights
+		textStroke = 2.5, repeatAfter = 6, -- the same island again within this many seconds doesn't re-show
+	},
+	-- these menus hide the HUD (tiles, coins, island banner, hotbar) and the world prompts while open,
 	-- so the shop is the only thing on screen (owner 2026-11-05); the banner still shows answers
 	hideHudFor = { shop = true, equipment = true } :: { [string]: boolean },
 	popupSize = { 0.8, 0.7 }, popupLift = 0.04, promptSize = { 0.27, 0.095 }, -- world prompts keep this screen size at any distance (owner: smaller)
@@ -378,6 +391,7 @@ export type Island = {
 	landmark: string?, landmarkAt: { x: number, z: number }?, -- z is measured from the section's start
 	trees: { kind: string, count: number, r: { number } }?, sun: { count: number, r: { number } }?,
 	near: { number }?, farFrom: number?, -- spawn bands, measured from the section's start
+	feel: string?, -- the island banner's heat word (Round 4 Prompt 6: "cold", "mild", "lava"...)
 }
 export type Booth = { id: string, label: string, action: string, pos: Vector3 }
 -- one cue in a shot clip (Config.ray.anim): at a share of the clip, a sound, an effect and/or a camera kick
@@ -418,43 +432,43 @@ Config.world = {
 	-- and Cold Level (it follows the gates) x0.2; Rebirth 1 520K -> 150K; island 2 2,500 -> 5,000. GrindBot: everything in ~6.9 h typical.
 	-- Hazards: sun patches (sun) and lava pools (lava) melt cubes faster and glow so you see them from far.
 	islands = {
-		{ key = "meadow", name = "Snowy Meadow", open = true, ready = true, theme = "meadow", length = 168, heat = 0.5, iceLife = 1, gateCoins = 0,
+		{ key = "meadow", name = "Snowy Meadow", feel = "Cold", open = true, ready = true, theme = "meadow", length = 168, heat = 0.5, iceLife = 1, gateCoins = 0,
 			landmark = "snowman", landmarkAt = { x = 66, z = 112 }, -- landmarks stand in the cliffs, tall enough to show over them (World Rules 9)
 			trees = { kind = "snowpine", count = 14, r = { 4, 6.5 } }, sun = { count = 5, r = { 7, 11 } },
 			near = { 8, 34 }, farFrom = 60 },
-		{ key = "forest", name = "Pine Forest", open = true, ready = true, theme = "forest", length = 176, heat = 0.8, iceLife = 1, gateCoins = 5000,
+		{ key = "forest", name = "Pine Forest", feel = "Cold", open = true, ready = true, theme = "forest", length = 176, heat = 0.8, iceLife = 1, gateCoins = 5000,
 			landmark = "mushroom", landmarkAt = { x = -66, z = 104 },
 			trees = { kind = "pine", count = 34, r = { 4.5, 7.5 } }, sun = { count = 3, r = { 6, 10 } },
 			near = { 10, 42 }, farFrom = 10 },
-		{ key = "grove", name = "Mushroom Grove", open = true, ready = true, theme = "grove", length = 172, heat = 1.0, iceLife = 1.6, gateCoins = 7500,
+		{ key = "grove", name = "Mushroom Grove", feel = "Mild", open = true, ready = true, theme = "grove", length = 172, heat = 1.0, iceLife = 1.6, gateCoins = 7500,
 			landmark = "toadstoolTower", landmarkAt = { x = 66, z = 100 },
 			trees = { kind = "toadstool", count = 22, r = { 4, 7 } }, sun = { count = 3, r = { 6, 9 } },
 			near = { 10, 40 }, farFrom = 12 },
-		{ key = "beach", name = "Sunny Beach", open = true, ready = false, theme = "beach", length = 172, heat = 1.3, iceLife = 2.4, gateCoins = 2e6,
+		{ key = "beach", name = "Sunny Beach", feel = "Warm", open = true, ready = false, theme = "beach", length = 172, heat = 1.3, iceLife = 2.4, gateCoins = 2e6,
 			landmark = "lighthouse", landmarkAt = { x = -66, z = 104 },
 			trees = { kind = "palm", count = 14, r = { 4, 6 } }, sun = { count = 7, r = { 7, 11 } },
 			near = { 10, 40 }, farFrom = 12 },
-		{ key = "jungle", name = "Jungle Falls", open = true, ready = false, theme = "jungle", length = 176, heat = 1.6, iceLife = 3.3, gateCoins = 6e6,
+		{ key = "jungle", name = "Jungle Falls", feel = "Hot and humid", open = true, ready = false, theme = "jungle", length = 176, heat = 1.6, iceLife = 3.3, gateCoins = 6e6,
 			landmark = "waterfall", landmarkAt = { x = 56, z = 108 }, -- pours from the cliff face
 			trees = { kind = "jungle", count = 28, r = { 4.5, 7.5 } }, sun = { count = 4, r = { 6, 9 } },
 			near = { 10, 42 }, farFrom = 12 },
-		{ key = "desert", name = "Desert Dunes", open = true, ready = false, theme = "desert", length = 176, heat = 2.0, iceLife = 4.4, gateCoins = 30e6,
+		{ key = "desert", name = "Desert Dunes", feel = "Hot", open = true, ready = false, theme = "desert", length = 176, heat = 2.0, iceLife = 4.4, gateCoins = 30e6,
 			landmark = "cactus", landmarkAt = { x = -66, z = 104 },
 			trees = { kind = "cactus", count = 9, r = { 3.5, 5 } }, sun = { count = 9, r = { 8, 12 } },
 			near = { 10, 42 }, farFrom = 12 },
-		{ key = "canyon", name = "Canyon Mesa", open = true, ready = false, theme = "canyon", length = 180, heat = 2.4, iceLife = 5.7, gateCoins = 90e6,
+		{ key = "canyon", name = "Canyon Mesa", feel = "Very hot", open = true, ready = false, theme = "canyon", length = 180, heat = 2.4, iceLife = 5.7, gateCoins = 90e6,
 			landmark = "arch", landmarkAt = { x = 0, z = 112 },
 			trees = { kind = "hoodoo", count = 10, r = { 4, 6 } }, sun = { count = 8, r = { 8, 12 } },
 			near = { 10, 42 }, farFrom = 12 },
-		{ key = "volcano", name = "Volcano Slopes", open = true, ready = false, theme = "volcano", length = 180, heat = 2.9, iceLife = 7.2, gateCoins = 220e6,
+		{ key = "volcano", name = "Volcano Slopes", feel = "Lava", open = true, ready = false, theme = "volcano", length = 180, heat = 2.9, iceLife = 7.2, gateCoins = 220e6,
 			landmark = "volcano", landmarkAt = { x = 70, z = 108 }, -- beside the tunnel, rising over the cliffs
 			trees = { kind = "charred", count = 8, r = { 4, 6 } }, sun = { count = 3, r = { 6, 9 } }, lava = { count = 5, r = { 5, 8 } },
 			near = { 10, 42 }, farFrom = 12 },
-		{ key = "lavalake", name = "Lava Lake", open = true, ready = false, theme = "lavalake", length = 184, heat = 3.4, iceLife = 9, gateCoins = 660e6,
+		{ key = "lavalake", name = "Lava Lake", feel = "Lava", open = true, ready = false, theme = "lavalake", length = 184, heat = 3.4, iceLife = 9, gateCoins = 660e6,
 			landmark = "spire", landmarkAt = { x = -66, z = 112 },
 			trees = { kind = "obsidian", count = 8, r = { 4, 6 } }, lava = { count = 8, r = { 6, 10 } },
 			near = { 10, 42 }, farFrom = 12 },
-		{ key = "magma", name = "Magma Core", open = true, ready = false, theme = "magma", length = 184, heat = 4.0, iceLife = 11, gateCoins = 8.4e9,
+		{ key = "magma", name = "Magma Core", feel = "Extreme", open = true, ready = false, theme = "magma", length = 184, heat = 4.0, iceLife = 11, gateCoins = 8.4e9,
 			landmark = "core", landmarkAt = { x = 0, z = 116 },
 			trees = { kind = "obsidian", count = 7, r = { 4, 6 } }, lava = { count = 10, r = { 5, 9 } },
 			near = { 10, 42 }, farFrom = 12 },
@@ -514,6 +528,7 @@ do
 			id = id, key = isl.key, name = isl.name, heat = isl.heat :: number, zMin = z, zMax = z + len,
 			gateCoins = isl.gateCoins or 0,
 			theme = isl.theme, ready = isl.ready == true, gateRebirth = W.rebirthGates[id] or 0, iceLife = isl.iceLife or 1,
+			feel = isl.feel or "",
 		})
 		if isl.ready == true and W.readyCount == id - 1 then
 			W.readyCount = id

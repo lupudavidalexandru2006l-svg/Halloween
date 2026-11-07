@@ -256,6 +256,16 @@ local Theme = {
 	font = Enum.Font.FredokaOne,
 	lipDarken = 0.5, -- the lip under every block face is its colour mixed this far toward ink
 	temp = { cold = Color3.fromHex("6fd0ff"), cool = Color3.fromHex("5fd6b4"), warm = Color3.fromHex("ffb347"), hot = Color3.fromHex("ff6b5a"), chill = Color3.fromHex("d9f4ff") } :: { [string]: Color3 },
+	-- the island banner (Config.ui.islandBanner): each island's name in a bright version of its own
+	-- colour (ink outline, readable on the dark strip), the recommended gun in ice cyan
+	islandTitle = {
+		meadow = Color3.fromHex("bfe9ff"), forest = Color3.fromHex("6ee07a"), grove = Color3.fromHex("d59bff"),
+		beach = Color3.fromHex("ffd86b"), jungle = Color3.fromHex("3fe0a8"), desert = Color3.fromHex("ffc46b"),
+		canyon = Color3.fromHex("ff9a5c"), volcano = Color3.fromHex("ff7a4a"), lavalake = Color3.fromHex("ffa23a"),
+		magma = Color3.fromHex("ff5a6e"),
+	} :: { [string]: Color3 },
+	islandStrip = Color3.fromHex("1b1433"), -- ink
+	islandValue = Color3.fromHex("5ee6ff"),
 	shade = Color3.fromRGB(0, 0, 0), -- the dim behind a popup
 	shadeTransparency = 0.55,
 }

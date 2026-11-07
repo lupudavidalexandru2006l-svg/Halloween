@@ -1,7 +1,8 @@
 --!strict
 -- HudController: the HUD's contents: the menu tiles (Pets, Shop, Index, Settings), the coins with
--- +N/s, the goal bar (one named goal, have / need, never empty), the temperature chip and the banner
--- (Big Chill, others' big wins, "not yet" answers). Screen places all of them.
+-- +N/s, the island banner (drops in when you walk onto an island) and the banner (Big Chill, others'
+-- big wins, "not yet" answers). Screen places all of them. Owner 2026-11-07: the goal bar and the
+-- temperature chip are gone; the island banner shows each island's heat as you arrive.
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -15,20 +16,16 @@ local State = require(script.Parent.State)
 local Screen = require(script.Parent.Screen)
 local PopupController = require(script.Parent.PopupController)
 local SettingsController = require(script.Parent.SettingsController)
+local SoundController = require(script.Parent.SoundController)
 
 local HudController = {}
 
 local coinsRoot: Frame
 local coinsText: TextLabel
 local coinsRate: TextLabel
-local goal: Ui.Block
-local goalFill: Frame
-local temp: Ui.Block
-local tempWhy: TextLabel
 local banner: Ui.Block
 
 local bannerUntil = 0
-local beachSeen = false
 
 function HudController.banner(textValue: string, color: Color3?, seconds: number?)
 	banner.text.Text = textValue
@@ -73,34 +70,6 @@ local function floatGain(amount: number)
 	end)
 end
 
-local function goalFor(v: State.View): (string, number)
-	-- Round 4 phase 6: the next gate along the tunnel (coins, and on odd islands a rebirth)
-	local nz = Config.zone((v.reach or 1) + 1)
-	if nz and nz.ready then
-		if v.rebirths < nz.gateRebirth then
-			return `{nz.name}: Rebirth {nz.gateRebirth}`, v.rebirths / nz.gateRebirth
-		end
-		if v.coins >= nz.gateCoins then
-			return `{nz.name}: go open the gate!`, 1
-		end
-		return `Unlock {nz.name}: {Ui.short(v.coins)} / {Ui.short(nz.gateCoins)}`, v.coins / math.max(1, nz.gateCoins)
-	end
-	local soon = if nz then nz.name elseif Config.world.nextIsland then Config.world.nextIsland.name else "the next island"
-	if v.coins < Config.beachGateCoins and not beachSeen then
-		return `Save for {soon}: {Ui.short(v.coins)} / {Ui.short(Config.beachGateCoins)}`, v.coins / Config.beachGateCoins
-	end
-	beachSeen = true
-	-- no "Fill the page" step here: the Index already tracks pages (owner 2026-11-06)
-	-- the next island isn't open yet (its pets are coming), so the next real goal is a rebirth
-	-- (final QA 2026-11-03: the bar said "Every page full! Mushroom Grove is next" for the rest of the game)
-	local n = (v.rebirths or 0) + 1
-	local cost = Config.rebirthCost(n)
-	if v.coins >= cost then
-		return `Rebirth {n}: go to the Rebirth Booth!`, 1
-	end
-	return `Rebirth {n}: {Ui.short(v.coins)} / {Ui.short(cost)}`, v.coins / math.max(1, cost)
-end
-
 local tilesFrame: Frame
 local testerTile: Ui.Block? = nil
 
@@ -129,33 +98,220 @@ local function render(v: State.View)
 	coinsText.Text = Ui.commas(v.coins) -- the whole number, 1,508,273 not 1.5M (owner 2026-11-03)
 	coinsRate.Text = if v.income > 0 then `+{Ui.short(v.income)}/s` else ""
 	coinsRate.Visible = v.income > 0
-	local textValue, frac = goalFor(v)
-	goal.text.Text = textValue
-	goalFill.Size = UDim2.fromScale(math.clamp(frac, 0, 1), 1)
-	goal.root.Visible = #v.pets > 0 -- shows with the first pet, so it never starts empty
 end
 
-local function updateTemp()
+-- the island banner (Config.ui.islandBanner, owner's reference clip 2026-11-07): Screen places the
+-- slot; only the strip inside it moves. Name row: the island's name in its colour, the thermometer,
+-- its feel + degrees in the heat colour. Info row: "Recommended:", the ray icon, the gun that can
+-- freeze its pets.
+local IB = Config.ui.islandBanner
+local islandSlot: Frame
+local strip: CanvasGroup
+local nameRow: Frame
+local infoRow: Frame
+local nameText: TextLabel
+local feelText: TextLabel
+local recLabel: TextLabel
+local gunText: TextLabel
+local islandToken = 0
+local islandShowing = false
+local lastZone = -1 -- -1 = not checked yet, 0 = the hub
+local lastShown: { [number]: number } = {}
+
+local function row(y: number, h: number): Frame
+	local f = Instance.new("Frame")
+	f.BackgroundTransparency = 1
+	f.Size = UDim2.fromScale(1, h)
+	f.Position = UDim2.fromScale(0, y)
+	local l = Instance.new("UIListLayout")
+	l.FillDirection = Enum.FillDirection.Horizontal
+	l.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	l.VerticalAlignment = Enum.VerticalAlignment.Center
+	l.SortOrder = Enum.SortOrder.LayoutOrder
+	l.Padding = UDim.new(0.01, 0)
+	l.Parent = f
+	f.Parent = strip
+	return f
+end
+
+-- a word in a row: as wide as its text, so the row centres what you see (UI Rules: optical centring)
+local function rowText(parent: Frame, order: number, color: Color3): TextLabel
+	local t = Ui.label(parent, "", UDim2.fromScale(0, 1))
+	t.TextScaled = false
+	t.AutomaticSize = Enum.AutomaticSize.X
+	t.LayoutOrder = order
+	t.TextColor3 = color
+	local s = t:FindFirstChildOfClass("UIStroke") :: UIStroke
+	s.Thickness = IB.textStroke -- no block behind it: the firm outline, like the coin counter
+	return t
+end
+
+local function rowIcon(parent: Frame, order: number, image: string)
+	local i = Instance.new("ImageLabel")
+	i.Name = "Icon"
+	i.BackgroundTransparency = 1
+	i.Image = image
+	i.ScaleType = Enum.ScaleType.Fit
+	i.Size = UDim2.fromScale(1, IB.iconSize)
+	i.LayoutOrder = order
+	local a = Instance.new("UIAspectRatioConstraint")
+	a.AspectRatio = 1
+	a.DominantAxis = Enum.DominantAxis.Height
+	a.Parent = i
+	i.Parent = parent
+end
+
+-- one text size per row, from the row's height (TextScaled made each word a different size)
+local function sizeText()
+	local nh, ih = nameRow.AbsoluteSize.Y, infoRow.AbsoluteSize.Y
+	nameText.TextSize = math.min(100, math.floor(nh * 0.92))
+	feelText.TextSize = math.min(100, math.floor(nh * 0.62))
+	recLabel.TextSize = math.min(100, math.floor(ih * 0.9))
+	gunText.TextSize = recLabel.TextSize
+end
+
+local function buildIsland()
+	islandSlot = Instance.new("Frame")
+	islandSlot.Name = "IslandBanner"
+	islandSlot.BackgroundTransparency = 1
+	islandSlot.Visible = false
+	strip = Instance.new("CanvasGroup") -- fades everything in it together
+	strip.Name = "Strip"
+	strip.BackgroundTransparency = 1
+	strip.Size = UDim2.fromScale(1, 1)
+	strip.Parent = islandSlot
+	-- the dark see-through strip with soft ends (a gradient on a plain Frame, no tiled image)
+	local back = Instance.new("Frame")
+	back.Name = "Back"
+	back.BorderSizePixel = 0
+	back.BackgroundColor3 = Theme.islandStrip
+	back.Size = UDim2.fromScale(1, 1)
+	local fade = Instance.new("UIGradient")
+	local a, e = IB.stripTransparency, IB.stripEnds
+	fade.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(e, a),
+		NumberSequenceKeypoint.new(1 - e, a), NumberSequenceKeypoint.new(1, 1),
+	})
+	fade.Parent = back
+	back.Parent = strip
+	local gap = (1 - IB.nameRow - IB.infoRow) / 3
+	nameRow = row(gap, IB.nameRow)
+	infoRow = row(gap * 2 + IB.nameRow, IB.infoRow)
+	nameText = rowText(nameRow, 1, Theme.white)
+	rowIcon(nameRow, 2, Config.images.icons.temp)
+	feelText = rowText(nameRow, 3, Theme.white)
+	recLabel = rowText(infoRow, 1, Theme.white)
+	recLabel.Text = "Recommended:"
+	rowIcon(infoRow, 2, Config.images.icons.ray)
+	gunText = rowText(infoRow, 3, Theme.islandValue)
+	nameRow:GetPropertyChangedSignal("AbsoluteSize"):Connect(sizeText)
+	Screen.register("island", islandSlot)
+	sizeText()
+end
+
+local function reduced(): boolean
+	return SettingsController.get("reducedMotion") == true
+end
+
+local function hideIsland(quick: boolean?)
+	if not islandShowing then
+		return
+	end
+	islandShowing = false
+	islandToken += 1
+	local my = islandToken
+	local t = IB.outSeconds * (if reduced() then 0.5 else 1) * (if quick then 0.5 else 1)
+	local info = TweenInfo.new(t, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+	TweenService:Create(strip, info, {
+		GroupTransparency = 1,
+		Position = UDim2.fromScale(0, if reduced() then 0 else -IB.rise),
+	}):Play()
+	task.delay(t, function()
+		if islandToken == my then
+			islandSlot.Visible = false
+		end
+	end)
+end
+
+-- the gun that can freeze this island's pets: the first one whose Cold reaches it
+local function gunFor(id: number): string
+	for _, g in Config.guns.list do
+		if g.cold >= id then
+			return g.name
+		end
+	end
+	return Config.guns.list[#Config.guns.list].name
+end
+
+local function showIsland(zone: Config.Zone)
+	local unit = SettingsController.get("unit")
+	local deg = WorldRules.zoneTemperature(zone.id)
+	local shown = if unit == "F" then WorldRules.toFahrenheit(deg) else deg
+	local band = "hot"
+	for _, b in Config.temperature.bands do
+		if deg < b.below then
+			band = b.name
+			break
+		end
+	end
+	nameText.Text = zone.name
+	nameText.TextColor3 = Theme.islandTitle[zone.theme] or Theme.white
+	feelText.Text = `{zone.feel} {shown}°{unit}`
+	feelText.TextColor3 = Theme.temp[band] or Theme.white
+	gunText.Text = gunFor(zone.id)
+	sizeText()
+	islandToken += 1
+	local my = islandToken
+	islandShowing = true
+	islandSlot.Visible = true
+	local still = reduced()
+	local inT = IB.inSeconds * (if still then 0.5 else 1)
+	if still then
+		-- reduced motion: no slide, a soft fade in place
+		strip.Position = UDim2.fromScale(0, 0)
+		strip.GroupTransparency = 1
+		TweenService:Create(strip, TweenInfo.new(inT, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { GroupTransparency = 0 }):Play()
+	else
+		-- fast in, soft out: drops from above the top edge, overshoots a little and settles (Back Out)
+		strip.Position = UDim2.fromScale(0, -IB.drop)
+		strip.GroupTransparency = 0
+		TweenService:Create(strip, TweenInfo.new(inT, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Position = UDim2.fromScale(0, 0) }):Play()
+	end
+	SoundController.play("island")
+	task.delay(inT + IB.holdSeconds * (if still then 0.5 else 1), function()
+		if islandToken == my then
+			hideIsland()
+		end
+	end)
+end
+
+-- walked onto another island? Waits while a popup is open, so the two never meet.
+local function watchIsland()
 	local c = Players.LocalPlayer.Character
 	local root = c and c:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if not root then
 		return
 	end
-	local chillUntil = workspace:GetAttribute("ChillUntil")
-	local chill = typeof(chillUntil) == "number" and chillUntil > workspace:GetServerTimeNow()
-	local offset = workspace:GetAttribute("NightOffset")
-	local night = WorldRules.nightCycle(workspace:GetServerTimeNow(), if typeof(offset) == "number" then offset else 0).night
-	local deg, band = WorldRules.temperatureAt(root.Position, night, chill)
-	local unit = SettingsController.get("unit")
-	local shown = if unit == "F" then WorldRules.toFahrenheit(deg) else deg
-	local light = WorldRules.lightAt(root.Position)
-	temp.text.Text = `{shown}°{unit}`
-	local zone = Config.zone(WorldRules.zoneAt(root.Position))
-	tempWhy.Text = if chill then "Big Chill" elseif light == "lava" then "Lava pool" elseif night then "Night" elseif light == "shade" then "Shade" elseif light == "sun" then "Sunny spot"
-		elseif zone then zone.name else "Hub"
-	local color = if chill then Theme.temp.chill else Theme.temp[band]
-	temp.face.BackgroundColor3 = color
-	temp.root.BackgroundColor3 = Ui.darker(color)
+	if PopupController.isOpen() then
+		hideIsland(true)
+		return
+	end
+	local id = WorldRules.zoneAt(root.Position)
+	if id == lastZone then
+		return
+	end
+	lastZone = id
+	local zone = if id > 0 then Config.zone(id) else nil
+	local reach = if State.view then State.view.reach or 1 else 1
+	if not zone or not zone.ready or id > reach then
+		return -- the hub, or a closed island the gate guard is about to put you back from
+	end
+	local now = os.clock()
+	if now - (lastShown[id] or -math.huge) < IB.repeatAfter then
+		return
+	end
+	lastShown[id] = now
+	showIsland(zone)
 end
 
 function HudController.Init() end
@@ -210,28 +366,7 @@ function HudController.Start()
 		s.Thickness = Config.ui.floatingStroke -- nothing behind it now, so a firmer outline reads over snow
 	end
 	Screen.register("coins", coinsRoot)
-	-- goal bar
-	goal = Ui.block(Screen.hud :: ScreenGui, "Goal", Theme.goal, "", nil)
-	goalFill = Instance.new("Frame")
-	goalFill.Name = "Fill"
-	goalFill.BackgroundColor3 = Theme.go
-	goalFill.BorderSizePixel = 0
-	goalFill.Size = UDim2.fromScale(0, 1)
-	goalFill.ZIndex = 0
-	Ui.corner(goalFill)
-	goalFill.Parent = goal.face
-	goal.text.ZIndex = 2
-	goal.root.Visible = false
-	Screen.register("goal", goal.root)
-	-- temperature chip: a thermometer (built from shapes, no emoji), the degrees, and why (zone, shade, sun)
-	-- the painted thermometer (the one built from UI shapes looked cheap), the degrees and why, centred
-	-- in the space beside it
-	temp = Ui.block(Screen.hud :: ScreenGui, "Temp", Theme.temp.cool, "", nil)
-	Ui.image(temp.face, Config.images.icons.temp, UDim2.fromScale(0.24, 0.9), UDim2.fromScale(0.02, 0.05))
-	temp.text.Size = UDim2.fromScale(0.7, 0.54)
-	temp.text.Position = UDim2.fromScale(0.27, 0.06)
-	tempWhy = Ui.label(temp.face, "", UDim2.fromScale(0.7, 0.32), UDim2.fromScale(0.27, 0.6))
-	Screen.register("temp", temp.root)
+	buildIsland()
 	-- banner
 	banner = Ui.block(Screen.hud :: ScreenGui, "Banner", Theme.info, "", nil)
 	banner.root.Visible = false
@@ -325,9 +460,8 @@ function HudController.Start()
 		end
 	end)
 	task.spawn(function()
-		WorldRules.refreshAreas() -- shade and sun parts are tagged in the map
 		while true do
-			updateTemp()
+			watchIsland()
 			task.wait(0.25)
 		end
 	end)
