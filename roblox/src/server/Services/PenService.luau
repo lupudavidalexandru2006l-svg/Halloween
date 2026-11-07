@@ -166,7 +166,7 @@ local function drawPen(player: Player, d: Data)
 			state.parts[p.id] = cube
 		end
 		if cube then
-			cube.CFrame = CFrame.new(at + Vector3.new(0, s / 2, 0)) -- facing the door
+			cube.CFrame = CFrame.new(at + Vector3.new(0, s / 2, 0)) * CFrame.Angles(0, math.pi, 0) -- facing the door (+Z): the pet inside shows its face, not its back
 			cube:SetAttribute("Plot", plot)
 			cube:SetAttribute("Thaw", st or "out")
 			cube:SetAttribute("Machine", if st == "machine" then k else nil) -- which Thaw Machine it sits in (ThawMachines lights that one up)
