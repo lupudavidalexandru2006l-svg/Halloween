@@ -9,6 +9,7 @@ export type Page = { zone: number, found: number, total: number, complete: boole
 export type View = {
 	coins: number,
 	income: number,
+	incomeMult: number?, -- each pet's own income is multiplied by this (pages, rebirths, 2x pass)
 	upgrades: { [string]: number },
 	pets: { PetView },
 	slots: number,

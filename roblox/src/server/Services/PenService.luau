@@ -157,6 +157,7 @@ local function drawPen(player: Player, d: Data)
 			cube.Transparency = 0.5
 			cube.CastShadow = false
 			cube:SetAttribute("PetKey", p.key)
+			cube:SetAttribute("PetId", p.id) -- the owner's client finds this pet's income for its coin pops
 			cube:SetAttribute("PenOwner", player.UserId)
 			cube:SetAttribute("Mut", p.mut)
 			cube:SetAttribute("Action", if p.pose == "sleep" then "sleep" else nil) -- frozen asleep, it naps in your pen
@@ -220,8 +221,14 @@ function PenService.incomePerSecond(d: Data): number
 			sum += earn(p)
 		end
 	end
-	local pass = if doubled[d] and DOUBLE then DOUBLE.mult or 2 else 1 -- the 2x Coins game pass
-	return sum * IndexService.multiplier(d.found) * Config.rebirthIncome(d.rebirths) * d.tester.mult * pass -- +50% a rebirth (Round 4 phase 7)
+	return sum * PenService.incomeMult(d)
+end
+
+-- what every pet's own income is multiplied by: Index pages, rebirths (+50% each, Round 4 phase 7),
+-- a tester's money multiplier and the 2x Coins game pass
+function PenService.incomeMult(d: Data): number
+	local pass = if doubled[d] and DOUBLE then DOUBLE.mult or 2 else 1
+	return IndexService.multiplier(d.found) * Config.rebirthIncome(d.rebirths) * d.tester.mult * pass
 end
 
 -- MonetizationService: this player owns the 2x Coins pass
@@ -604,6 +611,7 @@ local function view(player: Player, d: Data): { [string]: any }
 	return {
 		coins = math.floor(d.coins),
 		income = PenService.incomePerSecond(d),
+		incomeMult = PenService.incomeMult(d), -- each pet's coin pop shows its own income times this
 		upgrades = d.upgrades,
 		pets = pets,
 		slots = PenService.slots(d),

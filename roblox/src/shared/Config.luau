@@ -684,6 +684,26 @@ Config.mapFx = { gateBarsDrop = 19.3, gateBarsSeconds = 1.2, giftBob = 0.6, gift
 -- frost shimmers on the ice and a coin rises from each cube now and then
 Config.panCubes = { cols = 7, gap = 5, frontMargin = 7, backMargin = 3, maxSize = 4.2, wiggle = 0.06, wiggleSpeed = 2.2,
 	shimmerSpeed = 1.3, shimmerAmount = 0.12, coinEvery = 3.2, coinRise = 2.6, coinSize = 1.1, drawDistance = 120 }
+-- Coin pops (owner's reference clip 2026-11-07): every `every` seconds each thawed pet in your pan
+-- shoots a "+N" (the coin and what it earned in that time) out of the spot over its head, to one side
+-- and up, tilted that way; it hangs there drifting up a little, then shrinks and fades. Sides alternate
+-- per pet. Pixels are on screen (a BillboardGui), so pops stay the same size at any distance.
+Config.coinPop = {
+	every = 2, -- seconds between one pet's pops; the number is its real income for that time
+	firstDelay = 1.2, -- the longest wait for a pet's first pop (each pet starts at a random point in this)
+	maxDistance = 45, -- like name tags: only close up (the camera sits ~30 studs back)
+	maxActive = 24, -- phones: never more pops on screen than this
+	lift = 0.5, -- studs above the pet's head where a pop starts
+	boxPx = { 340, 200 }, -- the billboard's size; the pop moves inside it
+	textPx = 36, coinPx = 40, gapPx = 3, strokeRatio = 0.1, -- outline = text size x this
+	out = 0.24, -- the shoot out (Back Out, a small overshoot)
+	outX = { 50, 85 }, outY = { 38, 62 }, -- how far it shoots, px (random in each range)
+	startScale = 0.45, tilt = 11, -- degrees, leaning toward its side
+	hold = 0.9, drift = 10, -- hangs, rising this many px
+	exit = 0.16, exitScale = 0.8, -- shrinks and fades (Quad In)
+	reducedFade = 0.12, -- reduced motion: it fades in and out where it lands, no flight
+}
+
 -- carried cubes are held in front of you, in your hands (both arms come up while you carry)
 Config.carry = { scale = 0.62, handY = 0.4, front = 0.9, stackGap = 0.15, armRaise = 80 }
 

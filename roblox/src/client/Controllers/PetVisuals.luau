@@ -22,6 +22,7 @@ local SettingsController = require(script.Parent.SettingsController)
 local CameraController = require(script.Parent.CameraController)
 local RayController = require(script.Parent.RayController)
 local SoundController = require(script.Parent.SoundController)
+local CoinPops = require(script.Parent.CoinPops)
 local TweenService = game:GetService("TweenService")
 
 local PetVisuals = {}
@@ -1133,6 +1134,7 @@ local function step(dt: number)
 		end
 		if root:GetAttribute("Thaw") == "out" then
 			stroll(root, d, dt, t)
+			CoinPops.tick(root, d.height, t) -- my pan's pets pop "+N" as they earn
 		end
 		local dazed = root:GetAttribute("State") == "dazed"
 		-- the pet I'm freezing: it slows down as the ice climbs and struggles a little (cute, never scary)
