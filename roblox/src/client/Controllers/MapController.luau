@@ -1,13 +1,12 @@
 --!strict
 -- MapController: what this player sees of the map's state (all local; the server owns the real
--- gate, doors and gift):
+-- gates and gift):
 --  - every island's gate (Round 4 phase 6): its ice bars slide into the ground once you've opened it,
 --    its wall lets you through (on your screen only; PlayerTracker guards the real thing), and its sign
 --    shows how close you are ("OPEN FOR 5,000 COINS" over a coin bar, "NEEDS REBIRTH 1", or
 --    "COMING SOON" for an island whose pets aren't ready)
 --  - the gates' glowing beams and the end cap breathe (the next goal glows)
---  - your own pan's door opens for you (its collider is off on your screen only) and glows green;
---    other pans' doors stay shut and ice-blue
+--  - every pan's doorway is open to everyone; yours glows green, the others ice-blue
 --  - each island's own light: the camera's tint and haze fade to the section you're in
 --  - the gift box bobs while a gift waits, with a "DAILY GIFT" / "NEXT GIFT TOMORROW" label
 
@@ -149,7 +148,7 @@ local function gateWalls()
 	end
 end
 
--- your own pan's door lets you through and glows green; every other door stays shut
+-- every pan's doorway is open to everyone; yours glows green so you can find it
 local function doors(v: State.View?)
 	local m = map()
 	if not m then
@@ -157,11 +156,6 @@ local function doors(v: State.View?)
 	end
 	for i in Config.world.plots do
 		local mine = m:GetAttribute("PlotOwner" .. i) == me.UserId or (v ~= nil and v.plot == i)
-		local plot = m:FindFirstChild("Plot" .. i)
-		local door = plot and plot:FindFirstChild("PanDoor")
-		if door and door:IsA("BasePart") then
-			door.CanCollide = not mine
-		end
 		local art = m:FindFirstChild("Art")
 		local hubArt = art and art:FindFirstChild("Hub")
 		local pan = hubArt and hubArt:FindFirstChild("Pan" .. i)

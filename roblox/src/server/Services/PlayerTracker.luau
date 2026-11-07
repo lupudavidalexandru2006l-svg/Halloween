@@ -136,14 +136,7 @@ local function tick()
 			WorldService = require(script.Parent.WorldService) :: any
 		end
 		local plot = WorldService.plotOf(player)
-		s.inPen = plot ~= nil and WorldRules.inPlot(plot, pos)
-		-- someone else's pan (or a free one) can't be entered: anyone who gets in anyway (a glitch, a
-		-- hacked client) is put back outside its door. The door itself only opens on its owner's screen.
-		local inside = WorldRules.plotAt(pos)
-		if inside and inside ~= plot then
-			PlayerTracker.teleport(player, CFrame.new(WorldRules.plotDoor(inside) + Vector3.new(0, 4, 0)))
-			continue
-		end
+		s.inPen = plot ~= nil and WorldRules.inPlot(plot, pos) -- anyone may walk into any pan (owner 2026-11-07)
 		-- Round 4 phase 6: past a gate you haven't opened (a glitch, a hacked client) = put back in front of
 		-- it. Each client opens its own gates; testers may stand anywhere (their teleports reach locked islands).
 		local data = DataService.get(player)

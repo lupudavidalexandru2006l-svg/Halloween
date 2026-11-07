@@ -145,22 +145,6 @@ function WorldRules.inPlot(index: number, pos: Vector3): boolean
 	return math.abs(pos.X - c.X) <= s.X / 2 and math.abs(pos.Z - c.Z) <= s.Z / 2
 end
 
--- the pan you're standing in, if any
-function WorldRules.plotAt(pos: Vector3): number?
-	for i in Config.world.plots do
-		if WorldRules.inPlot(i, pos) then
-			return i
-		end
-	end
-	return nil
-end
-
--- just outside a pan's door, on the plaza side (where someone who wandered in is put back)
-function WorldRules.plotDoor(index: number): Vector3
-	local p = Config.world.plots[index]
-	return Vector3.new(p.x, 0, Config.world.pans.frontZ + 4)
-end
-
 -- how far this player may go: islands 1..reach are open to them (Round 4 phase 6; the save's reach)
 function WorldRules.canEnter(zoneId: number, reach: number?): boolean
 	return zoneId <= math.max(1, reach or 1)
