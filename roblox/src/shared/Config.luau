@@ -94,7 +94,7 @@ Config.upgrades = { -- baseCost = the price of level 2; each step costs x1.5 the
 	boots = { name = "Boots", baseCost = 64, costGrowth = 1.5, maxLevel = 15, speedBonus = 0.08 },
 	backpack = { name = "Backpack", baseCost = 750, costGrowth = 1.5, maxLevel = 5, slowPerExtraCube = 0.08 },
 	-- owner 2026-11-05: 100 slots was "insane"; the pan tops out at 16 (10 to start, +1 a level, 7 levels).
-	-- One slot is a bigger share now, so each level costs x2.5 the last (100 -> 9.8K at level 7)
+	-- One slot is a bigger share now, so each level costs x2.5 the last, rounded (100, 250, 600, 1.5K, 4K, 10K)
 	pen = { name = "Pan", baseCost = 100, costGrowth = 2.5, maxLevel = 7, slotsPerLevel = 1, rebirthGrowth = 6 },
 } :: { [string]: { [string]: any } }
 Config.upgradeIds = { "ray", "boots", "backpack", "pen" } -- every saved upgrade level
@@ -219,11 +219,14 @@ Config.monetization = {
 	-- the Robux tab of the Shop, top to bottom (owner 2026-11-05). An id of 0 = not made yet: hidden in
 	-- live servers, given free in Studio so it can be tested. Coin packs are minutes of your own income
 	-- (never under floor), so a pack is worth the same at every stage. Bought coins skip the weekly board.
+	-- Robux prices (owner 2026-11-07) sit on the price points players know from hit games (49 / 99 / 199;
+	-- Steal a Brainrot's 2x Money is 299), and a bigger pack is better value: 1 hour, 3 hours, 8 hours of
+	-- income. The real price is set on the product in the Creator Dashboard: keep both the same.
 	shop = {
-		{ id = "doubleCoins", kind = "pass", passId = 0, robux = 149, mult = 2, name = "2x Coins", text = "Your pan earns double, forever", icon = "coin", stack = 2 },
-		{ id = "coinsSmall", kind = "coins", productId = 0, robux = 25, minutes = 30, floor = 1000, name = "Coin Bag", text = "", icon = "coin", stack = 1 },
-		{ id = "coinsMedium", kind = "coins", productId = 0, robux = 79, minutes = 120, floor = 5000, name = "Coin Chest", text = "", icon = "coin", stack = 2 },
-		{ id = "coinsBig", kind = "coins", productId = 0, robux = 199, minutes = 480, floor = 25000, name = "Coin Vault", text = "", icon = "coin", stack = 3 },
+		{ id = "doubleCoins", kind = "pass", passId = 0, robux = 199, mult = 2, name = "2x Coins", text = "Your pan earns double, forever", icon = "coin", stack = 2 },
+		{ id = "coinsSmall", kind = "coins", productId = 0, robux = 49, minutes = 60, floor = 2500, name = "Coin Bag", text = "", icon = "coin", stack = 1 },
+		{ id = "coinsMedium", kind = "coins", productId = 0, robux = 99, minutes = 180, floor = 10e3, name = "Coin Chest", text = "", icon = "coin", stack = 2 },
+		{ id = "coinsBig", kind = "coins", productId = 0, robux = 199, minutes = 480, floor = 25e3, name = "Coin Vault", text = "", icon = "coin", stack = 3 },
 		{ id = "superFreeze3", kind = "charges", productId = 0, robux = 39, charges = 3, name = "Super Freeze", text = "3 for rare pets", icon = "ray", stack = 1 },
 	} :: { RobuxItem },
 }
@@ -237,9 +240,21 @@ function Config.robuxItem(id: string): RobuxItem?
 	return nil
 end
 
--- a coin pack's coins at this income (coins per second)
+-- a coin pack's coins at this income (coins per second), rounded to a round number like every price
 function Config.robuxCoins(item: RobuxItem, income: number): number
-	return math.max(item.floor or 0, math.floor(income * 60 * (item.minutes or 0)))
+	-- rounded up, never down: a paid pack never gives less than its minutes of income
+	local raw = income * 60 * (item.minutes or 0)
+	local coins = Config.nice(raw)
+	if coins < raw then
+		local p = 10 ^ math.floor(math.log10(raw))
+		for _, s in Config.niceSteps do
+			if s * p >= raw then
+				coins = math.round(s * p)
+				break
+			end
+		end
+	end
+	return math.max(item.floor or 0, coins)
 end
 
 -- made in the Creator Dashboard yet? (0 = not yet)
@@ -430,6 +445,8 @@ Config.world = {
 	-- gateCoins + rebirthGates (below) = what opening its gate costs. Prices tuned in phase 7 with the playtest bot (ServerStorage.GrindBot): even islands to the time table, odd islands 3x the gate before.
 	-- Retuned 2026-11-05 for the 16-slot pan and no coin Shop upgrades: gates from island 4, coin guns 4+, pan Looks
 	-- and Cold Level (it follows the gates) x0.2; Rebirth 1 520K -> 150K; island 2 2,500 -> 5,000. GrindBot: everything in ~6.9 h typical.
+	-- Repriced 2026-11-07 (owner: round prices, a long smooth game): every gate a round number (Config.nice),
+	-- island 10 3B (was a 13x jump over island 9, now 4x). GrindBot: everything in ~7.2 h typical, see Config.rebirth.
 	-- Hazards: sun patches (sun) and lava pools (lava) melt cubes faster and glow so you see them from far.
 	islands = {
 		{ key = "meadow", name = "Snowy Meadow", feel = "Cold", open = true, ready = true, theme = "meadow", length = 168, heat = 0.5, iceLife = 1, gateCoins = 0,
@@ -456,19 +473,19 @@ Config.world = {
 			landmark = "cactus", landmarkAt = { x = -66, z = 104 },
 			trees = { kind = "cactus", count = 9, r = { 3.5, 5 } }, sun = { count = 9, r = { 8, 12 } },
 			near = { 10, 42 }, farFrom = 12 },
-		{ key = "canyon", name = "Canyon Mesa", feel = "Very hot", open = true, ready = false, theme = "canyon", length = 180, heat = 2.4, iceLife = 5.7, gateCoins = 90e6,
+		{ key = "canyon", name = "Canyon Mesa", feel = "Very hot", open = true, ready = false, theme = "canyon", length = 180, heat = 2.4, iceLife = 5.7, gateCoins = 100e6,
 			landmark = "arch", landmarkAt = { x = 0, z = 112 },
 			trees = { kind = "hoodoo", count = 10, r = { 4, 6 } }, sun = { count = 8, r = { 8, 12 } },
 			near = { 10, 42 }, farFrom = 12 },
-		{ key = "volcano", name = "Volcano Slopes", feel = "Lava", open = true, ready = false, theme = "volcano", length = 180, heat = 2.9, iceLife = 7.2, gateCoins = 220e6,
+		{ key = "volcano", name = "Volcano Slopes", feel = "Lava", open = true, ready = false, theme = "volcano", length = 180, heat = 2.9, iceLife = 7.2, gateCoins = 250e6,
 			landmark = "volcano", landmarkAt = { x = 70, z = 108 }, -- beside the tunnel, rising over the cliffs
 			trees = { kind = "charred", count = 8, r = { 4, 6 } }, sun = { count = 3, r = { 6, 9 } }, lava = { count = 5, r = { 5, 8 } },
 			near = { 10, 42 }, farFrom = 12 },
-		{ key = "lavalake", name = "Lava Lake", feel = "Lava", open = true, ready = false, theme = "lavalake", length = 184, heat = 3.4, iceLife = 9, gateCoins = 660e6,
+		{ key = "lavalake", name = "Lava Lake", feel = "Lava", open = true, ready = false, theme = "lavalake", length = 184, heat = 3.4, iceLife = 9, gateCoins = 750e6,
 			landmark = "spire", landmarkAt = { x = -66, z = 112 },
 			trees = { kind = "obsidian", count = 8, r = { 4, 6 } }, lava = { count = 8, r = { 6, 10 } },
 			near = { 10, 42 }, farFrom = 12 },
-		{ key = "magma", name = "Magma Core", feel = "Extreme", open = true, ready = false, theme = "magma", length = 184, heat = 4.0, iceLife = 11, gateCoins = 8.4e9,
+		{ key = "magma", name = "Magma Core", feel = "Extreme", open = true, ready = false, theme = "magma", length = 184, heat = 4.0, iceLife = 11, gateCoins = 3e9,
 			landmark = "core", landmarkAt = { x = 0, z = 116 },
 			trees = { kind = "obsidian", count = 7, r = { 4, 6 } }, lava = { count = 10, r = { 5, 9 } },
 			near = { 10, 42 }, farFrom = 12 },
@@ -859,23 +876,23 @@ Config.show.gunBuy = {
 --   beams = how many pets one hold freezes at once
 -- Bought in order at the Equipment Booth. rebirths = the Rebirth needed; price = coins. The rebirth
 -- guns (3, 5, 7, 9) come free with their rebirth ("rebirth gives the next gun tier", Round 4 prompt 7);
--- gun 10 needs Rebirth 7 and coins. Coin prices (phase 7, GrindBot): 0.35x the gate of the island its Cold first reaches; gun 10 0.6x island 10's gate
--- against the grind budget. Looks: Theme.guns[i]. A real model goes in ReplicatedStorage.GunModels.<key>
+-- gun 10 needs Rebirth 7 and coins. Coin prices (GrindBot, repriced 2026-11-07): round numbers placed where a
+-- player would otherwise wait with nothing to buy; gun 2 (25K) fills the save between island 2 and Rebirth 1. Looks: Theme.guns[i]. A real model goes in ReplicatedStorage.GunModels.<key>
 -- once the painted line-up is approved and turned into 3D (Pet Rules 5); until then each gun is the
 -- part-built stand-in from RayController.
 export type Gun = { key: string, name: string, power: number, range: number, cold: number, beams: number, price: number, rebirths: number }
 Config.guns = {
 	list = {
 		{ key = "frost_popper", name = "Frost Popper", power = 1, range = 10, cold = 2, beams = 1, price = 0, rebirths = 0 },
-		{ key = "snowball_blaster", name = "Snowball Blaster", power = 1.35, range = 11, cold = 2, beams = 1, price = 875, rebirths = 0 },
+		{ key = "snowball_blaster", name = "Snowball Blaster", power = 1.35, range = 11, cold = 2, beams = 1, price = 25e3, rebirths = 0 },
 		{ key = "icicle_repeater", name = "Icicle Repeater", power = 1.7, range = 12, cold = 4, beams = 1, price = 0, rebirths = 1 },
-		{ key = "glacier_cannon", name = "Glacier Cannon", power = 2.05, range = 13, cold = 4, beams = 2, price = 700e3, rebirths = 0 },
+		{ key = "glacier_cannon", name = "Glacier Cannon", power = 2.05, range = 13, cold = 4, beams = 2, price = 750e3, rebirths = 0 },
 		{ key = "blizzard_beam", name = "Blizzard Beam", power = 2.4, range = 14, cold = 6, beams = 2, price = 0, rebirths = 2 },
-		{ key = "aurora_ray", name = "Aurora Ray", power = 2.75, range = 15, cold = 6, beams = 2, price = 10.5e6, rebirths = 0 },
+		{ key = "aurora_ray", name = "Aurora Ray", power = 2.75, range = 15, cold = 6, beams = 2, price = 10e6, rebirths = 0 },
 		{ key = "cryo_lance", name = "Cryo Lance", power = 3.1, range = 16, cold = 8, beams = 3, price = 0, rebirths = 4 },
-		{ key = "polar_vortex", name = "Polar Vortex", power = 3.45, range = 17, cold = 8, beams = 3, price = 77e6, rebirths = 0 },
+		{ key = "polar_vortex", name = "Polar Vortex", power = 3.45, range = 17, cold = 8, beams = 3, price = 75e6, rebirths = 0 },
 		{ key = "absolute_zero", name = "Absolute Zero", power = 3.8, range = 18, cold = 10, beams = 3, price = 0, rebirths = 6 },
-		{ key = "starfrost_nova", name = "Starfrost Nova", power = 4.15, range = 19, cold = 10, beams = 4, price = 5.04e9, rebirths = 7 },
+		{ key = "starfrost_nova", name = "Starfrost Nova", power = 4.15, range = 19, cold = 10, beams = 4, price = 5e9, rebirths = 7 },
 	} :: { Gun },
 	-- the card's bars are scaled to the game's 20-island maximum, not to gun 10, so later guns fill them further
 	stats = { "power", "range", "cold", "beams" },
@@ -903,13 +920,16 @@ end
 --   keeps:  pets, the index, guns, opened gates (reach), Cold Level, Look (and gear later)
 --   gives:  +50% coin income per rebirth (no pan slot since 2026-11-05: the pan caps at 16), and its gun tier (the free
 --           rebirth guns in Config.guns.list; the next island pair comes from the rebirth gates)
--- Cost rises x costGrowth a step (1.3-1.6, Game Design Rules 3). Bought at the Rebirth Booth, decided
--- on the server inside one data change. fullAt = the rebirth the 4-8 hour "full game" ends on.
+-- Cost (owner 2026-11-07, priced like hit games' rebirths: a real goal each time): each rebirth costs
+-- about 5 minutes of the income you have when you reach it, so it's its own short save and the pairs
+-- (3 + 4, 5 + 6) no longer come back to back. Rebirths past the list cost x costGrowth the one before.
+-- Bought at the Rebirth Booth, decided on the server inside one data change. fullAt = the rebirth the
+-- 4-8 hour "full game" ends on.
 Config.rebirth = {
 	incomePer = 0.5,
 	slotsPer = 0, -- pan slots a rebirth adds (0 = none: the 16-slot pan comes from the Slots upgrade only)
-	baseCost = 150000, -- Rebirth 1
-	costGrowth = 1.6,
+	costs = { 150e3, 2e6, 20e6, 30e6, 200e6, 300e6, 2.5e9 }, -- Rebirth 1, 2, 3 ...
+	costGrowth = 3,
 	fullAt = 7,
 	boothRange = 30, -- studs from the Rebirth Booth (the server's position)
 	cooldown = 1, -- seconds between two tries
@@ -923,7 +943,9 @@ end
 
 -- the coins rebirth number n costs (n = 1 for the first)
 function Config.rebirthCost(n: number): number
-	return math.round(Config.rebirth.baseCost * Config.rebirth.costGrowth ^ (n - 1))
+	local list = Config.rebirth.costs
+	local i = math.clamp(math.floor(n), 1, #list)
+	return Config.nice(list[i] * Config.rebirth.costGrowth ^ math.max(0, n - #list))
 end
 
 -- Gear (planned for after this round, Round 4 prompt 9): the Equipment Booth's Gear tab shows these
@@ -943,7 +965,8 @@ Config.gear = {
 --   look  = straw -> wood -> stone -> crystal ice -> aurora (saved in pan.look; colours Theme.panLooks).
 --           Rebirth keeps it.
 -- Bought like guns: decided on the server at the stand, checked again inside the one data change that
--- charges, plus a cooldown. Prices tuned in phase 7 (GrindBot): Cold Level n = island n's gate, Look n = 0.6x island 2n's gate, Slots x6 a rebirth.
+-- charges, plus a cooldown. Prices (GrindBot, repriced 2026-11-07): Cold Level n = island n's gate, Slots x6 a
+-- rebirth (all through Config.nice); each Look sits in a stretch that had nothing to buy (Wood 40K before Rebirth 1).
 Config.pan = {
 	order = { "slots", "cold", "look" },
 	names = { slots = "Slots", cold = "Cold Level", look = "Look" } :: { [string]: string },
@@ -952,10 +975,10 @@ Config.pan = {
 	cold = { start = 2, max = 20, gateShare = 1 }, -- Cold Level n costs this share of island n's gate coins (Round 4 phase 7: priced with the island it opens)
 	looks = {
 		{ key = "garden", name = "Garden", price = 0 }, -- Round 5: white fences on a striped lawn (was straw)
-		{ key = "wood", name = "Wood", price = 1.2e6 },
-		{ key = "stone", name = "Stone", price = 18e6 },
-		{ key = "ice", name = "Crystal Ice", price = 132e6 },
-		{ key = "aurora", name = "Aurora", price = 5.04e9 },
+		{ key = "wood", name = "Wood", price = 40e3 },
+		{ key = "stone", name = "Stone", price = 1.2e6 },
+		{ key = "ice", name = "Crystal Ice", price = 20e6 },
+		{ key = "aurora", name = "Aurora", price = 1.5e9 },
 	} :: { { key: string, name: string, price: number } },
 	-- a cube too hot for your pan: you're pushed back out of the door, the cube shakes, the gauge flashes
 	bounce = { push = 30, up = 18, flashSeconds = 2.4, flashEvery = 0.3, again = 2.5 }, -- again: seconds before it can bounce again
@@ -978,7 +1001,7 @@ end
 -- what Cold Level n costs: a share of island n's gate, so it's priced with the island it lets you keep
 function Config.panColdCost(n: number): number
 	local zone = Config.world.zones[n]
-	return math.round((if zone then zone.gateCoins else 0) * Config.pan.cold.gateShare)
+	return Config.nice((if zone then zone.gateCoins else 0) * Config.pan.cold.gateShare)
 end
 function Config.panPrice(kind: string, level: number, rebirths: number?): number?
 	if level >= Config.panMax(kind) then
@@ -1105,7 +1128,8 @@ Config.hotbar = {
 
 -- Slow Gel (Gear tab of the Equipment Booth): equipped, click / tap throws a puddle; pets and Heat
 -- Critters in it move at x slow. A cooldown, no ammo.
-Config.gel = { price = 3000, slow = 0.6, radius = 7, seconds = 6, cooldown = 10, throwRange = 45, flySeconds = 0.45 }
+-- price: a goal on the way to Rebirth 1, just before island 3 brings the Heat Critters it slows (was 3,000)
+Config.gel = { price = 50e3, slow = 0.6, radius = 7, seconds = 6, cooldown = 10, throwRange = 45, flySeconds = 0.45 }
 
 -- the Thaw Machine in every pan: cubes you bring home wait in a line, the machine thaws one at a time,
 -- then the pet hops out and wanders your pan (and starts earning). Each pan Slots level makes it x
@@ -1171,15 +1195,55 @@ function Config.tier(name: string): Tier
 	error("unknown tier " .. name)
 end
 
+-- Round prices (owner 2026-11-07: "make the prices eye appealing"). Every price a player pays lands on
+-- a round number, the way hit games price things (Grow a Garden seeds 400 / 2,500 / 50K / 1M, Steal a
+-- Brainrot rebirths 1M / 5B): 1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6 or 7.5 times a power of ten. Prices worked
+-- out from a formula go through Config.nice; prices typed in here are picked from the same steps.
+Config.niceSteps = { 1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 7.5, 10 }
+function Config.nice(n: number): number
+	if n < 1 then
+		return 0
+	end
+	local p = 10 ^ math.floor(math.log10(n))
+	local m, best = n / p, 1
+	for _, s in Config.niceSteps do
+		if math.abs(math.log(m / s)) < math.abs(math.log(m / best)) then
+			best = s
+		end
+	end
+	return math.round(best * p)
+end
+
+-- a coin amount for prices and "need more": 750 / 2.5K / 40K / 1.2M / 7.5B. Never shows less than the
+-- real amount (rounds up), so "Need 1.3M more" is always enough.
+Config.coinUnits = { { size = 1e15, suffix = "Qa" }, { size = 1e12, suffix = "T" }, { size = 1e9, suffix = "B" },
+	{ size = 1e6, suffix = "M" }, { size = 1e3, suffix = "K" } }
+function Config.coinText(n: number): string
+	n = math.max(0, math.ceil(n))
+	local units = Config.coinUnits
+	for i, u in units do
+		if n >= u.size then
+			local v = n / u.size
+			if math.ceil(v) >= 1000 and i > 1 then -- 999,999 reads 1M, not 1000K
+				return "1" .. units[i - 1].suffix
+			end
+			local text = if v >= 100 then tostring(math.ceil(v)) else string.format("%.1f", math.ceil(v * 10 - 1e-9) / 10)
+			return (text:gsub("%.0$", "")) .. u.suffix
+		end
+	end
+	return tostring(n)
+end
+
 function Config.upgradeCost(id: string, level: number): number
 	local u = Config.upgrades[id]
-	return math.round(u.baseCost * u.costGrowth ^ (level - 2)) -- level 2 costs baseCost
+	return Config.nice(u.baseCost * u.costGrowth ^ (level - 2)) -- level 2 costs baseCost
 end
 
 -- the pan's Slots upgrade (upgrades.pen) after some rebirths: rebirth resets Slots, and each rebirth
--- makes the rebuild cost x rebirthGrowth more (still x1.5 a level), so it fills the wait after a rebirth
+-- makes the rebuild cost x rebirthGrowth more (still x costGrowth a level), so it fills the wait after a rebirth
 function Config.slotsCost(level: number, rebirths: number): number
-	return math.round(Config.upgradeCost("pen", level) * Config.upgrades.pen.rebirthGrowth ^ rebirths)
+	local u = Config.upgrades.pen
+	return Config.nice(u.baseCost * u.costGrowth ^ (level - 2) * u.rebirthGrowth ^ rebirths)
 end
 
 -- how many pets the pan holds at a Slots level (+ Config.rebirth.slotsPer a rebirth), never over maxSlots

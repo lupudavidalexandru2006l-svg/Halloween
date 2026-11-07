@@ -36,7 +36,7 @@ local function buy(player: Player, id: any)
 	end
 	if d.coins < cost then
 		-- a button press is always answered
-		Remotes.notYet(player, `Need {math.ceil(cost - d.coins)} more`, id)
+		Remotes.notYet(player, `Need {Config.coinText(cost - d.coins)} more`, id)
 		return
 	end
 	DataService.mutate(player, function(x)

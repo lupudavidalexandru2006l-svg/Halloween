@@ -43,7 +43,7 @@ function PanService.blocker(d: Data, kind: string): string?
 	if not price then
 		return if kind == "cold" and level < P.cold.max then "Colder islands are coming soon" else "Max level"
 	elseif d.coins < price then
-		return `Need {math.ceil(price - d.coins)} more`
+		return `Need {Config.coinText(price - d.coins)} more`
 	end
 	return nil
 end

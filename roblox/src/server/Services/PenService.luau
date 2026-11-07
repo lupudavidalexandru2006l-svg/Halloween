@@ -581,7 +581,7 @@ local function openGate(player: Player, id: number)
 	end
 	local price = zone.gateCoins
 	if d.coins < price then
-		Remotes.notYet(player, `Need {math.ceil(price - d.coins)} more coins`, "gate")
+		Remotes.notYet(player, `Need {Config.coinText(price - d.coins)} more coins`, "gate")
 		return
 	end
 	local opened = false

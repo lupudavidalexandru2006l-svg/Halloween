@@ -225,7 +225,7 @@ function PanPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
 			continue
 		end
 		local afford = v.coins >= price
-		local b = h.button(face, if afford then Theme.coin else Theme.tiers.Common, Ui.commas(price), 0.7, 0.28, function()
+		local b = h.button(face, if afford then Theme.coin else Theme.tiers.Common, Ui.price(price), 0.7, 0.28, function()
 			local send = function()
 				State.send("BuyPanUpgrade", kind) -- the server checks the stand, the price and the level
 			end

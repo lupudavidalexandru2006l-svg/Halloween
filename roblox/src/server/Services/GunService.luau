@@ -52,7 +52,7 @@ function GunService.blocker(d: any, index: number): string?
 	elseif d.rebirths < g.rebirths then
 		return `Needs Rebirth {g.rebirths}`
 	elseif d.coins < g.price then
-		return `Need {math.ceil(g.price - d.coins)} more`
+		return `Need {Config.coinText(g.price - d.coins)} more`
 	end
 	return nil
 end

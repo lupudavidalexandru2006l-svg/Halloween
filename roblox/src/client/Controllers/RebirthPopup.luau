@@ -171,8 +171,8 @@ function RebirthPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
 		return
 	end
 	local have = v.coins >= cost
-	local price = h.text(h.row(fl, 1, 0.4), if have then `Rebirth {n}: {Ui.commas(cost)} coins`
-		else `Rebirth {n}: {Ui.commas(cost)} coins (need {Ui.short(cost - v.coins)} more)`, 0, 1)
+	local price = h.text(h.row(fl, 1, 0.4), if have then `Rebirth {n}: {Ui.price(cost)} coins`
+		else `Rebirth {n}: {Ui.price(cost)} coins (need {Ui.price(cost - v.coins)} more)`, 0, 1)
 	price.TextXAlignment = Enum.TextXAlignment.Center
 	if h.sized then
 		h.sized(price, "body")

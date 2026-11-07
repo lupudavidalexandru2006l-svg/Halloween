@@ -254,6 +254,12 @@ function Ui.short(n: number): string
 	return tostring(n)
 end
 
+-- a price: 750 / 2.5K / 1.2M (owner 2026-11-07: prices read short, never 2,500,000). Config.coinText
+-- so the server's "Need 1.2M more" reads the same
+function Ui.price(n: number): string
+	return Config.coinText(n)
+end
+
 function Ui.commas(n: number): string
 	local s = tostring(math.floor(n))
 	local out = s:reverse():gsub("(%d%d%d)", "%1,"):reverse()

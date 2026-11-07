@@ -131,7 +131,7 @@ local function gunRow(h: Helpers, l: GuiObject, i: number, v: State.View, o: any
 	local tag = if st == "held" then "Holding"
 		elseif st == "owned" then "Owned"
 		elseif st == "rebirth" or (st == "locked" and g.rebirths > 0) then `Rebirth {g.rebirths}`
-		elseif g.price > 0 then Ui.short(g.price)
+		elseif g.price > 0 then Ui.price(g.price)
 		else "Free"
 	local tagColor = if st == "held" then Theme.go elseif st == "owned" then Theme.info elseif st == "next" then Theme.coin else Theme.tiers.Common
 	local t = h.text(face, tag, 0.74, 0.24, tagColor)
@@ -261,7 +261,7 @@ local function gunCard(h: Helpers, holder: Frame, i: number, v: State.View, o: a
 	elseif st == "owned" then
 		label, color = "Equip", Theme.info
 	elseif st == "next" then
-		label = if g.price > 0 then Ui.short(g.price) else "Get it"
+		label = if g.price > 0 then Ui.price(g.price) else "Get it"
 		color = if v.coins >= g.price then Theme.coin else Theme.tiers.Common
 	elseif st == "rebirth" or g.rebirths > 0 then
 		label = `Rebirth {g.rebirths}`
@@ -309,7 +309,7 @@ local function gear(h: Helpers, body: Frame, v: State.View, o: any)
 	what.Position = UDim2.fromScale(0.2, 0.52)
 	local can = v.coins >= Config.gel.price
 	local b = h.button(face, if owned then Theme.go elseif can then Theme.coin else Theme.tiers.Common,
-		if owned then "Owned" else Ui.short(Config.gel.price), 0.72, 0.26, function()
+		if owned then "Owned" else Ui.price(Config.gel.price), 0.72, 0.26, function()
 			if not owned then
 				State.send("BuyGear", "gel") -- the server checks the coins and the booth
 			end

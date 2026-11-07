@@ -158,7 +158,7 @@ local function onBuy(player: Player, key: any)
 		return
 	end
 	if d.coins < G.price then
-		Remotes.notYet(player, `Need {math.ceil(G.price - d.coins)} more`, "gear")
+		Remotes.notYet(player, `Need {Config.coinText(G.price - d.coins)} more`, "gear")
 		return
 	end
 	lastBuy[player] = now

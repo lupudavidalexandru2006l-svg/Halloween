@@ -197,6 +197,18 @@ local function buildHub()
 	end
 end
 
+-- a gate prompt's text: "Mushroom Grove: Rebirth 1 + 7.5K coins"
+local function gateText(zone: Config.Zone): string
+	if not zone.ready then
+		return `{zone.name}: coming soon`
+	end
+	local cost = `{Config.coinText(zone.gateCoins)} coins`
+	if zone.gateRebirth > 0 then
+		cost = `Rebirth {zone.gateRebirth} + {cost}`
+	end
+	return `{zone.name}: {cost}`
+end
+
 -- ---------- the tunnel: one section per open island, a gate in front of each after the first ----------
 local function buildTunnel()
 	local W = Config.world
@@ -231,8 +243,7 @@ local function buildTunnel()
 			local gate = collider("Gate" .. zone.id, Vector3.new(T.width, G.height, G.depth), CFrame.new(0, G.height / 2, gz), sec)
 			gate:SetAttribute("GateZone", zone.id)
 			local spot = part("GatePromptSpot" .. zone.id, Vector3.new(1, 1, 1), CFrame.new(0, 0.5, gz - Config.gatePromptOffset), Theme.ice, sec, { Transparency = 1, CanCollide = false, CanQuery = false })
-			local cost = if zone.gateRebirth > 0 then `Rebirth {zone.gateRebirth} + {zone.gateCoins} coins` else `{zone.gateCoins} coins`
-			WorldService.gatePrompts[zone.id] = prompt(spot, "Open", if zone.ready then `{zone.name}: {cost}` else `{zone.name}: coming soon`, Config.player.interactHold)
+			WorldService.gatePrompts[zone.id] = prompt(spot, "Open", gateText(zone), Config.player.interactHold)
 			local sign = part("GateSign" .. zone.id, Vector3.new(20 * T.archScale, 4 * T.archScale, 0.5), CFrame.new(0, G.height + 3.4 * T.archScale, gz - G.depth / 2 - 0.4), look.accent, sec) -- text toward the section before
 			surfaceText(sign, Enum.NormalId.Front, if zone.ready then string.upper(zone.name) else "COMING SOON", look.accent)
 			WorldService.gateSigns[zone.id] = sign
@@ -333,6 +344,7 @@ local function findExisting(): boolean
 		local spot = map:FindFirstChild("GatePromptSpot" .. z.id, true)
 		local pp = spot and spot:FindFirstChildWhichIsA("ProximityPrompt", true)
 		if pp then
+			pp.ObjectText = gateText(z) -- the saved map keeps its old text; prices live in Config
 			WorldService.gatePrompts[z.id] = pp
 		end
 	end

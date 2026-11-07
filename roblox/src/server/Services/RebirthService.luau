@@ -50,7 +50,7 @@ end
 function RebirthService.blocker(d: any): string?
 	local cost = Config.rebirthCost(d.rebirths + 1)
 	if d.coins < cost then
-		return `Need {math.ceil(cost - d.coins)} more`
+		return `Need {Config.coinText(cost - d.coins)} more`
 	end
 	return nil
 end

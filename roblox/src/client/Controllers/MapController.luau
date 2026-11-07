@@ -156,7 +156,7 @@ local function gateSign(id: number, v: State.View)
 	local ready = open or (zone.ready and not needRebirth and v.coins >= price)
 	local color = if ready then Theme.go else Theme.info
 	label.Text = if open then string.upper(zone.name) elseif not zone.ready then "COMING SOON"
-		elseif needRebirth then `NEEDS REBIRTH {zone.gateRebirth}` else `OPEN FOR {Ui.commas(price)} COINS`
+		elseif needRebirth then `NEEDS REBIRTH {zone.gateRebirth}` else `OPEN FOR {Ui.price(price)} COINS`
 	label.BackgroundColor3 = color
 	sign.Color = color
 	local bar = gateBar :: Frame
