@@ -9,7 +9,10 @@
 --  - every pan's doorway is open to everyone; yours glows green, the others ice-blue
 --  - each island's own light: the camera's tint and haze fade to the section you're in
 --  - the gift box bobs while a gift waits, with a "DAILY GIFT" / "NEXT GIFT TOMORROW" label
+--  - the booths' moving parts turn and bob (gears, the portal's swirl, floating crystals); reduced
+--    motion holds them still
 
+local CollectionService = game:GetService("CollectionService")
 local Lighting = game:GetService("Lighting")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -34,6 +37,47 @@ local gateBars: { [number]: Frame } = {} -- each gate sign's progress fill
 
 local function map(): Instance?
 	return workspace:FindFirstChild("Map")
+end
+
+-- MapArt's moving parts (booth gears, the portal's swirl, floating crystals): folders tagged
+-- motionTag. Each part's built CFrame is kept the first time it's seen (a part that streams in again
+-- is a new one, back at its built place), then moved from there. t = 0 puts everything back.
+local motionBase: { [BasePart]: CFrame } = setmetatable({}, { __mode = "k" }) :: any
+local function moveMapParts(t: number)
+	local parts: { BasePart } = {}
+	local cfs: { CFrame } = {}
+	for _, f in CollectionService:GetTagged(M.motionTag) do
+		local pivot = f:GetAttribute("Pivot")
+		if typeof(pivot) ~= "CFrame" then
+			continue
+		end
+		local move = CFrame.identity
+		if f:GetAttribute("Kind") == "spin" then
+			local axis, speed = f:GetAttribute("Axis"), f:GetAttribute("Speed")
+			if typeof(axis) == "Vector3" and typeof(speed) == "number" then
+				move = pivot * CFrame.fromAxisAngle(axis, t * speed) * pivot:Inverse()
+			end
+		else
+			local amp, hz, phase = f:GetAttribute("Amp"), f:GetAttribute("Hz"), f:GetAttribute("Phase")
+			if typeof(amp) == "number" and typeof(hz) == "number" then
+				move = CFrame.new(0, math.sin((t * hz + (if typeof(phase) == "number" then phase else 0)) * math.pi * 2) * amp * (if t == 0 then 0 else 1), 0)
+			end
+		end
+		for _, p in f:GetChildren() do
+			if p:IsA("BasePart") then
+				local base = motionBase[p]
+				if not base then
+					base = p.CFrame
+					motionBase[p] = base
+				end
+				table.insert(parts, p)
+				table.insert(cfs, move * base)
+			end
+		end
+	end
+	if #parts > 0 then
+		workspace:BulkMoveTo(parts, cfs, Enum.BulkMoveMode.FireCFrameChanged)
+	end
 end
 
 local function reachOf(v: State.View?): number
@@ -292,6 +336,7 @@ function MapController.Start()
 		local c = Config.world.giftBox
 		local pivot = CFrame.new(c.X, 0, c.Z)
 		local move = if bob then pivot * CFrame.new(0, math.abs(math.sin(t * 3)) * M.giftBob, 0) * CFrame.Angles(0, math.sin(t * 2) * M.giftSway, 0) * pivot:Inverse() else CFrame.identity
+		moveMapParts(if still then 0 else t)
 		for _, g in giftParts do
 			g.part.CFrame = move * g.cf -- the whole box hops and sways round its middle
 		end

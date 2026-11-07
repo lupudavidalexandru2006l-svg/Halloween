@@ -6,7 +6,8 @@
 -- outside it, a frozen three-tier fountain, tiled paths, lawns with flower beds, benches and lamps.
 -- The pans are striped lawns with white rail fences (the owner's picture), a white gate arch, flower
 -- boxes and the Thaw Machine(s) at the back (PanLooks restyles fences per Look, shows machine 2).
--- Booths are little cottages with a roof, awning and one big object on top (coin / ice ray / crystal).
+-- Booths are giant versions of what they do: a treasure chest (Sell), a workshop with turning gears
+-- (Equipment), a ring portal (Rebirth); the client turns and bobs their Motion folders.
 -- Leaderboards stand in a wooden frame between stone pillars with glowing crystal caps.
 -- The islands have natural rock cliffs instead of flat walls (snowy or mossy, two rows, trees on top),
 -- stone-edged paths, lanterns, themed props, a big landmark and a castle gatehouse in front of each.
@@ -19,6 +20,7 @@
 -- Shapes Roblox has no primitive for (cone, crystal, rock, dome, ring, arch) are MeshParts in
 -- ReplicatedStorage.SceneryMeshes; plain parts stand in when they're missing.
 
+local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Theme = require(ReplicatedStorage.Shared.Theme)
@@ -504,20 +506,6 @@ local function log(len: number, r: number, cf: CFrame, color: Color3, parent: In
 	return finish(p, color, parent)
 end
 
--- light cut faces on a log's ends (end grain), so stacked logs read as cut timber.
--- which = -1 or 1 for one end only (along the log's X axis), nil for both
-local function logEnds(lg: BasePart, color: Color3, parent: Instance, which: number?)
-	local half, r = lg.Size.X / 2, lg.Size.Y / 2
-	for _, e in { -1, 1 } do
-		if not which or which == e then
-			-- the disc sinks 0.01 into the log and stands 0.05 out: no flush faces
-			quiet(log(0.06, r * 0.82, lg.CFrame * CFrame.new(e * (half + 0.02), 0, 0), color, parent))
-		end
-	end
-end
-
--- a display ice ray of gun `tier`, like the stand-in in your hand (RayController) but bigger:
--- body, glowing tip, tank, grip, and fins / ring / gem on the higher tiers. Barrel along +X of cf.
 -- a gear mannequin facing -Z of cf: fur boots, trousers, a warm red coat with a zip and buttons,
 -- a scarf, and a knitted beanie with a pompom
 local function mannequin(parent: Instance, cf: CFrame)
@@ -546,395 +534,639 @@ local function mannequin(parent: Instance, cf: CFrame)
 	ball(0.17, (cf * CFrame.new(0, 4.78, 0)).Position, Theme.white, parent)
 end
 
-local function jar(parent: Instance, at: Vector3, color: Color3)
-	local glass = cyl(0.3, 0.62, CFrame.new(at + Vector3.new(0, 0.31, 0)), color, parent, false, Enum.Material.Glass)
-	glass.Transparency = 0.2
-	cyl(0.33, 0.14, CFrame.new(at + Vector3.new(0, 0.68, 0)), A.post, parent, false, Enum.Material.Wood)
+-- ---------- booths ----------
+-- Booth v4 (owner 2026-11-07: "make the booths look like the thing they are doing", like the best
+-- money-making Roblox games). Each booth is a giant version of what it does, the way hit simulators
+-- build their shops (Pet Simulator's machines, Bee Swarm's shop huts): Sell = an open treasure chest
+-- overflowing with coins, Equipment = a frosty workshop with turning gears, Rebirth = a stone ring
+-- portal with a swirling vortex. Something on each moves or sparkles, so it reads as "use me" from
+-- across the plaza (World Rules 6). The sign shows only the action, on a board ringed with bulbs.
+-- Front = -Z (the plaza). WorldService's invisible counter (10 x 4 x 5 at the booth's pos) sits
+-- inside each design, and its sign stands at the booth's `sign` (Config.world.booths).
+
+-- parts the client moves (MapController): a folder tagged Config.mapFx.motionTag. "spin" turns its
+-- parts round the Pivot's local Axis at Speed rad/s; "bob" lifts them Amp studs, Hz times a second.
+local function motion(parent: Instance, kind: string, pivot: CFrame, attrs: { [string]: any }): Folder
+	local f = folder("Motion", parent)
+	f:SetAttribute("Kind", kind)
+	f:SetAttribute("Pivot", pivot)
+	for k, v in attrs do
+		f:SetAttribute(k, v)
+	end
+	CollectionService:AddTag(f, Config.mapFx.motionTag)
+	return f
 end
 
-local function booth(parent: Instance, b: Config.Booth, rng: () -> number)
-	-- Booth v3 (owner 2026-11-02: v2 was "boxy and flat, wrong style"; picked "cozy wooden chalet").
-	-- A log cabin with crossed log ends, a steep front gable with a deep snowy roof that overhangs a
-	-- porch on log posts, the sign standing on the porch beam, a lean-to with firewood on the outer
-	-- side, an outside stone chimney, warm windows and snow drifts. Natural wood, stone and snow; the
-	-- shop's colour only on the awning, the sign, the roof trim and the rug. Front = -Z (the plaza).
-	local f = folder("Booth_" .. b.id, parent)
-	local at = CFrame.new(b.pos.X, 0, b.pos.Z)
-	local color = Theme.booths[b.id] or Theme.info
-	local logA, logB = HA.boothWood, HA.boothWood:Lerp(Theme.ink, 0.15)
-	local grain = HA.boothWood:Lerp(Theme.white, 0.4) -- the cut ends of the logs
-	local dark = A.post
-	local Wd, y0, H = 14, 0.6, 7.4 -- width, floor height, wall height
-	local fz, bz = 1, 11 -- the cabin's front and back walls
-	local eaveY = y0 + H
-	local outer = if b.pos.X < 0 then -1 else 1 -- the side away from the tunnel mouth
-	-- the stone base under the cabin and the porch, steps down to the plaza, a rug in the shop's colour
-	block(Vector3.new(Wd + 2, y0, bz + 4.8), at * CFrame.new(0, y0 / 2, (bz - 3.8) / 2), V.stoneWarm:Lerp(V.stone, 0.5), f, false, Enum.Material.Cobblestone)
-	quiet(block(Vector3.new(Wd - 1, y0 + 0.02, bz + 3.6), at * CFrame.new(0, y0 / 2 + 0.02, (bz - 3.4) / 2), A.plank, f, false, Enum.Material.WoodPlanks))
-	-- two log steps up to the porch (the stone base's front is at z = -4.3, its top at y0)
-	logEnds(log(8, 0.2, at * CFrame.new(0, 0.2, -5.02), logB, f), grain, f)
-	logEnds(log(8, 0.26, at * CFrame.new(0, 0.34, -4.56), logA, f), grain, f)
-	quiet(block(Vector3.new(8.4, 0.06, 3), at * CFrame.new(0, 0.03, -6.6), color, f, false, Enum.Material.Fabric))
-	-- a fringe of tassels on the rug's two short ends (just past its edge: no overlapping tops)
-	for _, sgn in { -1, 1 } do
-		for k = 0, 9 do
-			quiet(block(Vector3.new(0.4, 0.06, 0.09), at * CFrame.new(sgn * 4.42, 0.04, -7.95 + k * 0.3), Theme.panel, f, false, Enum.Material.Fabric))
+-- little glints rising out of a box (coins, a portal's mouth, bubbles in a tank)
+local function sparkles(parent: Instance, size: Vector3, cf: CFrame, color: Color3, rate: number, speed: number, dir: Enum.NormalId, big: number?)
+	local p = quiet(block(size, cf, color, parent))
+	p.Transparency = 1
+	p.CanQuery = false
+	local e = Instance.new("ParticleEmitter")
+	e.Shape = Enum.ParticleEmitterShape.Box
+	e.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
+	e.Color = ColorSequence.new(Theme.white, color)
+	e.LightEmission = 1
+	local s = big or 0.45
+	e.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.4, s), NumberSequenceKeypoint.new(1, 0) })
+	e.Lifetime = NumberRange.new(0.7, 1.3)
+	e.Rate = rate
+	e.Speed = NumberRange.new(speed * 0.5, speed)
+	e.EmissionDirection = dir
+	e.Parent = p
+end
+
+-- the board behind a booth's sign, with a trim round its edge and marquee bulbs between the two
+-- (UI Rules: a framed, bulb-lit sign). sy / sz = the sign's middle; the board reaches `depth` back
+local function signBoard(f: Instance, at: CFrame, sy: number, sz: number, board: Color3, trim: Color3, depth: number, mat: Enum.Material?)
+	local BS = W.boothSign
+	local w, h = BS.w + 1.6, BS.h + 1.2
+	local front = sz + 0.2 - 0.02 -- 0.02 into the sign's back: no flush faces
+	block(Vector3.new(w, h, depth), at * CFrame.new(0, sy, front + depth / 2), board, f, false, mat or Enum.Material.Wood)
+	for _, s in { -1, 1 } do
+		quiet(block(Vector3.new(w + 0.2, 0.22, 0.2), at * CFrame.new(0, sy + s * (h / 2 - 0.05), front - 0.04), trim, f))
+		quiet(block(Vector3.new(0.22, h, 0.2), at * CFrame.new(s * (w / 2 - 0.05), sy, front - 0.04), trim, f))
+	end
+	local function bulb(x: number, y: number)
+		quiet(glow(ball(0.13, (at * CFrame.new(x, sy + y, front - 0.1)).Position, A.lanternGlow, f), 0.05))
+	end
+	for k = -7, 7 do
+		bulb(k * 0.66, BS.h / 2 + 0.28)
+		bulb(k * 0.66, -BS.h / 2 - 0.28)
+	end
+	for _, s in { -1, 1 } do
+		for _, y in { -0.6, 0, 0.6 } do
+			bulb(s * (BS.w / 2 + 0.38), y)
 		end
 	end
-	quiet(block(Vector3.new(7, 0.1, 1.9), at * CFrame.new(0, 0.05, -6.6), Theme.panel, f, false, Enum.Material.Fabric)) -- clearly above the rug (0.015 flickered)
-	-- log walls: the sides and back are stacked logs whose ends cross at the corners
-	local step = 0.84
-	local rows = math.floor(H / step)
-	for i = 0, rows - 1 do
-		local y = y0 + 0.42 + i * step
-		local c = if i % 2 == 0 then logA else logB
-		for _, side in { -1, 1 } do
-			logEnds(log(bz - fz + 1.6, 0.44, at * CFrame.new(side * (Wd / 2 - 0.42), y, (fz + bz) / 2) * CFrame.Angles(0, math.pi / 2, 0), c, f), grain, f)
+end
+
+-- a cog wheel facing -Z, centred at cf: a rim, square teeth, six spokes and a hub with a bolt
+local function cog(parent: Instance, cf: CFrame, r: number, teeth: number, color: Color3, hub: Color3)
+	local th = 0.7
+	local face = cf * CFrame.Angles(math.pi / 2, 0, 0)
+	shape("Ring", Vector3.new(r * 2, th, r * 2), face, color, parent)
+	for k = 0, teeth - 1 do
+		local a = k / teeth * math.pi * 2
+		block(Vector3.new(math.pi * r / teeth, 0.65, th - 0.05), cf * CFrame.Angles(0, 0, a) * CFrame.new(0, r + 0.2, 0), color, parent, false, Enum.Material.Metal)
+	end
+	for k = 0, 2 do
+		block(Vector3.new(r * 0.32, r * 1.5, th - 0.15), cf * CFrame.Angles(0, 0, k * math.pi / 3), color, parent, false, Enum.Material.Metal)
+	end
+	cyl(r * 0.3, th + 0.25, face, hub, parent)
+	cyl(r * 0.12, th + 0.45, face, V.iron, parent)
+end
+
+-- a mound of coins: a lumpy gold heap (a few smaller mounds on a big one, so it doesn't read as a
+-- smooth dome) covered in loose coins lying tilted, some on their edge
+local function coinHeap(f: Instance, cf: CFrame, size: Vector3, n: number, rng: () -> number)
+	local gold, goldHi, goldLo = V.gold, V.gold:Lerp(Theme.white, 0.3), V.gold:Lerp(V.barrel, 0.3)
+	local heap = ellipsoid(size, cf, goldLo, f) -- a deeper gold under the coins, so they stand out
+	local rx, ry, rz = size.X / 2, size.Y / 2, size.Z / 2
+	local function surface(s: number): number
+		return ry * math.sqrt(1 - s)
+	end
+	for _ = 1, math.max(2, math.floor(n / 20)) do
+		local u, v = rng() * 0.9 - 0.45, rng() * 0.9 - 0.45 -- inside the heap's outline
+		local w = 0.25 + rng() * 0.15
+		ellipsoid(Vector3.new(size.X * w, size.Y * 0.45, size.Z * w), cf * CFrame.new(u * rx, surface(u * u + v * v) - size.Y * 0.08, v * rz), if rng() < 0.5 then gold else goldLo, f)
+	end
+	local r = math.clamp(math.min(rx, rz) * 0.1, 0.35, 0.6)
+	for _ = 1, n do
+		local u, v = rng() * 2 - 1, rng() * 2 - 1
+		local s = u * u + v * v
+		if s < 0.92 then
+			local edge = rng() < 0.12 -- a few stand on their edge
+			local tilt = if edge then CFrame.Angles(math.pi / 2, rng() * 6.3, 0) else CFrame.Angles((rng() - 0.5) * 1.1, rng() * 6.3, (rng() - 0.5) * 1.1)
+			quiet(cyl(r, 0.16, cf * CFrame.new(u * rx, surface(s) + (if edge then r * 0.6 else 0.06), v * rz) * tilt, if rng() < 0.5 then goldHi else gold, f))
 		end
-		logEnds(log(Wd + 1.6, 0.44, at * CFrame.new(0, y + 0.42, bz - 0.42), c, f), grain, f)
-		-- the front: logs either side of the shop window, and over it
-		local winTop = y0 + 4.6
-		if y < winTop then
-			for _, side in { -1, 1 } do
-				-- only the end at the window shows (the outer end meets the side wall)
-				logEnds(log(2.6, 0.44, at * CFrame.new(side * (Wd / 2 - 1.3), y + 0.42, fz + 0.42), c, f), grain, f, -side)
+	end
+	return heap
+end
+
+-- Sell: a giant open treasure chest. Plank walls on gold straps and corner brackets, the shop window
+-- cut into its front with the counter, a heap of coins with gems and a crown over the rim, the lid
+-- standing open behind it with a tufted red velvet lining, coin piles out front, coin sacks at the side
+local function sellBooth(f: Instance, at: CFrame, color: Color3, outer: number, sign: { y: number, z: number }, rng: () -> number)
+	local wood, woodB, dark = HA.boothWood, HA.boothWood:Lerp(Theme.ink, 0.18), A.post
+	local gold, goldHi, goldLo = V.gold, V.gold:Lerp(Theme.white, 0.3), V.gold:Lerp(Theme.ink, 0.22)
+	local velvet = V.flag:Lerp(Theme.ink, 0.3)
+	local Wd, y0, top = 16, 0.6, 10 -- the chest's width, floor and rim
+	local fz, bz = -2.6, 9 -- its front and back faces
+	local mz, D, H = (fz + bz) / 2, bz - fz, top - y0
+	local winX, winLo, winHi = 4.6, 3.6, 7.2 -- the shop window in its front
+	-- a stone plinth, wide enough for the coin piles out front
+	block(Vector3.new(Wd + 3, y0, D + 4.4), at * CFrame.new(0, y0 / 2, mz - 1), V.stoneWarm:Lerp(V.stone, 0.5), f, true, Enum.Material.Cobblestone)
+	-- the walls: dark slabs (hollow inside, open at the window) under the plank boards
+	local slabs: { { Vector3 } } = {
+		{ Vector3.new(Wd, H, 0.6), Vector3.new(0, y0 + H / 2, bz - 0.3) },
+		{ Vector3.new(0.6, H, D), Vector3.new(-Wd / 2 + 0.3, y0 + H / 2, mz) },
+		{ Vector3.new(0.6, H, D), Vector3.new(Wd / 2 - 0.3, y0 + H / 2, mz) },
+		{ Vector3.new(Wd, winLo - y0, 0.6), Vector3.new(0, (y0 + winLo) / 2, fz + 0.3) },
+		{ Vector3.new(Wd, top - winHi, 0.6), Vector3.new(0, (winHi + top) / 2, fz + 0.3) },
+	}
+	for _, s in { -1, 1 } do
+		table.insert(slabs, { Vector3.new(Wd / 2 - winX, winHi - winLo, 0.6), Vector3.new(s * (Wd / 2 + winX) / 2, (winLo + winHi) / 2, fz + 0.3) })
+	end
+	for _, s in slabs do
+		block(s[1], at * CFrame.new(s[2]), dark, f, true, Enum.Material.Wood)
+	end
+	block(Vector3.new(Wd - 1.2, 0.4, D - 1.2), at * CFrame.new(0, winHi + 0.2, mz), dark, f, false, Enum.Material.Wood) -- the ceiling under the coins
+	quiet(block(Vector3.new(Wd - 1.2, 0.1, D - 1.2), at * CFrame.new(0, y0 + 0.75, mz), A.plank, f, false, Enum.Material.WoodPlanks)) -- the floor, above the foot band
+	-- plank boards in rows, dark seams between them; the front ones stop at the window
+	local pitch = H / 10
+	for i = 0, 9 do
+		local y = y0 + (i + 0.5) * pitch
+		local c = (if i % 2 == 0 then wood else woodB):Lerp(Theme.ink, rng() * 0.06)
+		local bh = pitch - 0.08
+		block(Vector3.new(Wd + 0.3, bh, 0.3), at * CFrame.new(0, y, bz + 0.12), c, f, false, Enum.Material.WoodPlanks)
+		for _, s in { -1, 1 } do
+			block(Vector3.new(0.3, bh, D + 0.3), at * CFrame.new(s * (Wd / 2 + 0.12), y, mz), c, f, false, Enum.Material.WoodPlanks)
+		end
+		if y > winLo and y < winHi then
+			for _, s in { -1, 1 } do
+				block(Vector3.new(Wd / 2 - winX + 0.15, bh, 0.3), at * CFrame.new(s * (Wd / 2 + winX + 0.15) / 2, y, fz - 0.12), c, f, false, Enum.Material.WoodPlanks)
 			end
 		else
-			logEnds(log(Wd + 1.6, 0.44, at * CFrame.new(0, y + 0.42, fz + 0.42), c, f), grain, f)
+			block(Vector3.new(Wd + 0.3, bh, 0.3), at * CFrame.new(0, y, fz - 0.12), c, f, false, Enum.Material.WoodPlanks)
 		end
 	end
-	-- warm windows on the sides, with plank shutters and a snowy sill
-	for _, side in { -1, 1 } do
-		local wcf = at * CFrame.new(side * (Wd / 2 + 0.05), y0 + 4, (fz + bz) / 2) * CFrame.Angles(0, side * math.pi / 2, 0)
-		-- frame, glass and bars each stand clearly proud of the one behind (0.01 apart they flickered)
-		block(Vector3.new(3, 2.8, 0.3), wcf, dark, f)
-		quiet(glow(block(Vector3.new(2.4, 2.2, 0.4), wcf, V.window, f), 0.1))
-		block(Vector3.new(0.18, 2.1, 0.5), wcf, dark, f)
-		block(Vector3.new(2.3, 0.18, 0.5), wcf, dark, f)
-		for _, sx in { -1.9, 1.9 } do
-			block(Vector3.new(0.8, 2.6, 0.2), wcf * CFrame.new(sx, 0, -0.1), logB, f, false, Enum.Material.WoodPlanks)
-		end
-		quiet(block(Vector3.new(3.3, 0.35, 0.7), wcf * CFrame.new(0, -1.55, -0.2), A.snowCap, f, false, Enum.Material.Snow))
+	-- gold: a band round the foot and the rim, straps beside the window, brackets round the corners,
+	-- all studded with rivets (every gold face stands 0.15 clear of the next: no flicker)
+	for _, y in { y0 + 0.35, top - 0.35 } do
+		block(Vector3.new(Wd + 0.9, 0.7, D + 0.9), at * CFrame.new(0, y, mz), gold, f, true)
 	end
-	-- inside: plank shelves with the shop's goods and a warm hanging lamp
-	for _, y in { 2.6, 4.6 } do
-		local shelf = block(Vector3.new(Wd - 3, 0.25, 1.2), at * CFrame.new(0, y, bz - 1.4), dark, f, false, Enum.Material.Wood)
-		if y > 3 then
-			light(shelf, A.lanternGlow, 9, 0.8) -- a soft warm light on the back shelves, so the goods show from outside
+	for _, s in { -1, 1 } do
+		block(Vector3.new(0.9, H, 0.3), at * CFrame.new(s * (winX + 0.55), y0 + H / 2, fz - 0.45), gold, f)
+		for _, z in { fz, bz } do
+			local zs = if z == fz then -1 else 1
+			block(Vector3.new(1.8, H + 0.2, 0.3), at * CFrame.new(s * (Wd / 2 - 0.3), y0 + H / 2, z + zs * 0.45), gold, f)
+			block(Vector3.new(0.3, H + 0.2, 1.5), at * CFrame.new(s * (Wd / 2 + 0.45), y0 + H / 2, z - zs * 0.45), gold, f)
+		end
+		for k = 0, 7 do
+			local y = y0 + 1 + k * 1.1
+			quiet(ball(0.14, (at * CFrame.new(s * (winX + 0.55), y, fz - 0.62)).Position, goldLo, f))
+			quiet(ball(0.14, (at * CFrame.new(s * (Wd / 2 - 0.3), y, fz - 0.62)).Position, goldLo, f))
 		end
 	end
-	cyl(0.07, 1.4, at * CFrame.new(0, eaveY - 0.8, (fz + bz) / 2), V.iron, f)
-	local bulb = quiet(glow(ball(0.5, (at * CFrame.new(0, eaveY - 1.7, (fz + bz) / 2)).Position, A.lanternGlow, f), 0.05))
-	light(bulb, A.lanternGlow, 18, 1.2)
-	-- the counter in the shop window: thick natural wood with a thin stripe in the shop's colour
-	block(Vector3.new(Wd - 4.8, 3, 1), at * CFrame.new(0, y0 + 1.5, fz - 0.2), logA, f, false, Enum.Material.WoodPlanks)
-	block(Vector3.new(Wd - 4.2, 0.4, 1.8), at * CFrame.new(0, y0 + 3.2, fz - 0.3), dark, f, false, Enum.Material.Wood)
-	quiet(block(Vector3.new(Wd - 4.8, 0.35, 0.1), at * CFrame.new(0, y0 + 2.4, fz - 0.75), color, f))
-	-- the counter's carved trim: dark corner posts, a baseboard and two diamonds in the shop's colour.
-	-- The counter's front face is at fz - 0.7; every piece stands clearly in front of it.
-	for _, sgn in { -1, 1 } do
-		block(Vector3.new(0.5, 3.1, 1.3), at * CFrame.new(sgn * ((Wd - 4.8) / 2 + 0.1), y0 + 1.55, fz - 0.2), dark, f, false, Enum.Material.Wood)
-		local d = at * CFrame.new(sgn * 2.3, y0 + 1.25, fz - 0.76) * CFrame.Angles(0, 0, math.pi / 4)
-		quiet(block(Vector3.new(0.75, 0.75, 0.1), d, dark, f, false, Enum.Material.Wood))
-		quiet(block(Vector3.new(0.5, 0.5, 0.1), d * CFrame.new(0, 0, -0.05), color, f))
-	end
-	block(Vector3.new(Wd - 4.6, 0.45, 1.15), at * CFrame.new(0, y0 + 0.22, fz - 0.2), dark, f, false, Enum.Material.Wood)
-	-- a short striped awning over the shop window, under the porch roof
-	local n = 6
-	for k = 0, n - 1 do
-		local x = -(Wd - 4.4) / 2 + (k + 0.5) * (Wd - 4.4) / n
-		local c = if k % 2 == 0 then color else HA.awningStripe
-		local w = (Wd - 4.4) / n
-		local board = at * CFrame.new(x, y0 + 4.9, fz - 0.9) * CFrame.Angles(math.rad(-22), 0, 0)
-		block(Vector3.new(w, 0.2, 2), board, c, f, false, Enum.Material.Fabric)
-		-- a scalloped edge: two round flaps per stripe hanging under the front edge (set just behind
-		-- the board's front face, so no faces are flush)
-		for _, dx in { -w / 4, w / 4 } do
-			local flap = quiet(log(0.1, w / 4 - 0.02, board * CFrame.new(dx, -0.32, -0.92) * CFrame.Angles(0, math.pi / 2, 0), c, f))
-			flap.Material = Enum.Material.Fabric
+	-- the sign on a dark board with a gold trim, over the window
+	signBoard(f, at, sign.y, sign.z, dark, gold, (fz - 0.25) - (sign.z + 0.18))
+	-- the counter in the window: coin stacks, a service bell and a balance scale with coins on one pan
+	local ct = winLo + 0.35
+	block(Vector3.new(winX * 2, 0.35, 1.9), at * CFrame.new(0, winLo + 0.17, fz - 0.25), dark, f, false, Enum.Material.Wood)
+	for k = 0, 3 do
+		for h = 0, k % 3 + 1 do
+			cyl(0.42, 0.17, at * CFrame.new(-3.6 + k * 0.75, ct + 0.09 + h * 0.19, fz - 0.6), if h % 2 == 0 then gold else goldHi, f)
 		end
 	end
-	-- the roof: a steep gable facing the plaza, thick dark-wood slabs under a deep layer of snow,
-	-- overhanging the porch at the front and the walls at the sides
-	local side, rise = 1.4, 7.2
+	local bell = at * CFrame.new(-0.4, ct, fz - 0.8)
+	cyl(0.42, 0.12, bell * CFrame.new(0, 0.06, 0), V.iron, f)
+	shape("Dome", Vector3.new(0.75, 0.45, 0.75), bell * CFrame.new(0, 0.34, 0), gold, f)
+	ball(0.09, (bell * CFrame.new(0, 0.62, 0)).Position, goldLo, f)
+	local sc = at * CFrame.new(2.9, ct, fz - 0.5)
+	cyl(0.3, 0.15, sc * CFrame.new(0, 0.08, 0), gold, f)
+	cyl(0.08, 1.4, sc * CFrame.new(0, 0.85, 0), gold, f)
+	block(Vector3.new(1.8, 0.1, 0.1), sc * CFrame.new(0, 1.55, 0) * CFrame.Angles(0, 0, 0.12), gold, f)
+	for _, x in { -0.85, 0.85 } do
+		local py = 0.9 - x * 0.12
+		block(Vector3.new(0.04, 0.6, 0.04), sc * CFrame.new(x, py + 0.35, 0), V.iron, f)
+		cyl(0.35, 0.06, sc * CFrame.new(x, py, 0), gold, f)
+	end
+	cyl(0.22, 0.2, sc * CFrame.new(-0.85, 1.12, 0), goldHi, f)
+	-- inside: a velvet drape on the back wall, shelves of gold bars and coin stacks, a warm lamp
+	quiet(block(Vector3.new(Wd - 2, winHi - winLo, 0.1), at * CFrame.new(0, (winLo + winHi) / 2, bz - 0.68), velvet, f, false, Enum.Material.Fabric))
+	for i, y in { 4.4, 6.0 } do
+		block(Vector3.new(Wd - 2.4, 0.25, 1.2), at * CFrame.new(0, y, bz - 1.3), dark, f, false, Enum.Material.Wood)
+		if i == 1 then
+			for _, x0 in { -3.6, 3.6 } do
+				for row = 0, 2 do
+					for k = 0, 2 - row do
+						block(Vector3.new(1, 0.42, 0.55), at * CFrame.new(x0 + (k - (2 - row) / 2) * 1.05, y + 0.34 + row * 0.42, bz - 1.3), if row % 2 == 0 then gold else goldHi, f)
+					end
+				end
+			end
+		else
+			for k = 0, 5 do
+				for h = 0, (k * 7) % 3 + 1 do
+					cyl(0.38, 0.17, at * CFrame.new(-4.5 + k * 1.8, y + 0.22 + h * 0.19, bz - 1.3), if h % 2 == 0 then gold else goldHi, f)
+				end
+			end
+		end
+	end
+	cyl(0.06, 0.6, at * CFrame.new(0, winHi - 0.3, mz + 1), V.iron, f)
+	local lamp = quiet(glow(ball(0.45, (at * CFrame.new(0, winHi - 0.8, mz + 1)).Position, A.lanternGlow, f), 0.05))
+	light(lamp, A.lanternGlow, 12, 1.1)
+	-- the treasure over the rim: a coin heap with gems, a crown on top, glints rising off it
+	local cy = top + 0.1
+	local heap = coinHeap(f, at * CFrame.new(0, cy, mz), Vector3.new(Wd - 0.4, 5.6, D - 0.6), 160, rng)
+	light(heap, goldHi, 18, 0.9)
+	local gems = { A.crystalGlow, V.flowers[1], V.flowers[3], Theme.booths.rebirth, Theme.booths.equipment }
+	for k, c in gems do
+		local a = k / #gems * math.pi * 2 + 0.5
+		local x, z = math.cos(a) * 4.2, math.sin(a) * 2.6
+		local s = (x / (Wd / 2 - 0.2)) ^ 2 + (z / (D / 2 - 0.3)) ^ 2
+		shape("Octa", Vector3.new(0.8, 1.4, 0.8), at * CFrame.new(x, cy + 2.8 * math.sqrt(1 - s) + 0.3, mz + z) * CFrame.Angles(0.3, a, 0.4), c, f)
+	end
+	local crown = at * CFrame.new(-1.4, cy + 2.6, mz + 0.4) * CFrame.Angles(0.12, 0.5, -0.1)
+	shape("Ring", Vector3.new(2, 0.8, 2), crown * CFrame.new(0, 0.4, 0), gold, f)
+	for k = 0, 4 do
+		local a = k / 5 * math.pi * 2
+		shape("Cone", Vector3.new(0.45, 0.85, 0.45), crown * CFrame.new(math.cos(a) * 0.8, 1.15, math.sin(a) * 0.8), gold, f)
+		ball(0.13, (crown * CFrame.new(math.cos(a) * 0.8, 1.62, math.sin(a) * 0.8)).Position, V.flag, f)
+		ball(0.12, (crown * CFrame.new(math.cos(a + 0.6) * 0.98, 0.4, math.sin(a + 0.6) * 0.98)).Position, if k % 2 == 0 then V.flag else A.crystalGlow, f)
+	end
+	sparkles(f, Vector3.new(Wd - 3, 2.4, D - 3), at * CFrame.new(0, cy + 2.4, mz), goldHi, 8, 0.8, Enum.NormalId.Top)
+	-- the lid, standing open behind: planks with gold edge bands, a red velvet lining tufted with gold
+	-- buttons inside a gold frame, a hasp on its top edge and snow on top
+	local hinge = at * CFrame.new(0, top + 0.1, bz + 0.25) * CFrame.Angles(math.rad(10), 0, 0)
+	local LW, LH, LT = Wd + 0.6, 12, 1.4
+	block(Vector3.new(LW, LH, LT), hinge * CFrame.new(0, LH / 2, LT / 2), wood, f, true, Enum.Material.WoodPlanks)
+	local lin = hinge * CFrame.new(0, LH / 2 + 0.1, 0)
+	quiet(block(Vector3.new(LW - 2.6, LH - 2.4, 0.2), lin * CFrame.new(0, 0, -0.05), velvet, f, false, Enum.Material.Fabric))
+	for _, s in { -1, 1 } do
+		block(Vector3.new(0.7, LH - 1.7, 0.26), lin * CFrame.new(s * (LW / 2 - 1.3), 0, -0.12), gold, f)
+		block(Vector3.new(LW - 1.9, 0.7, 0.26), lin * CFrame.new(0, s * (LH / 2 - 1.2), -0.12), gold, f)
+		block(Vector3.new(0.9, LH + 0.1, LT + 0.3), hinge * CFrame.new(s * (LW / 2 - 0.3), LH / 2, LT / 2), gold, f)
+		block(Vector3.new(0.9, LH, 0.2), hinge * CFrame.new(s * (winX + 0.55), LH / 2, LT + 0.12), gold, f) -- straps on its back
+	end
+	for i = -3, 3 do
+		for j = -2, 2 do
+			if (i + j) % 2 == 0 then
+				quiet(ball(0.13, (lin * CFrame.new(i * 1.75, j * 1.8, -0.18)).Position, goldHi, f))
+			end
+		end
+	end
+	block(Vector3.new(LW + 0.3, 0.9, LT + 0.3), hinge * CFrame.new(0, LH - 0.3, LT / 2), gold, f)
+	block(Vector3.new(2.4, 2.2, 0.4), hinge * CFrame.new(0, LH + 0.6, 0.35), gold, f)
+	quiet(cyl(0.28, 0.1, hinge * CFrame.new(0, LH + 0.95, 0.12) * CFrame.Angles(math.pi / 2, 0, 0), Theme.ink, f))
+	quiet(block(Vector3.new(0.16, 0.45, 0.1), hinge * CFrame.new(0, LH + 0.6, 0.12), Theme.ink, f))
+	quiet(block(Vector3.new(LW + 0.1, 0.35, LT + 0.2), hinge * CFrame.new(0, LH + 0.3, LT / 2), A.snowA, f, false, Enum.Material.Snow))
+	-- coin piles on the plinth's front corners, each with a tall stack
+	for _, s in { -1, 1 } do
+		local p = at * CFrame.new(s * 7.3, y0, -4.4)
+		coinHeap(f, p * CFrame.new(0, 0.1, 0), Vector3.new(2.6, 1.2, 1.9), 18, rng)
+		for h = 0, 4 + (if s > 0 then 2 else 0) do
+			cyl(0.45, 0.17, p * CFrame.new(-s * 1.7, 0.09 + h * 0.18, 0.3), if h % 2 == 0 then gold else goldHi, f)
+		end
+	end
+	-- coin sacks by the outer wall, a gold coin pressed on each, coins at their feet
+	for k, z in { 0.4, 2.6, 4.8 } do
+		local sk = at * CFrame.new(outer * (Wd / 2 + 1.9), 0, z) * CFrame.Angles(0, outer * 0.5 + (rng() - 0.5) * 0.4, 0)
+		local s = if k == 2 then 1.15 else 0.95
+		ellipsoid(Vector3.new(1.9, 2.2, 1.9) * s, sk * CFrame.new(0, 1.05 * s, 0), V.crate, f, Enum.Material.Fabric)
+		cyl(0.45 * s, 0.3, sk * CFrame.new(0, 2.15 * s, 0), goldLo, f)
+		ellipsoid(Vector3.new(1.1, 0.7, 1.1) * s, sk * CFrame.new(0, 2.45 * s, 0), V.crate, f, Enum.Material.Fabric)
+		cyl(0.42 * s, 0.1, sk * CFrame.new(0, 1.1 * s, -0.93 * s) * CFrame.Angles(math.pi / 2, 0, 0), gold, f)
+		quiet(cyl(0.35, 0.12, sk * CFrame.new(0.6, 0.06, -1.2), goldHi, f))
+	end
+	-- snow drifted against the back corners
+	for _, x in { -Wd / 2 - 0.4, Wd / 2 + 0.4 } do
+		quiet(ellipsoid(Vector3.new(2.6, 1.2, 3), at * CFrame.new(x, 0.4, bz + 0.4), A.snowA, f))
+	end
+end
+
+-- Equipment: a frosty workshop. Stone pillars and a stone foot under pale-blue painted boards, a
+-- snowy roof, two big gears turning on the front gable, an open front with a roll-up shutter over a
+-- workbench (vise with an ice ingot, a toolbox, Slow Gel jars), a pegboard of tools and ice rays,
+-- a cryo tank bubbling at the side, a steam pipe puffing, an anvil and the gear mannequin out front
+local function equipmentBooth(f: Instance, at: CFrame, color: Color3, outer: number, sign: { y: number, z: number }, rng: () -> number)
+	local dark, steel = A.post, V.stone:Lerp(Theme.white, 0.15)
+	local brass = V.gold:Lerp(V.barrel, 0.25)
+	local paint = color:Lerp(Theme.white, 0.62)
+	local Wd, y0, H = 16, 0.6, 9.4
+	local fz, bz = -2.6, 9.4
+	local eave = y0 + H
+	local mz, D = (fz + bz) / 2, bz - fz
+	local opX, opHi = 5.4, 7 -- the open front
+	local stoneTop = y0 + 2.4
+	block(Vector3.new(Wd + 3, y0, D + 4.4), at * CFrame.new(0, y0 / 2, mz - 1), V.stone:Lerp(V.stoneWarm, 0.3), f, true, Enum.Material.Slate)
+	-- the walls: dark slabs under the cladding, open at the front
+	local slabs: { { Vector3 } } = {
+		{ Vector3.new(Wd, H, 0.6), Vector3.new(0, y0 + H / 2, bz - 0.3) },
+		{ Vector3.new(0.6, H, D), Vector3.new(-Wd / 2 + 0.3, y0 + H / 2, mz) },
+		{ Vector3.new(0.6, H, D), Vector3.new(Wd / 2 - 0.3, y0 + H / 2, mz) },
+		{ Vector3.new(Wd, eave - opHi, 0.6), Vector3.new(0, (opHi + eave) / 2, fz + 0.3) },
+	}
+	for _, s in { -1, 1 } do
+		table.insert(slabs, { Vector3.new(Wd / 2 - opX, opHi - y0, 0.6), Vector3.new(s * (Wd / 2 + opX) / 2, (y0 + opHi) / 2, fz + 0.3) })
+	end
+	for _, s in slabs do
+		block(s[1], at * CFrame.new(s[2]), dark, f, true, Enum.Material.Wood)
+	end
+	quiet(block(Vector3.new(Wd - 1.2, 0.1, D - 1.2), at * CFrame.new(0, y0 + 0.05, mz), A.plank, f, false, Enum.Material.WoodPlanks))
+	-- a stone course round the foot, painted vertical boards above it, dark corner posts
+	block(Vector3.new(Wd + 0.5, stoneTop - y0, 0.5), at * CFrame.new(0, (y0 + stoneTop) / 2, bz + 0.1), V.stoneDark, f, false, Enum.Material.Cobblestone)
+	for _, s in { -1, 1 } do
+		block(Vector3.new(0.5, stoneTop - y0, D + 0.5), at * CFrame.new(s * (Wd / 2 + 0.1), (y0 + stoneTop) / 2, mz), V.stoneDark, f, false, Enum.Material.Cobblestone)
+	end
+	local function boards(len: number, cf: CFrame, lo: number)
+		local n = math.floor(len)
+		for k = 0, n - 1 do
+			local c = paint:Lerp(Theme.white, if k % 2 == 0 then 0 else 0.3)
+			block(Vector3.new(len / n - 0.1, eave - lo, 0.25), cf * CFrame.new(-len / 2 + (k + 0.5) * len / n, (lo + eave) / 2, 0), c, f, false, Enum.Material.WoodPlanks)
+		end
+	end
+	boards(Wd, at * CFrame.new(0, 0, bz + 0.1), stoneTop)
+	for _, s in { -1, 1 } do
+		boards(D, at * CFrame.new(s * (Wd / 2 + 0.1), 0, mz) * CFrame.Angles(0, math.pi / 2, 0), stoneTop)
+		block(Vector3.new(0.7, H, 0.7), at * CFrame.new(s * (Wd / 2 + 0.15), y0 + H / 2, bz + 0.15), dark, f, false, Enum.Material.Wood)
+		-- the stone pillars either side of the open front
+		block(Vector3.new(Wd / 2 - opX + 0.35, H, 0.5), at * CFrame.new(s * (opX + Wd / 2 + 0.35) / 2, y0 + H / 2, fz - 0.15), V.stone, f, true, Enum.Material.Cobblestone)
+	end
+	-- the front over the opening: a dark lintel, painted boards, the sign on a dark board
+	block(Vector3.new(opX * 2 + 0.6, 0.6, 0.5), at * CFrame.new(0, opHi + 0.3, fz - 0.1), dark, f, false, Enum.Material.Wood)
+	boards(opX * 2, at * CFrame.new(0, 0, fz - 0.05), opHi + 0.6)
+	signBoard(f, at, sign.y, sign.z, dark, color, (fz - 0.1) - (sign.z + 0.18))
+	-- the roll-up shutter: the rolled drum and its last slat, striped, with a handle
+	log(opX * 2 + 0.2, 0.45, at * CFrame.new(0, opHi - 0.45, fz - 0.7), steel, f)
+	for _, s in { -1, 1 } do
+		block(Vector3.new(0.3, 0.9, 0.9), at * CFrame.new(s * (opX + 0.05), opHi - 0.45, fz - 0.6), V.iron, f)
+	end
+	for k = 0, 9 do
+		local w = (opX * 2 - 0.4) / 10
+		block(Vector3.new(w, 0.42, 0.12), at * CFrame.new(-opX + 0.2 + (k + 0.5) * w, opHi - 1.1, fz - 0.7), if k % 2 == 0 then color else Theme.white, f, false, Enum.Material.Metal)
+	end
+	block(Vector3.new(1.2, 0.12, 0.2), at * CFrame.new(0, opHi - 1.38, fz - 0.78), V.iron, f)
+	-- the workbench across the opening: drawers in front, a vise holding a glowing ice ingot, a
+	-- toolbox and jars of Slow Gel on top
+	local bt = y0 + 3.2 -- the bench top
+	block(Vector3.new(opX * 2 - 0.2, 0.4, 1.9), at * CFrame.new(0, bt + 0.2, fz - 0.15), dark, f, false, Enum.Material.Wood)
+	block(Vector3.new(opX * 2 - 0.6, bt - y0, 0.3), at * CFrame.new(0, (y0 + bt) / 2, fz - 0.1), paint:Lerp(color, 0.35), f, false, Enum.Material.WoodPlanks)
+	for _, y in { y0 + 0.9, y0 + 2.2 } do
+		for _, x in { -3.2, 0, 3.2 } do
+			quiet(block(Vector3.new(2.7, 1, 0.1), at * CFrame.new(x, y, fz - 0.3), paint, f, false, Enum.Material.WoodPlanks))
+			quiet(block(Vector3.new(0.7, 0.14, 0.12), at * CFrame.new(x, y + 0.15, fz - 0.4), V.iron, f))
+		end
+	end
+	local top = bt + 0.4
+	local vise = at * CFrame.new(-4.1, top, fz - 0.3)
+	block(Vector3.new(1.2, 0.35, 0.9), vise * CFrame.new(0, 0.17, 0), V.iron, f)
+	for _, x in { -0.42, 0.42 } do
+		block(Vector3.new(0.3, 0.7, 0.8), vise * CFrame.new(x, 0.7, 0), steel, f, false, Enum.Material.Metal)
+	end
+	log(1.8, 0.08, vise * CFrame.new(0.5, 0.6, 0), V.iron, f)
+	local ingot = quiet(glow(block(Vector3.new(0.5, 0.4, 0.7), vise * CFrame.new(0, 0.75, 0), A.crystalGlow, f), 0.05))
+	light(ingot, A.crystalGlow, 8, 0.7)
+	local tb = at * CFrame.new(3.6, top, fz - 0.4) * CFrame.Angles(0, -0.15, 0)
+	block(Vector3.new(1.7, 0.8, 0.85), tb * CFrame.new(0, 0.4, 0), V.flag, f)
+	block(Vector3.new(1.8, 0.15, 0.9), tb * CFrame.new(0, 0.86, 0), V.flag:Lerp(Theme.ink, 0.2), f)
+	block(Vector3.new(0.9, 0.12, 0.12), tb * CFrame.new(0, 1.25, 0), V.iron, f)
+	for _, x in { -0.4, 0.4 } do
+		block(Vector3.new(0.1, 0.35, 0.1), tb * CFrame.new(x, 1.08, 0), V.iron, f)
+	end
+	for k = 0, 2 do
+		local j = at * CFrame.new(0.9 + k * 0.75, top, fz - 0.35)
+		local glass = cyl(0.28, 0.62, j * CFrame.new(0, 0.31, 0), Theme.round5.gel, f)
+		glass.Transparency = 0.25
+		cyl(0.31, 0.14, j * CFrame.new(0, 0.68, 0), A.post, f, false, Enum.Material.Wood)
+	end
+	-- the back wall: a pegboard with a wrench, a hammer and a screwdriver, three ice rays on pegs
+	local pz = bz - 0.75
+	block(Vector3.new(Wd - 2.4, 4.6, 0.2), at * CFrame.new(0, y0 + 4.3, pz), A.plank:Lerp(Theme.white, 0.35), f, false, Enum.Material.WoodPlanks)
+	for i = 0, 11 do
+		for j = 0, 3 do
+			quiet(block(Vector3.new(0.12, 0.12, 0.06), at * CFrame.new(-6 + i * 1.09, y0 + 2.6 + j * 1.15, pz - 0.12), dark, f))
+		end
+	end
+	local tz = pz - 0.2
+	local wr = at * CFrame.new(-5, y0 + 4.7, tz) * CFrame.Angles(0, 0, 0.25)
+	block(Vector3.new(0.32, 2, 0.14), wr, steel, f, false, Enum.Material.Metal)
+	shape("Ring", Vector3.new(0.95, 0.18, 0.95), wr * CFrame.new(0, 1.2, 0) * CFrame.Angles(math.pi / 2, 0, 0), steel, f)
+	local hm = at * CFrame.new(-3.4, y0 + 4.6, tz) * CFrame.Angles(0, 0, -0.15)
+	block(Vector3.new(0.26, 1.9, 0.14), hm, A.plank, f, false, Enum.Material.Wood)
+	block(Vector3.new(1.1, 0.42, 0.3), hm * CFrame.new(0, 0.95, 0), V.iron, f)
+	local sd = at * CFrame.new(-2, y0 + 4.6, tz)
+	cyl(0.18, 0.8, sd * CFrame.new(0, 0.4, 0), V.flag, f)
+	cyl(0.06, 0.9, sd * CFrame.new(0, -0.45, 0), steel, f)
+	for k = 0, 2 do
+		local g = at * CFrame.new(0.8 + k * 1.9, y0 + 4.6, tz)
+		block(Vector3.new(1.5, 0.55, 0.55), g, Theme.fx.gunBody, f)
+		cyl(0.2, 0.5, g * CFrame.new(-0.3, 0.45, 0), (Theme.guns[k * 2 + 1] or Theme.guns[1]).glow, f)
+		quiet(glow(ball(0.26, (g * CFrame.new(0.9, 0, 0)).Position, (Theme.guns[k * 2 + 1] or Theme.guns[1]).glow, f), 0.05))
+	end
+	-- an iron lamp with a shade hanging over the bench
+	cyl(0.06, 2.2, at * CFrame.new(0, eave - 1.1, mz - 1), V.iron, f)
+	shape("Dome", Vector3.new(1.6, 0.9, 1.6), at * CFrame.new(0, eave - 2.4, mz - 1), V.iron, f)
+	local bulb = quiet(glow(ball(0.35, (at * CFrame.new(0, eave - 2.65, mz - 1)).Position, A.lanternGlow, f), 0.05))
+	light(bulb, A.lanternGlow, 14, 1.1)
+	-- the roof: dark slabs under deep snow, icicles, barge boards in the booth's colour, plank gables
+	local side, rise = 0.6, 6
 	local eaveX = Wd / 2 + side
-	local run = eaveX
-	local theta = math.atan2(rise, run)
-	local slopeLen = math.sqrt(run * run + rise * rise)
-	local zFront, zBack = -3.8, bz + 1
+	local theta = math.atan2(rise, eaveX)
+	local slopeLen = math.sqrt(eaveX * eaveX + rise * rise)
+	local zFront, zBack = fz - 1.6, bz + 1
 	local roofLen, roofZ = zBack - zFront, (zFront + zBack) / 2
-	local eaveEdgeY = eaveY - side * rise / run
+	local eaveEdgeY = eave - side * rise / eaveX
 	for _, sgn in { -1, 1 } do
 		local mid = at * CFrame.new(sgn * eaveX / 2, eaveEdgeY + rise / 2, roofZ) * CFrame.Angles(0, 0, -sgn * theta)
-		block(Vector3.new(slopeLen + 0.4, 0.6, roofLen), mid, dark, f, false, Enum.Material.WoodPlanks)
+		block(Vector3.new(slopeLen + 0.4, 0.6, roofLen), mid, color:Lerp(Theme.ink, 0.45), f, false, Enum.Material.Metal)
 		quiet(block(Vector3.new(slopeLen - 0.2, 0.7, roofLen - 0.4), mid * CFrame.new(0, 0.62, 0), A.snowA, f, false, Enum.Material.Snow))
-		-- a soft rounded snow lip along the eave, icicles under it
 		quiet(cyl(0.55, roofLen - 0.4, at * CFrame.new(sgn * (eaveX - 0.2), eaveEdgeY + 0.55, roofZ) * CFrame.Angles(math.pi / 2, 0, 0), A.snowA, f, false, Enum.Material.Snow))
 		for k = 0, 6 do
 			local len = 0.5 + ((k + (sgn + 1)) % 3) * 0.35
-			local ice = shape("Cone", Vector3.new(0.32, len, 0.32), at * CFrame.new(sgn * (eaveX - 0.1), eaveEdgeY - 0.2 - len / 2, zFront + 1 + k * (roofLen - 2) / 6) * CFrame.Angles(math.pi, 0, 0), A.crystal, f)
+			local ice = quiet(shape("Cone", Vector3.new(0.32, len, 0.32), at * CFrame.new(sgn * (eaveX - 0.1), eaveEdgeY - 0.2 - len / 2, zFront + 1 + k * (roofLen - 2) / 6) * CFrame.Angles(math.pi, 0, 0), A.crystal, f))
 			ice.Material = Enum.Material.Ice
-			quiet(ice)
 		end
-		-- the barge boards along the front gable, in the shop's colour
 		local edge = at * CFrame.new(sgn * eaveX / 2, eaveEdgeY + rise / 2, zFront - 0.15) * CFrame.Angles(0, 0, -sgn * theta)
 		block(Vector3.new(slopeLen + 0.6, 0.55, 0.45), edge * CFrame.new(0, 0.1, 0), color, f)
-		-- a soft snow lip along the front edge too, sitting on the barge board like the side lips
-		local lip = quiet(log(slopeLen - 0.8, 0.32, edge * CFrame.new(-sgn * 0.2, 0.75, 0.1), A.snowA, f))
-		lip.Material = Enum.Material.Snow
+		for _, z in { fz + 0.2, bz - 0.2 } do
+			wedge(Vector3.new(0.4, rise - 0.3, Wd / 2), at * CFrame.new(sgn * Wd / 4, eave + (rise - 0.3) / 2, z) * CFrame.Angles(0, -sgn * math.pi / 2, 0), paint, f, Enum.Material.WoodPlanks)
+		end
 	end
 	quiet(cyl(0.75, roofLen + 0.4, at * CFrame.new(0, eaveEdgeY + rise + 0.75, roofZ) * CFrame.Angles(math.pi / 2, 0, 0), A.snowA, f, false, Enum.Material.Snow))
-	-- the gable ends: vertical planks with a round lit window at the front
-	for _, z in { fz + 0.2, bz - 0.2 } do
-		for _, sgn in { -1, 1 } do
-			wedge(Vector3.new(0.4, rise - 0.3, Wd / 2), at * CFrame.new(sgn * Wd / 4, eaveY + (rise - 0.3) / 2, z) * CFrame.Angles(0, -sgn * math.pi / 2, 0), A.plank, f, Enum.Material.WoodPlanks)
+	-- two meshed gears on the front gable, out in front of the roof's edge, each on an iron axle back
+	-- into the gable; the client turns them (the small one the other way, faster). The small one sits
+	-- low beside the big one, inside the gable's outline, its teeth clear of the sign's bulbs.
+	local gz = zFront - 0.9
+	local big, small = 3, 1.8
+	local bigAt = at * CFrame.new(-outer * 1.2, sign.y + 3.05 + big, gz)
+	local a = if outer > 0 then math.rad(-25) else math.rad(205)
+	local dist = big + small + 0.15
+	local smallAt = bigAt * CFrame.new(math.cos(a) * dist, math.sin(a) * dist, -0.3)
+	cog(motion(f, "spin", bigAt, { Axis = Vector3.new(0, 0, 1), Speed = 0.5 }), bigAt, big, 14, V.iron:Lerp(Theme.white, 0.45), color)
+	cog(motion(f, "spin", smallAt, { Axis = Vector3.new(0, 0, 1), Speed = -0.5 * 14 / 8 }), smallAt, small, 8, brass, brass:Lerp(Theme.ink, 0.2))
+	for _, g in { bigAt, smallAt } do
+		local len = fz - g.Position.Z + at.Position.Z
+		cyl(0.35, len, g * CFrame.new(0, 0, len / 2) * CFrame.Angles(math.pi / 2, 0, 0), V.iron, f)
+	end
+	-- a cryo tank bubbling at the outer side, piped into the wall
+	local tk = at * CFrame.new(outer * (Wd / 2 + 2), 0, 1.2)
+	cyl(1.6, 0.8, tk * CFrame.new(0, 0.4, 0), V.iron, f, true) -- taller than the plinth (flush tops flicker)
+	local tank = cyl(1.25, 4.4, tk * CFrame.new(0, 0.8 + 2.2, 0), A.crystal, f, true)
+	tank.Transparency = 0.5
+	local liquid = quiet(glow(cyl(1.05, 3.4, tk * CFrame.new(0, 0.8 + 2, 0), A.crystalGlow, f), 0.25))
+	light(liquid, A.crystalGlow, 12, 0.9)
+	for _, y in { 2.4, 3.9 } do
+		quiet(cyl(1.32, 0.18, tk * CFrame.new(0, y, 0), steel, f))
+	end
+	cyl(1.4, 0.5, tk * CFrame.new(0, 5.45, 0), V.iron, f)
+	shape("Dome", Vector3.new(2.6, 0.9, 2.6), tk * CFrame.new(0, 6.1, 0), steel, f)
+	log(2.3, 0.28, tk * CFrame.new(-outer * 1.4, 5.3, 0), steel, f)
+	ball(0.4, (tk * CFrame.new(-outer * 0.3, 5.3, 0)).Position, steel, f)
+	cyl(0.45, 0.12, tk * CFrame.new(0, 3.1, -1.3) * CFrame.Angles(math.pi / 2, 0, 0), Theme.white, f) -- a gauge
+	quiet(block(Vector3.new(0.06, 0.35, 0.05), tk * CFrame.new(0.08, 3.18, -1.4) * CFrame.Angles(0, 0, -0.6), Theme.ink, f))
+	sparkles(f, Vector3.new(1.4, 0.4, 1.4), tk * CFrame.new(0, 1.2, 0), Theme.white, 5, 2, Enum.NormalId.Top, 0.25)
+	-- a steam pipe at the back corner, puffing
+	local pipe = at * CFrame.new(outer * (Wd / 2 + 0.9), 0, bz - 1.5)
+	cyl(0.55, 15, pipe * CFrame.new(0, 7.5, 0), V.iron, f, true)
+	for k = 1, 4 do
+		quiet(cyl(0.62, 0.25, pipe * CFrame.new(0, k * 3.2, 0), brass, f))
+	end
+	cyl(0.8, 0.5, pipe * CFrame.new(0, 15.2, 0), V.iron, f)
+	local steamAt = quiet(block(Vector3.one * 0.3, pipe * CFrame.new(0, 15.8, 0), V.stone, f))
+	steamAt.Transparency = 1
+	local steam = Instance.new("ParticleEmitter")
+	steam.Color = ColorSequence.new(Theme.white)
+	steam.Transparency = NumberSequence.new(0.3, 1)
+	steam.Size = NumberSequence.new(0.8, 2.4)
+	steam.Lifetime = NumberRange.new(1.4, 2.2)
+	steam.Speed = NumberRange.new(2, 3.5)
+	steam.Rate = 4
+	steam.EmissionDirection = Enum.NormalId.Top
+	steam.Parent = steamAt
+	-- an anvil out front with an ice ingot cooling on it and a hammer, the gear mannequin opposite
+	local av = at * CFrame.new(-outer * 6.3, y0, -4.4) * CFrame.Angles(0, -outer * 0.3, 0)
+	local anvil = V.iron:Lerp(Theme.white, 0.15)
+	block(Vector3.new(1.6, 0.5, 1.1), av * CFrame.new(0, 0.25, 0), V.iron, f, true)
+	block(Vector3.new(0.8, 0.9, 0.7), av * CFrame.new(0, 0.95, 0), V.iron, f)
+	block(Vector3.new(2, 0.55, 0.95), av * CFrame.new(0.15, 1.65, 0), anvil, f, true, Enum.Material.Metal)
+	shape("Cone", Vector3.new(0.75, 1.1, 0.6), av * CFrame.new(-1.4, 1.7, 0) * CFrame.Angles(0, 0, math.pi / 2), anvil, f)
+	local cool = quiet(glow(block(Vector3.new(0.9, 0.3, 0.45), av * CFrame.new(0.3, 2.07, -0.1) * CFrame.Angles(0, 0.3, 0), A.crystalGlow, f), 0.05))
+	light(cool, A.crystalGlow, 8, 0.7)
+	local hcf = av * CFrame.new(0.4, 2.05, 0.3) * CFrame.Angles(0, -0.5, 0)
+	block(Vector3.new(1.6, 0.2, 0.2), hcf, A.plank, f, false, Enum.Material.Wood)
+	block(Vector3.new(0.4, 0.4, 0.85), hcf * CFrame.new(0.85, 0.05, 0), V.iron, f)
+	mannequin(f, at * CFrame.new(outer * 6.2, y0, -4.2) * CFrame.Angles(0, outer * 0.35, 0))
+	crate(f, at * CFrame.new(outer * (Wd / 2 + 1.9), 0.6, 4.8) * CFrame.Angles(0, 0.3, 0), 1.4)
+	for _, x in { -Wd / 2 - 0.4, Wd / 2 + 0.4 } do
+		quiet(ellipsoid(Vector3.new(2.6, 1.2, 3), at * CFrame.new(x, 0.4, bz + 0.6), A.snowA, f))
+	end
+	local _ = rng
+end
+
+-- Rebirth: a stone ring portal on a round dais. The ring is cut stones with glowing runes and snow
+-- on top, the sign on a stone tablet over its keystone; inside it a dark vortex with two layers of
+-- spiral arms turning opposite ways and a bright heart, sparkles drifting out. In front an altar with
+-- a draped cloth, an open spell book, a floating spark and candles; purple fire in two braziers;
+-- crystals floating either side of the ring; a ring of rune tiles in the floor
+local function rebirthBooth(f: Instance, at: CFrame, color: Color3, outer: number, sign: { y: number, z: number }, rng: () -> number)
+	local pale, deep = color:Lerp(Theme.white, 0.5), color:Lerp(Theme.ink, 0.5)
+	local y1, dz = 1, 2.4 -- the dais top and centre
+	cyl(8.6, 0.5, at * CFrame.new(0, 0.25, dz), V.stoneDark, f, true, Enum.Material.Slate)
+	cyl(7.3, 0.5, at * CFrame.new(0, 0.75, dz), V.stone, f, true, Enum.Material.Slate)
+	for k = 0, 23 do
+		local a = k / 24 * math.pi * 2
+		local big = k % 3 == 0
+		quiet(glow(block(Vector3.new(if big then 0.7 else 1.3, 0.06, if big then 0.7 else 0.28), at * CFrame.new(0, y1 + 0.03, dz) * CFrame.Angles(0, a, 0) * CFrame.new(0, 0, 6.5) * CFrame.Angles(0, if big then math.pi / 4 else 0, 0), pale, f), 0.3))
+	end
+	-- the ring of stones round the opening, every other one carved with a glowing rune
+	local R = 5.4
+	local pc = at * CFrame.new(0, y1 + R + 0.8, 5.4)
+	local N = 20
+	for k = 0, N - 1 do
+		local a = k / N * math.pi * 2
+		local seg = pc * CFrame.Angles(0, 0, a) * CFrame.new(0, R + 0.8, 0)
+		block(Vector3.new(2 * math.pi * (R + 0.8) / N + 0.05, 1.6, 2), seg, if k % 2 == 0 then V.stone else V.stoneDark, f, true, Enum.Material.Slate)
+		if k % 2 == 0 then
+			quiet(glow(block(Vector3.new(0.5, 0.7, 0.12), seg * CFrame.new(0, 0, -1.02) * CFrame.Angles(0, 0, if k % 4 == 0 then math.pi / 4 else 0), pale, f), 0.1))
+		end
+		if math.cos(a) > 0.75 then
+			quiet(ellipsoid(Vector3.new(2.2, 0.5, 2.1), seg * CFrame.new(0, 0.85, 0), A.snowA, f))
 		end
 	end
-	local rw = at * CFrame.new(0, eaveY + 2.4, fz - 0.05)
-	cyl(1.15, 0.3, rw * CFrame.Angles(math.pi / 2, 0, 0), dark, f)
-	-- half-see-through glow over the dark frame: a warm lit window, not a white blob (at 0.1 it washed out)
-	quiet(glow(cyl(0.9, 0.4, rw * CFrame.Angles(math.pi / 2, 0, 0), V.window, f), 0.45))
-	-- a cross of window bars in front of the glass (the glass's front face is at 0.2 in front of rw)
-	for _, rz in { 0, math.pi / 2 } do
-		quiet(block(Vector3.new(0.16, 1.85, 0.08), rw * CFrame.new(0, 0, -0.27) * CFrame.Angles(0, 0, rz), dark, f))
+	for _, s in { -1, 1 } do
+		block(Vector3.new(2.2, 2.2, 2.6), at * CFrame.new(s * 4.6, y1 + 1.1, 5.4), V.stoneDark, f, true, Enum.Material.Slate) -- the ring's feet
 	end
-	-- the porch: two log posts holding the overhang, a beam across, the sign standing on it
-	local BS = Config.world.boothSign
-	local postZ = -2.9
-	for _, sgn in { -1, 1 } do
-		local h = eaveEdgeY + (eaveX - 6.4) * rise / run - y0 - 0.2
-		cyl(0.42, h, at * CFrame.new(sgn * 6.4, y0 + h / 2, postZ), logA, f, true, Enum.Material.Wood)
-		block(Vector3.new(1.1, 0.5, 1.1), at * CFrame.new(sgn * 6.4, y0 + 0.25, postZ), V.stone, f, false, Enum.Material.Cobblestone)
-		-- a lantern hanging from each post (one light, both glow)
-		local lc = at * CFrame.new(sgn * 6.4, y0 + 4.6, postZ - 0.9)
-		block(Vector3.new(0.22, 0.22, 1), lc * CFrame.new(0, 0.9, 0.45), V.iron, f)
-		local box = quiet(block(Vector3.new(0.85, 1.05, 0.85), lc, A.lanternGlow, f))
-		box.Material = Enum.Material.Glass
-		shape("Cone", Vector3.new(1.2, 0.6, 1.2), lc * CFrame.new(0, 0.82, 0), V.iron, f)
-		if sgn == outer then
-			light(box, A.lanternGlow, 14, 0.9)
+	signBoard(f, at, sign.y, sign.z, V.stoneDark, color, 0.9, Enum.Material.Slate)
+	-- the vortex: a dark disc, two layers of spiral arms turning opposite ways, a bright heart
+	local face = pc * CFrame.Angles(math.pi / 2, 0, 0)
+	glow(cyl(R + 0.1, 0.3, face, deep, f), 0.05)
+	local function arms(n: number, r0: number, r1: number, z: number, twist: number, speed: number, colors: { Color3 })
+		local m = motion(f, "spin", pc, { Axis = Vector3.new(0, 0, 1), Speed = speed })
+		for arm = 0, n - 1 do
+			for j = 0, 9 do
+				local t = j / 9
+				local seg = pc * CFrame.Angles(0, 0, arm * math.pi * 2 / n + t * twist) * CFrame.new(0, r0 + t * (r1 - r0), z)
+				quiet(glow(ellipsoid(Vector3.new(1.3 - t * 0.5, 0.5 - t * 0.15, 0.1), seg, colors[j % #colors + 1], m), 0.1 + t * 0.35))
+			end
 		end
 	end
-	log(13.6, 0.4, at * CFrame.new(0, BS.y - BS.h / 2 - 0.4, postZ), logB, f)
-	block(Vector3.new(BS.w + 1.4, BS.h + 0.6, 0.4), at * CFrame.new(0, BS.y, postZ + 0.35), dark, f, false, Enum.Material.Wood)
-	-- marquee bulbs round the sign (UI Rules: "a framed, bulb-lit sign"), on the frame's border just
-	-- clear of the sign board. The top row stops where the roof comes down over the frame's corners.
-	local bz0 = postZ + 0.35 - 0.2 - 0.12 -- in front of the frame's face, behind the sign's front
-	local function bulb(x: number, y: number, z: number?)
-		quiet(glow(ball(0.14, (at * CFrame.new(x, BS.y + y, z or bz0)).Position, A.lanternGlow, f), 0.05))
-	end
-	for k = -6, 6 do
-		bulb(k * 0.66, BS.h / 2 + 0.15)
-	end
-	-- the bottom row sits on the front of the porch beam the sign stands on
-	for k = -7, 7 do
-		bulb(k * 0.66, -BS.h / 2 - 0.15, postZ - 0.4)
-	end
-	for _, sgn in { -1, 1 } do
-		for _, y in { -0.55, 0, 0.5 } do
-			bulb(sgn * (BS.w / 2 + 0.35), y)
+	arms(4, 0.8, R - 0.4, -0.25, 2.6, 1.1, { pale, color })
+	arms(3, 0.5, 2.8, -0.35, -2, -1.8, { Theme.white, pale })
+	local heart = quiet(glow(ball(0.9, (pc * CFrame.new(0, 0, -0.3)).Position, Theme.white, f), 0.05))
+	light(heart, color, 16, 1) -- brighter washed the dais out
+	sparkles(f, Vector3.new(R * 1.6, R * 1.6, 0.2), pc * CFrame.new(0, 0, -0.5), pale, 10, 2, Enum.NormalId.Front)
+	-- crystals floating either side of the ring
+	for k, p in { Vector2.new(-7.4, 9.6), Vector2.new(7.4, 9.6), Vector2.new(-7.9, 4.8), Vector2.new(7.9, 4.8) } do
+		local cf = at * CFrame.new(p.X, y1 + p.Y, 5.4)
+		local m = motion(f, "bob", cf, { Amp = 0.5, Hz = 0.35, Phase = k * 0.27 })
+		local c = glow(shape("Octa", Vector3.new(1.1, 2.4, 1.1), cf * CFrame.Angles(0, k, (if p.X < 0 then 1 else -1) * 0.15), if k <= 2 then color else pale, m), 0.15)
+		glow(shape("Octa", Vector3.new(0.45, 0.9, 0.45), cf * CFrame.new(if p.X < 0 then -0.9 else 0.9, -0.9, 0), pale, m), 0.15)
+		if k <= 2 then
+			light(c, color, 10, 0.8)
 		end
 	end
-	-- an outside stone chimney on the back corner, puffing smoke
-	local chim = at * CFrame.new(outer * (Wd / 2 + 0.9), 0, bz - 2.4)
-	for k = 0, 9 do
-		local w = if k < 4 then 2.4 else 1.8
-		block(Vector3.new(w, 1.6, w), chim * CFrame.new(0, 0.8 + k * 1.6, 0) * CFrame.Angles(0, (k % 2) * 0.08, 0), if k % 2 == 0 then V.stone else V.stoneDark, f, false, Enum.Material.Cobblestone)
+	-- the altar: stone with a cloth runner, rune circles on its front, an open spell book, candles
+	local al = at * CFrame.new(0, y1, -0.4)
+	block(Vector3.new(5.2, 2.4, 2.2), al * CFrame.new(0, 1.2, 0), V.stone, f, true, Enum.Material.Slate)
+	block(Vector3.new(5.8, 0.4, 2.7), al * CFrame.new(0, 2.6, 0), V.stoneWarm, f, true, Enum.Material.Slate)
+	block(Vector3.new(5.8, 0.4, 2.7), al * CFrame.new(0, 0.2, 0), V.stoneDark, f, true, Enum.Material.Slate)
+	quiet(block(Vector3.new(1.9, 0.06, 2.9), al * CFrame.new(0, 2.83, 0), color, f, false, Enum.Material.Fabric))
+	quiet(block(Vector3.new(1.9, 1.6, 0.06), al * CFrame.new(0, 2.05, -1.42), color, f, false, Enum.Material.Fabric))
+	quiet(block(Vector3.new(1.9, 0.14, 0.1), al * CFrame.new(0, 1.25, -1.44), V.gold, f))
+	for _, s in { -1, 1 } do
+		quiet(glow(shape("Ring", Vector3.new(1.2, 0.1, 1.2), al * CFrame.new(s * 1.75, 1.3, -1.13) * CFrame.Angles(math.pi / 2, 0, 0), pale, f), 0.1))
 	end
-	quiet(block(Vector3.new(2.2, 0.4, 2.2), chim * CFrame.new(0, 16.2, 0), A.snowA, f, false, Enum.Material.Snow))
-	local smokeAt = block(Vector3.one * 0.3, chim * CFrame.new(0, 16.8, 0), V.stone, f)
-	smokeAt.Transparency = 1
-	local smoke = Instance.new("ParticleEmitter")
-	smoke.Color = ColorSequence.new(Theme.white)
-	smoke.Transparency = NumberSequence.new(0.35, 1)
-	smoke.Size = NumberSequence.new(0.7, 2)
-	smoke.Lifetime = NumberRange.new(1.6, 2.4)
-	smoke.Speed = NumberRange.new(1.5, 2.5)
-	smoke.Rate = 2.5
-	smoke.EmissionDirection = Enum.NormalId.Top
-	smoke.Parent = smokeAt
-	-- a lean-to on the outer side, front part: a sloping plank roof over a stack of firewood
-	local lean = at * CFrame.new(outer * (Wd / 2 + 2.2), 0, fz + 2.6)
-	for k = 0, 2 do
-		for j = 0, 3 - k do
-			local lg = log(3.2, 0.32, lean * CFrame.new(-outer * 0.2 + (j - (3 - k) / 2) * 0.68 * outer, y0 + 0.32 + k * 0.58, 0) * CFrame.Angles(0, math.pi / 2, 0), if (j + k) % 2 == 0 then logA else logB, f)
-			lg.Material = Enum.Material.Wood
-			logEnds(lg, grain, f)
-		end
+	local book = al * CFrame.new(0, 2.92, 0.1) * CFrame.Angles(math.rad(-12), 0, 0)
+	block(Vector3.new(1.8, 0.1, 1.3), book, deep, f)
+	for _, x in { -0.43, 0.43 } do
+		block(Vector3.new(0.82, 0.12, 1.15), book * CFrame.new(x, 0.09, 0) * CFrame.Angles(0, 0, x * 0.28), Theme.panel, f)
 	end
-	for _, dz in { -1.8, 1.8 } do
-		cyl(0.2, 3.4, lean * CFrame.new(outer * 1.4, y0 + 1.7, dz), dark, f)
+	local sparkAt = book * CFrame.new(0, 1.1, 0)
+	local spark = quiet(glow(shape("Octa", Vector3.new(0.5, 0.8, 0.5), sparkAt, A.crystalGlow, motion(f, "bob", sparkAt, { Amp = 0.25, Hz = 0.6, Phase = 0 })), 0.1))
+	light(spark, color, 8, 0.7)
+	for _, x in { -2.5, -1.95, 1.95, 2.5 } do
+		local h = if math.abs(x) > 2.2 then 0.5 else 0.85
+		local c = al * CFrame.new(x, 2.8, 0.3)
+		cyl(0.15, h, c * CFrame.new(0, h / 2, 0), Theme.panel, f)
+		quiet(glow(shape("Octa", Vector3.new(0.18, 0.32, 0.18), c * CFrame.new(0, h + 0.18, 0), A.lanternGlow, f), 0.05))
 	end
-	block(Vector3.new(3.6, 0.3, 4.6), lean * CFrame.new(outer * 0.2, y0 + 3.5, 0) * CFrame.Angles(0, 0, outer * 0.3), dark, f, false, Enum.Material.WoodPlanks)
-	quiet(block(Vector3.new(3.4, 0.35, 4.4), lean * CFrame.new(outer * 0.15, y0 + 3.85, 0) * CFrame.Angles(0, 0, outer * 0.3), A.snowA, f, false, Enum.Material.Snow))
-	-- snow drifts against the walls, and potted pines either side of the steps
-	for _, p in { { -Wd / 2 - 0.6, bz + 0.2 }, { Wd / 2 + 0.6, bz + 0.2 }, { -outer * (Wd / 2 + 0.6), fz + 3 } } do
-		quiet(ellipsoid(Vector3.new(2.6, 1.3, 3.2), at * CFrame.new(p[1], 0.4, p[2]), A.snowA, f))
+	-- braziers of purple fire either side of the altar, on the lower step
+	for _, s in { -1, 1 } do
+		local bp = at * CFrame.new(s * 5.4, 0.5, -2.6)
+		cyl(0.75, 0.4, bp * CFrame.new(0, 0.2, 0), V.stoneDark, f, true, Enum.Material.Slate)
+		cyl(0.42, 2.4, bp * CFrame.new(0, 1.4, 0), V.stone, f, true, Enum.Material.Slate)
+		local bowl = cyl(1, 0.6, bp * CFrame.new(0, 2.9, 0), V.iron, f, true)
+		shape("Ring", Vector3.new(2.3, 0.3, 2.3), bp * CFrame.new(0, 3.2, 0), V.gold, f)
+		quiet(glow(ellipsoid(Vector3.new(1.5, 0.4, 1.5), bp * CFrame.new(0, 3.2, 0), pale, f), 0.1))
+		local fire = Instance.new("Fire")
+		fire.Color = color
+		fire.SecondaryColor = pale
+		fire.Size = 3
+		fire.Heat = 7
+		fire.Parent = bowl
+		light(bowl, color, 10, 0.8)
 	end
-	for _, sgn in { -1, 1 } do
-		local p = at * CFrame.new(sgn * 5.6, 0, -4.9)
-		cyl(0.75, 1.1, p * CFrame.new(0, 0.55, 0), logB, f, true, Enum.Material.WoodPlanks)
-		quiet(cyl(0.8, 0.18, p * CFrame.new(0, 1.1, 0), A.snowA, f))
-		-- a small potted pine straight on the soil, no trunk lift: it stays under the sign
-		-- (a full tree() lifts its branches above head height and covered the sign's corners)
-		local s, ry = 0.55, rng() * 6
-		for _, c in SNOW_PINE do
-			shape("Cone", Vector3.new(c.r * 2 * s, c.h * s, c.r * 2 * s), p * CFrame.new(0, 1.2 + (c.y - 1.3) * s, 0) * CFrame.Angles(0, ry, 0), c.color, f)
-		end
+	for _, p in { { -6.6, 7.2 }, { 6.6, 7.2 } } do
+		quiet(ellipsoid(Vector3.new(2.6, 1, 2.6), at * CFrame.new(p[1], 0.6, p[2]), A.snowA, f))
 	end
-	-- what the shop does: goods on the shelves and counter (owner 2026-11-03: no big object over the
-	-- ridge any more; the roof coin, crystal and ice ray were removed)
+	local _, _ = outer, rng
+end
+
+local function booth(parent: Instance, b: Config.Booth, rng: () -> number)
+	local f = folder("Booth_" .. b.id, parent)
+	local at = CFrame.new(b.pos.X, 0, b.pos.Z)
+	local color = Theme.booths[b.id] or Theme.info
+	local outer = if b.pos.X < 0 then -1 else 1 -- the side away from the tunnel mouth
+	local sign = b.sign or { y = W.boothSign.y, z = W.boothSign.z }
 	if b.id == "sell" then
-		for k = 0, 3 do
-			for h = 0, k % 3 do
-				cyl(0.42, 0.17, at * CFrame.new(-3.6 + k * 1.2, y0 + 3.5 + h * 0.19, fz - 0.4), V.gold, f)
-			end
-		end
-		for _, y in { 2.95, 4.95 } do
-			for k = 0, 5 do
-				block(Vector3.new(1, 0.42, 0.55), at * CFrame.new(-4.2 + k * 1.7, y, bz - 1.4), V.gold, f)
-			end
-		end
-		for _, x in { -4.6 } do
-			ellipsoid(Vector3.new(1.8, 2.2, 1.8), at * CFrame.new(x, y0 + 1.1, fz - 1.9), V.crate, f, Enum.Material.Fabric)
-			ellipsoid(Vector3.new(1.2, 0.45, 1.2), at * CFrame.new(x, y0 + 2.2, fz - 1.9), V.gold, f)
-		end
+		sellBooth(f, at, color, outer, sign, rng)
 	elseif b.id == "equipment" then
-		for _, y in { 3.1, 5.1 } do
-			for k = 0, 3 do
-				local g = at * CFrame.new(-3.9 + k * 2.6, y, bz - 1.4)
-				block(Vector3.new(1.5, 0.55, 0.55), g, Theme.fx.gunBody, f)
-				quiet(glow(ball(0.26, (g * CFrame.new(0.9, 0, 0)).Position, (Theme.guns[k * 2 + 1] or Theme.guns[1]).glow, f), 0.05))
-			end
-		end
-		for k = 0, 2 do
-			glow(shape("Octa", Vector3.new(0.6, 1.3, 0.6), at * CFrame.new(2.6 + k * 0.8, y0 + 4.1, fz - 0.4) * CFrame.Angles(0, 0, (k - 1) * 0.3), A.crystalGlow, f), 0.2)
-		end
+		equipmentBooth(f, at, color, outer, sign, rng)
 	elseif b.id == "rebirth" then
-		cyl(0.45, 0.45, at * CFrame.new(0, y0 + 3.62, fz - 0.4), V.gold, f)
-		local orb = ball(0.8, (at * CFrame.new(0, y0 + 4.6, fz - 0.4)).Position, A.crystalGlow, f)
-		orb.Material = Enum.Material.Glass
-		orb.Transparency = 0.25
-		light(orb, color, 10, 0.9)
-		for _, y in { 3.15, 5.15 } do
-			for k = 0, 6 do
-				local pot = cyl(0.28, 0.75, at * CFrame.new(-4.5 + k * 1.5, y, bz - 1.4), V.flowers[k % #V.flowers + 1], f)
-				pot.Material = Enum.Material.Glass
-				pot.Transparency = 0.15
-			end
-		end
-		quiet(glow(shape("Ring", Vector3.new(4.4, 0.12, 4.4), at * CFrame.new(0, 0.1, -6.6), color, f), 0.2))
-		for k = 0, 2 do
-			glow(shape("Octa", Vector3.new(0.9, 2.1, 0.9), at * CFrame.new(4.8 - k * 0.7, y0 + 1, fz - 2 + k * 0.5) * CFrame.Angles(0, 0, (k - 1) * 0.3), A.crystalGlow, f), 0.2)
-		end
-	end
-	-- every chalet: a wreath round the gable window, coloured string lights along the front roof edge
-	local wreathAt = at * CFrame.new(0, eaveY + 2.4, fz - 0.35)
-	shape("Ring", Vector3.new(3.1, 0.55, 3.1), wreathAt * CFrame.Angles(math.pi / 2, 0, 0), V.hedge, f)
-	for k = 0, 5 do
-		local ang = k / 6 * math.pi * 2 + 0.3
-		ball(0.16, (wreathAt * CFrame.new(math.cos(ang) * 1.3, math.sin(ang) * 1.3, -0.25)).Position, V.flag, f)
-	end
-	for _, sx in { -0.35, 0.35 } do
-		block(Vector3.new(0.6, 0.45, 0.2), wreathAt * CFrame.new(sx, -1.45, -0.3) * CFrame.Angles(0, 0, sx * 1.4), V.flag, f)
-	end
-	for _, sgn in { -1, 1 } do
-		for k = 0, 10 do
-			local t = k / 10
-			local p = at * CFrame.new(sgn * eaveX * (1 - t) * 0.97, eaveEdgeY + rise * t - 0.45, zFront - 0.5)
-			quiet(glow(ball(0.17, p.Position, V.flowers[(k + (if sgn > 0 then 2 else 0)) % #V.flowers + 1], f), 0.05))
-		end
-	end
-	if b.id == "equipment" then
-		-- (owner 2026-11-03: the ice ray rack on the back wall and the glass gun case were removed)
-		-- gear: a mannequin in the warm coat, beanie and fur boots, and a sun hat on a peg
-		mannequin(f, at * CFrame.new(5, y0, -1.5) * CFrame.Angles(0, -0.35, 0))
-		local hat = at * CFrame.new(-outer * (Wd / 2 - 1), y0 + 5.6, (fz + bz) / 2 + 2)
-		cyl(0.1, 0.5, hat * CFrame.new(outer * 0.3, 0, 0) * CFrame.Angles(0, 0, math.pi / 2), dark, f)
-		cyl(1, 0.12, hat * CFrame.Angles(0, 0, outer * 1.2), V.flowers[2], f, false, Enum.Material.Fabric)
-		shape("Dome", Vector3.new(1.1, 0.6, 1.1), hat * CFrame.Angles(0, 0, outer * 1.2) * CFrame.new(0, 0.3, 0), V.flowers[2], f)
-		-- jars of Slow Gel on the counter, a crate of parts by the lean-to
-		for k = 0, 2 do
-			jar(f, (at * CFrame.new(-3.6 + k * 0.85, y0 + 3.4, fz - 0.3)).Position, Theme.round5.gel)
-		end
-		crate(f, at * CFrame.new(outer * (Wd / 2 + 1.6), 0.6, fz - 1.4) * CFrame.Angles(0, 0.3, 0), 1.6)
-		-- a banded barrel on the porch by the counter (the other booths have their sack and crystals there)
-		local bar = at * CFrame.new(-4.8, y0 + 0.65, -0.9)
-		cyl(0.55, 1.3, bar, V.barrel, f, false, Enum.Material.WoodPlanks)
-		for _, dy in { -0.35, 0.35 } do
-			cyl(0.58, 0.1, bar * CFrame.new(0, dy, 0), V.iron, f)
-		end
-	elseif b.id == "sell" then
-		-- an open treasure chest full of coins on the porch
-		local chest = at * CFrame.new(5, y0, -1.5) * CFrame.Angles(0, -0.3, 0)
-		block(Vector3.new(2.2, 1.2, 1.4), chest * CFrame.new(0, 0.6, 0), V.barrel, f, true, Enum.Material.WoodPlanks)
-		for _, x in { -0.75, 0.75 } do
-			block(Vector3.new(0.18, 1.28, 1.48), chest * CFrame.new(x, 0.6, 0), V.gold, f) -- bands stand clear of the wood (0.02 flickered)
-		end
-		quiet(glow(ellipsoid(Vector3.new(1.9, 0.7, 1.1), chest * CFrame.new(0, 1.25, 0), V.gold, f), 0.1))
-		block(Vector3.new(2.2, 0.35, 1.4), chest * CFrame.new(0, 1.55, 0.95) * CFrame.Angles(math.rad(-70), 0, 0), V.barrel, f, false, Enum.Material.WoodPlanks)
-		for k = 0, 4 do
-			cyl(0.3, 0.1, chest * CFrame.new(-1.2 + k * 0.6, 0.05, -1 - (k % 2) * 0.4), V.gold, f)
-		end
-		-- a balance scale on the counter, coins on one pan
-		local sc = at * CFrame.new(3.2, y0 + 3.4, fz - 0.3)
-		cyl(0.3, 0.15, sc * CFrame.new(0, 0.08, 0), V.gold, f)
-		cyl(0.08, 1.4, sc * CFrame.new(0, 0.85, 0), V.gold, f)
-		block(Vector3.new(1.8, 0.1, 0.1), sc * CFrame.new(0, 1.55, 0) * CFrame.Angles(0, 0, 0.12), V.gold, f)
-		for _, x in { -0.85, 0.85 } do
-			local py = 0.9 - x * 0.12
-			block(Vector3.new(0.04, 0.6, 0.04), sc * CFrame.new(x, py + 0.35, 0), V.iron, f)
-			cyl(0.35, 0.06, sc * CFrame.new(x, py, 0), V.gold, f)
-		end
-		cyl(0.22, 0.2, sc * CFrame.new(-0.85, 1.12, 0), V.gold, f)
-		-- a chalkboard sign by the steps with a coin drawn on it in chalk, and real coins at its foot
-		-- (World Rules: the painted UI icons never go on world objects)
-		local board = at * CFrame.new(outer * 7.8, 0, -5.6) * CFrame.Angles(0, outer * -0.4, 0) -- clear of the potted pine
-		for _, tilt in { 0.18, -0.18 } do
-			local leaf = block(Vector3.new(1.8, 2.4, 0.12), board * CFrame.new(0, 1.2, tilt * 2) * CFrame.Angles(-tilt, 0, 0), V.iron, f, false, Enum.Material.Slate)
-			leaf.Name = "Chalkboard"
-		end
-		-- the chalk sits 0.06 in front of the front leaf's face, along its tilt
-		local front = board * CFrame.new(0, 1.3, -0.48) * CFrame.Angles(0.18, 0, 0)
-		local chalk = Theme.white
-		quiet(shape("Ring", Vector3.new(1.1, 0.05, 1.1), front * CFrame.Angles(math.pi / 2, 0, 0), chalk, f))
-		quiet(shape("Ring", Vector3.new(0.7, 0.05, 0.7), front * CFrame.Angles(math.pi / 2, 0, 0), chalk, f))
-		quiet(block(Vector3.new(0.08, 0.36, 0.04), front, chalk, f)) -- the coin's mark
-		quiet(block(Vector3.new(1.3, 0.05, 0.04), front * CFrame.new(0, -0.82, 0), chalk, f)) -- a chalk line under it
-		for k = 0, 2 do
-			cyl(0.26, 0.09, board * CFrame.new(-0.3 + k * 0.08, 0.05 + k * 0.09, -0.9), V.gold, f)
-		end
-		cyl(0.26, 0.09, board * CFrame.new(0.45, 0.05, -0.75), V.gold, f)
-	elseif b.id == "rebirth" then
-		-- a lectern with an open spell book on the porch, a little glow floating over it
-		local lec = at * CFrame.new(-5, y0, -1.5) * CFrame.Angles(0, 0.3, 0)
-		cyl(0.6, 0.2, lec * CFrame.new(0, 0.1, 0), dark, f)
-		cyl(0.18, 2.6, lec * CFrame.new(0, 1.4, 0), logA, f, false, Enum.Material.Wood)
-		block(Vector3.new(1.8, 0.2, 1.3), lec * CFrame.new(0, 2.8, 0) * CFrame.Angles(math.rad(25), 0, 0), logB, f, false, Enum.Material.Wood)
-		block(Vector3.new(1.7, 0.08, 1.2), lec * CFrame.new(0, 2.95, 0) * CFrame.Angles(math.rad(25), 0, 0), color, f)
-		for _, x in { -0.42, 0.42 } do
-			block(Vector3.new(0.8, 0.1, 1.05), lec * CFrame.new(x, 3.03, 0) * CFrame.Angles(math.rad(25), 0, x * 0.25), Theme.panel, f)
-		end
-		local spark = quiet(glow(shape("Octa", Vector3.new(0.5, 0.8, 0.5), lec * CFrame.new(0, 3.9, 0), A.crystalGlow, f), 0.1))
-		light(spark, color, 8, 0.7)
-		-- candles on the counter
-		for k = 0, 2 do
-			local c = at * CFrame.new(-3.8 + k * 0.7, y0 + 3.4, fz - 0.3)
-			local h = 0.5 + (k % 2) * 0.35
-			cyl(0.16, h, c * CFrame.new(0, h / 2, 0), Theme.panel, f)
-			quiet(glow(shape("Octa", Vector3.new(0.18, 0.32, 0.18), c * CFrame.new(0, h + 0.18, 0), A.lanternGlow, f), 0.05))
-		end
-		-- a star mobile hanging inside
-		local mob = at * CFrame.new(-3, eaveY - 1, (fz + bz) / 2 - 1)
-		cyl(0.03, 0.8, mob * CFrame.new(0, 0.4, 0), V.iron, f)
-		shape("Ring", Vector3.new(2, 0.12, 2), mob, V.gold, f)
-		for k = 0, 4 do
-			local ang = k / 5 * math.pi * 2
-			local drop = 0.6 + (k % 3) * 0.35
-			local p = mob * CFrame.new(math.cos(ang) * 0.9, 0, math.sin(ang) * 0.9)
-			quiet(block(Vector3.new(0.03, drop, 0.03), p * CFrame.new(0, -drop / 2, 0), V.iron, f))
-			quiet(glow(shape("Octa", Vector3.new(0.35, 0.5, 0.35), p * CFrame.new(0, -drop - 0.25, 0), if k % 2 == 0 then V.gold else A.crystalGlow, f), 0.05))
-		end
+		rebirthBooth(f, at, color, outer, sign, rng)
+	else
+		signBoard(f, at, sign.y, sign.z, A.post, color, 0.5)
 	end
 end
 

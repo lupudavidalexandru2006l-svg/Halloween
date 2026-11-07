@@ -183,7 +183,8 @@ local function buildHub()
 		pp:SetAttribute("Booth", b.id)
 		pp:SetAttribute("Action", b.action)
 		local BS = W.boothSign
-		local sign = signFacing("BoothSign", Vector3.new(BS.w, BS.h, 0.4), Vector3.new(b.pos.X, BS.y, b.pos.Z + BS.z), Vector3.new(b.pos.X, BS.y, b.pos.Z - 40), Theme.booths[b.id] or Theme.info, counter)
+		local sy, sz = if b.sign then b.sign.y else BS.y, if b.sign then b.sign.z else BS.z
+		local sign = signFacing("BoothSign", Vector3.new(BS.w, BS.h, 0.4), Vector3.new(b.pos.X, sy, b.pos.Z + sz), Vector3.new(b.pos.X, sy, b.pos.Z - 40), Theme.booths[b.id] or Theme.info, counter)
 		surfaceText(sign, Enum.NormalId.Front, string.upper(b.label), Theme.booths[b.id] or Theme.info, BS.text)
 	end
 	-- gift box (invisible: MapArt draws the ribboned box, the client bobs it and shows its label)

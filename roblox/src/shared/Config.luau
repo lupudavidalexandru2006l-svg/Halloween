@@ -393,13 +393,13 @@ export type Island = {
 	near: { number }?, farFrom: number?, -- spawn bands, measured from the section's start
 	feel: string?, -- the island banner's heat word (Round 4 Prompt 6: "cold", "mild", "lava"...)
 }
-export type Booth = { id: string, label: string, action: string, pos: Vector3 }
+export type Booth = { id: string, label: string, action: string, pos: Vector3, sign: { y: number, z: number }? }
 -- one cue in a shot clip (Config.ray.anim): at a share of the clip, a sound, an effect and/or a camera kick
 export type RayCue = { at: number, sound: string?, fx: string?, kick: string? }
 
 Config.world = {
 	maxPlayers = 6, -- one pan per server slot. Owner item: Server Size 6 in Game Settings > Places
-	mapVersion = 11, -- Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges, 6 = bigger square pans, 7 = pans measured against the real avatar, 8 = open gaps, open ground behind, level pans, 9 = no flush overlapping surfaces, 10 = booth details: sign bulbs, log ends, scalloped awnings, chalk coin, 11 = wide tunnel and big entrance for big pets, a clean road)
+	mapVersion = 12, -- Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges, 6 = bigger square pans, 7 = pans measured against the real avatar, 8 = open gaps, open ground behind, level pans, 9 = no flush overlapping surfaces, 10 = booth details: sign bulbs, log ends, scalloped awnings, chalk coin, 11 = wide tunnel and big entrance for big pets, a clean road, 12 = booths shaped like what they do: treasure chest, gear workshop, ring portal)
 	hubZMax = 0, -- the tunnel mouth: the hub is z < 0 (no wild pets, no heat)
 	-- wide enough for the row of six pans plus 10 studs at each end; zMin is worked out below (behind the pans' backSpace)
 	hub = { xMin = -150, xMax = 150, zMin = 0, wallHeight = 16, colliderHeight = 60 },
@@ -485,12 +485,15 @@ Config.world = {
 	-- prompt does ("equipment" opens the Equipment Booth, "shop" the Shop, "soon" says it's coming).
 	-- The client reads the action from here, so a saved map's prompts follow a change.
 	booths = {
-		-- Round 5 booths: cozy wooden chalets (14 wide plus a lean-to on the outer side), clear of the tunnel towers
-		{ id = "sell", label = "Sell Booth", action = "sell", pos = Vector3.new(-80, 0, -8) },
-		{ id = "equipment", label = "Equipment Booth", action = "equipment", pos = Vector3.new(80, 0, -8) },
-		{ id = "rebirth", label = "Rebirth Booth", action = "rebirth", pos = Vector3.new(-103, 0, -8) },
+		-- Booth v4 (owner 2026-11-07): each booth is a giant version of what it does (MapArt), about 17 wide,
+		-- clear of the tunnel towers. label = the action only, no "Booth" (the sign and the prompt show it).
+		-- sign = where its sign stands (y up, z toward the plaza, from pos): over the chest's window, over
+		-- the workshop's opening, on the portal's keystone
+		{ id = "sell", label = "Sell", action = "sell", pos = Vector3.new(-80, 0, -8), sign = { y = 8.6, z = -3.55 } },
+		{ id = "equipment", label = "Equipment", action = "equipment", pos = Vector3.new(80, 0, -8), sign = { y = 9, z = -3.3 } },
+		{ id = "rebirth", label = "Rebirth", action = "rebirth", pos = Vector3.new(-103, 0, -8), sign = { y = 14.6, z = 3.9 } },
 	} :: { Booth },
-	boothSign = { y = 8.8, w = 9, h = 2.2, z = -3.2, text = 1.5 }, -- the chalet's sign, standing on its porch beam (text = letter height in studs) -- the shop sign on the roof's front edge (MapArt frames it)
+	boothSign = { y = 8.8, w = 9, h = 2.2, z = -3.2, text = 1.5 }, -- a booth sign's size (text = letter height in studs); y / z are the spot for a booth without its own `sign`
 	panUpgradeAction = "pan", -- the Pan Upgrades popup (Round 4 phase 5)
 	giftBox = Vector3.new(106, 0, -10),
 	-- leaderboards on the hub's side walls, turned to face the plaza
@@ -677,6 +680,7 @@ Config.petAnim = {
 	gaitFor = { snowbun = "Hopper", hopsprout = "Hopper" } :: { [string]: string }, -- bunnies hop
 }
 Config.mapFx = { gateBarsDrop = 19.3, gateBarsSeconds = 1.2, giftBob = 0.6, giftSway = 0.15,
+	motionTag = "MapMotion", -- MapArt's moving parts (booth gears, portal swirl, floating crystals); MapController moves them
 	gateGlowPulse = 1.6, -- seconds per breath of a gate's glowing arch (the next goal glows)
 	lightTweenSeconds = 1.5, -- each island's own tint fades in as you walk into it
 	panDoorSeconds = 0.5 }
