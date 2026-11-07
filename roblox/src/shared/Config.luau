@@ -385,7 +385,7 @@ export type RayCue = { at: number, sound: string?, fx: string?, kick: string? }
 
 Config.world = {
 	maxPlayers = 6, -- one pan per server slot. Owner item: Server Size 6 in Game Settings > Places
-	mapVersion = 10, -- Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges, 6 = bigger square pans, 7 = pans measured against the real avatar, 8 = open gaps, open ground behind, level pans, 9 = no flush overlapping surfaces, 10 = booth details: sign bulbs, log ends, scalloped awnings, chalk coin)
+	mapVersion = 11, -- Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges, 6 = bigger square pans, 7 = pans measured against the real avatar, 8 = open gaps, open ground behind, level pans, 9 = no flush overlapping surfaces, 10 = booth details: sign bulbs, log ends, scalloped awnings, chalk coin, 11 = wide tunnel and big entrance for big pets, a clean road)
 	hubZMax = 0, -- the tunnel mouth: the hub is z < 0 (no wild pets, no heat)
 	-- wide enough for the row of six pans plus 10 studs at each end; zMin is worked out below (behind the pans' backSpace)
 	hub = { xMin = -150, xMax = 150, zMin = 0, wallHeight = 16, colliderHeight = 60 },
@@ -399,9 +399,13 @@ Config.world = {
 	-- fence about shoulder high (0.8 avatar heights)
 	pans = { width = 40, length = 44, gap = 8, frontZ = -62, soilHeight = 0.2, backSpace = 40, doorWidth = 16, fenceHeight = 4.5, wallHeight = 16,
 		signY = 6.5, gaugeOffset = 10.5, boothOffset = -11 }, -- gauge right of the door, Pan Upgrades stand left of it (x from the lane's middle)
-	tunnel = { width = 72, wallHeight = 18, wallThick = 4, colliderHeight = 60, pathWidth = 16, lampEvery = 28 },
-	gate = { depth = 3, barGap = 3, height = 14 },
-	endCap = { depth = 4, height = 18, glowDepth = 30 },
+	-- owner 2026-11-07: bigger pets are coming, so the tunnel is wide (about 34 avatar widths, was 22)
+	-- and the entrance and the island gates are scaled up with it (archScale: their towers, roofs and
+	-- lintels). The road is one plain strip: no lamps or stones on it; the lanterns stand at the foot of
+	-- the cliffs, one every lampEvery studs
+	tunnel = { width = 112, wallHeight = 24, wallThick = 4, colliderHeight = 60, pathWidth = 24, lampEvery = 56, archScale = 1.5 },
+	gate = { depth = 3, barGap = 4, height = 20 },
+	endCap = { depth = 4, height = 24, glowDepth = 30 },
 	-- Round 4 phase 6: 10 islands at launch, room for 20. You freeze pets in hotter and hotter places.
 	-- open  = built into the tunnel (a section, gate, sign and tester teleport). An entry with open = false
 	--         isn't built: the first one only tints the end cap ("New island coming soon").
@@ -415,27 +419,27 @@ Config.world = {
 	-- Hazards: sun patches (sun) and lava pools (lava) melt cubes faster and glow so you see them from far.
 	islands = {
 		{ key = "meadow", name = "Snowy Meadow", open = true, ready = true, theme = "meadow", length = 168, heat = 0.5, iceLife = 1, gateCoins = 0,
-			landmark = "snowman", landmarkAt = { x = 46, z = 112 }, -- landmarks stand in the cliffs, tall enough to show over them (World Rules 9)
+			landmark = "snowman", landmarkAt = { x = 66, z = 112 }, -- landmarks stand in the cliffs, tall enough to show over them (World Rules 9)
 			trees = { kind = "snowpine", count = 14, r = { 4, 6.5 } }, sun = { count = 5, r = { 7, 11 } },
 			near = { 8, 34 }, farFrom = 60 },
 		{ key = "forest", name = "Pine Forest", open = true, ready = true, theme = "forest", length = 176, heat = 0.8, iceLife = 1, gateCoins = 5000,
-			landmark = "mushroom", landmarkAt = { x = -46, z = 104 },
+			landmark = "mushroom", landmarkAt = { x = -66, z = 104 },
 			trees = { kind = "pine", count = 34, r = { 4.5, 7.5 } }, sun = { count = 3, r = { 6, 10 } },
 			near = { 10, 42 }, farFrom = 10 },
 		{ key = "grove", name = "Mushroom Grove", open = true, ready = true, theme = "grove", length = 172, heat = 1.0, iceLife = 1.6, gateCoins = 7500,
-			landmark = "toadstoolTower", landmarkAt = { x = 46, z = 100 },
+			landmark = "toadstoolTower", landmarkAt = { x = 66, z = 100 },
 			trees = { kind = "toadstool", count = 22, r = { 4, 7 } }, sun = { count = 3, r = { 6, 9 } },
 			near = { 10, 40 }, farFrom = 12 },
 		{ key = "beach", name = "Sunny Beach", open = true, ready = false, theme = "beach", length = 172, heat = 1.3, iceLife = 2.4, gateCoins = 2e6,
-			landmark = "lighthouse", landmarkAt = { x = -46, z = 104 },
+			landmark = "lighthouse", landmarkAt = { x = -66, z = 104 },
 			trees = { kind = "palm", count = 14, r = { 4, 6 } }, sun = { count = 7, r = { 7, 11 } },
 			near = { 10, 40 }, farFrom = 12 },
 		{ key = "jungle", name = "Jungle Falls", open = true, ready = false, theme = "jungle", length = 176, heat = 1.6, iceLife = 3.3, gateCoins = 6e6,
-			landmark = "waterfall", landmarkAt = { x = 36, z = 108 }, -- pours from the cliff face
+			landmark = "waterfall", landmarkAt = { x = 56, z = 108 }, -- pours from the cliff face
 			trees = { kind = "jungle", count = 28, r = { 4.5, 7.5 } }, sun = { count = 4, r = { 6, 9 } },
 			near = { 10, 42 }, farFrom = 12 },
 		{ key = "desert", name = "Desert Dunes", open = true, ready = false, theme = "desert", length = 176, heat = 2.0, iceLife = 4.4, gateCoins = 30e6,
-			landmark = "cactus", landmarkAt = { x = -46, z = 104 },
+			landmark = "cactus", landmarkAt = { x = -66, z = 104 },
 			trees = { kind = "cactus", count = 9, r = { 3.5, 5 } }, sun = { count = 9, r = { 8, 12 } },
 			near = { 10, 42 }, farFrom = 12 },
 		{ key = "canyon", name = "Canyon Mesa", open = true, ready = false, theme = "canyon", length = 180, heat = 2.4, iceLife = 5.7, gateCoins = 90e6,
@@ -443,11 +447,11 @@ Config.world = {
 			trees = { kind = "hoodoo", count = 10, r = { 4, 6 } }, sun = { count = 8, r = { 8, 12 } },
 			near = { 10, 42 }, farFrom = 12 },
 		{ key = "volcano", name = "Volcano Slopes", open = true, ready = false, theme = "volcano", length = 180, heat = 2.9, iceLife = 7.2, gateCoins = 220e6,
-			landmark = "volcano", landmarkAt = { x = 50, z = 108 }, -- beside the tunnel, rising over the cliffs
+			landmark = "volcano", landmarkAt = { x = 70, z = 108 }, -- beside the tunnel, rising over the cliffs
 			trees = { kind = "charred", count = 8, r = { 4, 6 } }, sun = { count = 3, r = { 6, 9 } }, lava = { count = 5, r = { 5, 8 } },
 			near = { 10, 42 }, farFrom = 12 },
 		{ key = "lavalake", name = "Lava Lake", open = true, ready = false, theme = "lavalake", length = 184, heat = 3.4, iceLife = 9, gateCoins = 660e6,
-			landmark = "spire", landmarkAt = { x = -46, z = 112 },
+			landmark = "spire", landmarkAt = { x = -66, z = 112 },
 			trees = { kind = "obsidian", count = 8, r = { 4, 6 } }, lava = { count = 8, r = { 6, 10 } },
 			near = { 10, 42 }, farFrom = 12 },
 		{ key = "magma", name = "Magma Core", open = true, ready = false, theme = "magma", length = 184, heat = 4.0, iceLife = 11, gateCoins = 8.4e9,
@@ -468,13 +472,13 @@ Config.world = {
 	-- The client reads the action from here, so a saved map's prompts follow a change.
 	booths = {
 		-- Round 5 booths: cozy wooden chalets (14 wide plus a lean-to on the outer side), clear of the tunnel towers
-		{ id = "sell", label = "Sell Booth", action = "sell", pos = Vector3.new(-54, 0, -8) },
-		{ id = "equipment", label = "Equipment Booth", action = "equipment", pos = Vector3.new(54, 0, -8) },
-		{ id = "rebirth", label = "Rebirth Booth", action = "rebirth", pos = Vector3.new(-77, 0, -8) },
+		{ id = "sell", label = "Sell Booth", action = "sell", pos = Vector3.new(-80, 0, -8) },
+		{ id = "equipment", label = "Equipment Booth", action = "equipment", pos = Vector3.new(80, 0, -8) },
+		{ id = "rebirth", label = "Rebirth Booth", action = "rebirth", pos = Vector3.new(-103, 0, -8) },
 	} :: { Booth },
 	boothSign = { y = 8.8, w = 9, h = 2.2, z = -3.2, text = 1.5 }, -- the chalet's sign, standing on its porch beam (text = letter height in studs) -- the shop sign on the roof's front edge (MapArt frames it)
 	panUpgradeAction = "pan", -- the Pan Upgrades popup (Round 4 phase 5)
-	giftBox = Vector3.new(74, 0, -10),
+	giftBox = Vector3.new(106, 0, -10),
 	-- leaderboards on the hub's side walls, turned to face the plaza
 	boards = { Vector3.new(-146, 0, -46), Vector3.new(-146, 0, -24), Vector3.new(146, 0, -46) },
 	-- filled in below from the lists above
@@ -657,7 +661,7 @@ Config.petAnim = {
 	},
 	gaitFor = { snowbun = "Hopper", hopsprout = "Hopper" } :: { [string]: string }, -- bunnies hop
 }
-Config.mapFx = { gateBarsDrop = 13.3, gateBarsSeconds = 1.2, giftBob = 0.6, giftSway = 0.15,
+Config.mapFx = { gateBarsDrop = 19.3, gateBarsSeconds = 1.2, giftBob = 0.6, giftSway = 0.15,
 	gateGlowPulse = 1.6, -- seconds per breath of a gate's glowing arch (the next goal glows)
 	lightTweenSeconds = 1.5, -- each island's own tint fades in as you walk into it
 	panDoorSeconds = 0.5 }
@@ -673,9 +677,9 @@ Config.carry = { scale = 0.62, handY = 0.4, front = 0.9, stackGap = 0.15, armRai
 -- Shared/Scenery spreads them across that section of the tunnel.
 Config.scenery = {
 	seed = 1234,
-	pathHalfWidth = 9, -- the main path stays open
+	pathHalfWidth = 13, -- the main path stays open
 	wallMargin = 5, -- trees keep this far from the tunnel walls
-	treeBand = 20, -- shade trees stand between this |x| and the walls, so the middle of each island stays open (World Rules 9)
+	treeBand = 32, -- shade trees stand between this |x| and the walls, so the middle of each island stays open (World Rules 9)
 	gateClear = 20, -- and this far from a gate or the end cap (they stay in view)
 	startClear = 12, -- the first studs of a section stay open (its sign and the near pets)
 }
@@ -692,7 +696,7 @@ Config.art = {
 	-- World Rules 9 (clear centre, rich edges): the islands' props sit only in this band of |x| at the foot
 	-- of the cliffs, between the pets' wander limit (spawner.wallMargin) and the wall; a strip of earth
 	-- (the floor darkened toward the cliff rock by stripDarken) blends the floor into the cliffs there
-	edge = { from = 31, to = 35.5, stripFrom = 32, stripHeight = 0.2, stripDarken = 0.4 },
+	edge = { from = 51, to = 55.5, stripFrom = 52, stripHeight = 0.2, stripDarken = 0.4 }, -- tunnel half-width 56, pets wander to 50
 	canopyClear = 6.5, -- a shade pine's lowest branches start this high, above an avatar's head, so pets under it stay in view
 	penPostEvery = 3.2,
 	statue = Vector3.new(0, 0, -50),

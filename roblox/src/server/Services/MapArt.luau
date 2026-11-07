@@ -969,13 +969,11 @@ local function hubGround(parent: Instance, rng: () -> number)
 	local f = folder("Ground", parent)
 	-- (no paved strip along the pans' gates: the plaza ground runs right up to the fences, as in the
 	-- owner's reference)
-	-- the boulevard from the spawn to the tunnel mouth: a checkerboard of light tiles with a stone edge
-	for row = 0, 7 do
-		for col = 0, 3 do
-			quiet(block(Vector3.new(4, 0.1, 4), CFrame.new(-6 + col * 4, 0.06, -30 + row * 4), if (row + col) % 2 == 0 then V.tileA else V.tileB, f, false, Enum.Material.Slate))
-		end
-	end
-	for _, sx in { -8.4, 8.4 } do
+	-- the boulevard from the spawn to the tunnel mouth: one plain strip of light slate, as wide as the
+	-- island road it leads into, with a low stone edge (owner 2026-11-07: no clutter on the road)
+	local pw = W.tunnel.pathWidth
+	quiet(block(Vector3.new(pw, 0.1, 32), CFrame.new(0, 0.06, -16), V.tileA, f, false, Enum.Material.Slate))
+	for _, sx in { -pw / 2 - 0.4, pw / 2 + 0.4 } do
 		quiet(block(Vector3.new(0.8, 0.25, 32), CFrame.new(sx, 0.12, -16), V.stone, f, false, Enum.Material.Cobblestone))
 	end
 	-- lawns either side of the plaza: snowy grass, a little white fence, flower beds, trees, a bench
@@ -1088,12 +1086,6 @@ local function hub(parent: Instance, rng: () -> number)
 	cyl(W.spawnPadRadius - 0.25, 0.35, CFrame.new(sp.X, 0.18, sp.Z), A.spawnPad, parent, true)
 	glow(cyl(W.spawnPadRadius, 0.2, CFrame.new(sp.X, 0.12, sp.Z), Theme.white, parent), 0.1)
 	fountain(parent, C.statue)
-	-- lanterns along the boulevard
-	for _, z in { -24, -12 } do
-		for _, x in { -10, 10 } do
-			lantern(parent, Vector3.new(x, 0, z), A.lanternGlow, 5.4, 16, z == -12)
-		end
-	end
 	for _, b in W.booths do
 		booth(parent, b, rng)
 	end
@@ -1106,24 +1098,26 @@ local function hub(parent: Instance, rng: () -> number)
 		present(parent, Vector3.new(gb.X - 3.5 + (k % 2) * 7, 0, gb.Z + 3 - math.floor(k / 2) * 6), 1.2 + (k % 3) * 0.3, V.flowers[k + 1], k * 0.7)
 	end
 	-- the tunnel mouth: two stone towers with pointed roofs, a lintel with crystals, a welcome glow
+	-- (everything but the span scaled by archScale, so the entrance stays in proportion to the tunnel)
 	local first_look = Theme.islands[W.islands[1].theme] or Theme.islands.meadow
-	for _, x in { -half - 4.5, half + 4.5 } do
-		cyl(4.2, T.wallHeight + 8, CFrame.new(x, (T.wallHeight + 8) / 2, W.hubZMax + 1.5), V.stone, parent, true, Enum.Material.Cobblestone)
-		cyl(4.7, 1.2, CFrame.new(x, T.wallHeight + 8.6, W.hubZMax + 1.5), V.trim, parent)
+	local s, mz, wh = T.archScale, W.hubZMax + 1.5, T.wallHeight
+	for _, x in { -half - 4.5 * s, half + 4.5 * s } do
+		cyl(4.2 * s, wh + 8 * s, CFrame.new(x, (wh + 8 * s) / 2, mz), V.stone, parent, true, Enum.Material.Cobblestone)
+		cyl(4.7 * s, 1.2 * s, CFrame.new(x, wh + 8.6 * s, mz), V.trim, parent)
 		for c = 0, 7 do
 			local a = c * math.pi / 4
-			block(Vector3.new(1.4, 1.6, 1.4), CFrame.new(x + math.cos(a) * 4.1, T.wallHeight + 10, W.hubZMax + 1.5 + math.sin(a) * 4.1), V.stone, parent, false, Enum.Material.Cobblestone)
+			block(Vector3.new(1.4, 1.6, 1.4) * s, CFrame.new(x + math.cos(a) * 4.1 * s, wh + 10 * s, mz + math.sin(a) * 4.1 * s), V.stone, parent, false, Enum.Material.Cobblestone)
 		end
-		shape("Cone", Vector3.new(10, 9, 10), CFrame.new(x, T.wallHeight + 15.5, W.hubZMax + 1.5), first_look.accent, parent)
-		quiet(shape("Cone", Vector3.new(4.4, 3.4, 4.4), CFrame.new(x, T.wallHeight + 18.6, W.hubZMax + 1.5), A.snowCap, parent))
-		cyl(0.15, 4, CFrame.new(x, T.wallHeight + 21.5, W.hubZMax + 1.5), V.iron, parent)
-		block(Vector3.new(0.15, 1.4, 2.4), CFrame.new(x, T.wallHeight + 22.6, W.hubZMax + 2.7), V.flag, parent)
+		shape("Cone", Vector3.new(10, 9, 10) * s, CFrame.new(x, wh + 15.5 * s, mz), first_look.accent, parent)
+		quiet(shape("Cone", Vector3.new(4.4, 3.4, 4.4) * s, CFrame.new(x, wh + 18.6 * s, mz), A.snowCap, parent))
+		cyl(0.15 * s, 4 * s, CFrame.new(x, wh + 21.5 * s, mz), V.iron, parent)
+		block(Vector3.new(0.15, 1.4, 2.4) * s, CFrame.new(x, wh + 22.6 * s, mz + 1.2 * s), V.flag, parent)
 	end
-	block(Vector3.new(T.width + 4, 2.6, 3), CFrame.new(0, T.wallHeight + 6.8, W.hubZMax + 1.5), V.stone, parent, false, Enum.Material.Cobblestone)
-	quiet(ellipsoid(Vector3.new(T.width + 6, 1.4, 3.6), CFrame.new(0, T.wallHeight + 8.3, W.hubZMax + 1.5), A.snowCap, parent))
-	glow(block(Vector3.new(T.width + 2, 1.2, 1.2), CFrame.new(0, T.wallHeight + 5, W.hubZMax), first_look.accent, parent), 0.2)
-	for k = 0, 6 do
-		glow(shape("Octa", Vector3.new(1.6, 3, 1.6), CFrame.new(-half + 4 + k * (T.width - 8) / 6, T.wallHeight + 9.6, W.hubZMax + 1.5), A.crystalGlow, parent), 0.15)
+	block(Vector3.new(T.width + 4, 2.6 * s, 3 * s), CFrame.new(0, wh + 6.8 * s, mz), V.stone, parent, false, Enum.Material.Cobblestone)
+	quiet(ellipsoid(Vector3.new(T.width + 6, 1.4 * s, 3.6 * s), CFrame.new(0, wh + 8.3 * s, mz), A.snowCap, parent))
+	glow(block(Vector3.new(T.width + 2, 1.2 * s, 1.2 * s), CFrame.new(0, wh + 5 * s, W.hubZMax), first_look.accent, parent), 0.2)
+	for k = 0, 8 do
+		glow(shape("Octa", Vector3.new(1.6, 3, 1.6) * s, CFrame.new(-half + 4 + k * (T.width - 8) / 8, wh + 9.6 * s, mz), A.crystalGlow, parent), 0.15)
 	end
 end
 
@@ -1159,23 +1153,15 @@ local function cliffs(parent: Instance, zone: Config.Zone, cl: { [string]: Color
 	end
 end
 
--- the path: rounded stones along both edges, and lanterns at its sides in the island's own light
-local function pathDetail(parent: Instance, zone: Config.Zone, cl: { [string]: Color3 }, look: { [string]: Color3 }, rng: () -> number)
+-- the road stays a plain strip (owner 2026-11-07: no lamps or stones on it). Its lanterns, in the
+-- island's own light, stand on the earth at the foot of the cliffs, out of the pets' way
+local function pathDetail(parent: Instance, zone: Config.Zone, look: { [string]: Color3 })
 	local T = W.tunnel
 	local f = folder("Path", parent)
-	local edge = T.pathWidth / 2 + 0.5
-	local z = zone.zMin + 1.5
-	while z < zone.zMax - 1 do
-		for _, side in { -1, 1 } do
-			quiet(ellipsoid(Vector3.new(1.3 + rng() * 0.5, 0.45, 1.7 + rng() * 0.5), CFrame.new(side * edge, 0.12, z + (rng() - 0.5) * 0.5), cl.edge, f, Enum.Material.Slate))
-		end
-		z += 2.6
-	end
+	local x = C.edge.to - 1.5
 	local side, lz = -1, zone.zMin + T.lampEvery / 2
-	local n = 0
 	while lz < zone.zMax - 4 do
-		n += 1
-		lantern(f, Vector3.new(side * (edge + 1.6), 0, lz), look.light, 6, 22, true)
+		lantern(f, Vector3.new(side * x, 0, lz), look.light, 7, 28, true)
 		side = -side
 		lz += T.lampEvery
 	end
@@ -1945,26 +1931,27 @@ local function gatehouse(parent: Instance, gz: number, look: { [string]: Color3 
 	local T, G = W.tunnel, W.gate
 	local half = T.width / 2
 	local gf = folder("Gate" .. id, parent)
-	for _, x in { -half - 2, half + 2 } do
-		cyl(4, G.height + 9, CFrame.new(x, (G.height + 9) / 2, gz), V.stone, gf, true, Enum.Material.Cobblestone)
-		cyl(4.5, 1.1, CFrame.new(x, G.height + 9.4, gz), V.trim, gf)
+	local s = T.archScale -- the towers, roofs and lintel grow with the tunnel (the span is the tunnel's own width)
+	for _, x in { -half - 2 * s, half + 2 * s } do
+		cyl(4 * s, G.height + 9 * s, CFrame.new(x, (G.height + 9 * s) / 2, gz), V.stone, gf, true, Enum.Material.Cobblestone)
+		cyl(4.5 * s, 1.1 * s, CFrame.new(x, G.height + 9.4 * s, gz), V.trim, gf)
 		for c = 0, 7 do
 			local a = c * math.pi / 4
-			block(Vector3.new(1.3, 1.5, 1.3), CFrame.new(x + math.cos(a) * 3.9, G.height + 10.7, gz + math.sin(a) * 3.9), V.stone, gf, false, Enum.Material.Cobblestone)
+			block(Vector3.new(1.3, 1.5, 1.3) * s, CFrame.new(x + math.cos(a) * 3.9 * s, G.height + 10.7 * s, gz + math.sin(a) * 3.9 * s), V.stone, gf, false, Enum.Material.Cobblestone)
 		end
-		shape("Cone", Vector3.new(9.6, 9, 9.6), CFrame.new(x, G.height + 16, gz), look.accent, gf)
-		cyl(0.15, 4, CFrame.new(x, G.height + 22, gz), V.iron, gf)
-		block(Vector3.new(0.15, 1.4, 2.4), CFrame.new(x, G.height + 23.1, gz + 1.2), look.accent, gf)
+		shape("Cone", Vector3.new(9.6, 9, 9.6) * s, CFrame.new(x, G.height + 16 * s, gz), look.accent, gf)
+		cyl(0.15 * s, 4 * s, CFrame.new(x, G.height + 22 * s, gz), V.iron, gf)
+		block(Vector3.new(0.15, 1.4, 2.4) * s, CFrame.new(x, G.height + 23.1 * s, gz + 1.2 * s), look.accent, gf)
 		-- a lit arrow slit
-		glow(block(Vector3.new(0.6, 2.2, 0.3), CFrame.new(x - math.sign(x) * 3.9, G.height + 3, gz - 0.6) * CFrame.Angles(0, -math.sign(x) * 0.9, 0), A.lanternGlow, gf), 0.1)
+		glow(block(Vector3.new(0.6, 2.2, 0.3) * s, CFrame.new(x - math.sign(x) * 3.9 * s, G.height + 3 * s, gz - 0.6 * s) * CFrame.Angles(0, -math.sign(x) * 0.9, 0), A.lanternGlow, gf), 0.1)
 	end
-	block(Vector3.new(T.width + 2, 2.2, 2.6), CFrame.new(0, G.height + 2.6, gz + 0.4), V.stone, gf, false, Enum.Material.Cobblestone)
-	quiet(ellipsoid(Vector3.new(T.width + 4, 1.2, 3.2), CFrame.new(0, G.height + 3.8, gz + 0.4), A.snowCap, gf))
-	local beam = glow(block(Vector3.new(T.width - 2, 1.6, 1.6), CFrame.new(0, G.height + 0.6, gz), look.accent, gf), 0.15)
+	block(Vector3.new(T.width + 2, 2.2 * s, 2.6 * s), CFrame.new(0, G.height + 2.6 * s, gz + 0.4), V.stone, gf, false, Enum.Material.Cobblestone)
+	quiet(ellipsoid(Vector3.new(T.width + 4, 1.2 * s, 3.2 * s), CFrame.new(0, G.height + 3.8 * s, gz + 0.4), A.snowCap, gf))
+	local beam = glow(block(Vector3.new(T.width - 2, 1.6 * s, 1.6 * s), CFrame.new(0, G.height + 0.6 * s, gz), look.accent, gf), 0.15)
 	beam.Name = "GateGlow"
-	for k = 0, 6 do
-		local cx = -half + 6 + k * (T.width - 12) / 6
-		glow(shape("Octa", Vector3.new(1.4, 2.6, 1.4), CFrame.new(cx, G.height + 5, gz + 0.4), A.crystalGlow, gf), 0.15)
+	for k = 0, 8 do
+		local cx = -half + 6 + k * (T.width - 12) / 8
+		glow(shape("Octa", Vector3.new(1.4, 2.6, 1.4) * s, CFrame.new(cx, G.height + 5 * s, gz + 0.4), A.crystalGlow, gf), 0.15)
 	end
 	if soon then
 		-- Round 4 phase 6: frosted glass you can see the island through, glowing round its edges
@@ -2004,7 +1991,7 @@ local function section(parent: Instance, zone: Config.Zone, isl: Config.Island, 
 		quiet(block(Vector3.new(sw, E.stripHeight, len), CFrame.new(side * (E.stripFrom + sw / 2), E.stripHeight / 4, (zone.zMin + zone.zMax) / 2),
 			look.floor:Lerp(cl.rockDark, E.stripDarken), f, false, if mats then mats.floor else Enum.Material.Ground))
 	end
-	pathDetail(f, zone, cl, look, rng)
+	pathDetail(f, zone, look)
 	-- the trees that give shade (Shared/Scenery's spots)
 	local tf = folder("Trees", f)
 	for _, t in trees do

@@ -234,7 +234,7 @@ local function buildTunnel()
 			local spot = part("GatePromptSpot" .. zone.id, Vector3.new(1, 1, 1), CFrame.new(0, 0.5, gz - Config.gatePromptOffset), Theme.ice, sec, { Transparency = 1, CanCollide = false, CanQuery = false })
 			local cost = if zone.gateRebirth > 0 then `Rebirth {zone.gateRebirth} + {zone.gateCoins} coins` else `{zone.gateCoins} coins`
 			WorldService.gatePrompts[zone.id] = prompt(spot, "Open", if zone.ready then `{zone.name}: {cost}` else `{zone.name}: coming soon`, Config.player.interactHold)
-			local sign = part("GateSign" .. zone.id, Vector3.new(22, 4.4, 0.5), CFrame.new(0, G.height + 3.4, gz - G.depth / 2 - 0.4), look.accent, sec) -- text toward the section before
+			local sign = part("GateSign" .. zone.id, Vector3.new(20 * T.archScale, 4 * T.archScale, 0.5), CFrame.new(0, G.height + 3.4 * T.archScale, gz - G.depth / 2 - 0.4), look.accent, sec) -- text toward the section before
 			surfaceText(sign, Enum.NormalId.Front, if zone.ready then string.upper(zone.name) else "COMING SOON", look.accent)
 			WorldService.gateSigns[zone.id] = sign
 		end
