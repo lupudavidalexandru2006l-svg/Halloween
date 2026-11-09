@@ -2267,28 +2267,366 @@ local LANDMARKS: { [string]: (Instance, number, number, number) -> () } = { snow
 	toadstoolTower = toadstoolTower, lighthouse = lighthouse, waterfall = waterfall, cactus = giantCactus, arch = stoneArch,
 	volcano = volcanoCone, spire = obsidianSpire, core = magmaCore }
 
--- a castle gatehouse in front of a section: two round towers with pointed roofs in the island's
--- colour and flags, a stone lintel with crystals, the glowing beam (GateGlow) and the ice bars
-local function gatehouse(parent: Instance, gz: number, look: { [string]: Color3 }, id: number, withBars: boolean, soon: boolean?)
+-- ---------- gate towers: one style per world (skill designing-map-appeal, World Rules 12) ----------
+-- Owner 2026-11-09: "each world's towers should look different". Every gate keeps the same job and
+-- footprint (a tower either side of the tunnel, the lintel, the GateGlow beam, the ice bars, the crystal
+-- row); each world's towers take their shape, skyline top, material and one modifier from its identity
+-- card, so a tower moved to another world would look wrong there (the skill's swap test).
+--   castle    round cobblestone keep, crenels, pointed roof in the island colour, pennant (the default)
+--   forest    timber watchtower: square log frame, lookout deck, gable roof, pennant
+--   grove     toadstool: fat cream stem, giant cap with glowing spots, little mushrooms at its foot
+--   beach     sandcastle: three stacked buckets with crenels and shells, a beach umbrella on top
+--   jungle    stepped temple: four mossy tiers, a stairway, vines, a shrine with a glowing gem
+--   desert    minaret: square sandstone base, slim round shaft, balcony, teal onion dome, lit window
+--   canyon    hoodoo: banded rocks stacked with a lean, a wide balanced cap stone, a hanging lantern
+--   volcano   basalt cluster: hexagonal columns of different heights, glowing cracks, smoke
+--   lavalake  obsidian shards: tilted dark crystals with glowing pink veins
+--   magma     forge: riveted iron drum, glowing furnace door, a cone hood and a chimney on fire
+--   suntemple sun pillar: fluted marble column, gold capital, a sun disc with rays
+-- x = the tower's centre (its sign is the outward side), gz = the gate line, s = archScale, h = gate height
+type TowerFn = (gf: Instance, x: number, gz: number, s: number, look: { [string]: Color3 }, h: number) -> ()
+
+local function smokeFrom(p: BasePart, size: number)
+	local e = Instance.new("ParticleEmitter")
+	e.Color = ColorSequence.new(IA.smoke)
+	e.Transparency = NumberSequence.new(0.35, 1)
+	e.Size = NumberSequence.new(size, size * 3)
+	e.Lifetime = NumberRange.new(3, 4.5)
+	e.Speed = NumberRange.new(3, 5)
+	e.SpreadAngle = Vector2.new(12, 12)
+	e.Rate = 3
+	e.Parent = p
+end
+
+-- a hexagonal column: three blocks turned 60 degrees apart (flat-to-flat width w)
+local function hexColumn(gf: Instance, at: Vector3, w: number, height: number, color: Color3, mat: Enum.Material, collide: boolean?)
+	for k = 0, 2 do
+		block(Vector3.new(w / math.sqrt(3), height, w), CFrame.new(at + Vector3.new(0, height / 2, 0)) * CFrame.Angles(0, k * math.pi / 3, 0), color, gf, collide and k == 0, mat)
+	end
+end
+
+local GATE_TOWERS: { [string]: TowerFn } = {}
+
+GATE_TOWERS.castle = function(gf, x, gz, s, look, h)
+	cyl(4 * s, h + 9 * s, CFrame.new(x, (h + 9 * s) / 2, gz), V.stone, gf, true, Enum.Material.Cobblestone)
+	cyl(4.5 * s, 1.1 * s, CFrame.new(x, h + 9.4 * s, gz), V.trim, gf)
+	for c = 0, 7 do
+		local a = c * math.pi / 4
+		block(Vector3.new(1.3, 1.5, 1.3) * s, CFrame.new(x + math.cos(a) * 3.9 * s, h + 10.7 * s, gz + math.sin(a) * 3.9 * s), V.stone, gf, false, Enum.Material.Cobblestone)
+	end
+	shape("Cone", Vector3.new(9.6, 9, 9.6) * s, CFrame.new(x, h + 16 * s, gz), look.accent, gf)
+	cyl(0.15 * s, 4 * s, CFrame.new(x, h + 22 * s, gz), V.iron, gf)
+	block(Vector3.new(0.15, 1.4, 2.4) * s, CFrame.new(x, h + 23.1 * s, gz + 1.2 * s), look.accent, gf)
+	-- a lit arrow slit
+	glow(block(Vector3.new(0.6, 2.2, 0.3) * s, CFrame.new(x - math.sign(x) * 3.9 * s, h + 3 * s, gz - 0.6 * s) * CFrame.Angles(0, -math.sign(x) * 0.9, 0), A.lanternGlow, gf), 0.1)
+end
+
+GATE_TOWERS.forest = function(gf, x, gz, s, look, h)
+	local log, plank, wood = V.door, HA.boothWood, Enum.Material.Wood
+	block(Vector3.new(10, 3, 10) * s, CFrame.new(x, 1.5 * s, gz), Theme.cliffs.forest.rock, gf, true, Enum.Material.Cobblestone)
+	local deck = h + 6 * s
+	-- the planked core and four log legs round it
+	block(Vector3.new(6 * s, deck - 3 * s, 6 * s), CFrame.new(x, 3 * s + (deck - 3 * s) / 2, gz), plank, gf, true, Enum.Material.WoodPlanks)
+	for _, cx in { -3.6, 3.6 } do
+		for _, cz in { -3.6, 3.6 } do
+			cyl(0.8 * s, deck, CFrame.new(x + cx * s, deck / 2, gz + cz * s), log, gf, false, wood)
+		end
+	end
+	-- log bands and an X brace on the side you walk toward
+	for _, y in { deck * 0.4, deck * 0.75, deck - 0.4 * s } do
+		for _, c in { -3.6, 3.6 } do
+			block(Vector3.new(8 * s, 0.7 * s, 0.7 * s), CFrame.new(x, y, gz + c * s), log, gf, false, wood)
+			block(Vector3.new(0.7 * s, 0.7 * s, 8 * s), CFrame.new(x + c * s, y, gz), log, gf, false, wood)
+		end
+	end
+	local dy, dx = deck * 0.75 - deck * 0.4, 7.2 * s
+	for _, sgn in { -1, 1 } do
+		block(Vector3.new(math.sqrt(dx * dx + dy * dy), 0.5 * s, 0.5 * s), CFrame.new(x, deck * 0.575, gz - 3.9 * s) * CFrame.Angles(0, 0, sgn * math.atan2(dy, dx)), log, gf, false, wood)
+	end
+	-- the lookout deck with its rail, a warm lamp inside and the roof posts
+	block(Vector3.new(10.5, 0.8, 10.5) * s, CFrame.new(x, deck + 0.4 * s, gz), plank, gf, false, Enum.Material.WoodPlanks)
+	for _, c in { -5, 5 } do
+		block(Vector3.new(10.5 * s, 0.4 * s, 0.4 * s), CFrame.new(x, deck + 2 * s, gz + c * s), log, gf, false, wood)
+		block(Vector3.new(0.4 * s, 0.4 * s, 10.5 * s), CFrame.new(x + c * s, deck + 2 * s, gz), log, gf, false, wood)
+	end
+	for _, cx in { -4.6, 4.6 } do
+		for _, cz in { -4.6, 4.6 } do
+			cyl(0.4 * s, 4.4 * s, CFrame.new(x + cx * s, deck + 3 * s, gz + cz * s), log, gf, false, wood)
+		end
+	end
+	local lamp = glow(ball(0.8 * s, Vector3.new(x, deck + 2.2 * s, gz), A.lanternGlow, gf), 0.1)
+	light(lamp, A.lanternGlow, 18, 0.8)
+	-- the gable roof (ridge along x) with filled ends, and a pennant on the ridge
+	local eave, rh, w, d = deck + 5.2 * s, 4.5 * s, 12 * s, 12 * s
+	wedge(Vector3.new(w, rh, d / 2), CFrame.new(x, eave + rh / 2, gz - d / 4), look.wall, gf, Enum.Material.WoodPlanks)
+	wedge(Vector3.new(w, rh, d / 2), CFrame.new(x, eave + rh / 2, gz + d / 4) * CFrame.Angles(0, math.pi, 0), look.wall, gf, Enum.Material.WoodPlanks)
+	for _, ex in { -w / 2 + 1.2 * s, w / 2 - 1.2 * s } do
+		wedge(Vector3.new(0.3 * s, rh - 0.3 * s, d / 2 - 1.2 * s), CFrame.new(x + ex, eave + (rh - 0.3 * s) / 2, gz - (d / 2 - 1.2 * s) / 2), plank, gf, Enum.Material.WoodPlanks)
+		wedge(Vector3.new(0.3 * s, rh - 0.3 * s, d / 2 - 1.2 * s), CFrame.new(x + ex, eave + (rh - 0.3 * s) / 2, gz + (d / 2 - 1.2 * s) / 2) * CFrame.Angles(0, math.pi, 0), plank, gf, Enum.Material.WoodPlanks)
+	end
+	cyl(0.15 * s, 5 * s, CFrame.new(x, eave + rh + 2.2 * s, gz), V.iron, gf)
+	block(Vector3.new(0.15, 1.4, 2.6) * s, CFrame.new(x, eave + rh + 4 * s, gz + 1.3 * s), look.accent, gf)
+end
+
+GATE_TOWERS.grove = function(gf, x, gz, s, look, h)
+	local sx = math.sign(x)
+	local stemH = h + 8 * s
+	quiet(ellipsoid(Vector3.new(10, 4, 10) * s, CFrame.new(x, 1 * s, gz), IA.toadStem, gf))
+	cyl(3 * s, stemH, CFrame.new(x, stemH / 2, gz), IA.toadStem, gf, true)
+	quiet(ellipsoid(Vector3.new(7.4, 9, 7.4) * s, CFrame.new(x, stemH * 0.42, gz), IA.toadStem, gf)) -- the stem's belly
+	-- the gills under the cap, then the cap itself
+	cyl(6.6 * s, 0.6 * s, CFrame.new(x, stemH + 0.3 * s, gz), look.light, gf)
+	local capY = stemH + 0.4 * s
+	shape("Dome", Vector3.new(15, 7, 15) * s, CFrame.new(x, capY + 3.5 * s, gz), look.accent, gf)
+	-- spots that glow softly (the modifier): a ring on the slope and one on top
+	for k = 0, 5 do
+		local a = k * math.pi / 3 + 0.3
+		glow(ball(1 * s, Vector3.new(x + math.cos(a) * 4.6 * s, capY + 5.2 * s, gz + math.sin(a) * 4.6 * s), IA.toadSpot, gf), 0.05)
+	end
+	glow(ball(1.2 * s, Vector3.new(x, capY + 6.8 * s, gz), IA.toadSpot, gf), 0.05)
+	-- little mushrooms at its foot, on the outside
+	mushroom(gf, Vector3.new(x + sx * 6.5 * s, 0, gz - 2 * s), 2.2 * s, 0.4, IA.toadCaps[2])
+	mushroom(gf, Vector3.new(x + sx * 4.5 * s, 0, gz - 6 * s), 1.5 * s, 1.1, IA.toadCaps[3])
+end
+
+GATE_TOWERS.beach = function(gf, x, gz, s, look, h)
+	-- three stacked sand buckets, each with a darker rim and crenels
+	local tiers = { { r = 4.6, h = 10 }, { r = 3.7, h = 9 }, { r = 2.8, h = 8 } }
+	local y = 0
+	for i, t in tiers do
+		cyl(t.r * s, t.h * s, CFrame.new(x, y + t.h * s / 2, gz), if i % 2 == 1 then look.wall else look.floor, gf, i == 1, Enum.Material.Sand)
+		y += t.h * s
+		cyl((t.r + 0.3) * s, 0.7 * s, CFrame.new(x, y - 0.35 * s, gz), look.wallBase, gf, false, Enum.Material.Sand)
+		local n = 10 - i * 2
+		for c = 0, n - 1 do
+			local a = c * 2 * math.pi / n
+			block(Vector3.new(1.2, 1.3, 1.2) * s, CFrame.new(x + math.cos(a) * (t.r - 0.5) * s, y + 0.65 * s, gz + math.sin(a) * (t.r - 0.5) * s) * CFrame.Angles(0, -a, 0), look.wall, gf, false, Enum.Material.Sand)
+		end
+	end
+	-- shells and starfish pressed into the sand on the side you walk toward
+	for k = 0, 4 do
+		local a = -math.pi / 2 + (k - 2) * 0.45
+		local r = tiers[k % 2 + 1].r
+		local at = Vector3.new(x + math.cos(a) * r * s, 3 * s + (k % 2) * 10 * s, gz + math.sin(a) * r * s)
+		quiet(ellipsoid(Vector3.new(1.4, 1.2, 0.6) * s, CFrame.lookAt(at, at + Vector3.new(math.cos(a), 0, math.sin(a))), if k % 2 == 0 then IA.shell else IA.starfish, gf))
+	end
+	-- the beach umbrella on top: pole, red canopy, white trim and a white knob
+	cyl(0.25 * s, 6 * s, CFrame.new(x, y + 3 * s, gz), IA.umbrellaStripe, gf)
+	shape("Cone", Vector3.new(11, 3, 11) * s, CFrame.new(x, y + 6.8 * s, gz), IA.umbrella[1], gf)
+	cyl(5.6 * s, 0.35 * s, CFrame.new(x, y + 5.4 * s, gz), IA.umbrellaStripe, gf)
+	ball(0.6 * s, Vector3.new(x, y + 8.5 * s, gz), IA.umbrellaStripe, gf)
+end
+
+GATE_TOWERS.jungle = function(gf, x, gz, s, look, h)
+	local cl = Theme.cliffs.jungle
+	local tiers = { { w = 10, h = 7 }, { w = 8.4, h = 7 }, { w = 6.8, h = 6 }, { w = 5.2, h = 5 } }
+	local y = 0
+	for i, t in tiers do
+		block(Vector3.new(t.w, t.h, t.w) * s, CFrame.new(x, y + t.h * s / 2, gz), if i % 2 == 1 then cl.rock else cl.rockDark, gf, i == 1, Enum.Material.Slate)
+		y += t.h * s
+		-- a mossy lip on each step
+		quiet(block(Vector3.new(t.w + 0.4, 0.5, t.w + 0.4) * s, CFrame.new(x, y + 0.1 * s, gz), cl.top, gf, false, Enum.Material.Grass))
+		-- vines hanging over the front edge
+		for v = -1, 1, 2 do
+			local len = (2.5 + (i % 2) * 1.5) * s
+			quiet(block(Vector3.new(0.3, 0, 0.3) * s + Vector3.new(0, len, 0), CFrame.new(x + v * t.w * 0.28 * s, y - len / 2, gz - t.w / 2 * s - 0.2 * s), IA.vine, gf))
+		end
+	end
+	-- the stairway up the front, as one ramp
+	local stairH = (7 + 7 + 6) * s
+	wedge(Vector3.new(3 * s, stairH, 6 * s), CFrame.new(x, stairH / 2, gz - 5 * s - 3 * s), cl.rockDark, gf, Enum.Material.Slate)
+	-- the shrine on top, its dark doorway and the glowing gem (the modifier)
+	block(Vector3.new(4, 3.5, 4) * s, CFrame.new(x, y + 1.75 * s, gz), cl.rock, gf, false, Enum.Material.Slate)
+	block(Vector3.new(1.6, 2.4, 0.2) * s, CFrame.new(x, y + 1.2 * s, gz - 2 * s), IA.shrineDoor, gf)
+	block(Vector3.new(5.4, 0.8, 5.4) * s, CFrame.new(x, y + 3.9 * s, gz), cl.rockDark, gf, false, Enum.Material.Slate)
+	local gem = glow(shape("Octa", Vector3.new(2.2, 4, 2.2) * s, CFrame.new(x, y + 6.4 * s, gz), look.accent, gf), 0.05)
+	light(gem, look.accent, 24, 1.2)
+end
+
+GATE_TOWERS.desert = function(gf, x, gz, s, look, h)
+	-- the square base with a pointed niche facing you
+	block(Vector3.new(9, 10, 9) * s, CFrame.new(x, 5 * s, gz), look.wall, gf, true, Enum.Material.Sandstone)
+	block(Vector3.new(9.6, 0.8, 9.6) * s, CFrame.new(x, 10.2 * s, gz), look.wallBase, gf, false, Enum.Material.Sandstone)
+	block(Vector3.new(2.4, 4, 0.3) * s, CFrame.new(x, 4 * s, gz - 4.5 * s), look.wallBase, gf)
+	ellipsoid(Vector3.new(2.4, 2.6, 0.3) * s, CFrame.new(x, 6 * s, gz - 4.5 * s), look.wallBase, gf)
+	-- the slim shaft with painted bands
+	local shaftH = h + 2 * s
+	cyl(2.6 * s, shaftH, CFrame.new(x, 10.6 * s + shaftH / 2, gz), look.floor, gf, false, Enum.Material.Sandstone)
+	for _, f in { 0.35, 0.7 } do
+		cyl(2.75 * s, 0.8 * s, CFrame.new(x, 10.6 * s + shaftH * f, gz), IA.minaretTeal, gf)
+	end
+	-- the balcony: a disc and an eight-sided rail
+	local by = 10.6 * s + shaftH
+	cyl(3.8 * s, 0.8 * s, CFrame.new(x, by, gz), look.wallBase, gf, false, Enum.Material.Sandstone)
+	for c = 0, 7 do
+		local a = c * math.pi / 4 + math.pi / 8
+		block(Vector3.new(2.9, 1.2, 0.3) * s, CFrame.new(x + math.cos(a) * 3.5 * s, by + 1 * s, gz + math.sin(a) * 3.5 * s) * CFrame.Angles(0, -a + math.pi / 2, 0), look.wall, gf, false, Enum.Material.Sandstone)
+	end
+	-- the upper drum with a lit window (the modifier), the onion dome and its spike
+	cyl(2 * s, 4 * s, CFrame.new(x, by + 2.4 * s, gz), look.floor, gf, false, Enum.Material.Sandstone)
+	local win = glow(block(Vector3.new(1, 1.8, 0.3) * s, CFrame.new(x, by + 2.4 * s, gz - 2 * s), look.light, gf), 0.05)
+	light(win, look.light, 16, 0.8)
+	ellipsoid(Vector3.new(5.6, 6, 5.6) * s, CFrame.new(x, by + 6.6 * s, gz), IA.minaretTeal, gf)
+	shape("Cone", Vector3.new(2.8, 3.4, 2.8) * s, CFrame.new(x, by + 10.2 * s, gz), IA.minaretTeal, gf)
+	cyl(0.15 * s, 3 * s, CFrame.new(x, by + 12.8 * s, gz), IA.forgeBrass, gf)
+	ball(0.5 * s, Vector3.new(x, by + 14.4 * s, gz), IA.forgeBrass, gf)
+end
+
+GATE_TOWERS.canyon = function(gf, x, gz, s, look, h)
+	local sx = math.sign(x)
+	-- banded rocks stacked with a slight outward lean, pinched at the neck
+	local stack = { { 10, 9, 10 }, { 7.4, 8, 7.4 }, { 8.4, 7, 8 }, { 6, 6, 6 } }
+	local y = 0
+	for i, d in stack do
+		local hh = d[2] * s
+		shape("Rock", Vector3.new(d[1], d[2], d[3]) * s, CFrame.new(x + sx * (i - 1) * 0.5 * s, y + hh / 2, gz) * CFrame.Angles(0, i * 1.3, 0), if i % 2 == 1 then IA.hoodoo else IA.hoodooBand, gf)
+		y += hh - 0.8 * s
+	end
+	-- the collider for the stack (rock meshes are looks only)
+	local core = block(Vector3.new(6, y / s, 6) * s, CFrame.new(x, y / 2, gz), IA.hoodoo, gf, true)
+	core.Transparency = 1
+	-- the wide cap stone balanced on top
+	shape("Rock", Vector3.new(13, 3.6, 11) * s, CFrame.new(x + sx * 2 * s, y + 1.4 * s, gz) * CFrame.Angles(0.06, 0.5, -sx * 0.08), IA.hoodooCap, gf)
+	-- a wooden arm with a hanging lantern (the modifier)
+	local ay = y * 0.55
+	block(Vector3.new(0.7, 0.7, 7) * s, CFrame.new(x, ay, gz - 5.5 * s), V.door, gf, false, Enum.Material.Wood)
+	cyl(0.08 * s, 1.6 * s, CFrame.new(x, ay - 1.1 * s, gz - 8.5 * s), V.iron, gf)
+	local lamp = glow(block(Vector3.new(1, 1.4, 1) * s, CFrame.new(x, ay - 2.4 * s, gz - 8.5 * s), A.lanternGlow, gf), 0.1)
+	light(lamp, A.lanternGlow, 16, 0.8)
+end
+
+GATE_TOWERS.volcano = function(gf, x, gz, s, look, h)
+	local cl = Theme.cliffs.volcano
+	-- a cluster of hexagonal basalt columns: the tallest in the middle
+	local cols = { { 0, 0, h + 14 * s }, { 3, 0, h + 6 * s }, { -1.5, 2.6, h + 9 * s }, { -1.5, -2.6, h + 2 * s }, { 1.5, -2.6, h + 10 * s }, { 1.5, 2.6, h + 4 * s }, { -3, 0, h + 7 * s } }
+	for i, c in cols do
+		local at = Vector3.new(x + c[1] * s, 0, gz + c[2] * s)
+		hexColumn(gf, at, 3.2 * s, c[3], if i % 2 == 0 then cl.rock else cl.rockDark, Enum.Material.Basalt, i == 1)
+		quiet(block(Vector3.new(3.2 / math.sqrt(3), 0.4, 3.2) * s, CFrame.new(at + Vector3.new(0, c[3] + 0.2 * s, 0)), cl.top, gf, false, Enum.Material.Basalt))
+	end
+	local core = block(Vector3.new(8.5, 1, 8.5) * s + Vector3.new(0, h, 0), CFrame.new(x, h / 2, gz), cl.rock, gf, true)
+	core.Transparency = 1
+	-- glowing cracks running up the columns you walk toward
+	for _, c in { cols[4], cols[5], cols[1] } do
+		glow(block(Vector3.new(0.35 * s, c[3] * 0.55, 0.35 * s), CFrame.new(x + c[1] * s, c[3] * 0.35, gz + c[2] * s - 1.65 * s), IA.lava, gf), 0)
+	end
+	-- the tallest column smokes (the modifier), an ember at its top
+	local ember = glow(ball(1 * s, Vector3.new(x, cols[1][3] + 0.6 * s, gz), IA.ember, gf), 0)
+	light(ember, IA.lava, 20, 1.2)
+	smokeFrom(ember, 2.5 * s)
+end
+
+GATE_TOWERS.lavalake = function(gf, x, gz, s, look, h)
+	local sx = math.sign(x)
+	shape("Rock", Vector3.new(11, 4, 10) * s, CFrame.new(x, 1.2 * s, gz), IA.obsidian, gf)
+	local core = block(Vector3.new(6, 1, 6) * s + Vector3.new(0, h + 8 * s, 0), CFrame.new(x, (h + 8 * s) / 2, gz), IA.obsidian, gf, true)
+	core.Transparency = 1
+	-- tilted shards: { offset x, offset z, width, height, lean out, lean forward }
+	-- (wide and matte: thin or shiny shards read as pale slivers against the sky)
+	local shards = { { 0, 0, 10, 36, 0.1, 0 }, { 2.6, -2.2, 7, 22, 0.4, -0.25 }, { -2.4, 1.8, 6, 19, -0.3, 0.2 }, { 1.8, 2.6, 5, 14, 0.25, 0.35 } }
+	for i, d in shards do
+		local cf = CFrame.new(x + sx * d[1] * s, d[4] * s * 0.38, gz + d[2] * s) * CFrame.Angles(d[6], 0, -sx * d[5])
+		shape("Octa", Vector3.new(d[3], d[4], d[3]) * s, cf, IA.obsidian, gf)
+		-- a glowing vein down its face (the modifier)
+		if i <= 3 then
+			glow(shape("Octa", Vector3.new(d[3] * 0.18, d[4] * 0.8, d[3] * 0.18) * s, cf * CFrame.new(0, 0, -d[3] * s * 0.36), look.accent, gf), 0.05)
+		end
+	end
+	local base = glow(shape("Octa", Vector3.new(2, 5, 2) * s, CFrame.new(x - sx * 3.5 * s, 2 * s, gz - 3.5 * s) * CFrame.Angles(0.3, 0, sx * 0.4), IA.obsidianGlow, gf), 0)
+	light(base, look.accent, 20, 1.2)
+end
+
+GATE_TOWERS.magma = function(gf, x, gz, s, look, h)
+	local sx = math.sign(x)
+	local drumH = h + 4 * s
+	cyl(4.4 * s, drumH, CFrame.new(x, drumH / 2, gz), IA.forgeIron, gf, true, Enum.Material.Metal)
+	-- brass bands with rivets
+	for _, f in { 0.12, 0.55, 0.96 } do
+		local by = drumH * f
+		cyl(4.6 * s, 0.9 * s, CFrame.new(x, by, gz), IA.forgeBrass, gf, false, Enum.Material.Metal)
+		if f < 0.9 then
+			for c = 0, 9 do
+				local a = c * math.pi / 5
+				ball(0.3 * s, Vector3.new(x + math.cos(a) * 4.65 * s, by, gz + math.sin(a) * 4.65 * s), IA.forgeIron, gf)
+			end
+		end
+	end
+	-- the furnace door, glowing hot (the modifier's first half)
+	block(Vector3.new(4, 5, 0.6) * s, CFrame.new(x, 5.5 * s, gz - 4.2 * s), IA.coreRing, gf, false, Enum.Material.Metal)
+	local door = glow(block(Vector3.new(3, 4, 0.4) * s, CFrame.new(x, 5.5 * s, gz - 4.5 * s), IA.lavaHot, gf), 0)
+	light(door, IA.lava, 22, 1.4)
+	-- the cone hood, the chimney and its fire
+	shape("Cone", Vector3.new(10, 4.5, 10) * s, CFrame.new(x, drumH + 2.2 * s, gz), IA.forgeIron, gf)
+	local cx = x + sx * 1.6 * s
+	cyl(1.2 * s, 10 * s, CFrame.new(cx, drumH + 5 * s, gz), IA.forgeIron, gf, false, Enum.Material.Metal)
+	cyl(1.45 * s, 0.8 * s, CFrame.new(cx, drumH + 9.8 * s, gz), IA.forgeBrass, gf, false, Enum.Material.Metal)
+	local mouth = glow(cyl(1 * s, 0.3 * s, CFrame.new(cx, drumH + 10.2 * s, gz), IA.lavaHot, gf), 0)
+	local fire = Instance.new("Fire")
+	fire.Color = IA.lava
+	fire.SecondaryColor = look.accent
+	fire.Size = 4 * s
+	fire.Heat = 9
+	fire.Parent = mouth
+end
+
+GATE_TOWERS.suntemple = function(gf, x, gz, s, look, h)
+	block(Vector3.new(9, 2, 9) * s, CFrame.new(x, 1 * s, gz), look.wallTop, gf, true, Enum.Material.Marble)
+	local colH = h + 6 * s
+	cyl(3 * s, colH, CFrame.new(x, 2 * s + colH / 2, gz), IA.marble, gf, true, Enum.Material.Marble)
+	-- flutes: darker strips round the column
+	for c = 0, 7 do
+		local a = c * math.pi / 4
+		block(Vector3.new(0.45 * s, colH - 1.5 * s, 0.45 * s), CFrame.new(x + math.cos(a) * 2.95 * s, 2 * s + colH / 2, gz + math.sin(a) * 2.95 * s), look.wall, gf)
+	end
+	-- the gold capital
+	local top = 2 * s + colH
+	cyl(3.6 * s, 1.2 * s, CFrame.new(x, top + 0.6 * s, gz), IA.sunGold, gf, false, Enum.Material.Metal)
+	block(Vector3.new(8, 1.4, 8) * s, CFrame.new(x, top + 1.9 * s, gz), IA.sunGold, gf, false, Enum.Material.Metal)
+	-- the sun disc facing you, a glowing core (the modifier) and twelve rays
+	local cy = top + 8 * s
+	local disc = CFrame.new(x, cy, gz) * CFrame.Angles(math.pi / 2, 0, 0)
+	cyl(4 * s, 0.8 * s, disc, IA.sunGold, gf, false, Enum.Material.Metal)
+	local coreDisc = glow(cyl(2.4 * s, 0.4 * s, disc * CFrame.new(0, -0.5 * s, 0), look.light, gf), 0)
+	light(coreDisc, look.accent, 26, 1.2)
+	for k = 0, 11 do
+		local a = k * math.pi / 6
+		block(Vector3.new(0.8, 2.6, 0.6) * s, CFrame.new(x + math.cos(a) * 5.4 * s, cy + math.sin(a) * 5.4 * s, gz) * CFrame.Angles(0, 0, a - math.pi / 2), IA.sunGold, gf, false, Enum.Material.Metal)
+	end
+	block(Vector3.new(1.2, 3.4, 1.2) * s, CFrame.new(x, top + 3.6 * s, gz), IA.sunGold, gf, false, Enum.Material.Metal) -- the disc's stem
+end
+
+-- the lintel across the tunnel: each world's own material (only the castle keeps the snow on it)
+local GATE_LINTELS: { [string]: { color: Color3, mat: Enum.Material } } = {
+	castle = { color = V.stone, mat = Enum.Material.Cobblestone },
+	forest = { color = V.door, mat = Enum.Material.Wood },
+	grove = { color = IA.toadStem, mat = Enum.Material.SmoothPlastic },
+	beach = { color = Theme.islands.beach.wall, mat = Enum.Material.Sand },
+	jungle = { color = Theme.cliffs.jungle.rock, mat = Enum.Material.Slate },
+	desert = { color = Theme.islands.desert.wall, mat = Enum.Material.Sandstone },
+	canyon = { color = V.door, mat = Enum.Material.Wood },
+	volcano = { color = Theme.cliffs.volcano.rockDark, mat = Enum.Material.Basalt },
+	lavalake = { color = IA.obsidian, mat = Enum.Material.SmoothPlastic },
+	magma = { color = IA.forgeIron, mat = Enum.Material.Metal },
+	suntemple = { color = IA.marble, mat = Enum.Material.Marble },
+}
+
+-- a gatehouse in front of a section: the island's own towers (GATE_TOWERS), its lintel with the
+-- crystal row, the glowing beam (GateGlow) and the ice bars
+local function gatehouse(parent: Instance, gz: number, theme: string, id: number, withBars: boolean, soon: boolean?)
 	local T, G = W.tunnel, W.gate
 	local half = T.width / 2
+	local look = Theme.islands[theme] or Theme.islands.meadow
 	local gf = folder("Gate" .. id, parent)
 	local s = T.archScale -- the towers, roofs and lintel grow with the tunnel (the span is the tunnel's own width)
+	local style = if GATE_TOWERS[theme] then theme else "castle"
 	for _, x in { -half - 2 * s, half + 2 * s } do
-		cyl(4 * s, G.height + 9 * s, CFrame.new(x, (G.height + 9 * s) / 2, gz), V.stone, gf, true, Enum.Material.Cobblestone)
-		cyl(4.5 * s, 1.1 * s, CFrame.new(x, G.height + 9.4 * s, gz), V.trim, gf)
-		for c = 0, 7 do
-			local a = c * math.pi / 4
-			block(Vector3.new(1.3, 1.5, 1.3) * s, CFrame.new(x + math.cos(a) * 3.9 * s, G.height + 10.7 * s, gz + math.sin(a) * 3.9 * s), V.stone, gf, false, Enum.Material.Cobblestone)
-		end
-		shape("Cone", Vector3.new(9.6, 9, 9.6) * s, CFrame.new(x, G.height + 16 * s, gz), look.accent, gf)
-		cyl(0.15 * s, 4 * s, CFrame.new(x, G.height + 22 * s, gz), V.iron, gf)
-		block(Vector3.new(0.15, 1.4, 2.4) * s, CFrame.new(x, G.height + 23.1 * s, gz + 1.2 * s), look.accent, gf)
-		-- a lit arrow slit
-		glow(block(Vector3.new(0.6, 2.2, 0.3) * s, CFrame.new(x - math.sign(x) * 3.9 * s, G.height + 3 * s, gz - 0.6 * s) * CFrame.Angles(0, -math.sign(x) * 0.9, 0), A.lanternGlow, gf), 0.1)
+		GATE_TOWERS[style](gf, x, gz, s, look, G.height)
 	end
-	block(Vector3.new(T.width + 2, 2.2 * s, 2.6 * s), CFrame.new(0, G.height + 2.6 * s, gz + 0.4), V.stone, gf, false, Enum.Material.Cobblestone)
-	quiet(ellipsoid(Vector3.new(T.width + 4, 1.2 * s, 3.2 * s), CFrame.new(0, G.height + 3.8 * s, gz + 0.4), A.snowCap, gf))
+	local lin = GATE_LINTELS[style]
+	block(Vector3.new(T.width + 2, 2.2 * s, 2.6 * s), CFrame.new(0, G.height + 2.6 * s, gz + 0.4), lin.color, gf, false, lin.mat)
+	if style == "castle" then
+		quiet(ellipsoid(Vector3.new(T.width + 4, 1.2 * s, 3.2 * s), CFrame.new(0, G.height + 3.8 * s, gz + 0.4), A.snowCap, gf))
+	end
 	local beam = glow(block(Vector3.new(T.width - 2, 1.6 * s, 1.6 * s), CFrame.new(0, G.height + 0.6 * s, gz), look.accent, gf), 0.15)
 	beam.Name = "GateGlow"
 	for k = 0, 8 do
@@ -2354,7 +2692,7 @@ local function section(parent: Instance, zone: Config.Zone, isl: Config.Island, 
 	end
 	local gz = WorldRules.gateZ(zone.id)
 	if gz then
-		gatehouse(f, gz, look, zone.id, true, not zone.ready)
+		gatehouse(f, gz, isl.theme, zone.id, true, not zone.ready)
 	end
 end
 
@@ -2371,7 +2709,7 @@ local function endCap(parent: Instance)
 	panel.CastShadow = false
 	local top = glow(block(Vector3.new(T.width, 1.4, 1.4), CFrame.new(0, E.height + 1.6, z + 0.6), HA.endCapGlow, f), 0.1)
 	top.Name = "GateGlow"
-	gatehouse(f, z + 0.6, look, 99, false)
+	gatehouse(f, z + 0.6, if nxt then nxt.theme else "grove", 99, false)
 	-- the hint behind it: the next island's ground, cliffs, a few of its shapes and its glow
 	local d = E.glowDepth
 	block(Vector3.new(T.width + T.wallThick * 2 + 40, 2, d + 20), CFrame.new(0, -1, z + E.depth + d / 2 + 10), look.floor, f)

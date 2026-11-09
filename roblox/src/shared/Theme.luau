@@ -136,6 +136,9 @@ local Theme = {
 		obsidian = Color3.fromHex("3a2f4a"), obsidianGlow = Color3.fromHex("ff6a3a"), crystal = Color3.fromHex("ffcc4a"),
 		lava = Color3.fromHex("ff6a1f"), lavaHot = Color3.fromHex("ffb03a"), lavaRim = Color3.fromHex("4a3a3a"), smoke = Color3.fromHex("e8dcd6"),
 		core = Color3.fromHex("ffb01f"), coreRing = Color3.fromHex("5a3a38"),
+		-- each world's gate towers (MapArt GATE_TOWERS): colours the islands didn't have yet
+		minaretTeal = Color3.fromHex("2fc4b8"), forgeIron = Color3.fromHex("4a3c40"), forgeBrass = Color3.fromHex("e0a63a"),
+		marble = Color3.fromHex("fff6e0"), sunGold = Color3.fromHex("ffcc2a"), shrineDoor = Color3.fromHex("2f3a2a"),
 	},
 	hubTint = Color3.fromHex("ffffff"),
 
