@@ -9,10 +9,15 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 export type PetView = { id: string, key: string, pose: string, mut: string?, eq: boolean, income: number,
 	frozen: boolean?, thawM: number?, thawAt: number? }
 export type Page = { zone: number, found: number, total: number, complete: boolean, secretFound: boolean, claimed: boolean }
+-- text has "{n}" where the goal goes; coins = what one claim pays; resetsAt on the server clock
+export type Challenge = { text: string, goal: number, have: number, done: boolean, claimed: boolean }
+export type Daily = { list: { Challenge }, coins: number, resetsAt: number }
 export type View = {
 	coins: number,
 	income: number,
-	incomeMult: number?, -- each pet's own income is multiplied by this (pages, rebirths, 2x pass)
+	incomeMult: number?, -- each pet's own income is multiplied by this (pages, rebirths, 2x pass, friends)
+	friends: number?, -- Roblox friends in the server (each +Config.friends.perFriend coins)
+	daily: Daily?, -- today's challenges (ChallengeService)
 	upgrades: { [string]: number },
 	pets: { PetView },
 	slots: number,

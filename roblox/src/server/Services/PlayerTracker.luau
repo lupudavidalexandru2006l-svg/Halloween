@@ -172,6 +172,7 @@ end
 function PlayerTracker.Init() end
 
 function PlayerTracker.Start()
+	Players.RespawnTime = Config.player.respawnSeconds -- a reset or a fall puts you back fast (Roblox's default is 5 s)
 	DataService.Loaded:Connect(function(player: Player)
 		states[player] = {
 			zone = -1, lastAction = "exploring", menuOpen = false, zapping = false, joinedAt = os.clock(),

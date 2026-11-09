@@ -17,6 +17,7 @@ local WildPetSpawner = require(script.Parent.WildPetSpawner)
 local WorldService = require(script.Parent.WorldService)
 local PlayerTracker = require(script.Parent.PlayerTracker)
 local CritterService = require(script.Parent.CritterService)
+local FriendService = require(script.Parent.FriendService)
 local WorldRules = require(ReplicatedStorage.Shared.WorldRules)
 
 local TesterService = {}
@@ -269,6 +270,13 @@ ACTIONS.gel = function(player)
 	change(player, function(d)
 		d.gear.gel = not d.gear.gel
 	end)
+end
+
+-- pretend this many Roblox friends are in the server (the friend bonus; Studio has no real friends)
+ACTIONS.friends = function(player, n)
+	if finite(n) then
+		FriendService.setTest(player, math.floor(n))
+	end
 end
 
 -- Round 5: set how many pets you've caught (Codes unlock at Config.codes.needPets)

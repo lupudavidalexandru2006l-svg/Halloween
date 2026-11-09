@@ -45,6 +45,7 @@ Config.data = {
 
 Config.player = {
 	walkSpeed = 16,
+	respawnSeconds = 1, -- Game Design Rules 7: failure is gentle, quick respawn (Roblox's default is 5)
 	freezeRange = 10,
 	refreezeHold = 0.35, -- zapping a melted pet back (a first freeze takes Config.show.freeze seconds)
 	interactHold = 0.4, -- hold to pay at a gate (spends coins: no accidental taps)
@@ -217,6 +218,31 @@ Config.night = {
 }
 
 Config.away = { minSeconds = 60, capSeconds = 8 * 3600, rate = 0.25 } -- owner 2026-10-30: 25%, so a night away never skips a zone
+
+-- Friend bonus (2026-11-09, Game Design Rules 1 "the friend twist": playing with friends is better,
+-- nobody loses anything): every Roblox friend in your server adds perFriend to your coins, up to max
+-- friends. Shown beside your +N/s; a banner when a friend arrives. Nothing is taken from anyone.
+Config.friends = { perFriend = 0.1, max = 3 }
+
+-- Daily challenges (2026-11-09): three small goals a day, picked per player from the pool by the UTC
+-- day. Progress counts from the moment they're handed out. Each pays rewardMinutes of your own income
+-- (never under rewardFloor), rounded like every price. A finished one you forgot to claim is paid
+-- automatically when the day turns, so missing the claim never loses it (Game Design Rules 9).
+-- goal: a fixed count picked from `goals`, or for coins, `incomeMinutes` of your income (never under floor).
+export type ChallengeDef = { id: string, text: string, stat: string, goals: { number }?, incomeMinutes: { number }?, floor: number? }
+Config.challenges = {
+	perDay = 3,
+	rewardMinutes = 6,
+	rewardFloor = 150,
+	pool = {
+		{ id = "freeze", text = "Freeze {n} pets", stat = "frozen", goals = { 8, 12, 16 } },
+		{ id = "bank", text = "Bring {n} pets home", stat = "banked", goals = { 5, 8, 10 } },
+		{ id = "rare", text = "Catch {n} Rare or better", stat = "rares", goals = { 1, 2 } },
+		{ id = "coins", text = "Earn {n} coins", stat = "coinsEarned", incomeMinutes = { 10, 15, 20 }, floor = 500 },
+	} :: { ChallengeDef },
+	rareRank = 3, -- "Rare or better" = this tier rank and up
+	checkSeconds = 1, -- how often the server looks for a newly finished challenge (to tell the player)
+}
 Config.dailyGift = { baseCoins = 50, incomeMinutes = 10, streakBonus = 0.1, streakMax = 7, afterFirstBank = true } -- the gift box opens after your first bank
 
 export type RobuxItem = {
@@ -320,27 +346,71 @@ Config.analytics = {
 }
 
 Config.sounds = {
-	-- owner items: Roblox-licensed or our own uploads; 0 = silent stand-in
+	-- Picked 2026-11-09 from Roblox-licensed audio only (Sound Rules 8): "Roblox" = Roblox's own UI and
+	-- Pinball packs, PSE = Pro Sound Effects (91xxxxxxxx), APM = APM Music (APMOfficial). Each id was
+	-- checked with ContentProvider:PreloadAsync (Success) in this place. 0 = silent stand-in.
+	-- The owner should listen once and swap any that don't fit.
 	music = 0.45,
 	sfx = 0.8,
 	ids = {
-		click = 0, zap = 0, freeze = 0, coin = 0, bank = 0, reveal_rare = 0, no = 0, buy = 0,
-		melt = 0, chill = 0, gift = 0, unlock = 0, bridge = 0, music_meadow = 0, music_forest = 0,
-		island = 0, -- the island banner dropping in
-		tink = 0, crack = 0, slam = 0, reveal_secret = 0, -- freeze snap, layered crack, show slam, Secret reveal
-		pan_up = 0, sell = 0, bounce = 0, -- a pan upgrade's burst, a sale, a cube too hot for your pan
-		thaw_done = 0, -- your Thaw Machine lets a pet out
-		upgrade_charge = 0, upgrade_hit = 0, upgrade_chime = 0, -- the fast upgrade (Config.motion.upgrade): wind-up, impact, rising chime
+		click = 15675059323, -- Roblox_UI_Bright_Click (Roblox)
+		zap = 9120985853, -- Zaps Sharp Attack 1 (PSE)
+		freeze = 9125611312, -- Ice Freeze Large Piece Crackles (PSE)
+		coin = 9126073001, -- Synth Sparkle Tone High Pitch Bell Tone Ding (PSE)
+		bank = 9116395089, -- Magic Glows Soft Clusters Of Chiming Hits 4 (PSE)
+		reveal_rare = 9119447936, -- Sparkle Bell Tree Wind Chimes 1 (PSE)
+		no = 15675075163, -- Roblox_UI_Delete (Roblox): a soft falling "not yet"
+		buy = 17208380755, -- Roblox GUI - Purchase (Roblox)
+		melt = 9114869369, -- Ice Slush Scraping Up Melted Remnants 2 (PSE)
+		chill = 9116431854, -- Magic Wind Airy Whooshy Wind 1 (PSE)
+		gift = 9126076030, -- Synth Sparkle Tone High Pitch Tone Burst (PSE)
+		unlock = 15675043410, -- Roblox_UI_Tonal_Stinger (Roblox)
+		bridge = 9120733055, -- Whoosh Rising Swish Airy 1 (PSE)
+		music_meadow = 1839620758, -- Charming View Ukulele (APM), the owner's pick
+		music_forest = 1838880621, -- Forest Walk (APM)
+		island = 15674975792, -- the island banner dropping in: Roblox_UI_Whoosh_03 (Roblox)
+		tink = 9114618736, -- freeze snap: Glass Tinks 1 (PSE)
+		crack = 9125611419, -- layered crack: Ice Freeze Large Piece Crackles (PSE)
+		slam = 9113225986, -- show slam: Axe Impact Giant Thuddy Hits On Wood Floor 5 (PSE)
+		reveal_secret = 9125641284, -- Magic Synth Stinger Glassine Multi Tone Burst (PSE)
+		pan_up = 9126072453, -- a pan upgrade's burst: Synth Sparkle Tone Bell Tone Burst (PSE)
+		sell = 9113728042, -- Cash Register 1 (PSE)
+		bounce = 12222124, -- a cube too hot for your pan: Short spring sound (Roblox)
+		thaw_done = 15675055424, -- your Thaw Machine lets a pet out: Roblox_UI_Cute_Pop (Roblox)
+		upgrade_charge = 9125805094, -- Rising Synth Tone Ascending In Pitch (PSE)
+		upgrade_hit = 16480574637, -- Roblox_Pinball_Bumper_Full_01 (Roblox)
+		upgrade_chime = 9126073318, -- Synth Sparkle Tone Bell Tone Ding (PSE), pitched up per streak
 		-- the shot (Config.ray.anim): charge whoosh, mechanical clack, fire, the hold's hum (looped), the
 		-- airy tail after a lock, a fizz when you let go early, and soft crackles as ice flecks form
-		ray_charge = 0, ray_clack = 0, ray_fire = 0, ray_hum = 0, ray_tail = 0, ray_fizz = 0, ray_crackle = 0,
+		ray_charge = 9125626779, -- Light Cone Suck Synth And Reverse Cymbal Build (PSE)
+		ray_clack = 16480551554, -- Roblox_Pinball_Small_Metal_Click_01 (Roblox)
+		ray_fire = 9120985853, -- Zaps Sharp Attack 1 (PSE)
+		ray_hum = 9116386800, -- Magic Force Field Constant 1 (PSE), looped
+		ray_tail = 9116418035, -- Magic Tone Falling Shimmer Flanged 3 (PSE)
+		ray_fizz = 9119165650, -- Sizzle Short And Explosive Sear 4 (PSE)
+		ray_crackle = 9125611291, -- Ice Freeze Large Piece Crackles (PSE)
+		friend = 17208361335, -- a friend joins your server: Roblox GUI - Notification High (Roblox)
+		challenge = 15675043410, -- a daily challenge done: Roblox_UI_Tonal_Stinger (Roblox)
 	} :: { [string]: number },
+	-- long library sounds are cut to fit the moment (seconds, with a short fade). Sound Rules 8: trimmed.
+	trim = {
+		freeze = 1.6, crack = 1.0, tink = 0.8, ray_charge = 0.6, ray_fire = 0.7, zap = 0.7, ray_crackle = 0.5,
+		ray_tail = 1.2, chill = 3, reveal_rare = 2.5, reveal_secret = 3, upgrade_charge = 1.2, melt = 1.2,
+		thaw_done = 1.2, bank = 1.6, sell = 1.2, coin = 0.8,
+	} :: { [string]: number },
+	-- per-sound loudness on top of sfx, so they feel about equally loud (Sound Rules 8: leveled)
+	volume = { ray_hum = 0.35, ray_crackle = 0.5, chill = 0.6, melt = 0.7, crack = 0.7, freeze = 0.8, slam = 0.8 } :: { [string]: number },
+	-- these climb a semitone each time they play again within streakReset seconds (Sound Rules 3)
+	streak = { coin = true, bank = true, tink = true, sell = true } :: { [string]: boolean },
+	streakMax = 7,
+	pitchJitter = 0.05, -- every other one-shot plays at 1 +/- this, so the 500th doesn't grate
+	fadeSeconds = 0.15,
 	maxSame = 3,
 	streakReset = 1.5,
 }
 
 Config.ui = {
-	tiles = { { id = "pets", label = "Pets" }, { id = "shop", label = "Shop" }, { id = "index", label = "Index" }, { id = "settings", label = "Settings" } },
+	tiles = { { id = "pets", label = "Pets" }, { id = "shop", label = "Shop" }, { id = "index", label = "Index" }, { id = "daily", label = "Daily" }, { id = "settings", label = "Settings" } },
 	scale = { phone = 1, tablet = 1.2, pc = 1.35 },
 	-- sizes are fractions of the screen's short side (Scale only, UI Rules); the Screen module places them
 	-- owner 2026-10-31: smaller side tiles (still over 10% of the short side for small fingers);
@@ -626,7 +696,8 @@ Config.images = {
 	} :: { [string]: string },
 }
 
-Config.ui.tileIcons = { pets = Config.images.pets.snowbun, shop = Config.images.icons.bag, index = Config.images.icons.book, settings = Config.images.icons.gear }
+Config.ui.tileIcons = { pets = Config.images.pets.snowbun, shop = Config.images.icons.bag, index = Config.images.icons.book, settings = Config.images.icons.gear,
+	daily = Config.images.icons.trophy }
 -- painted icons on the Shop and Settings rows
 local I = Config.images.icons
 Config.ui.upgradeIcons = { ray = I.ray, boots = I.boots, backpack = I.bag, pen = I.pen } :: { [string]: string }

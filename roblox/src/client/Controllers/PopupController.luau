@@ -26,9 +26,9 @@ local PopupController = {}
 type Open = { name: string, data: any, frame: Frame, body: Frame, first: GuiObject?, update: ((State.View) -> ())?, closed: boolean?, shown: string? }
 local current: Open? = nil
 local queue: { { name: string, data: any } } = {}
-local MENUS = { pets = true, shop = true, index = true, settings = true, tester = true, equipment = true, pan = true, sell = true, rebirth = true, thaw = true }
+local MENUS = { pets = true, shop = true, index = true, settings = true, tester = true, equipment = true, pan = true, sell = true, rebirth = true, thaw = true, daily = true }
 local TITLES: { [string]: string } = {
-	pets = "Pets", shop = "Shop", index = "Index", settings = "Settings", tester = "Tester", equipment = "Equipment",
+	pets = "Pets", shop = "Shop", index = "Index", settings = "Settings", tester = "Tester", equipment = "Equipment", daily = "Daily Challenges",
 	pan = "Pan Upgrades", sell = "Sell Booth", rebirth = "Rebirth Booth", thaw = "Thaw Machine",
 	welcome = "Welcome back!", gift = "Daily gift", pageDone = "Page complete!",
 }
@@ -63,6 +63,11 @@ local function shownData(name: string, v: State.View): string?
 		end
 		table.sort(keys)
 		table.insert(parts, table.concat(keys, ","))
+	elseif name == "daily" then
+		for _, c in (if v.daily then v.daily.list else {}) do
+			table.insert(parts, `{c.text},{c.goal},{c.have},{c.claimed}`)
+		end
+		table.insert(parts, tostring(if v.daily then v.daily.coins else 0))
 	elseif name == "equipment" then
 		return EquipmentPopup.shownKey(v)
 	elseif name == "pan" then
@@ -90,6 +95,7 @@ local SMALL = { welcome = true, gift = true, pageDone = true } -- short messages
 local HEADER_ICONS: { [string]: string } = {
 	pets = Config.ui.tileIcons.pets, shop = Config.ui.tileIcons.shop, index = Config.ui.tileIcons.index,
 	settings = Config.ui.tileIcons.settings, welcome = Config.images.icons.coin, gift = Config.images.icons.gift,
+	daily = Config.ui.tileIcons.daily,
 }
 
 -- text sizes for the open popup, one per role (Config.ui.popupText x the popup's height)
@@ -445,6 +451,52 @@ local function countdowns(o: Open, items: { Countdown })
 			task.wait(0.5)
 		end
 	end)
+end
+
+-- Daily challenges (ChallengeService): one card per goal: what to do, a bar with the count, and on the
+-- right what it pays (a coin tag), a pulsing Claim button once it's done, or "Done" once claimed.
+local function daily(o: Open, v: State.View)
+	local l = list(o.body, false)
+	local d = v.daily
+	local items = if d then d.list else {}
+	for i, c in items do
+		local line = card(row(l, i, 0.2))
+		local what = string.gsub(c.text, "{n}", Ui.short(c.goal))
+		local t = text(line, what, 0.03, 0.4)
+		t.Size = UDim2.fromScale(0.4, 0.5)
+		t.Position = UDim2.fromScale(0.03, 0.06)
+		bar(line, 0.03, 0.6, 0.4, 0.3, c.have / math.max(1, c.goal), `{Ui.short(c.have)}/{Ui.short(c.goal)}`, Theme.tiles.daily)
+		if c.claimed then
+			local done = text(line, "Done", 0.72, 0.26, Theme.go, "button")
+			done.TextXAlignment = Enum.TextXAlignment.Center
+		elseif c.done then
+			local b = button(line, Theme.go, "Claim", 0.66, 0.32, function()
+				State.send("ClaimChallenge", i)
+			end)
+			pulse(b.root)
+			o.first = o.first or b.face
+		else
+			local tag = Ui.block(line, "Reward", Theme.coin, `+{Ui.short(d and d.coins or 0)}`, nil, true)
+			tag.root.Position = UDim2.fromScale(0.66, 0.15)
+			tag.root.Size = UDim2.fromScale(0.32, 0.7)
+			sized(tag.text, "button")
+			priceTag(tag)
+		end
+	end
+	if d then
+		local foot = text(row(l, #items + 1, 0.12), "", 0.02, 0.96, Theme.infoDeep, "small")
+		foot.TextXAlignment = Enum.TextXAlignment.Center
+		local function show()
+			foot.Text = `New challenges in {Config.timeText(d.resetsAt - workspace:GetServerTimeNow())}`
+		end
+		show()
+		task.spawn(function()
+			while not o.closed and foot.Parent do
+				task.wait(1)
+				show()
+			end
+		end)
+	end
 end
 
 local function thawTime(v: State.View, p: State.PetView, def: PetDefs.PetDef): number
@@ -1247,6 +1299,8 @@ local function fill(o: Open)
 			thaw(o, v)
 		elseif o.name == "index" then
 			index(o, v)
+		elseif o.name == "daily" then
+			daily(o, v)
 		elseif o.name == "tester" then
 			tester(o, v)
 		elseif o.name == "equipment" then

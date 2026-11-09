@@ -19,6 +19,8 @@ export type PetEntry = { id: string, key: string, pose: string, mut: string?, at
 export type Settings = { music: boolean, sound: boolean, reducedMotion: boolean, lowGraphics: boolean, unit: string }
 -- tester switches, saved per tester; reset to these defaults on load for everyone else
 export type TesterSettings = { mult: number, walk: number, instantFreeze: boolean, noMelt: boolean }
+-- today's challenges (ChallengeService): which ones, each one's goal and the stat's value when handed out
+export type DailyState = { day: string, list: { { id: string, goal: number, from: number } }, claimed: { boolean }, rares: number }
 export type Data = {
 	version: number,
 	coins: number,
@@ -49,6 +51,7 @@ export type Data = {
 	gear: { gel: boolean }, -- gear bought at the Equipment Booth's Gear tab (Round 5)
 	codes: { [string]: boolean }, -- codes already redeemed (Round 5)
 	shieldLeft: number, -- seconds of the new-player tag shield still to use (counts down only while playing)
+	daily: DailyState,
 	createdAt: number,
 	lock: { job: string, t: number }?,
 }
@@ -101,6 +104,7 @@ local function defaults(): Data
 		gear = { gel = false },
 		codes = {},
 		shieldLeft = Config.tag.shieldMinutes * 60,
+		daily = { day = "", list = {}, claimed = {}, rares = 0 },
 		createdAt = os.time(),
 		lock = nil,
 	}
@@ -279,6 +283,20 @@ local function migrate(old: any): Data
 		end
 	end
 	d.shieldLeft = num(old.shieldLeft, 0, Config.tag.shieldMinutes * 60, 0) -- saves from before the shield was saved aren't new players
+	local da = tbl(old.daily)
+	local oldList = tbl(da.list)
+	d.daily.day = str(da.day, 16)
+	d.daily.rares = int(da.rares, 0, 1e9, 0)
+	for i = 1, math.min(#oldList, Config.challenges.perDay) do
+		local c = oldList[i]
+		if typeof(c) == "table" and typeof(c.id) == "string" and #c.id <= 16 then
+			d.daily.list[i] = { id = c.id, goal = num(c.goal, 1, 1e15, 1), from = num(c.from, 0, 1e15, 0) }
+			d.daily.claimed[i] = tbl(da.claimed)[i] == true
+		end
+	end
+	if #d.daily.list ~= math.min(#oldList, Config.challenges.perDay) then
+		d.daily = { day = "", list = {}, claimed = {}, rares = d.daily.rares } -- damaged: handed out fresh
+	end
 	d.createdAt = num(old.createdAt, 0, 1e12, os.time())
 	d.lastBest = if typeof(old.lastBest) == "string" and PetDefs.get(old.lastBest) then old.lastBest else nil
 	if typeof(old.lock) == "table" and typeof(old.lock.job) == "string" then

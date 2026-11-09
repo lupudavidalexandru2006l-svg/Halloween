@@ -24,6 +24,7 @@ local coinsRoot: Frame
 local coinsText: TextLabel
 local coinsRate: TextLabel
 local banner: Ui.Block
+local dailyDot: Frame? = nil -- a round dot on the Daily tile while a finished challenge waits to be claimed
 
 local bannerUntil = 0
 
@@ -96,8 +97,20 @@ local function render(v: State.View)
 		ensureTesterTile()
 	end
 	coinsText.Text = Ui.commas(v.coins) -- the whole number, 1,508,273 not 1.5M (owner 2026-11-03)
-	coinsRate.Text = if v.income > 0 then `+{Ui.short(v.income)}/s` else ""
+	-- the friend bonus rides on the income line (no new HUD item): "+120/s  +20% friends"
+	local f = v.friends or 0
+	local friendsText = if f > 0
+		then `  <font color="#{Theme.tiles.daily:ToHex()}">+{math.round(f * Config.friends.perFriend * 100)}% friends</font>`
+		else ""
+	coinsRate.Text = if v.income > 0 then `+{Ui.short(v.income)}/s{friendsText}` else ""
 	coinsRate.Visible = v.income > 0
+	if dailyDot then
+		local ready = false
+		for _, c in (if v.daily then v.daily.list else {}) do
+			ready = ready or (c.done and not c.claimed)
+		end
+		dailyDot.Visible = ready
+	end
 end
 
 -- the island banner (Config.ui.islandBanner, owner's reference clip 2026-11-07): Screen places the
@@ -343,6 +356,23 @@ function HudController.Start()
 			local ts = b.text:FindFirstChildOfClass("UIStroke") :: UIStroke
 			ts.Thickness = Config.ui.floatingStroke
 		end
+		if t.id == "daily" then
+			-- "something to claim": a red dot with an ink outline on the tile's top-right corner (a shape, not an emoji)
+			local dot = Instance.new("Frame")
+			dot.Name = "Ready"
+			dot.AnchorPoint = Vector2.new(0.5, 0.5)
+			dot.Position = UDim2.fromScale(0.92, 0.08)
+			dot.Size = UDim2.fromScale(0.28, 0.28)
+			dot.BackgroundColor3 = Theme.no
+			dot.ZIndex = 5
+			dot.Visible = false
+			local a = Instance.new("UIAspectRatioConstraint")
+			a.Parent = dot
+			Ui.corner(dot, 0.5)
+			Ui.stroke(dot)
+			dot.Parent = b.root
+			dailyDot = dot
+		end
 	end
 	Screen.register("tiles", tiles, #Config.ui.tiles)
 	-- coins: the coin image, the number, and +N/s under it
@@ -354,8 +384,10 @@ function HudController.Start()
 	-- wider than the frame (it runs on to the right) so a long whole number keeps a big font
 	coinsText = Ui.label(coinsRoot, "0", UDim2.fromScale(1.4, 0.62), UDim2.fromScale(0.34, 0))
 	coinsText.TextXAlignment = Enum.TextXAlignment.Left
-	coinsRate = Ui.label(coinsRoot, "", UDim2.fromScale(0.64, 0.34), UDim2.fromScale(0.35, 0.62))
+	-- wide enough for "+1.2K/s  +30% friends"; a short rate keeps its size (TextScaled caps at the height)
+	coinsRate = Ui.label(coinsRoot, "", UDim2.fromScale(1.6, 0.34), UDim2.fromScale(0.35, 0.62))
 	coinsRate.TextXAlignment = Enum.TextXAlignment.Left
+	coinsRate.RichText = true
 	coinsRate.TextColor3 = Theme.go -- income reads as "go/gain" green
 	local gold = Instance.new("UIGradient") -- the number fades white to gold, like the coin
 	gold.Rotation = 90
@@ -465,6 +497,17 @@ function HudController.Start()
 			HudController.banner("Cube knocked loose! Zap it", Theme.round5.reticlePlayer)
 		elseif kind == "shieldOff" then
 			HudController.banner("Your shield is off: keep your cubes safe!", Theme.round5.shield)
+		elseif kind == "friendJoined" then
+			HudController.banner(`{data.name} is here! Friends +{math.round((data.bonus or 0) * 100)}% coins`, Theme.tiles.daily)
+		elseif kind == "challengeDone" then
+			local goal = if typeof(data.goal) == "number" then Ui.short(data.goal) else ""
+			local what = string.gsub(tostring(data.text), "{n}", goal)
+			HudController.banner(`Challenge done: {what}! Claim it in Daily`, Theme.tiles.daily)
+		elseif kind == "challengeClaimed" then
+			if data.auto then
+				HudController.banner(`Yesterday's challenges paid +{Ui.short(data.coins)}`, Theme.coin)
+			end
+			floatGain(data.coins)
 		end
 	end)
 	task.spawn(function()

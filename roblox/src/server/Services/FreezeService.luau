@@ -171,6 +171,9 @@ local function freezeOne(player: Player, pet: any)
 	local uid = CarryService.dropCube(player, info, at, if show then showSeconds(show) else 0) -- on the ground until it's picked up
 	DataService.mutate(player, function(d)
 		d.stats.frozen += 1
+		if not dazed and Config.tier(pet.def.tier).rank >= Config.challenges.rareRank then
+			d.daily.rares += 1 -- the "Catch a Rare" daily challenge (a melted pet zapped back doesn't count twice)
+		end
 	end)
 	AnalyticsSvc.funnel(player, "first_freeze")
 	if show and uid then

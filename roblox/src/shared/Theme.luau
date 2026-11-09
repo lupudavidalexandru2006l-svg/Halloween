@@ -53,6 +53,7 @@ local Theme = {
 		shop = Color3.fromHex("ff9f1c"),
 		index = Color3.fromHex("3aa8ff"),
 		settings = Color3.fromHex("8f7cff"),
+		daily = Color3.fromHex("2ec27e"),
 	} :: { [string]: Color3 },
 
 	-- the world's look, from prototype scenery.js (MapArt)

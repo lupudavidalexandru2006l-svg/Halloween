@@ -32,7 +32,10 @@ foreach ($f in ($Files | Select-Object -Unique)) {
     else { $inner = $inner -replace '\.luau$', '' }
     $parts = $inner -split '/'
     $src = [IO.File]::ReadAllText((Join-Path $root $rel), $utf8) -replace "`r`n", "`n"
+    # a new file isn't in HEAD yet: git's "not in HEAD" goes to stderr, which must not stop the script
+    $ErrorActionPreference = 'Continue'
     $head = (git -C $root show "HEAD:./$rel" 2>$null) -join "`n"
+    $ErrorActionPreference = 'Stop'
     $eq = '='; while ($src.Contains("]$eq]") -or $head.Contains("]$eq]")) { $eq += '=' }
     $guard = if ($Force) { 'false' } else { 'true' }
     $names = ($parts | ForEach-Object { '"' + $_ + '"' }) -join ', '

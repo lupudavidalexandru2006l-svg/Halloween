@@ -17,6 +17,7 @@ local PlayerTracker = require(script.Parent.PlayerTracker)
 local WorldService = require(script.Parent.WorldService)
 local CarryService = require(script.Parent.CarryService)
 local IndexService = require(script.Parent.IndexService)
+local ChallengeService = require(script.Parent.ChallengeService)
 
 type Data = DataService.Data
 type PetEntry = DataService.PetEntry
@@ -36,6 +37,8 @@ local penShown: { [Player]: { key: string, parts: { [string]: Part } } } = {}
 -- MonetizationService asks it on every join (and after a purchase)
 local doubled: { [any]: boolean } = setmetatable({}, { __mode = "k" }) :: any
 local DOUBLE = Config.robuxItem("doubleCoins")
+-- the save's data table -> Roblox friends in this server (FriendService, Config.friends). Not saved.
+local friends: { [any]: number } = setmetatable({}, { __mode = "k" }) :: any
 
 -- the pan's pets sit frozen in ice cubes, in a neat grid from the door to the back, seen by everyone.
 -- Each cube is a see-through ice Part with PetKey; clients draw the pet inside it with a little wiggle,
@@ -204,10 +207,20 @@ function PenService.incomePerSecond(d: Data): number
 end
 
 -- what every pet's own income is multiplied by: Index pages, rebirths (+50% each, Round 4 phase 7),
--- a tester's money multiplier and the 2x Coins game pass
+-- a tester's money multiplier, the 2x Coins game pass and friends in the server (+10% each)
 function PenService.incomeMult(d: Data): number
 	local pass = if doubled[d] and DOUBLE then DOUBLE.mult or 2 else 1
-	return IndexService.multiplier(d.indexClaimed) * Config.rebirthIncome(d.rebirths) * d.tester.mult * pass
+	local friendBonus = 1 + (friends[d] or 0) * Config.friends.perFriend
+	return IndexService.multiplier(d.indexClaimed) * Config.rebirthIncome(d.rebirths) * d.tester.mult * pass * friendBonus
+end
+
+-- FriendService: how many of this player's Roblox friends are in the server (already capped)
+function PenService.setFriends(player: Player, n: number)
+	local d = DataService.get(player)
+	if d and (friends[d] or 0) ~= n then
+		friends[d] = if n > 0 then n else nil
+		dirty[player] = true
+	end
 end
 
 -- MonetizationService: this player owns the 2x Coins pass
@@ -709,6 +722,8 @@ local function view(player: Player, d: Data): { [string]: any }
 		coins = math.floor(d.coins),
 		income = PenService.incomePerSecond(d),
 		incomeMult = PenService.incomeMult(d), -- each pet's coin pop shows its own income times this
+		friends = friends[d] or 0, -- Roblox friends in the server (each +Config.friends.perFriend coins)
+		daily = ChallengeService.view(d),
 		upgrades = d.upgrades,
 		pets = pets,
 		slots = PenService.slots(d),
