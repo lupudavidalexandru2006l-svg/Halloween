@@ -712,7 +712,7 @@ Config.petAnim = {
 		Swimmer = { stride = 0.4, hop = 0.05, pitch = 0.05, roll = 0.08, yaw = 0.25, squash = 0.12, lean = 0.03, bob = 0, bobHz = 0 },
 		Custom = { stride = 0.4, hop = 0.09, pitch = 0.08, roll = 0.06, yaw = 0.05, squash = 0.08, lean = 0.08, bob = 0, bobHz = 0 },
 	},
-	gaitFor = { snowbun = "Hopper", hopsprout = "Hopper" } :: { [string]: string }, -- bunnies hop
+	gaitFor = { snowbun = "Hopper", hopsprout = "Hopper", shimmerfrog = "Hopper" } :: { [string]: string }, -- bunnies and frogs hop
 }
 Config.mapFx = { gateBarsDrop = 19.3, gateBarsSeconds = 1.2, giftBob = 0.6, giftSway = 0.15,
 	motionTag = "MapMotion", -- MapArt's moving parts (booth gears, portal swirl, floating crystals); MapController moves them

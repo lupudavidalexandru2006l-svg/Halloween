@@ -52,6 +52,19 @@ local PetEyes: { [string]: Spec } = {
 	trufflet = { part = "Head", lid = Color3.fromRGB(105, 62, 48), eyes = {
 		eye(0.1378, 0.1768, -0.3956, -0.060, 0.473, -0.879, 0.0412),
 		eye(-0.1951, 0.1961, -0.3369, -0.426, 0.149, -0.893, 0.0431) } },
+	-- measured 2026-11-09 (second batch): Mushroom Grove TRELLIS pets
+	glimmermoth = { part = "Head", lid = Color3.fromRGB(35, 40, 115), eyes = {
+		eye(0.1240, 0.0487, -0.2468, 0.231, 0.139, -0.963, 0.0610),
+		eye(-0.1240, 0.0487, -0.2466, -0.263, -0.014, -0.965, 0.0610) } },
+	shimmerfrog = { part = "Head", lid = Color3.fromRGB(20, 105, 125), eyes = { -- Head here is the eye ridge, no Role
+		eye(0.2006, 0.2011, -0.3499, 0.020, 0.132, -0.991, 0.0765),
+		eye(-0.1999, 0.1990, -0.3526, 0.003, 0.150, -0.989, 0.0728) } },
+	capcrown_badger = { part = "Head", lid = Color3.fromRGB(90, 35, 100), eyes = {
+		eye(0.1399, 0.1088, -0.4510, 0.648, 0.031, -0.761, 0.0432),
+		eye(-0.1042, 0.1092, -0.5152, -0.367, -0.089, -0.926, 0.0403) } },
+	sporewing_drake = { part = "Head", lid = Color3.fromRGB(160, 20, 30), eyes = {
+		eye(0.1570, 0.1600, -0.4613, 0.236, 0.266, -0.935, 0.0608),
+		eye(-0.0780, 0.1405, -0.4273, -0.759, 0.135, -0.637, 0.0548) } },
 }
 
 return PetEyes

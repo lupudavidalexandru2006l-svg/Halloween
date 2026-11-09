@@ -61,7 +61,8 @@ local PetDefs: { PetDef } = {
 	pet("bloomhorn_stag", "Bloomhorn Stag", 2, "Mythic", "Custom", "M", "d6286f", { "Antlers", "Hooves", "LeafEmblem" }),
 	pet("glowshroom_mammoth", "Glowshroom Mammoth", 2, "Secret", "Custom", "M", "1f5a6a", { "Mushrooms" }),
 	-- Mushroom Grove (zone 3): roster and concepts approved (2026-11-05); 3D + rig done for Toddle,
-	-- Puffball, Trufflet (2026-11-06), the other five are next
+	-- Puffball, Trufflet (2026-11-06), Glimmermoth, Shimmerfrog, Capcrown Badger, Sporewing Drake (2026-11-09);
+	-- Myco Golem is next
 	pet("toddle", "Toddle", 3, "Common", "Quadruped", "S", "e8641c"),
 	pet("puffball", "Puffball", 3, "Common", "Blob", "S", "c2185b"),
 	pet("trufflet", "Trufflet", 3, "Uncommon", "Quadruped", "S", "5c3a26"),
