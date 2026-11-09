@@ -109,6 +109,9 @@ Config.pen = { baseSlots = 10, maxSlots = 16, storageMax = 500, -- maxSlots: the
 Config.carryHomeMinStuds = 4 -- funnel step 4 counts a cube carried at least this far out of the hub and back
 Config.beachGateCoins = 500
 Config.notYetCooldown = 2 -- seconds between two of the same "not yet" message
+-- every pet's size multiplier (PetDefs.sizeHeight). QA 2026-11-08 (Studio-side work); restored 2026-11-09
+-- after a sync overwrote Studio's Config. The value there was lost: 1 = the sizes the repo always had
+Config.petScale = 1
 -- a booth's popup closes this many studs before the server's own range ends: its buttons only work at
 -- the booth, so walking away with it open left buttons that did nothing (final QA 2026-11-03)
 Config.boothLeaveMargin = 4
@@ -688,7 +691,16 @@ Config.petAnim = {
 	dance = { beats = 4, hop = 0.2, twirlHop = 1.5, roll = 0.3, sway = 0.4, step = 0.12, squash = 0.12 },
 	sneeze = { build = 0.55, snap = 0.64, stretch = 0.15, lean = 0.32, snapLean = 0.5, squash = 0.24, recoil = 0.18,
 		puff = 10, puffSize = 0.18, puffSpeed = 6, puffLife = 0.5 },
+	-- asleep (owner 2026-11-09: "make the pets not move and close their eyes while sleeping"): it only
+	-- breathes, slowly. No walking, strolling, head looks, ear twitches, tail wags or scratches.
 	sleep = { flatten = 0.12, breathe = 0.05, breathePeriod = 4, sink = 0.06 },
+	-- closed eyelids on 3D pets (spots in Shared.PetEyes): a soft lid in the fur colour over each painted
+	-- eye with a dark U-shaped curve on it. Sizes are fractions of the eye's radius: width / height of the
+	-- lid, depth (how far it bulges), sink (pushed into the face), lash (the curve's thickness).
+	-- faceBlend: how much the lid turns toward the pet's front (the measured face direction is rough).
+	-- shutAt: the eyes close this far into lying down (0-1 of sleepBlendSeconds)
+	lids = { width = 1.3, height = 1.2, depth = 0.8, sink = 0.2, lash = 0.17, lashSegments = 5, lashWidth = 0.78,
+		lashDip = 0.32, faceBlend = 1, shutAt = 0.5 },
 	dazed = { tilt = 0.25, wobble = 3, spin = 1.6, sway = 0.06 },
 	-- walk cycle per rig family (PetDefs.rig, or gaitFor): stride = pet heights per step; bob/bobHz = idle hover
 	gait = {
@@ -736,7 +748,10 @@ Config.carry = { scale = 0.62, handY = 0.4, front = 0.9, stackGap = 0.15, armRai
 	-- a freeze leaves the cube on the ground where the pet stood; E picks it up (owner 2026-11-07).
 	-- Only the player who froze it can. Left alone this long, it thaws back into a dazed pet that
 	-- only you can zap, so a forgotten cube never blocks your hands.
-	pickUpRange = 10, groundSeconds = 60 }
+	pickUpRange = 10, groundSeconds = 60,
+	-- QA 2026-11-08 (Studio-side work): the cube flies into your hands by itself this many seconds after
+	-- the snap, no E. Restored 2026-11-09 after a sync overwrote Studio's Config: the delay is a guess
+	autoPickUp = true, autoPickUpDelay = 0.6 }
 
 -- Trees (shade) and sun patches, placed with the prototype's generator (mulberry32) so the same seed
 -- always gives the same map. Each island's own list (Config.world.islands) says how many and how big;
@@ -1121,6 +1136,7 @@ Config.aim = {
 	rangeGrace = 2, -- studs past the gun's range the server still accepts (lag)
 	pickRadius = 0.12, -- a click / touch picks the nearest target this close on screen (share of the short side)
 	autoAimDot = 0.3, -- E / R2: only targets in front of the camera (dot product) within range
+	closerHintRange = 30, -- studs: a shot that reaches nothing says "Get closer!" if a pet is this near (QA 2026-11-08; value restored 2026-11-09, a guess)
 	keys = { Enum.KeyCode.E, Enum.KeyCode.ButtonR2 },
 	sendEvery = 0.1, -- the client sends a changed aim at most this often
 	step = 0.02, -- the meter reaches clients in steps of this size

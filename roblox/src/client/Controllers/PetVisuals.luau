@@ -15,6 +15,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Theme = require(ReplicatedStorage.Shared.Theme)
 local PetDefs = require(ReplicatedStorage.Shared.PetDefs)
+local PetEyes = require(ReplicatedStorage.Shared.PetEyes)
 local Ui = require(script.Parent.Parent.Lib.Ui)
 local State = require(script.Parent.State)
 local InputController = require(script.Parent.InputController)
@@ -33,7 +34,8 @@ type Gait = { stride: number, hop: number, pitch: number, roll: number, yaw: num
 type Anim = { key: string, start: any, t: number, clock: number, from: Pose?, blend: number, blendLen: number, last: Pose, base: CFrame,
 	walk: number, phase: number, gait: Gait, parts: { { part: BasePart, size: Vector3, rel: CFrame, hip: Vector3?, swing: number, front: boolean,
 	role: string, pivot: Vector3?, side: number, hang: boolean, liftedOnly: boolean } }, sneezed: boolean, culled: boolean,
-	seed: number, scratchy: boolean, hasArms: boolean, headPivot: Vector3? } -- seed: from the pet's id (the scratch pick); scratchy: it has back legs or arms
+	seed: number, scratchy: boolean, hasArms: boolean, headPivot: Vector3?, -- seed: from the pet's id (the scratch pick); scratchy: it has back legs or arms
+	lids: { BasePart }, shut: boolean, awake: number } -- lids: closed eyelids (shown while shut); awake: 1 awake, 0 asleep (head, ears and tail fade still)
 type Banked = { edges: SelectionBox, coin: BillboardGui, coinImg: ImageLabel, phase: number }
 type Fleck = { part: BasePart, round: number, angle: number, y: number, reach: number }
 type FreezeLook = { shell: Part, highlight: Highlight?, crystals: { BasePart }, cracks: { { part: BasePart, face: number, u: number, v: number, turn: number } }, nextChip: number, style: string, cracked: number,
@@ -81,7 +83,68 @@ local function sparkles(parent: Instance, color: Color3, rate: number): Particle
 	return e
 end
 
-local function standIn(def: PetDefs.PetDef, size: number): (PVInstance, ImageLabel?)
+local function lidPart(parent: Instance, size: Vector3, cf: CFrame, color: Color3, role: any, shut: boolean)
+	local p = Instance.new("Part")
+	p.Name = "Lid"
+	p.Size = size
+	p.CFrame = cf
+	p.Color = color
+	p.Material = Enum.Material.SmoothPlastic
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.CastShadow = false
+	p.LocalTransparencyModifier = if shut then 0 else 1
+	local mesh = Instance.new("SpecialMesh") -- an ellipsoid that follows the part's size (it squashes with the pet)
+	mesh.MeshType = Enum.MeshType.Sphere
+	mesh.Parent = p
+	p:SetAttribute("Lid", true)
+	if typeof(role) == "string" then
+		p:SetAttribute("Role", role) -- on the head: the lids turn with it
+	end
+	p.Parent = parent
+end
+
+-- closed eyelids for a 3D pet (spots in Shared.PetEyes): a soft lid in the fur colour over each painted
+-- eye, with a dark U-shaped curve across it. Hidden unless shut (the pet is asleep).
+local function addLids(def: PetDefs.PetDef, model: Model, size: number, shut: boolean)
+	local spec = PetEyes[def.model]
+	local anchor = spec and model:FindFirstChild(spec.part, true)
+	if not spec or not anchor then
+		return
+	end
+	local L = A.lids
+	local role = anchor:GetAttribute("Role")
+	local piv = model:GetPivot()
+	for _, e in spec.eyes do
+		local r = e.r * size
+		local n = piv:VectorToWorldSpace((e.normal + Vector3.new(0, 0, -L.faceBlend)).Unit)
+		local at = piv:PointToWorldSpace(e.at * size) - n * (L.sink * r)
+		local frame = CFrame.lookAt(at, at + n) -- looks out of the face: the lid's front is its -Z side
+		local a, b, c = L.width * r, L.height * r, L.depth * r -- half sizes
+		lidPart(model, Vector3.new(2 * a, 2 * b, 2 * c), frame, spec.lid, role, shut)
+		-- the curve: points across the lid's front, low in the middle, joined by overlapping little ellipsoids
+		local pts = {}
+		for i = 0, L.lashSegments do
+			local t = i / L.lashSegments * 2 - 1
+			local x = t * a * L.lashWidth
+			local y = b * L.lashDip * (t * t - 0.6)
+			local z = c * math.sqrt(math.max(0, 1 - (x / a) ^ 2 - (y / b) ^ 2))
+			table.insert(pts, frame:PointToWorldSpace(Vector3.new(x, y, -z)))
+		end
+		local thick = L.lash * r
+		for i = 1, #pts - 1 do
+			local p0, p1 = pts[i], pts[i + 1]
+			local mid = (p0 + p1) / 2 + n * thick * 0.15
+			lidPart(model, Vector3.new(thick, thick * 0.6, (p1 - p0).Magnitude + thick), CFrame.lookAt(mid, p1, n),
+				Theme.fx.sleepLash, role, shut)
+		end
+	end
+end
+
+-- shut: draw it with its eyes closed from the start (a pet frozen asleep in a carried cube)
+local function standIn(def: PetDefs.PetDef, size: number, shut: boolean?): (PVInstance, ImageLabel?)
 	local models = ReplicatedStorage:FindFirstChild("PetModels")
 	local m = models and models:FindFirstChild(def.model)
 	if m and m:IsA("Model") then
@@ -97,6 +160,7 @@ local function standIn(def: PetDefs.PetDef, size: number): (PVInstance, ImageLab
 				end
 			end
 		end
+		addLids(def, clone, size, shut == true)
 		return clone
 	end
 	local p = Instance.new("Part")
@@ -356,6 +420,7 @@ end
 
 local function newAnim(def: PetDefs.PetDef, model: PVInstance, img: ImageLabel?, root: BasePart): Anim
 	local parts = {}
+	local lids: { BasePart } = {}
 	local headPivot: Vector3? = nil
 	local scratchy, hasArms = false, false
 	-- the same number on every client for this pet (its scratches line up for everyone)
@@ -389,6 +454,9 @@ local function newAnim(def: PetDefs.PetDef, model: PVInstance, img: ImageLabel?,
 					scratchy = true
 				end
 				hasArms = hasArms or role == "arm"
+				if p:GetAttribute("Lid") == true then
+					table.insert(lids, p)
+				end
 			end
 		end
 	elseif not img and model:IsA("BasePart") then -- the coloured ball stand-in
@@ -398,7 +466,18 @@ local function newAnim(def: PetDefs.PetDef, model: PVInstance, img: ImageLabel?,
 	local gaits: { [string]: Gait } = A.gait :: any
 	return { key = "", start = nil, t = 0, clock = math.random() * 10, from = nil, blend = 0, blendLen = 0, last = REST,
 		base = root.CFrame, walk = 0, phase = 0, gait = gaits[A.gaitFor[def.key] or def.rig] or gaits.Custom, parts = parts,
-		sneezed = false, culled = false, seed = seed, scratchy = scratchy, hasArms = hasArms, headPivot = headPivot }
+		sneezed = false, culled = false, seed = seed, scratchy = scratchy, hasArms = hasArms, headPivot = headPivot,
+		lids = lids, shut = false, awake = 1 }
+end
+
+-- closes or opens a 3D pet's eyes (its lids show only while shut)
+local function shutEyes(a: Anim, shut: boolean)
+	if a.shut ~= shut then
+		a.shut = shut
+		for _, p in a.lids do
+			p.LocalTransparencyModifier = if shut then 0 else 1
+		end
+	end
 end
 
 -- moves one pet for this frame; returns how high it is off the ground (0-1 of its height) for the shadow.
@@ -434,6 +513,13 @@ local function animate(root: BasePart, d: Drawn, dt: number, now: number, cam: C
 	a.t += dt * speed
 	a.clock += dt * speed
 	a.blend += dt
+	-- asleep it holds still (only slow breathing) and its eyes close partway through lying down
+	local asleep = key == "sleep"
+	if asleep then
+		a.walk = 0
+	end
+	a.awake += ((if asleep then 0 else 1) - a.awake) * (1 - math.exp(-4 * dt))
+	shutEyes(a, asleep and a.blend >= a.blendLen * A.lids.shutAt)
 
 	-- far away or off-screen it just stands (no pose maths), so a phone only animates what you see
 	local _, onScreen = cam:WorldToViewportPoint(a.base.Position)
@@ -476,7 +562,7 @@ local function animate(root: BasePart, d: Drawn, dt: number, now: number, cam: C
 		end
 		-- head, ears and tail
 		local PA = A.parts
-		local still = 1 - 0.6 * a.walk
+		local still = (1 - 0.6 * a.walk) * a.awake -- asleep: the head stops looking round
 		local hYaw = PA.headLook * math.sin(a.clock * 2 * math.pi / PA.headLookPeriod) * still * k
 		local hPitch = PA.headNod * a.walk * math.sin(2 * math.pi * a.phase) * k - S.headPitch * scratch
 		local hRoll = -scratchSide * S.headRoll * scratch + 0.04 * scratch * rub
@@ -485,12 +571,12 @@ local function animate(root: BasePart, d: Drawn, dt: number, now: number, cam: C
 		local every = PA.earTwitchEvery
 		local tt = a.clock + (a.seed % 97) / 97 * every
 		local cyc = tt % every
-		earTwitch = if cyc < PA.earTwitchSeconds then math.sin(math.pi * cyc / PA.earTwitchSeconds) * k else 0
+		earTwitch = if cyc < PA.earTwitchSeconds then math.sin(math.pi * cyc / PA.earTwitchSeconds) * k * a.awake else 0
 		earWhich = if math.floor(tt / every) % 2 == 0 then -1 else 1
 		earFlop = PA.earFlop * (a.walk * math.sin(2 * math.pi * a.phase) + math.clamp(pose.y / h, 0, 1)) * k
 		local dancing = key == "dance"
 		tailYaw = (if dancing then PA.tailDanceWag else PA.tailWag)
-			* math.sin(a.clock * 2 * math.pi * (if dancing then PA.tailDanceHz else PA.tailHz)) * k
+			* math.sin(a.clock * 2 * math.pi * (if dancing then PA.tailDanceHz else PA.tailHz)) * k * a.awake
 		if a.culled then
 			a.from, a.blend, a.blendLen = REST, 0, A.blendSeconds
 		end
@@ -765,7 +851,7 @@ local function addCube(part: Instance)
 			prompt.Enabled = false -- someone else's frozen pet: only they can pick it up
 		end
 	end
-	local model, img = standIn(def, part.Size.Y * 0.6)
+	local model, img = standIn(def, part.Size.Y * 0.6, part:GetAttribute("Pose") == "sleep") -- frozen asleep: eyes shut
 	model.Parent = folder
 	mutationLook(model, img, part, part:GetAttribute("Mut"))
 	-- white ice edges (prototype frame lines)
@@ -1067,6 +1153,10 @@ local function stroll(root: BasePart, d: Drawn, dt: number, t: number)
 		strolls[root] = s
 	end
 	local st = s :: { pos: Vector3, to: Vector3?, pauseUntil: number }
+	if root:GetAttribute("Action") == "sleep" then
+		root.CFrame = CFrame.new(st.pos) * root.CFrame.Rotation -- asleep: it stays where it lay down
+		return
+	end
 	if not st.to and t >= st.pauseUntil then
 		local halfW = P.width / 2 - W.margin
 		local back, front = P.frontZ - P.length + Config.thaw.machine.z + 4, P.frontZ - W.margin
@@ -1112,6 +1202,7 @@ local function step(dt: number)
 			-- frozen on the pan: a tiny wiggle inside the ice, frost shimmer, a coin rising now and then
 			local b = d.banked
 			d.fx.core.Position = root.Position -- Frosty snowflakes stay with the cube
+			shutEyes(d.anim, root:GetAttribute("Action") == "sleep") -- frozen asleep: it naps with its eyes shut
 			if cam and (cam.CFrame.Position - root.Position).Magnitude > PC.drawDistance then
 				continue -- nothing moves far away
 			end

@@ -162,6 +162,7 @@ local Theme = {
 		giftBody = Color3.fromHex("ff5a8a"), giftLid = Color3.fromHex("ff7ca3"), giftRibbon = Color3.fromHex("ffd34a"),
 		superFrozen = Color3.fromHex("5f8dff"),
 		zzz = Color3.fromHex("e6e9ff"),
+		sleepLash = Color3.fromHex("2a1e24"), -- the closed-eye curve on a sleeping 3D pet's eyelid
 		coinPopTop = Color3.fromHex("d8ff6b"), coinPopBottom = Color3.fromHex("3ccf6e"), -- the "+N" pop: lime fading to go-green
 		frostTint = Color3.fromHex("a9dcff"), -- a freezing pet's colour cools to this
 		crystal = Color3.fromHex("d9f6ff"), crack = Color3.fromHex("ffffff"), flash = Color3.new(1, 1, 1),
