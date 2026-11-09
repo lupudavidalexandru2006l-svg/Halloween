@@ -168,7 +168,7 @@ local function freezeOne(player: Player, pet: any)
 	local show = if dazed then nil else F.shows[pet.def.tier]
 	WildPetSpawner.remove(id)
 	-- the result is decided and stored before any show plays (Animation Rules 3)
-	local uid = CarryService.dropCube(player, info, at, if show then showSeconds(show) else 0) -- waits on the ground for your E
+	local uid = CarryService.dropCube(player, info, at, if show then showSeconds(show) else 0) -- on the ground until it's picked up
 	DataService.mutate(player, function(d)
 		d.stats.frozen += 1
 	end)
@@ -188,6 +188,15 @@ local function freezeOne(player: Player, pet: any)
 	})
 	if show and (Config.show :: any)[show].shout then
 		Remotes.fireAll("Notify", "shoutout", { name = player.DisplayName, userId = player.UserId, key = info.key, tier = pet.def.tier })
+	end
+	-- no E between the freeze and the reward (QA 2026-11-08): the cube flies into your hands by itself once
+	-- the snap (or the Legendary+ show) has played. A player who left, or a cube already gone, is a no-op.
+	if uid and Config.carry.autoPickUp then
+		task.delay(if show then showSeconds(show) else Config.carry.autoPickUpDelay, function()
+			if player.Parent then
+				CarryService.pickUp(player, uid, true)
+			end
+		end)
 	end
 	-- the ray goes away once the whole shot is done (tick / clearAim), not here: a many-beam gun's
 	-- first cube to shut used to put it away and thaw the pet you were aiming at (QA 2026-11-05, PT-01)
@@ -364,7 +373,7 @@ function FreezeService.Start()
 			end
 		end
 	end)
-	-- leaving mid-show keeps the pet: it goes straight into your pan (or Storage), saved on the way out
+	-- leaving mid-show keeps the pet: it goes into your Pets, frozen for the Thaw Machine, saved on the way out
 	CarryService.setLeaveHandler(function(player: Player, c)
 		local list = shows[player]
 		if not list or not list[c.uid] then
@@ -372,7 +381,7 @@ function FreezeService.Start()
 		end
 		list[c.uid] = nil
 		DataService.mutate(player, function(d)
-			PenService.addPet(d, c.key, c.pose, c.mut)
+			PenService.addPet(d, c.key, c.pose, c.mut, true)
 			d.stats.banked += 1
 		end)
 	end)

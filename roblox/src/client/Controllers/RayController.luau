@@ -1135,6 +1135,48 @@ local function myGroundCube(near: boolean): boolean
 	return false
 end
 
+local function carryingAny(): boolean
+	local cubes = workspace:FindFirstChild("Cubes")
+	for _, c in (if cubes then cubes:GetChildren() else {}) do
+		if c:GetAttribute("OwnerUserId") == me.UserId then
+			return true
+		end
+	end
+	return false
+end
+
+-- the nearest target the shot was meant for, in reach or not: near the finger / cursor on screen, or
+-- (E / R2, screen = nil) in front of the camera. Only for hints and taking the ray out; never aims.
+local function pickAny(screen: Vector2?): Target?
+	local cam = workspace.CurrentCamera
+	local root = myRoot()
+	if not cam or not root then
+		return nil
+	end
+	local short = math.min(cam.ViewportSize.X, cam.ViewportSize.Y)
+	local look = cam.CFrame.LookVector * Vector3.new(1, 0, 1)
+	look = if look.Magnitude > 0 then look.Unit else Vector3.zAxis
+	local best, bestD = nil, math.huge
+	for _, t in candidates() do
+		local to = (t.part.Position - root.Position) * Vector3.new(1, 0, 1)
+		if to.Magnitude <= A.closerHintRange then
+			local d = to.Magnitude
+			local ok = false
+			if screen then
+				local v, onScreen = cam:WorldToViewportPoint(t.part.Position)
+				d = (Vector2.new(v.X, v.Y) - screen).Magnitude
+				ok = onScreen and d < A.pickRadius * short
+			else
+				ok = to.Magnitude < 3 or to.Unit:Dot(look) >= A.autoAimDot
+			end
+			if ok and d < bestD then
+				best, bestD = t, d
+			end
+		end
+	end
+	return best
+end
+
 -- a shot at a pet while the ray is put away (after a freeze, or by hand) did nothing at all, so a kid
 -- thought the game broke: say why, at most once every few seconds (QA 2026-11-05, PT-03)
 local lastHint = 0
@@ -1143,18 +1185,18 @@ local function hintNoRay(target: Target?)
 		return
 	end
 	lastHint = os.clock()
-	local carrying = false
-	local cubes = workspace:FindFirstChild("Cubes")
-	if cubes then
-		for _, c in cubes:GetChildren() do
-			if c:GetAttribute("OwnerUserId") == me.UserId then
-				carrying = true
-				break
-			end
-		end
-	end
-	local reason = if carrying then "Take your pet home first!" elseif myGroundCube(false) then "Pick up your pet first!" else "Pick the Ice Ray first"
+	local reason = if carryingAny() then "Take your pet home first!" elseif myGroundCube(false) then "Pick up your pet first!" else "Pick the Ice Ray first"
 	State.local_("notYet", { reason = reason, at = "hotbar" })
+end
+
+-- a shot that finds nothing in reach did nothing at all (gun 1 reaches 10 studs and pets wander off):
+-- say so when a pet is near enough to walk to (QA 2026-11-08)
+local function hintCloser(screen: Vector2?)
+	if os.clock() - lastHint < Config.notYetCooldown or not pickAny(screen) then
+		return
+	end
+	lastHint = os.clock()
+	State.local_("notYet", { reason = "Get closer!", at = "hotbar" })
 end
 
 function RayController.Init() end
@@ -1181,13 +1223,28 @@ function RayController.Start()
 		elseif isAimKey(input.KeyCode) then
 			autoAim = true
 		end
+		local pt = pointer
+		local screen: Vector2? = nil
+		if pt and (input.UserInputType == Enum.UserInputType.MouseButton1 or input == pt.touch) then
+			screen = pt.pos
+		elseif not isAimKey(input.KeyCode) then
+			return -- not a shot
+		end
+		local inReach = if screen then pickAt(screen) else pickAuto()
 		if not holdsRay(me) then
-			local pt = pointer
-			if pt and (input.UserInputType == Enum.UserInputType.MouseButton1 or input == pt.touch) then
-				hintNoRay(pickAt(pt.pos))
-			elseif isAimKey(input.KeyCode) then
-				hintNoRay(pickAuto())
+			-- the ray was put away (by the game after a catch, or by pressing its slot) and the hands are free:
+			-- the shot takes it out by itself (QA 2026-11-08: pressing 1 hid the ray, then E did nothing). A
+			-- click or tap only does it when it was on a pet, so turning the camera never pulls the gun.
+			local meant = inReach or pickAny(screen)
+			if me:GetAttribute("Held") == "none" and not carryingAny() and not myGroundCube(false) and (screen == nil or meant ~= nil) then
+				State.send("SetGear", "ray")
+			else
+				hintNoRay(meant)
+				return
 			end
+		end
+		if not inReach then
+			hintCloser(screen)
 		end
 	end)
 	UserInputService.InputChanged:Connect(function(input: InputObject)

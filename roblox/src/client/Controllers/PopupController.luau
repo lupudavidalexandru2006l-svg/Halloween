@@ -5,6 +5,7 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Theme = require(ReplicatedStorage.Shared.Theme)
 local PetDefs = require(ReplicatedStorage.Shared.PetDefs)
@@ -25,10 +26,10 @@ local PopupController = {}
 type Open = { name: string, data: any, frame: Frame, body: Frame, first: GuiObject?, update: ((State.View) -> ())?, closed: boolean?, shown: string? }
 local current: Open? = nil
 local queue: { { name: string, data: any } } = {}
-local MENUS = { pets = true, shop = true, index = true, settings = true, tester = true, equipment = true, pan = true, sell = true, rebirth = true }
+local MENUS = { pets = true, shop = true, index = true, settings = true, tester = true, equipment = true, pan = true, sell = true, rebirth = true, thaw = true }
 local TITLES: { [string]: string } = {
 	pets = "Pets", shop = "Shop", index = "Index", settings = "Settings", tester = "Tester", equipment = "Equipment",
-	pan = "Pan Upgrades", sell = "Sell Booth", rebirth = "Rebirth Booth",
+	pan = "Pan Upgrades", sell = "Sell Booth", rebirth = "Rebirth Booth", thaw = "Thaw Machine",
 	welcome = "Welcome back!", gift = "Daily gift", pageDone = "Page complete!",
 }
 
@@ -41,11 +42,18 @@ local function shownData(name: string, v: State.View): string?
 	if name == "pets" then
 		table.insert(parts, tostring(v.slots))
 		for _, p in v.pets do
-			table.insert(parts, `{p.id},{p.key},{p.pose},{p.mut},{p.eq},{p.income}`)
+			table.insert(parts, `{p.id},{p.key},{p.pose},{p.mut},{p.eq},{p.income},{p.frozen},{p.thawM}`)
+		end
+	elseif name == "thaw" then
+		table.insert(parts, tostring(v.machines))
+		for _, p in v.pets do
+			if p.frozen then
+				table.insert(parts, `{p.id},{p.thawM}`)
+			end
 		end
 	elseif name == "index" then
 		for _, p in v.pages do
-			table.insert(parts, `{p.zone},{p.found},{p.total},{p.complete},{p.secretFound}`)
+			table.insert(parts, `{p.zone},{p.found},{p.total},{p.complete},{p.secretFound},{p.claimed}`)
 		end
 		local keys: { string } = {}
 		for key, on in v.found do
@@ -76,7 +84,7 @@ end
 -- the title ribbon's colour: a menu wears its tile's colour, rewards wear the reward colours
 local HEADER: { [string]: Color3 } = {
 	welcome = Theme.coin, gift = Theme.gift, pageDone = Theme.go, tester = Theme.info, equipment = Theme.booths.equipment,
-	pan = Theme.booths.pan, sell = Theme.booths.sell, rebirth = Theme.booths.rebirth,
+	pan = Theme.booths.pan, sell = Theme.booths.sell, rebirth = Theme.booths.rebirth, thaw = Theme.info,
 }
 local SMALL = { welcome = true, gift = true, pageDone = true } -- short messages get a smaller panel
 local HEADER_ICONS: { [string]: string } = {
@@ -159,6 +167,48 @@ local function priceTag(b: Ui.Block)
 	Ui.image(b.face, Config.images.icons.coin, UDim2.fromScale(0.3, 0.8), UDim2.fromScale(0.06, 0.1))
 	b.text.Size = UDim2.fromScale(0.62, 0.8)
 	b.text.Position = UDim2.fromScale(0.34, 0.1)
+end
+
+-- a rounded progress bar: a light track with an ink outline, a fill in `color` and the count centred
+-- on top (owner 2026-11-09: a completion bar on every Index page, and one for all pets)
+local function bar(parent: Instance, x: number, y: number, w: number, h: number, share: number, label: string, color: Color3): Frame
+	local track = Instance.new("Frame")
+	track.Name = "Bar"
+	track.BackgroundColor3 = Theme.white
+	track.BackgroundTransparency = Config.ui.barTrackAlpha
+	track.BorderSizePixel = 0
+	track.Position = UDim2.fromScale(x, y)
+	track.Size = UDim2.fromScale(w, h)
+	Ui.corner(track, 0.5)
+	Ui.stroke(track)
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.BackgroundColor3 = color
+	fill.BorderSizePixel = 0
+	fill.Size = UDim2.fromScale(math.clamp(share, 0, 1), 1)
+	fill.Visible = share > 0
+	Ui.corner(fill, 0.5)
+	local shine = Instance.new("UIGradient") -- a lighter top, like the blocks
+	shine.Rotation = 90
+	shine.Color = ColorSequence.new(color:Lerp(Theme.white, 0.45), color)
+	shine.Parent = fill
+	fill.Parent = track
+	local t = Ui.inkLabel(track, label, UDim2.fromScale(0.96, 0.8), UDim2.fromScale(0.02, 0.1))
+	t.Name = "Count"
+	t.ZIndex = 2
+	track.Parent = parent
+	return track
+end
+
+-- the one focal point of a screen breathes gently (UI Rules: animate only what matters); still with Reduced motion
+local function pulse(gui: GuiObject)
+	if SettingsController.get("reducedMotion") == true then
+		return
+	end
+	local s = Instance.new("UIScale")
+	s.Parent = gui
+	local P = Config.index.pulse
+	TweenService:Create(s, TweenInfo.new(P.seconds, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Scale = P.scale }):Play()
 end
 
 local function list(body: Frame, scroll: boolean): GuiObject
@@ -352,15 +402,139 @@ local function shop(o: Open, v: State.View)
 	robuxShop(o, v, o.body)
 end
 
+-- a pet's picture, name and its tier / mutation / pose line, on the left of a list card
+local function petInfo(r: Frame, p: State.PetView, def: PetDefs.PetDef)
+	local pose = Config.poses[p.pose]
+	if def.icon ~= "" then
+		Ui.image(r, def.icon, UDim2.fromScale(0.11, 0.92), UDim2.fromScale(0.01, 0.04))
+	end
+	-- the name on top; under it the tier, mutation and pose, each word in its own colour
+	-- (tinting the painted sprite made Starry muddy and Golden orange, QA 2026-10-31)
+	local name = text(r, def.name, 0.13, 0.4)
+	name.Size = UDim2.fromScale(0.4, 0.5)
+	name.Position = UDim2.fromScale(0.13, 0.04)
+	local function word(s: string, c: Color3): string
+		return `<font color="#{c:ToHex()}">{s}</font>`
+	end
+	local tags = { word(def.tier, Ui.darker(tierColor(def.tier))) }
+	local look = if p.mut then Theme.mut[p.mut] else nil
+	if p.mut then
+		table.insert(tags, word(p.mut, if look then Ui.darker(look.tint) else Theme.infoDeep))
+	end
+	if pose and p.pose ~= "idle" then
+		table.insert(tags, word(pose.label, Theme.infoDeep))
+	end
+	local tagLine = text(r, table.concat(tags, "  "), 0.13, 0.4, nil, "small")
+	tagLine.RichText = true
+	tagLine.Size = UDim2.fromScale(0.4, 0.4)
+	tagLine.Position = UDim2.fromScale(0.13, 0.54)
+end
+
+-- labels that count down to a pet's thaw (server clock) while their popup is open
+type Countdown = { label: TextLabel, at: number }
+local function countdowns(o: Open, items: { Countdown })
+	if #items == 0 then
+		return
+	end
+	task.spawn(function()
+		while not o.closed and items[1].label.Parent do
+			local now = workspace:GetServerTimeNow()
+			for _, it in items do
+				it.label.Text = Config.timeText(it.at - now)
+			end
+			task.wait(0.5)
+		end
+	end)
+end
+
+local function thawTime(v: State.View, p: State.PetView, def: PetDefs.PetDef): number
+	return Config.thawSeconds(def.tier, def.size, def.zone, p.mut, v.upgrades.pen or 1)
+end
+
+-- an ice-blue tag on the right of a pet card for a frozen pet: its thaw time, or the live time left in
+-- a machine. Not a button: thawing happens at the machine.
+local function iceTag(r: Frame, s: string): TextLabel
+	local tag = Ui.block(r, "Ice", Theme.ice, s, nil) -- white words with the ink outline, like every block
+	tag.root.Position = UDim2.fromScale(0.78, 0.2)
+	tag.root.Size = UDim2.fromScale(0.19, 0.6)
+	sized(tag.text, "button")
+	return tag.text
+end
+
+-- the Thaw Machine (owner 2026-11-09): pick a frozen pet from your Pets to put in this machine. A busy
+-- machine shows its pet and the time left. The server checks you stand at your own machine.
+local function thaw(o: Open, v: State.View)
+	local m = if typeof(o.data) == "table" and typeof(o.data.machine) == "number" then o.data.machine else 1
+	local busy: State.PetView? = nil
+	local frozen: { State.PetView } = {}
+	for _, p in v.pets do
+		if p.thawM == m then
+			busy = p
+		elseif p.frozen and not p.thawM then
+			table.insert(frozen, p)
+		end
+	end
+	local inside = busy
+	if inside or #frozen == 0 then
+		local l = list(o.body, false)
+		local def = if inside then PetDefs.get(inside.key) else nil
+		if inside and def then
+			local r = card(row(l, 1, 0, 7.5))
+			petInfo(r, inside, def)
+			countdowns(o, { { label = iceTag(r, ""), at = inside.thawAt or 0 } })
+		else
+			text(row(l, 1, 0.2), "No frozen pets. Freeze one and bring it home!", 0.02, 0.96).TextXAlignment = Enum.TextXAlignment.Center
+		end
+		local ok = button(row(l, 2, 0.2), Theme.go, "OK", 0.3, 0.4, function()
+			PopupController.close()
+		end)
+		o.first = ok.face
+		return
+	end
+	table.sort(frozen, function(a, b)
+		local da, db = PetDefs.get(a.key), PetDefs.get(b.key)
+		local ra = if da then Config.tier(da.tier).rank else 0
+		local rb = if db then Config.tier(db.tier).rank else 0
+		if ra ~= rb then
+			return ra > rb -- the best first
+		end
+		return a.income > b.income
+	end)
+	local l = list(o.body, true)
+	for i, p in frozen do
+		local def = PetDefs.get(p.key)
+		if not def then
+			continue
+		end
+		local r = card(row(l, i, 0, 7.5))
+		petInfo(r, p, def)
+		-- how long it takes (the server works it out the same way when it goes in)
+		local secs = text(r, Config.timeText(thawTime(v, p, def)), 0.55, 0.21, Ui.darker(Theme.info))
+		secs.TextXAlignment = Enum.TextXAlignment.Right
+		local b = button(r, Theme.go, "Thaw", 0.78, 0.19, function()
+			State.send("ThawPet", p.id, m)
+			PopupController.close()
+		end)
+		b.root.Position = UDim2.fromScale(0.78, 0.2)
+		b.root.Size = UDim2.fromScale(0.19, 0.6)
+		sized(b.text, "small")
+		if not o.first then
+			o.first = b.face
+		end
+	end
+end
+
 local function pets(o: Open, v: State.View)
-	local pen = 0
+	local pen, ice = 0, 0
 	for _, p in v.pets do
 		if p.eq then
 			pen += 1
+		elseif p.frozen then
+			ice += 1
 		end
 	end
 	local head = row(o.body, 0, 0.14)
-	text(head, `Pan {pen} / {v.slots}   Storage {#v.pets - pen}`, 0.02, 0.6)
+	text(head, `Pan {pen} / {v.slots}   Storage {#v.pets - pen - ice}` .. (if ice > 0 then `   Frozen {ice}` else ""), 0.02, 0.6)
 	local best = button(head, Theme.go, "Equip best", 0.66, 0.32, function()
 		State.send("EquipBest")
 	end)
@@ -371,13 +545,18 @@ local function pets(o: Open, v: State.View)
 	holder.Size = UDim2.fromScale(1, 0.84)
 	holder.Parent = o.body
 	local l = list(holder, true)
+	-- thawing first, then frozen (they need you), then the pan, then Storage
+	local function group(p: State.PetView): number
+		return if p.thawM then 0 elseif p.frozen then 1 elseif p.eq then 2 else 3
+	end
 	local sorted = table.clone(v.pets)
 	table.sort(sorted, function(a, b)
-		if a.eq ~= b.eq then
-			return a.eq
+		if group(a) ~= group(b) then
+			return group(a) < group(b)
 		end
 		return a.income > b.income
 	end)
+	local timers: { Countdown } = {}
 	if #sorted == 0 then
 		text(row(l, 1, 0, 9), "Freeze a pet and carry it to your pan!", 0.02, 0.96)
 	end
@@ -387,53 +566,103 @@ local function pets(o: Open, v: State.View)
 			continue
 		end
 		local r = card(row(l, i, 0, 7.5))
-		local pose = Config.poses[p.pose]
-		if def.icon ~= "" then
-			Ui.image(r, def.icon, UDim2.fromScale(0.11, 0.92), UDim2.fromScale(0.01, 0.04))
-		end
-		-- the name on top; under it the tier, mutation and pose, each word in its own colour
-		-- (tinting the painted sprite made Starry muddy and Golden orange, QA 2026-10-31)
-		local name = text(r, def.name, 0.13, 0.4)
-		name.Size = UDim2.fromScale(0.4, 0.5)
-		name.Position = UDim2.fromScale(0.13, 0.04)
-		local function word(s: string, c: Color3): string
-			return `<font color="#{c:ToHex()}">{s}</font>`
-		end
-		local tags = { word(def.tier, Ui.darker(tierColor(def.tier))) }
-		local look = if p.mut then Theme.mut[p.mut] else nil
-		if p.mut then
-			table.insert(tags, word(p.mut, if look then Ui.darker(look.tint) else Theme.infoDeep))
-		end
-		if pose and p.pose ~= "idle" then
-			table.insert(tags, word(pose.label, Theme.infoDeep))
-		end
-		local tagLine = text(r, table.concat(tags, "  "), 0.13, 0.4, nil, "small")
-		tagLine.RichText = true
-		tagLine.Size = UDim2.fromScale(0.4, 0.4)
-		tagLine.Position = UDim2.fromScale(0.13, 0.54)
+		petInfo(r, p, def)
 		Ui.image(r, Config.images.icons.coin, UDim2.fromScale(0.07, 0.6), UDim2.fromScale(0.52, 0.2))
 		text(r, `{Ui.short(p.income)}/s`, 0.585, 0.13)
-		-- a small toggle, not a big green button: the pet is the point of the row
-		local tog = button(r, if p.eq then Theme.go else Theme.info, if p.eq then "In pen" else "Stored", 0.78, 0.19, function()
-			State.send("EquipPet", p.id, not p.eq)
-		end)
-		tog.root.Position = UDim2.fromScale(0.78, 0.2)
-		tog.root.Size = UDim2.fromScale(0.19, 0.6)
-		sized(tog.text, "small")
+		if p.thawM then
+			table.insert(timers, { label = iceTag(r, ""), at = p.thawAt or 0 }) -- in a Thaw Machine: the time left
+		elseif p.frozen then
+			iceTag(r, Config.timeText(thawTime(v, p, def))) -- still frozen: put it in your Thaw Machine
+		else
+			-- a small toggle, not a big green button: the pet is the point of the row
+			local tog = button(r, if p.eq then Theme.go else Theme.info, if p.eq then "In pen" else "Stored", 0.78, 0.19, function()
+				State.send("EquipPet", p.id, not p.eq)
+			end)
+			tog.root.Position = UDim2.fromScale(0.78, 0.2)
+			tog.root.Size = UDim2.fromScale(0.19, 0.6)
+			sized(tog.text, "small")
+		end
 	end
+	countdowns(o, timers)
 end
 
+-- the Index (owner 2026-11-09: "ugly"): one white card per island with a header strip in the island's
+-- colour (its name, a completion bar, and a pulsing Claim when it's full, or the trophy once claimed),
+-- its pets in one row (the Secret counts too), and a bar for all pets at the bottom
 local function index(o: Open, v: State.View)
-	local l = list(o.body, true)
+	local X = Config.ui.index
+	local holder = Instance.new("Frame")
+	holder.Name = "Pages"
+	holder.BackgroundTransparency = 1
+	holder.Size = UDim2.fromScale(1, 1 - X.totalHeight - X.totalGap)
+	holder.Parent = o.body
+	local l = list(holder, true)
+	local allFound, allTotal, claimedN = 0, 0, 0
+	local bonus = math.round(Config.index.pageBonus * 100)
 	for i, page in v.pages do
+		allFound += page.found
+		allTotal += page.total
+		if page.claimed then
+			claimedN += 1
+		end
 		local zone = Config.zone(page.zone)
-		local head = row(l, i * 10, 0, 10)
-		text(head, `{if zone then zone.name else "Zone"}  {page.found} / {page.total}`, 0.02, 0.6)
-		text(head, if page.complete then `+{math.round(Config.index.pageBonus * 100)}% coins` else `Fill it: +{math.round(Config.index.pageBonus * 100)}% coins`, 0.6, 0.38, Ui.darker(Theme.coin), "small").TextXAlignment = Enum.TextXAlignment.Right
-		local grid = row(l, i * 10 + 1, 0, 2.6)
+		local look = zone and Theme.islands[zone.theme]
+		local accent = if look then look.accent else Theme.info
+		local c = card(row(l, i, 0, X.pageAspect))
+		c.Name = "Page" .. page.zone
+		c.ClipsDescendants = true
+		local head = Instance.new("Frame")
+		head.Name = "Head"
+		head.BackgroundColor3 = accent
+		head.BorderSizePixel = 0
+		head.Size = UDim2.fromScale(1, X.headHeight)
+		Ui.corner(head)
+		local square = Instance.new("Frame") -- rounded top corners (the card's), square bottom ones
+		square.BackgroundColor3 = accent
+		square.BorderSizePixel = 0
+		square.Position = UDim2.fromScale(0, 0.5)
+		square.Size = UDim2.fromScale(1, 0.5)
+		square.ZIndex = 0
+		square.Parent = head
+		head.Parent = c
+		local name = Ui.label(head, if zone then zone.name else "Zone", UDim2.fromScale(0.25, 0.7), UDim2.fromScale(0.018, 0.15))
+		name.TextXAlignment = Enum.TextXAlignment.Left
+		sized(name, "body")
+		bar(head, 0.28, 0.2, 0.44, 0.6, page.found / math.max(1, page.total), `{page.found} / {page.total}`, Theme.go)
+		if page.complete and not page.claimed then
+			local b = button(head, Theme.go, `CLAIM +{bonus}%`, 0.745, 0.24, function()
+				State.send("ClaimPage", page.zone)
+			end)
+			b.root.Name = "Claim"
+			b.root.Position = UDim2.fromScale(0.745, 0.12)
+			b.root.Size = UDim2.fromScale(0.24, 0.76)
+			pulse(b.root)
+			if not o.first then
+				o.first = b.face
+			end
+		else
+			-- the page's badge: the trophy, bright once claimed, faint until then, with what it gives
+			local tr = Ui.image(head, Config.images.icons.trophy, UDim2.fromScale(0.07, 0.9), UDim2.fromScale(0.75, 0.05))
+			tr.Name = "Badge"
+			if not page.claimed then
+				tr.ImageTransparency = X.badgeFaint
+			end
+			local what = Ui.label(head, if page.claimed then `+{bonus}% coins` else `Fill: +{bonus}%`, UDim2.fromScale(0.17, 0.6), UDim2.fromScale(0.82, 0.2))
+			what.TextXAlignment = Enum.TextXAlignment.Left
+			what.TextColor3 = if page.claimed then Theme.coin else Theme.white
+			sized(what, "small")
+		end
+		local grid = Instance.new("Frame")
+		grid.Name = "Pets"
+		grid.BackgroundTransparency = 1
+		grid.Position = UDim2.fromScale(X.slotInset, X.headHeight + X.slotTop)
+		grid.Size = UDim2.fromScale(1 - X.slotInset * 2, 1 - X.headHeight - X.slotTop * 2)
+		grid.Parent = c
 		local g = Instance.new("UIGridLayout")
-		g.CellSize = UDim2.fromScale(0.23, 0.45)
-		g.CellPadding = UDim2.fromScale(0.02, 0.05)
+		local n = math.max(1, #PetDefs.inZone(page.zone))
+		local gap = X.slotGap
+		g.CellSize = UDim2.fromScale((1 - gap * (n - 1)) / n, 1)
+		g.CellPadding = UDim2.fromScale(gap, 0)
 		g.SortOrder = Enum.SortOrder.LayoutOrder
 		g.Parent = grid
 		for n, def in PetDefs.inZone(page.zone) do
@@ -460,6 +689,21 @@ local function index(o: Open, v: State.View)
 			end
 		end
 	end
+	-- every pet in the game, the Secrets too, as one bar; the trophies you've claimed on the right
+	local total = Ui.block(o.body, "Total", Theme.info, "", nil)
+	total.root.Position = UDim2.fromScale(0, 1 - X.totalHeight)
+	total.root.Size = UDim2.fromScale(1, X.totalHeight)
+	total.text.Visible = false
+	Ui.image(total.face, Config.images.icons.book, UDim2.fromScale(0.07, 0.9), UDim2.fromScale(0.01, 0.05))
+	local all = Ui.label(total.face, "All pets", UDim2.fromScale(0.15, 0.6), UDim2.fromScale(0.085, 0.2))
+	all.TextXAlignment = Enum.TextXAlignment.Left
+	sized(all, "body")
+	local pct = if allTotal > 0 then math.floor(allFound / allTotal * 100) else 0
+	bar(total.face, 0.24, 0.22, 0.6, 0.56, allFound / math.max(1, allTotal), `{allFound} / {allTotal}   {pct}%`, Theme.go)
+	Ui.image(total.face, Config.images.icons.trophy, UDim2.fromScale(0.07, 0.9), UDim2.fromScale(0.86, 0.05))
+	local tn = Ui.label(total.face, tostring(claimedN), UDim2.fromScale(0.06, 0.6), UDim2.fromScale(0.93, 0.2))
+	tn.TextXAlignment = Enum.TextXAlignment.Left
+	sized(tn, "body")
 end
 
 local function settings(o: Open)
@@ -964,7 +1208,7 @@ end
 
 -- the builders the Equipment Booth popup borrows (EquipmentPopup)
 local helpers: EquipmentPopup.Helpers = {
-	list = list, row = row, button = button, text = text, card = card, sized = sized, priceTag = priceTag,
+	list = list, row = row, button = button, text = text, card = card, sized = sized, priceTag = priceTag, bar = bar, pulse = pulse,
 	refresh = function()
 		PopupController.refresh()
 	end,
@@ -990,12 +1234,17 @@ local function fill(o: Open)
 		reward(o, o.data.coins, `Day {o.data.streak} in a row`, "Yay", function() end)
 	elseif o.name == "pageDone" then
 		local zone = Config.zone(o.data.zone)
-		message(o, { `{if zone then zone.name else "Zone"} page full!`, `+{math.round(o.data.bonus * 100)}% coins forever` }, "Yay", function() end)
+		-- a full page: claim its +10% right here (or later in the Index)
+		message(o, { `{if zone then zone.name else "Zone"} page full!`, `Claim +{math.round(o.data.bonus * 100)}% coins forever` }, "Claim", function()
+			State.send("ClaimPage", o.data.zone)
+		end)
 	elseif v then
 		if o.name == "shop" then
 			shop(o, v)
 		elseif o.name == "pets" then
 			pets(o, v)
+		elseif o.name == "thaw" then
+			thaw(o, v)
 		elseif o.name == "index" then
 			index(o, v)
 		elseif o.name == "tester" then
@@ -1071,13 +1320,13 @@ function PopupController.open(name: string, data: any?)
 		end
 		PopupController.close()
 	end
-	local frame = Screen.popupFrame()
+	local frame = Screen.popupFrame(Config.ui.bigPopups[name] == true)
 	if SMALL[name] then
 		frame.Size = UDim2.fromScale(frame.Size.X.Scale * 0.62, frame.Size.Y.Scale * 0.62)
 	end
 	local T = Config.ui.popupText
 	local ph = frame.AbsoluteSize.Y / (if SMALL[name] then 0.62 else 1) -- text keeps the big panel's sizes
-	px = { title = ph * T.title, body = ph * T.body, small = ph * T.small, button = ph * T.button }
+	px = { title = ph * T.title, body = ph * T.body, small = ph * T.small, button = ph * T.button, tiny = ph * T.small * 0.72 }
 	-- the body is a pale tint of the menu's colour and the title sits on a ribbon in the full colour,
 	-- so the popup reads as one piece with its tile (a flat cream body looked like another game's UI)
 	local menuColor = HEADER[name] or Theme.tiles[name] or Theme.info
@@ -1177,9 +1426,10 @@ function PopupController.Start()
 			PopupController.open("gift", data)
 		elseif kind == "pageDone" then
 			PopupController.open("pageDone", data)
+		elseif kind == "pageClaimed" then
+			SoundController.play("coin")
 		end
 	end)
 end
 
 return PopupController
-

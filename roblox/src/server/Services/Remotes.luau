@@ -15,7 +15,9 @@ local NAMES = {
 	"EquipPet", "EquipBest", "SetSetting", "Tester", "ShowDone", "BuyGun", "EquipGun", "BuyPanUpgrade", "SellPets",
 	"Aim", "SetGear", "ThrowGel", "BuyGear", "RedeemCode", -- Round 5: shooting the ray, the hotbar, Slow Gel, codes
 	"Rebirth", -- Round 4 phase 7: the Rebirth Booth
+	"ThawPet", -- put a frozen pet from your Pets in your Thaw Machine (owner 2026-11-09)
 	"BuyRobux", -- the Shop's Robux tab (MonetizationService shows Roblox's own prompt)
+	"ClaimPage", -- claim a full Index page's +10% (IndexService, 2026-11-09)
 	-- server -> client (what happened)
 	"Data", "Notify", "BoardRank",
 }
@@ -102,4 +104,3 @@ function Remotes.isId(v: any, maxLen: number?): boolean
 end
 
 return Remotes
-

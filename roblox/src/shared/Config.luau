@@ -116,7 +116,15 @@ Config.petScale = 1
 -- the booth, so walking away with it open left buttons that did nothing (final QA 2026-11-03)
 Config.boothLeaveMargin = 4
 Config.bigWinRank = 5 -- banking Legendary or better sends a server-wide banner and a light pillar over your pen (Game Plan 14)
-Config.index = { pageBonus = 0.1 } -- each full zone page (its 7 regular pets; the Secret is a bonus slot) = +10% coins forever
+-- each full zone page (all its pets, the Secret too) has a Claim button: +10% coins forever and the
+-- page's Roblox badge. badges[zone] = the badge id from the Creator Dashboard (0 = not made yet, skipped).
+-- pulse = the Claim button's bounce (scale, seconds a beat).
+Config.index = {
+	pageBonus = 0.1,
+	claimCooldown = 0.5,
+	badges = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } :: { number },
+	pulse = { scale = 1.08, seconds = 0.55 },
+}
 Config.income = { tickSeconds = 1 }
 Config.sync = { seconds = 0.5 } -- the client's copy of its data is sent at most this often
 Config.gatePromptOffset = 4 -- the gate prompt stands this far on the hub side of the gate
@@ -199,7 +207,7 @@ Config.night = {
 	daySeconds = 600, fadeSeconds = 60, nightSeconds = 180, -- cycle = day + fade + night + fade
 	sleepFreezeFactor = 0.5, -- a sleeping pet's Freeze hold is this much of the normal hold
 	nightAt = 0.5, -- the blend (0 day, 1 night) at which the rules switch to night
-	day = { clock = 14, brightness = 2.5, ambient = Color3.fromRGB(70, 70, 70), outdoor = Color3.fromRGB(70, 70, 70),
+	day = { clock = 14, brightness = 2.2, ambient = Color3.fromRGB(95, 90, 85), outdoor = Color3.fromRGB(115, 115, 128), -- warm, bright day (2026-11-09)
 		tint = Color3.new(1, 1, 1), ccBrightness = 0, stars = 0, haze = 0 },
 	night = { clock = 24, brightness = 1.6, ambient = Color3.fromRGB(95, 85, 160), outdoor = Color3.fromRGB(130, 120, 200),
 		tint = Color3.fromRGB(215, 220, 255), ccBrightness = 0.06, atmo = Color3.fromHex("6a5cc4"), stars = 3000,
@@ -352,7 +360,14 @@ Config.ui = {
 	},
 	-- these menus hide the HUD (tiles, coins, island banner, hotbar) and the world prompts while open,
 	-- so the shop is the only thing on screen (owner 2026-11-05); the banner still shows answers
-	hideHudFor = { shop = true, equipment = true } :: { [string]: boolean },
+	hideHudFor = { shop = true, equipment = true, index = true, sell = true, rebirth = true } :: { [string]: boolean },
+	-- the big popups (Equipment, Index, Sell, Rebirth: owner 2026-11-09 "make it bigger"), share of the screen and aspect
+	bigPopups = { equipment = true, index = true, sell = true, rebirth = true } :: { [string]: boolean },
+	popupSizeBig = { 0.9, 0.86 }, popupAspectBig = 1.68,
+	barTrackAlpha = 0.2, -- progress bars: the light track behind the fill
+	-- the Index (2026-11-09): pageAspect = a page card's width / height; shares of the card below
+	index = { pageAspect = 4, headHeight = 0.3, slotTop = 0.05, slotInset = 0.012, slotGap = 0.012,
+		totalHeight = 0.13, totalGap = 0.02, badgeFaint = 0.6 },
 	popupSize = { 0.8, 0.7 }, popupLift = 0.04, promptSize = { 0.27, 0.095 }, -- world prompts keep this screen size at any distance (owner: smaller)
 	bannerSeconds = 3, floatSeconds = 1.2, notYetSeconds = 1.6,
 	-- the "+17.5K" beside the coin counter: shares of the coins block; a size under the number (0.62 tall)
@@ -396,11 +411,23 @@ Config.worldText = {
 	gift = { textPx = 24, heightPx = 44, padPx = 30, maxDistance = 80 },
 }
 
+-- owner 2026-11-09: "brighter colours" and a real sky (World Rules > Sky). The skybox is a painted
+-- cartoon sky (six images from Creator Store asset 118356786274870 by nov4_gg2010; its scripts were thrown
+-- away, only the image ids are used). Clouds are Roblox's own, white and soft.
 Config.lighting = {
 	clockTime = 14,
-	brightness = 2.5,
-	atmosphereDensity = 0.3,
-	saturation = 0.1,
+	brightness = 2.2,
+	atmosphereDensity = 0.22,
+	atmosphereOffset = 0.1,
+	atmosphereDecay = Color3.fromHex("8fd8ff"), -- far haze fades to sky cyan, not grey
+	saturation = 0.2,
+	contrast = 0.05,
+	sky = {
+		bk = "rbxassetid://6295671271", dn = "rbxassetid://6295671382", ft = "rbxassetid://6295671136",
+		lf = "rbxassetid://6295670996", rt = "rbxassetid://6295671509", up = "rbxassetid://6295671667",
+		sunSize = 12,
+	},
+	clouds = { cover = 0.5, density = 0.55, color = Color3.fromRGB(255, 255, 255) },
 }
 
 -- World layout in studs (Round 4 phase 2: a row of pans and the tunnel). The hub is north (-Z): a
@@ -910,20 +937,24 @@ Config.guns = {
 	list = {
 		{ key = "frost_popper", name = "Frost Popper", power = 1, range = 10, cold = 2, beams = 1, price = 0, rebirths = 0 },
 		{ key = "snowball_blaster", name = "Snowball Blaster", power = 1.35, range = 11, cold = 2, beams = 1, price = 25e3, rebirths = 0 },
-		{ key = "icicle_repeater", name = "Icicle Repeater", power = 1.7, range = 12, cold = 4, beams = 1, price = 0, rebirths = 1 },
+		{ key = "icicle_repeater", name = "Icicle Repeater", power = 1.7, range = 12, cold = 4, beams = 1, price = 150e3, rebirths = 0 },
 		{ key = "glacier_cannon", name = "Glacier Cannon", power = 2.05, range = 13, cold = 4, beams = 2, price = 750e3, rebirths = 0 },
-		{ key = "blizzard_beam", name = "Blizzard Beam", power = 2.4, range = 14, cold = 6, beams = 2, price = 0, rebirths = 2 },
+		{ key = "blizzard_beam", name = "Blizzard Beam", power = 2.4, range = 14, cold = 6, beams = 2, price = 3e6, rebirths = 0 },
 		{ key = "aurora_ray", name = "Aurora Ray", power = 2.75, range = 15, cold = 6, beams = 2, price = 10e6, rebirths = 0 },
-		{ key = "cryo_lance", name = "Cryo Lance", power = 3.1, range = 16, cold = 8, beams = 3, price = 0, rebirths = 4 },
+		{ key = "cryo_lance", name = "Cryo Lance", power = 3.1, range = 16, cold = 8, beams = 3, price = 30e6, rebirths = 0 },
 		{ key = "polar_vortex", name = "Polar Vortex", power = 3.45, range = 17, cold = 8, beams = 3, price = 75e6, rebirths = 0 },
-		{ key = "absolute_zero", name = "Absolute Zero", power = 3.8, range = 18, cold = 10, beams = 3, price = 0, rebirths = 6 },
-		{ key = "starfrost_nova", name = "Starfrost Nova", power = 4.15, range = 19, cold = 10, beams = 4, price = 5e9, rebirths = 7 },
+		{ key = "absolute_zero", name = "Absolute Zero", power = 3.8, range = 18, cold = 10, beams = 3, price = 1e9, rebirths = 0 },
+		{ key = "starfrost_nova", name = "Starfrost Nova", power = 4.15, range = 19, cold = 10, beams = 4, price = 5e9, rebirths = 0 },
+		-- owner 2026-11-09: every gun shows a coin price (the free rebirth guns read "Rebirth 2" on only some
+		-- rows and looked odd), so all guns are bought with coins in order; rebirth gates islands, not guns
 	} :: { Gun },
 	-- the card's bars are scaled to the game's 20-island maximum, not to gun 10, so later guns fill them further
 	stats = { "power", "range", "cold", "beams" },
 	statLabels = { power = "Power", range = "Range", cold = "Cold", beams = "Beams" } :: { [string]: string },
 	statMax = { power = 8, range = 30, cold = 20, beams = 6 } :: { [string]: number },
 	boothRange = 30, -- studs: guns are bought standing at the Equipment Booth
+	gridColumns = 2, gridGap = 0.03, -- the Equipment popup's gun tiles (owner 2026-11-09: bigger, themed, every price shown)
+	lockedGrey = 0.55, -- a gun you can't buy yet: its colour mixed this far toward grey
 	buyCooldown = 0.4, -- seconds between two buys (spam is dropped; a double charge can't happen anyway)
 	maxRange = 0, -- the longest range of any gun (filled in below): the pet prompts' own reach on the server
 	-- a pet too warm for your gun gives a small side shake (Animation Rules 2: shake), never a freeze
@@ -960,6 +991,9 @@ Config.rebirth = {
 	cooldown = 1, -- seconds between two tries
 	typicalFactor = 1.5, -- a typical free player takes the playtest bot's time x this (Round 4 prompt 7)
 	maxWait = 600, -- seconds of typical play: never longer than this without something to buy (Round 4 prompt 7)
+	-- the popup (2026-11-09): shares of its body; barSteps = how often the coin bar redraws
+	ui = { heroHeight = 0.2, colsTop = 0.25, colsHeight = 0.45, colWidth = 0.32, colGap = 0.02, colHead = 0.2,
+		footTop = 0.73, barSteps = 20, itemHeight = 0.18 },
 }
 
 function Config.rebirthIncome(rebirths: number): number
@@ -1049,6 +1083,9 @@ Config.sell = {
 	boothRange = 30, -- studs from the Sell Booth (the server's position)
 	cooldown = 0.35, -- seconds between two sales (spam can't sell a pet twice anyway: it's gone)
 	maxPerSale = 500,
+	-- the popup (2026-11-09): pet tiles, columns to a row; rowAspect = a row's width / height; the card's
+	-- pet window is this share of the card's height
+	columns = 4, tileGap = 0.03, rowAspect = 3.1, windowHeight = 0.38,
 }
 
 function Config.sellValue(income: number, mult: number?): number
@@ -1159,11 +1196,19 @@ Config.hotbar = {
 -- price: a goal on the way to Rebirth 1, just before island 3 brings the Heat Critters it slows (was 3,000)
 Config.gel = { price = 50e3, slow = 0.6, radius = 7, seconds = 6, cooldown = 10, throwRange = 45, flySeconds = 0.45 }
 
--- the Thaw Machine in every pan: cubes you bring home wait in a line, the machine thaws one at a time,
--- then the pet hops out and wanders your pan (and starts earning). Each pan Slots level makes it x
--- perLevel faster; a second machine comes with Slots level secondAt. Waiting cubes thaw while you're away.
+-- the Thaw Machine in every pan (owner 2026-11-09): a cube you bring home goes into your Pets as a
+-- frozen pet. You walk to your Thaw Machine and put one in; when its time is up the pet hops out,
+-- wanders your pan and starts earning. The time is saved (os.time), so it keeps thawing while you're away.
+-- time = seconds[tier] x sizeFactor[size] x mutFactor[mutation] x islandGrowth^(island - 1), then / the
+-- pan's thaw speed (each Slots level x perLevel faster). A Secret from island 1 takes 30 min (M size, no
+-- mutation, Slots level 1); each island further out takes x islandGrowth longer. A second machine comes
+-- with Slots level secondAt.
 Config.thaw = {
-	seconds = { Common = 4, Uncommon = 6, Rare = 10, Epic = 15, Legendary = 22, Mythic = 32, Secret = 45 } :: { [string]: number },
+	seconds = { Common = 15, Uncommon = 30, Rare = 60, Epic = 180, Legendary = 360, Mythic = 720, Secret = 1800 } :: { [string]: number },
+	sizeFactor = { S = 0.85, M = 1, L = 1.2 } :: { [string]: number },
+	mutFactor = { Frosty = 1.2, Golden = 1.5, Starry = 2 } :: { [string]: number },
+	islandGrowth = 1.3, -- island 2 x1.3, island 3 x1.69, island 8 x6.3
+	useRange = 14, -- studs from the machine's pad the server accepts "put this pet in"
 	perLevel = 1.33, -- 7 Slots levels: about x5.5 at the top, as fast as the old 19 levels at x1.1
 	secondAt = Config.upgrades.pen.maxLevel - 1,
 	tickSeconds = 0.25,
@@ -1308,6 +1353,27 @@ function Config.cubeSizeFactor(rayLevel: number): number
 	return 1 + c.early * math.min(n, c.earlyLevels) + c.late * math.max(0, n - c.earlyLevels)
 end
 
+-- how long a pet takes in the Thaw Machine (seconds); panLevel = the pan's Slots level (upgrades.pen)
+function Config.thawSeconds(tier: string, size: string, zone: number, mut: string?, panLevel: number): number
+	local T = Config.thaw
+	local base = (T.seconds[tier] or 15) * (T.sizeFactor[size] or 1) * (if mut then T.mutFactor[mut] or 1 else 1)
+	local far = T.islandGrowth ^ math.max(0, zone - 1)
+	return math.max(1, math.round(base * far / (T.perLevel ^ math.max(0, panLevel - 1))))
+end
+
+-- "45s", "12m", "1h 5m": a thaw time, short enough for a button
+function Config.timeText(seconds: number): string
+	local s = math.max(0, math.ceil(seconds))
+	if s < 60 then
+		return `{s}s`
+	elseif s < 3600 then
+		local m, r = s // 60, s % 60
+		return if m < 10 and r > 0 then `{m}m {r}s` else `{m}m`
+	end
+	local h, m = s // 3600, (s % 3600) // 60
+	return if m > 0 then `{h}h {m}m` else `{h}h`
+end
+
 function Config.zone(id: number): Zone?
 	for _, z in Config.world.zones do
 		if z.id == id then
@@ -1318,4 +1384,3 @@ function Config.zone(id: number): Zone?
 end
 
 return Config
-

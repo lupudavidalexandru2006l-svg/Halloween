@@ -34,6 +34,8 @@ export type Helpers = {
 	card: ((Frame) -> Frame)?,
 	sized: ((TextLabel, string) -> ())?,
 	priceTag: ((Ui.Block) -> ())?,
+	bar: ((Instance, number, number, number, number, number, string, Color3) -> Frame)?, -- x, y, w, h, share, label, colour
+	pulse: ((GuiObject) -> ())?, -- the screen's one focal point breathes gently
 }
 
 local function attr(name: string, default: number): number
@@ -107,48 +109,82 @@ local function swatch(parent: Instance, i: number, x: number, size: number): Fra
 	return f
 end
 
-local function gunRow(h: Helpers, l: GuiObject, i: number, v: State.View, o: any)
+-- a white pill with the coin and a price (or "Free"), on a tile (every gun shows its price, owner 2026-11-09)
+local function pricePill(h: Helpers, parent: Instance, price: number, x: number, y: number, w: number, hgt: number): Frame
+	local p = Instance.new("Frame")
+	p.Name = "Price"
+	p.BackgroundColor3 = Theme.white
+	p.BorderSizePixel = 0
+	p.Position = UDim2.fromScale(x, y)
+	p.Size = UDim2.fromScale(w, hgt)
+	Ui.corner(p, 0.5)
+	Ui.stroke(p)
+	Ui.image(p, Config.images.icons.coin, UDim2.fromScale(0.3, 0.86), UDim2.fromScale(0.02, 0.07))
+	local t = Ui.inkLabel(p, if price > 0 then Ui.price(price) else "Free", UDim2.fromScale(0.64, 0.8), UDim2.fromScale(0.32, 0.1))
+	textRole(h, t, "small")
+	p.Parent = parent
+	return p
+end
+
+-- a small coloured chip ("Owned", "Holding") with white outlined words
+local function chip(h: Helpers, parent: Instance, s: string, color: Color3, x: number, y: number, w: number, hgt: number)
+	local c = Instance.new("Frame")
+	c.Name = "Chip"
+	c.BackgroundColor3 = color
+	c.BorderSizePixel = 0
+	c.Position = UDim2.fromScale(x, y)
+	c.Size = UDim2.fromScale(w, hgt)
+	Ui.corner(c, 0.5)
+	Ui.stroke(c)
+	local t = Ui.label(c, s, UDim2.fromScale(0.9, 0.8), UDim2.fromScale(0.05, 0.1))
+	textRole(h, t, "small")
+	c.Parent = parent
+end
+
+-- one gun as a Chunky Pop tile in its own glow colour: number, picture, name, Owned / Holding, price.
+-- Guns you can't buy yet are greyed. The whole tile picks the gun for the card on the right.
+local function gunTile(h: Helpers, parent: Instance, i: number, v: State.View, o: any)
 	local g = G.list[i]
 	local st = status(i, v)
-	local r = h.row(l, i, 0.2, 4.2)
-	r.Name = "Gun" .. i
-	local face: Instance = if h.card then h.card(r) else r
-	if o.data.pick == i then
-		-- the picked row's outline turns blue (one outline per block, UI Rules)
-		local s = face:FindFirstChildOfClass("UIStroke")
-		if not s then
-			Ui.stroke(face)
-			s = face:FindFirstChildOfClass("UIStroke")
-		end
-		if s then
-			s.Color = Theme.info
-			s.Thickness = Config.ui.stroke + 1
-		end
+	local color = (Theme.guns[i] or Theme.guns[1]).glow
+	if st == "locked" then
+		color = color:Lerp(Theme.tiers.Common, G.lockedGrey)
 	end
-	swatch(face, i, 0.03, 0.72)
-	local name = h.text(face, g.name, 0.24, 0.48, if st == "locked" then Theme.tiers.Common else nil)
-	textRole(h, name, "body")
-	local tag = if st == "held" then "Holding"
-		elseif st == "owned" then "Owned"
-		elseif st == "rebirth" or (st == "locked" and g.rebirths > 0) then `Rebirth {g.rebirths}`
-		elseif g.price > 0 then Ui.price(g.price)
-		else "Free"
-	local tagColor = if st == "held" then Theme.go elseif st == "owned" then Theme.info elseif st == "next" then Theme.coin else Theme.tiers.Common
-	local t = h.text(face, tag, 0.74, 0.24, tagColor)
-	textRole(h, t, "small")
-	-- the whole row picks this gun for the card (click, tap or gamepad A)
-	local pick = Instance.new("TextButton")
-	pick.Name = "Pick"
-	pick.Text = ""
-	pick.BackgroundTransparency = 1
-	pick.Size = UDim2.fromScale(1, 1)
-	pick.ZIndex = 5
-	pick.Parent = r
-	pick.Activated:Connect(function()
+	local b = Ui.block(parent, "Gun" .. i, color, "", function()
 		SoundController.play("click")
 		o.data.pick = i
 		h.refresh()
 	end)
+	b.root.LayoutOrder = i
+	b.text.Visible = false
+	if o.data.pick == i then
+		-- the picked tile gets a white outline (still one outline per block)
+		local s = b.root:FindFirstChildOfClass("UIStroke")
+		if s then
+			s.Color = Theme.white
+			s.Thickness = Config.ui.stroke + 2
+		end
+	end
+	local num = swatch(b.face, i, 0.025, 0.42)
+	num.BackgroundColor3 = Theme.white
+	local numText = num:FindFirstChild("Number") :: TextLabel?
+	if numText then
+		numText.TextColor3 = Theme.ink
+		local s = numText:FindFirstChildOfClass("UIStroke")
+		if s then
+			s.Enabled = false
+		end
+	end
+	Ui.image(b.face, Config.images.icons.ray, UDim2.fromScale(0.2, 0.8), UDim2.fromScale(0.14, 0.1))
+	local name = Ui.label(b.face, g.name, UDim2.fromScale(0.6, 0.46), UDim2.fromScale(0.36, 0.06))
+	name.TextXAlignment = Enum.TextXAlignment.Left
+	textRole(h, name, "body")
+	if st == "held" then
+		chip(h, b.face, "Holding", Theme.coin, 0.36, 0.56, 0.27, 0.32)
+	elseif st == "owned" then
+		chip(h, b.face, "Owned", Theme.go, 0.36, 0.56, 0.27, 0.32)
+	end
+	pricePill(h, b.face, g.price, 0.65, 0.56, 0.32, 0.32)
 end
 
 -- one stat: its name, a bar for the picked gun, a mark where your current gun is, and the number
@@ -240,22 +276,29 @@ local function gunCard(h: Helpers, holder: Frame, i: number, v: State.View, o: a
 	local cur = G.list[held()]
 	local st = status(i, v)
 	local l = h.list(holder, false)
-	-- the gun turning on the left, its number and name on the right
-	local top = h.row(l, 1, 0.42)
-	preview(top, i)
-	local badge = swatch(top, i, 0.62, 0.3)
+	-- the gun turning in a big window in its glow colour, its number in the corner, the name under it
+	local top = h.row(l, 1, 0.33)
+	local box = preview(top, i)
+	box.Size = UDim2.fromScale(1, 1)
+	local badge = swatch(box, i, 0.02, 0.24)
 	badge.AnchorPoint = Vector2.new(0, 0)
-	badge.Position = UDim2.fromScale(0.62, 0.06)
-	local name = h.text(top, g.name, 0.62, 0.37)
-	name.Size = UDim2.fromScale(0.37, 0.56)
-	name.Position = UDim2.fromScale(0.62, 0.4)
-	name.TextYAlignment = Enum.TextYAlignment.Top
-	textRole(h, name, "body")
+	badge.Position = UDim2.fromScale(0.02, 0.04)
+	badge.BackgroundColor3 = Theme.white
+	local bn = badge:FindFirstChild("Number") :: TextLabel?
+	if bn then
+		bn.TextColor3 = Theme.ink
+		local s = bn:FindFirstChildOfClass("UIStroke")
+		if s then
+			s.Enabled = false
+		end
+	end
+	local name = Ui.label(h.row(l, 2, 0.09), g.name, UDim2.fromScale(1, 0.9), UDim2.fromScale(0, 0.05))
+	textRole(h, name, "title")
 	for n, stat in G.stats do
 		statBar(h, l, n + 1, stat, g, cur, (Theme.guns[i] or Theme.guns[1]).glow)
 	end
-	local r = h.row(l, 10, 0.15)
-	local label, color = "Locked", Theme.tiers.Common
+	local r = h.row(l, 10, 0.16)
+	local label, color = Ui.price(g.price), Theme.tiers.Common
 	if st == "held" then
 		label, color = "Holding", Theme.go
 	elseif st == "owned" then
@@ -263,10 +306,8 @@ local function gunCard(h: Helpers, holder: Frame, i: number, v: State.View, o: a
 	elseif st == "next" then
 		label = if g.price > 0 then Ui.price(g.price) else "Get it"
 		color = if v.coins >= g.price then Theme.coin else Theme.tiers.Common
-	elseif st == "rebirth" or g.rebirths > 0 then
-		label = `Rebirth {g.rebirths}`
 	end
-	local b = h.button(r, color, label, 0.2, 0.6, function()
+	local b = h.button(r, color, label, 0, 1, function()
 		if st == "owned" then
 			State.send("EquipGun", i)
 		elseif st == "next" then
@@ -276,7 +317,7 @@ local function gunCard(h: Helpers, holder: Frame, i: number, v: State.View, o: a
 		end
 	end)
 	b.root.Name = "Action"
-	if st == "next" and g.price > 0 and h.priceTag then
+	if (st == "next" or st == "locked") and g.price > 0 and h.priceTag then
 		h.priceTag(b)
 	end
 	o.first = b.face
@@ -380,17 +421,25 @@ function EquipmentPopup.fill(o: any, v: State.View, h: Helpers)
 	local left = Instance.new("Frame")
 	left.Name = "Guns"
 	left.BackgroundTransparency = 1
-	left.Size = UDim2.fromScale(0.5, 1)
+	left.Size = UDim2.fromScale(0.56, 1)
 	left.Parent = content
-	local l = h.list(left, true)
+	-- every gun at once as tiles, two to a row (no scrolling to find the next one)
+	local cols = G.gridColumns
+	local rows = math.ceil(#G.list / cols)
+	local grid = Instance.new("UIGridLayout")
+	local gap = G.gridGap
+	grid.CellSize = UDim2.fromScale((1 - gap * (cols - 1)) / cols, (1 - gap * (rows - 1)) / rows)
+	grid.CellPadding = UDim2.fromScale(gap, gap)
+	grid.SortOrder = Enum.SortOrder.LayoutOrder
+	grid.Parent = left
 	for i = 1, #G.list do
-		gunRow(h, l, i, v, o)
+		gunTile(h, left, i, v, o)
 	end
 	local right = Instance.new("Frame")
 	right.Name = "Card"
 	right.BackgroundTransparency = 1
-	right.Position = UDim2.fromScale(0.53, 0)
-	right.Size = UDim2.fromScale(0.47, 1)
+	right.Position = UDim2.fromScale(0.59, 0)
+	right.Size = UDim2.fromScale(0.41, 1)
 	right.Parent = content
 	gunCard(h, right, o.data.pick, v, o)
 end

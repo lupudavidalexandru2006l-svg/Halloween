@@ -4,8 +4,11 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-export type PetView = { id: string, key: string, pose: string, mut: string?, eq: boolean, income: number }
-export type Page = { zone: number, found: number, total: number, complete: boolean, secretFound: boolean }
+-- frozen = still in its cube, waiting in your Pets for the Thaw Machine; thawM = the machine it's in,
+-- thawAt = when it comes out (workspace:GetServerTimeNow() clock)
+export type PetView = { id: string, key: string, pose: string, mut: string?, eq: boolean, income: number,
+	frozen: boolean?, thawM: number?, thawAt: number? }
+export type Page = { zone: number, found: number, total: number, complete: boolean, secretFound: boolean, claimed: boolean }
 export type View = {
 	coins: number,
 	income: number,
@@ -13,6 +16,7 @@ export type View = {
 	upgrades: { [string]: number },
 	pets: { PetView },
 	slots: number,
+	machines: number?, -- Thaw Machines in your pan
 	found: { [string]: boolean },
 	pages: { Page },
 	gift: { ready: boolean, locked: boolean, streak: number, nextStreak: number, coins: number },

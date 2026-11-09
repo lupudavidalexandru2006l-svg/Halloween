@@ -1,37 +1,38 @@
 --!strict
--- IndexService: owns the Index pages. One page per zone: its 7 regular pets (Common to Mythic).
--- The Secret is a bonus slot: it shows on the page but a page is complete without it.
--- Each complete page = +10% coins forever (Config.index.pageBonus); PenService asks for the multiplier.
+-- IndexService: owns the Index pages. One page per zone: all its pets, the Secret included (owner
+-- 2026-11-09: "include the secrets"). A full page shows a pulsing Claim button; claiming it gives
+-- +10% coins forever (Config.index.pageBonus) and the page's badge (Config.index.badges). PenService
+-- asks for the multiplier, which counts claimed pages only. Old saves had full pages counted without
+-- the Secret: DataService marks those claimed on load, so nobody loses a bonus they had.
 
+local BadgeService = game:GetService("BadgeService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local PetDefs = require(ReplicatedStorage.Shared.PetDefs)
 local Remotes = require(script.Parent.Remotes)
+local DataService = require(script.Parent.DataService)
 
-export type Page = { zone: number, found: number, total: number, complete: boolean, secretFound: boolean }
+export type Page = { zone: number, found: number, total: number, complete: boolean, secretFound: boolean, claimed: boolean }
 
 local IndexService = {}
+local claimAt: { [Player]: number } = {}
 
-local function isRegular(def: PetDefs.PetDef): boolean
-	return def.tier ~= "Secret"
-end
-
--- only zones that are in the world count (zones 3-5 have pets designed but no map yet)
-function IndexService.pages(found: { [string]: boolean }): { Page }
+-- only zones that are in the world count (an island behind a "Coming soon" gate has no page yet)
+function IndexService.pages(found: { [string]: boolean }, claimed: { [string]: boolean }?): { Page }
 	local out: { Page } = {}
 	for _, z in Config.world.zones do
 		if not z.ready then
-			continue -- an island behind a "Coming soon" gate gets its page with its pets (Round 4 phase 6)
+			continue
 		end
-		local page: Page = { zone = z.id, found = 0, total = 0, complete = false, secretFound = false }
+		local page: Page = { zone = z.id, found = 0, total = 0, complete = false, secretFound = false,
+			claimed = claimed ~= nil and claimed[tostring(z.id)] == true }
 		for _, def in PetDefs.inZone(z.id) do
-			if isRegular(def) then
-				page.total += 1
-				if found[def.key] then
-					page.found += 1
+			page.total += 1
+			if found[def.key] then
+				page.found += 1
+				if def.tier == "Secret" then
+					page.secretFound = true
 				end
-			elseif found[def.key] then
-				page.secretFound = true
 			end
 		end
 		page.complete = page.total > 0 and page.found == page.total
@@ -40,34 +41,75 @@ function IndexService.pages(found: { [string]: boolean }): { Page }
 	return out
 end
 
-function IndexService.completedPages(found: { [string]: boolean }): number
+-- +10% for every page claimed
+function IndexService.multiplier(claimed: { [string]: boolean }): number
 	local n = 0
-	for _, p in IndexService.pages(found) do
-		if p.complete then
+	for _, z in Config.world.zones do
+		if claimed[tostring(z.id)] then
 			n += 1
 		end
 	end
-	return n
+	return 1 + Config.index.pageBonus * n
 end
 
-function IndexService.multiplier(found: { [string]: boolean }): number
-	return 1 + Config.index.pageBonus * IndexService.completedPages(found)
-end
-
--- PenService calls this after a new pet is marked found; tells the player when it finished a page
-function IndexService.onFound(player: Player, key: string, found: { [string]: boolean })
+-- PenService calls this after a new pet is marked found; tells the player when it filled a page
+function IndexService.onFound(player: Player, key: string, found: { [string]: boolean }, claimed: { [string]: boolean })
 	local def = PetDefs.get(key)
 	if not def then
 		return
 	end
-	for _, p in IndexService.pages(found) do
-		if p.zone == def.zone and p.complete and isRegular(def) then
+	for _, p in IndexService.pages(found, claimed) do
+		if p.zone == def.zone and p.complete and not p.claimed then
 			Remotes.fire(player, "Notify", "pageDone", { zone = p.zone, bonus = Config.index.pageBonus })
 		end
 	end
 end
 
+-- the client asks to claim a full page: checked here (a real, full, unclaimed page), saved, then the badge
+local function claim(player: Player, zone: any)
+	if typeof(zone) ~= "number" or zone ~= zone or zone % 1 ~= 0 then
+		return
+	end
+	local now = os.clock()
+	if now - (claimAt[player] or -math.huge) < Config.index.claimCooldown then
+		return
+	end
+	claimAt[player] = now
+	local ok = false
+	DataService.mutate(player, function(d)
+		for _, p in IndexService.pages(d.found, d.indexClaimed) do
+			if p.zone == zone and p.complete and not p.claimed then
+				d.indexClaimed[tostring(zone)] = true
+				ok = true
+			end
+		end
+	end)
+	if not ok then
+		return
+	end
+	DataService.saveNow(player)
+	Remotes.fire(player, "Notify", "pageClaimed", { zone = zone, bonus = Config.index.pageBonus })
+	local badge = Config.index.badges[zone]
+	if badge and badge > 0 then
+		task.spawn(function()
+			local okB, err = pcall(function()
+				if not BadgeService:UserHasBadgeAsync(player.UserId, badge) then
+					BadgeService:AwardBadge(player.UserId, badge)
+				end
+			end)
+			if not okB then
+				warn(`[IndexService] badge {badge} for {player.UserId}: {err}`)
+			end
+		end)
+	end
+end
+
 function IndexService.Init() end
-function IndexService.Start() end
+function IndexService.Start()
+	Remotes.on("ClaimPage", claim)
+	game:GetService("Players").PlayerRemoving:Connect(function(p)
+		claimAt[p] = nil
+	end)
+end
 
 return IndexService

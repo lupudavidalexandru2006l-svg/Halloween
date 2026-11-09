@@ -112,7 +112,7 @@ end
 local M = {
 	list = PetDefs,
 	byKey = byKey,
-	sizeHeight = { S = 2.2, M = 3, L = 4 } :: { [string]: number },
+	sizeHeight = { S = 2.2 * Config.petScale, M = 3 * Config.petScale, L = 4 * Config.petScale } :: { [string]: number },
 	cubeSize = { S = 3.0, M = 3.8, L = 4.8 } :: { [string]: number },
 }
 

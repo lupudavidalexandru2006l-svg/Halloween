@@ -471,10 +471,10 @@ local function updateScreen(mc: Machine, active: boolean, p: number, left: numbe
 		status, color, bar, barColor = `{math.floor(p * 100)}%`, lit, p, lit
 		local cube = mc.cube :: BasePart
 		local def = PetDefs.get(cube:GetAttribute("PetKey") :: string)
-		sub = `{if def then def.name else "Thawing"}  {math.ceil(left)}s`
+		sub = `{if def then def.name else "Thawing"}  {Config.timeText(left)}`
 	else
 		status, color, bar, barColor = "READY", R5.machineReady, 0, R5.machineCold
-		sub = if mc.queue > 0 then "Next cube coming" else "Bring pets home"
+		sub = "Put a pet in!" -- you put frozen pets in yourself (owner 2026-11-09)
 	end
 	if s.status.Text ~= status then
 		s.status.Text = status

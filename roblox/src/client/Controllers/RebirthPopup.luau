@@ -19,7 +19,9 @@ local I = Config.images.icons
 
 function RebirthPopup.shownKey(v: State.View): string
 	local cost = Config.rebirthCost(v.rebirths + 1)
-	return `{v.rebirths},{v.coins >= cost},{me:GetAttribute("GunBest")}`
+	-- the coin bar moves in steps, so the popup isn't rebuilt on every coin tick
+	local step = math.floor(math.clamp(v.coins / math.max(1, cost), 0, 1) * Config.rebirth.ui.barSteps)
+	return `{v.rebirths},{v.coins >= cost},{me:GetAttribute("GunBest")},{step}`
 end
 
 -- the free gun this rebirth hands over, if it's next in line (as RebirthService works it out)
@@ -77,7 +79,7 @@ end
 
 -- one icon row: a painted icon (or the gate shape) and a short word
 local function item(h: EquipmentPopup.Helpers, l: GuiObject, order: number, icon: string?, word: string, color: Color3?)
-	local r = h.row(l, order, 0.15)
+	local r = h.row(l, order, Config.rebirth.ui.itemHeight)
 	r.Name = "Item" .. order
 	if icon then
 		local img = Ui.image(r, icon, UDim2.fromScale(0.22, 0.9), UDim2.fromScale(0.03, 0.05))
@@ -88,44 +90,115 @@ local function item(h: EquipmentPopup.Helpers, l: GuiObject, order: number, icon
 	end
 	local t = h.text(r, word, 0.3, 0.68, color)
 	if h.sized then
-		h.sized(t, "small")
+		h.sized(t, "body")
 	end
 end
 
+-- one white card with a header strip in its colour (KEEP green, RESETS red, YOU GET gold), owner
+-- 2026-11-09: "improve the rebirth UI"
 local function column(h: EquipmentPopup.Helpers, body: Frame, x: number, title: string, color: Color3): GuiObject
+	local R = Config.rebirth.ui
+	local c = Instance.new("Frame")
+	c.Name = title
+	c.BackgroundColor3 = Theme.white
+	c.BorderSizePixel = 0
+	c.ClipsDescendants = true
+	c.Position = UDim2.fromScale(x, R.colsTop)
+	c.Size = UDim2.fromScale(R.colWidth, R.colsHeight)
+	Ui.corner(c)
+	Ui.stroke(c, Config.ui.cardStroke)
+	c.Parent = body
+	local head = Instance.new("Frame")
+	head.Name = "Head"
+	head.BackgroundColor3 = color
+	head.BorderSizePixel = 0
+	head.Size = UDim2.fromScale(1, R.colHead)
+	Ui.corner(head)
+	local square = Instance.new("Frame") -- square bottom corners, rounded top ones (the card's own corners)
+	square.BackgroundColor3 = color
+	square.BorderSizePixel = 0
+	square.Position = UDim2.fromScale(0, 0.5)
+	square.Size = UDim2.fromScale(1, 0.5)
+	square.ZIndex = 0
+	square.Parent = head
+	head.Parent = c
+	local t = Ui.label(head, title, UDim2.fromScale(0.9, 0.76), UDim2.fromScale(0.05, 0.12))
+	if h.sized then
+		h.sized(t, "body")
+	end
 	local holder = Instance.new("Frame")
-	holder.Name = title
+	holder.Name = "Items"
 	holder.BackgroundTransparency = 1
-	holder.Position = UDim2.fromScale(x, 0)
-	holder.Size = UDim2.fromScale(0.32, 0.7)
-	holder.Parent = body
+	holder.Position = UDim2.fromScale(0.04, R.colHead + 0.03)
+	holder.Size = UDim2.fromScale(0.92, 1 - R.colHead - 0.06)
+	holder.Parent = c
 	local l = h.list(holder, false)
 	local lay = l:FindFirstChildOfClass("UIListLayout")
 	if lay then
-		lay.VerticalAlignment = Enum.VerticalAlignment.Top -- the three headings line up
-	end
-	local head = h.text(h.row(l, 0, 0.14), title, 0, 1, color)
-	head.TextXAlignment = Enum.TextXAlignment.Center
-	if h.sized then
-		h.sized(head, "body")
+		lay.VerticalAlignment = Enum.VerticalAlignment.Top
 	end
 	return l
+end
+
+-- the top banner: "Rebirth N" and what your coins become, x1.5 -> x2 (the reason to do it, biggest)
+local function hero(h: EquipmentPopup.Helpers, body: Frame, n: number)
+	local R = Config.rebirth.ui
+	local b = Ui.block(body, "Hero", Theme.booths.rebirth, "", nil)
+	b.root.Size = UDim2.fromScale(1, R.heroHeight)
+	b.text.Visible = false
+	local title = Ui.label(b.face, `Rebirth {n}`, UDim2.fromScale(0.36, 0.6), UDim2.fromScale(0.03, 0.2))
+	if h.sized then
+		h.sized(title, "title")
+	end
+	local function mult(x: number, value: number)
+		Ui.image(b.face, I.coin, UDim2.fromScale(0.09, 0.7), UDim2.fromScale(x, 0.15))
+		local t = Ui.label(b.face, `x{value}`, UDim2.fromScale(0.14, 0.6), UDim2.fromScale(x + 0.09, 0.2))
+		t.TextXAlignment = Enum.TextXAlignment.Left
+		if h.sized then
+			h.sized(t, "title")
+		end
+	end
+	mult(0.42, Config.rebirthIncome(n - 1))
+	-- an arrow drawn from shapes (no emoji or glyph arrows in UI)
+	local arrow = Instance.new("Frame")
+	arrow.Name = "Arrow"
+	arrow.BackgroundColor3 = Theme.white
+	arrow.BorderSizePixel = 0
+	arrow.AnchorPoint = Vector2.new(0.5, 0.5)
+	arrow.Position = UDim2.fromScale(0.68, 0.5)
+	arrow.Size = UDim2.fromScale(0.04, 0.12)
+	Ui.stroke(arrow)
+	arrow.Parent = b.face
+	for _, s in { 1, -1 } do
+		local head = Instance.new("Frame")
+		head.BackgroundColor3 = Theme.white
+		head.BorderSizePixel = 0
+		head.AnchorPoint = Vector2.new(1, 0.5)
+		head.Position = UDim2.fromScale(0.715, 0.5 + s * 0.09)
+		head.Size = UDim2.fromScale(0.035, 0.1)
+		head.Rotation = -s * 45 -- the two strokes meet at the right end: an arrow pointing right
+		Ui.stroke(head)
+		head.Parent = b.face
+	end
+	mult(0.75, Config.rebirthIncome(n))
 end
 
 function RebirthPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
 	o.data = if typeof(o.data) == "table" then o.data else {}
 	local n = v.rebirths + 1
 	local cost = Config.rebirthCost(n)
+	local R = Config.rebirth.ui
+	hero(h, o.body, n)
 	local keep = column(h, o.body, 0, "KEEP", Theme.go)
 	item(h, keep, 1, Config.ui.tileIcons.pets, "Pets")
 	item(h, keep, 2, I.book, "Index")
 	item(h, keep, 3, I.ray, "Guns")
 	item(h, keep, 4, nil, "Gates", Theme.ink)
 	item(h, keep, 5, I.pen, "Cold + Look")
-	local resets = column(h, o.body, 0.34, "RESETS", Theme.no)
+	local resets = column(h, o.body, R.colWidth + R.colGap, "RESETS", Theme.no)
 	item(h, resets, 1, I.coin, "Coins")
 	item(h, resets, 2, I.pen, "Slots")
-	local get = column(h, o.body, 0.68, "YOU GET", Theme.booths.rebirth)
+	local get = column(h, o.body, (R.colWidth + R.colGap) * 2, "YOU GET", Theme.coin)
 	item(h, get, 1, I.coin, `x{Config.rebirthIncome(n)} coins`)
 	local order = 2
 	if Config.rebirth.slotsPer > 0 then
@@ -145,8 +218,8 @@ function RebirthPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
 	local foot = Instance.new("Frame")
 	foot.Name = "Foot"
 	foot.BackgroundTransparency = 1
-	foot.Position = UDim2.fromScale(0, 0.72)
-	foot.Size = UDim2.fromScale(1, 0.28)
+	foot.Position = UDim2.fromScale(0, R.footTop)
+	foot.Size = UDim2.fromScale(1, 1 - R.footTop)
 	foot.Parent = o.body
 	local fl = h.list(foot, false)
 	if o.data.ask then
@@ -171,14 +244,17 @@ function RebirthPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
 		return
 	end
 	local have = v.coins >= cost
-	local price = h.text(h.row(fl, 1, 0.4), if have then `Rebirth {n}: {Ui.price(cost)} coins`
-		else `Rebirth {n}: {Ui.price(cost)} coins (need {Ui.price(cost - v.coins)} more)`, 0, 1)
-	price.TextXAlignment = Enum.TextXAlignment.Center
-	if h.sized then
-		h.sized(price, "body")
+	-- your coins toward the price, as a gold bar with the coin in front
+	local pr = h.row(fl, 1, 0.36)
+	Ui.image(pr, I.coin, UDim2.fromScale(0.07, 1), UDim2.fromScale(0, 0))
+	local label = `{Ui.price(math.min(v.coins, cost))} / {Ui.price(cost)}`
+	if h.bar then
+		h.bar(pr, 0.08, 0.1, 0.92, 0.8, v.coins / math.max(1, cost), label, Theme.coin)
+	else
+		h.text(pr, label, 0.08, 0.92)
 	end
 	local r = h.row(fl, 2, 0.5)
-	local go = h.button(r, if have then Theme.booths.rebirth else Theme.no, "Rebirth", 0.28, 0.44, function()
+	local go = h.button(r, if have then Theme.booths.rebirth else Theme.tiers.Common, if have then "REBIRTH" else `Need {Ui.price(cost - v.coins)} more`, 0.2, 0.6, function()
 		if have then
 			o.data.ask = true
 			h.refresh()
@@ -187,6 +263,9 @@ function RebirthPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
 		end
 	end)
 	go.root.Name = "RebirthButton"
+	if have and h.pulse then
+		h.pulse(go.root)
+	end
 	o.first = go.face
 end
 

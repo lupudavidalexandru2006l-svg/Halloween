@@ -11,7 +11,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local PetDefs = require(ReplicatedStorage.Shared.PetDefs)
 
-export type PetEntry = { id: string, key: string, pose: string, mut: string?, at: number, eq: boolean } -- eq = in the pen (earning); else in Storage
+-- eq = in the pen (earning); else in Storage. frozen = still in its ice cube (owner 2026-11-09): it
+-- waits in your Pets until you put it in a Thaw Machine; thawM / thawEnd (os.time) / thawTotal = the
+-- machine it's in and when it comes out. A frozen pet is never eq and earns nothing.
+export type PetEntry = { id: string, key: string, pose: string, mut: string?, at: number, eq: boolean,
+	frozen: boolean?, thawM: number?, thawEnd: number?, thawTotal: number? }
 export type Settings = { music: boolean, sound: boolean, reducedMotion: boolean, lowGraphics: boolean, unit: string }
 -- tester switches, saved per tester; reset to these defaults on load for everyone else
 export type TesterSettings = { mult: number, walk: number, instantFreeze: boolean, noMelt: boolean }
@@ -22,6 +26,7 @@ export type Data = {
 	nextPetId: number,
 	upgrades: { [string]: number },
 	found: { [string]: boolean },
+	indexClaimed: { [string]: boolean }, -- Index pages claimed (zone id as a string): +10% coins each (IndexService)
 	stats: { frozen: number, banked: number, melts: number, coinsEarned: number },
 	rarest: { rank: number, key: string?, at: number },
 	week: { id: string, coins: number },
@@ -73,6 +78,7 @@ local function defaults(): Data
 		nextPetId = 1,
 		upgrades = { ray = 1, boots = 1, backpack = 1, pen = 1 },
 		found = {},
+		indexClaimed = {},
 		stats = { frozen = 0, banked = 0, melts = 0, coinsEarned = 0 },
 		rarest = { rank = 0, key = nil, at = 0 },
 		week = { id = "", coins = 0 },
@@ -149,15 +155,31 @@ local function migrate(old: any): Data
 				d.nextPetId += 1
 			end
 			seen[id :: string] = true
-			local eq = p.eq == true and inPen < slots
+			local frozen = p.frozen == true
+			local eq = p.eq == true and inPen < slots and not frozen
 			if eq then
 				inPen += 1
 			end
-			table.insert(d.pets, { id = id :: string, key = p.key, pose = knownPose(p.pose), mut = knownMut(p.mut), at = num(p.at, 0, 1e12), eq = eq })
+			local entry: PetEntry = { id = id :: string, key = p.key, pose = knownPose(p.pose), mut = knownMut(p.mut), at = num(p.at, 0, 1e12), eq = eq }
+			if frozen then
+				entry.frozen = true
+				local m = int(p.thawM, 0, 2, 0)
+				if m >= 1 and typeof(p.thawEnd) == "number" then -- in a Thaw Machine: keeps its time (PenService checks the machine is still free)
+					entry.thawM = m
+					entry.thawEnd = num(p.thawEnd, 0, 1e12)
+					entry.thawTotal = num(p.thawTotal, 1, 1e8, 1)
+				end
+			end
+			table.insert(d.pets, entry)
 		end
 	end
 	if inPen == 0 and #d.pets > 0 then -- an older save without flags: the best pets go in the pen
-		local sorted = table.clone(d.pets)
+		local sorted = {}
+		for _, p in d.pets do
+			if not p.frozen then
+				table.insert(sorted, p)
+			end
+		end
 		table.sort(sorted, function(a, b)
 			local da, db = PetDefs.get(a.key), PetDefs.get(b.key)
 			return PetDefs.income(da :: any, a.pose, a.mut) > PetDefs.income(db :: any, b.pose, b.mut)
@@ -169,6 +191,28 @@ local function migrate(old: any): Data
 	for k, v in tbl(old.found) do
 		if typeof(k) == "string" and v == true and PetDefs.get(k) then
 			d.found[k] = true
+		end
+	end
+	if typeof(old.indexClaimed) == "table" then
+		for _, z in Config.world.zones do
+			if old.indexClaimed[tostring(z.id)] == true then
+				d.indexClaimed[tostring(z.id)] = true
+			end
+		end
+	else
+		-- a save from before Claim (2026-11-09): a page that was full by the old rule (every pet but the
+		-- Secret) already paid its +10%, so it counts as claimed and nobody loses a bonus they had
+		for _, z in Config.world.zones do
+			local full, any = true, false
+			for _, def in PetDefs.inZone(z.id) do
+				if def.tier ~= "Secret" then
+					any = true
+					full = full and d.found[def.key] == true
+				end
+			end
+			if z.ready and any and full then
+				d.indexClaimed[tostring(z.id)] = true
+			end
 		end
 	end
 	local st = tbl(old.stats)
@@ -471,4 +515,3 @@ function DataService.wipe(player: Player)
 end
 
 return DataService
-

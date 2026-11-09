@@ -31,7 +31,7 @@ local function groups(v: State.View): { Group }
 	end)
 	for _, p in sorted do
 		local def = PetDefs.get(p.key)
-		if def then
+		if def and not p.thawM then -- a pet in a Thaw Machine can't be sold until it's out
 			local gid = `{p.key}|{p.pose}|{p.mut or ""}`
 			local g = byId[gid]
 			if not g then
@@ -57,7 +57,7 @@ end
 function SellPopup.shownKey(v: State.View): string
 	local parts: { string } = {}
 	for _, p in v.pets do
-		table.insert(parts, `{p.id}{p.eq}`)
+		table.insert(parts, `{p.id}{p.eq}{p.thawM or ""}`)
 	end
 	return table.concat(parts, ",") .. (if lastSale then tostring(lastSale.at) else "")
 end
@@ -67,52 +67,61 @@ local function label(def: PetDefs.PetDef, pose: string, mut: string?): string
 	return def.name .. (if ps and pose ~= "idle" then " " .. ps.label else "") .. (if mut then " " .. mut else "")
 end
 
-local function groupRow(h: EquipmentPopup.Helpers, l: GuiObject, n: number, g: Group, o: any)
-	local r = h.row(l, n, 0, 5)
-	r.Name = "Sell" .. n
-	local face: Instance = if h.card then h.card(r) else r
-	if o.data.pick == g.id then
-		local s = face:FindFirstChildOfClass("UIStroke")
-		if not s then
-			Ui.stroke(face)
-			s = face:FindFirstChildOfClass("UIStroke")
-		end
-		if s then
-			s.Color = Theme.info
-			s.Thickness = Config.ui.stroke + 1
-		end
-	end
-	if g.def.icon ~= "" then
-		local img = Ui.image(face, g.def.icon, UDim2.fromScale(0.16, 0.9), UDim2.fromScale(0.02, 0.05))
-		local a = Instance.new("UIAspectRatioConstraint")
-		a.Parent = img
-	end
-	local name = h.text(face, label(g.def, g.pose, g.mut), 0.2, 0.5, Theme.tiers[g.def.tier])
+local function role(h: EquipmentPopup.Helpers, t: TextLabel, r: string)
 	if h.sized then
-		h.sized(name, "small")
+		h.sized(t, r)
 	end
-	local count = h.text(face, `x{#g.ids}`, 0.71, 0.12)
-	if h.sized then
-		h.sized(count, "small")
+end
+
+-- a white pill (count or price) on a tile; coin = the coin image in front of the words
+local function pill(h: EquipmentPopup.Helpers, parent: Instance, s: string, coin: boolean, x: number, y: number, w: number, hgt: number): Frame
+	local p = Instance.new("Frame")
+	p.Name = if coin then "Price" else "Count"
+	p.BackgroundColor3 = Theme.white
+	p.BorderSizePixel = 0
+	p.Position = UDim2.fromScale(x, y)
+	p.Size = UDim2.fromScale(w, hgt)
+	p.ZIndex = 3
+	Ui.corner(p, 0.5)
+	Ui.stroke(p)
+	if coin then
+		local c = Ui.image(p, Config.images.icons.coin, UDim2.fromScale(0.28, 0.86), UDim2.fromScale(0.03, 0.07))
+		c.ZIndex = 4
 	end
-	local price = h.text(face, Ui.short(g.value), 0.83, 0.16, Theme.coin)
-	if h.sized then
-		h.sized(price, "small")
-	end
-	-- the whole row picks this group for the card (click, tap or gamepad A)
-	local pick = Instance.new("TextButton")
-	pick.Name = "Pick"
-	pick.Text = ""
-	pick.BackgroundTransparency = 1
-	pick.Size = UDim2.fromScale(1, 1)
-	pick.ZIndex = 5
-	pick.Parent = r
-	pick.Activated:Connect(function()
+	local t = Ui.inkLabel(p, s, UDim2.fromScale(if coin then 0.64 else 0.86, 0.78), UDim2.fromScale(if coin then 0.32 else 0.07, 0.11))
+	t.ZIndex = 4
+	role(h, t, "small")
+	p.Parent = parent
+	return p
+end
+
+-- one group of identical pets as a tile in its tier colour (owner 2026-11-09: the list looked plain):
+-- the pet, its name, how many you have and what one sells for. The tile picks the group for the card.
+local function groupTile(h: EquipmentPopup.Helpers, parent: Instance, k: number, g: Group, o: any)
+	local tile = Ui.block(parent, "Sell_" .. g.id:gsub("|", "_"), Theme.tiers[g.def.tier] or Theme.info, "", function()
 		SoundController.play("click")
 		o.data.pick = g.id
 		o.data.ask = nil
 		h.refresh()
 	end)
+	tile.text.Visible = false
+	local w = (1 - S.tileGap * (S.columns - 1)) / S.columns
+	tile.root.Position = UDim2.fromScale((k - 1) * (w + S.tileGap), 0.04)
+	tile.root.Size = UDim2.fromScale(w, 0.92)
+	if o.data.pick == g.id then
+		local s = tile.root:FindFirstChildOfClass("UIStroke")
+		if s then
+			s.Color = Theme.white
+			s.Thickness = Config.ui.stroke + 2
+		end
+	end
+	if g.def.icon ~= "" then
+		Ui.image(tile.face, g.def.icon, UDim2.fromScale(0.8, 0.5), UDim2.fromScale(0.1, 0.06))
+	end
+	local name = Ui.label(tile.face, label(g.def, g.pose, g.mut), UDim2.fromScale(0.92, 0.18), UDim2.fromScale(0.04, 0.56))
+	role(h, name, "tiny") -- one size for every tile's name (short names grew huge on "small")
+	pill(h, tile.face, `x{#g.ids}`, false, 0.62, 0.03, 0.34, 0.15)
+	pill(h, tile.face, Ui.short(g.value), true, 0.1, 0.78, 0.8, 0.18)
 end
 
 local function line(h: EquipmentPopup.Helpers, l: GuiObject, order: number, s: string, color: Color3?, role: string?): TextLabel
@@ -126,9 +135,39 @@ end
 
 local function card(h: EquipmentPopup.Helpers, holder: Frame, g: Group, o: any)
 	local l = h.list(holder, false)
-	line(h, l, 1, label(g.def, g.pose, g.mut), Theme.tiers[g.def.tier], "title")
-	line(h, l, 2, `{g.def.tier}. You have {#g.ids}` .. (if g.inPan > 0 then ` ({g.inPan} in your pan)` else ""), nil, "small")
-	line(h, l, 3, `Sells for {Ui.commas(g.value)} coins each`, nil, "small")
+	-- the pet big in a window glowing in its tier colour, its tier on a chip, then its name
+	local top = h.row(l, 0, S.windowHeight)
+	local glow = Theme.tierGlow[g.def.tier] or Theme.ice
+	local win = Instance.new("Frame")
+	win.Name = "Window"
+	win.BackgroundColor3 = Theme.white
+	win.BorderSizePixel = 0
+	win.Size = UDim2.fromScale(1, 1)
+	Ui.corner(win)
+	Ui.stroke(win, Config.ui.cardStroke)
+	local grad = Instance.new("UIGradient")
+	grad.Rotation = 90
+	grad.Color = ColorSequence.new(Theme.white, glow)
+	grad.Parent = win
+	win.Parent = top
+	if g.def.icon ~= "" then
+		Ui.image(win, g.def.icon, UDim2.fromScale(0.8, 0.86), UDim2.fromScale(0.1, 0.07))
+	end
+	local tierRow = h.row(l, 1, 0.07)
+	local tierChip = Instance.new("Frame")
+	tierChip.Name = "Tier"
+	tierChip.BackgroundColor3 = Theme.tiers[g.def.tier] or Theme.info
+	tierChip.AnchorPoint = Vector2.new(0.5, 0)
+	tierChip.Position = UDim2.fromScale(0.5, 0)
+	tierChip.Size = UDim2.fromScale(0.36, 1)
+	Ui.corner(tierChip, 0.5)
+	Ui.stroke(tierChip)
+	local tt = Ui.label(tierChip, string.upper(g.def.tier), UDim2.fromScale(0.9, 0.8), UDim2.fromScale(0.05, 0.1))
+	role(h, tt, "small")
+	tierChip.Parent = tierRow
+	local nm = Ui.label(h.row(l, 2, 0.1), label(g.def, g.pose, g.mut), UDim2.fromScale(1, 0.9), UDim2.fromScale(0, 0.05))
+	role(h, nm, "title")
+	line(h, l, 3, `You have {#g.ids}` .. (if g.inPan > 0 then `  ({g.inPan} in your pan)` else ""), nil, "small")
 	local ask = o.data.ask
 	if ask then
 		-- Epic and up: say yes first, seeing exactly what you get
@@ -156,17 +195,19 @@ local function card(h: EquipmentPopup.Helpers, holder: Frame, g: Group, o: any)
 			State.send("SellPets", ids)
 		end
 	end
-	local r = h.row(l, 5, 0.2)
-	local one = h.button(r, Theme.coin, `Sell 1  +{Ui.short(g.value)}`, 0.04, 0.44, function()
+	local r = h.row(l, 5, 0.16)
+	-- "Sell all but one" only when it sells more than one: with 2 pets it was the same as "Sell 1", so the
+	-- card showed two "Sell 1" buttons (owner 2026-11-09)
+	local extras = table.clone(g.ids)
+	table.remove(extras) -- keep one (a pan one if any, since those sort last)
+	local two = #extras >= 2
+	local one = h.button(r, Theme.coin, `Sell 1  +{Ui.short(g.value)}`, 0, if two then 0.48 else 1, function()
 		sell({ g.ids[1] }) -- Storage ones first
 	end)
 	one.root.Name = "SellOne"
 	o.first = one.face
-	if #g.ids >= 2 then
-		local extras = table.clone(g.ids)
-		table.remove(extras) -- keep one (a pan one if any, since those sort last)
-		-- short, so the total still fits on the button ("extras" pushed the price off it); one is kept
-		local all = h.button(r, Theme.coin, `Sell {#extras}  +{Ui.short(#extras * g.value)}`, 0.52, 0.44, function()
+	if two then
+		local all = h.button(r, Theme.coin, `Sell {#extras}  +{Ui.short(#extras * g.value)}`, 0.52, 0.48, function()
 			sell(extras)
 		end)
 		all.root.Name = "SellExtras"
@@ -198,17 +239,23 @@ function SellPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
 	local left = Instance.new("Frame")
 	left.Name = "Pets"
 	left.BackgroundTransparency = 1
-	left.Size = UDim2.fromScale(0.5, 1)
+	left.Size = UDim2.fromScale(0.56, 1)
 	left.Parent = o.body
 	local l = h.list(left, true)
+	-- tiles, S.columns to a row (each row sized from its width, so the scrolling list measures it)
+	local r: Frame? = nil
 	for n, g in list do
-		groupRow(h, l, n, g, o)
+		local k = (n - 1) % S.columns + 1
+		if k == 1 then
+			r = h.row(l, n, 0, S.rowAspect)
+		end
+		groupTile(h, r :: Frame, k, g, o)
 	end
 	local right = Instance.new("Frame")
 	right.Name = "Card"
 	right.BackgroundTransparency = 1
-	right.Position = UDim2.fromScale(0.53, 0)
-	right.Size = UDim2.fromScale(0.47, 1)
+	right.Position = UDim2.fromScale(0.59, 0)
+	right.Size = UDim2.fromScale(0.41, 1)
 	right.Parent = o.body
 	card(h, right, picked :: Group, o)
 end

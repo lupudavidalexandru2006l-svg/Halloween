@@ -145,7 +145,9 @@ end
 -- the popup layer: centred in the band under the top of the screen (the island banner waits while a
 -- popup is open, so the two never meet; QA 2026-10-31: a panel over top-HUD text looked broken). Sizes are Scale with a fixed
 -- aspect, so a popup is the same share of the screen everywhere.
-function Screen.popupFrame(): Frame
+-- big = the booth and Index popups (owner 2026-11-09: "make it bigger"): Config.ui.popupSizeBig, and
+-- they hide the HUD while open (Config.ui.hideHudFor) so the wider panel never sits on the tiles
+function Screen.popupFrame(big: boolean?): Frame
 	local cam = workspace.CurrentCamera
 	local short = if cam then math.min(cam.ViewportSize.X, cam.ViewportSize.Y) else 720
 	local h = if Screen.popups and Screen.popups.AbsoluteSize.Y > 0 then Screen.popups.AbsoluteSize.Y elseif cam then math.max(1, cam.ViewportSize.Y) else 720
@@ -155,10 +157,11 @@ function Screen.popupFrame(): Frame
 	f.Name = "Popup"
 	f.AnchorPoint = Vector2.new(0.5, 0.5)
 	f.Position = UDim2.fromScale(0.5, (top + bottom) / 2)
-	f.Size = UDim2.fromScale(U.popupSize[1], math.min(U.popupSize[2], bottom - top))
+	local size = if big then U.popupSizeBig else U.popupSize
+	f.Size = UDim2.fromScale(size[1], math.min(size[2], bottom - top))
 	f.BackgroundTransparency = 1
 	local aspect = Instance.new("UIAspectRatioConstraint")
-	aspect.AspectRatio = 1.6
+	aspect.AspectRatio = if big then U.popupAspectBig else 1.6
 	aspect.Parent = f
 	f.Parent = Screen.popups
 	return f

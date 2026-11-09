@@ -5,7 +5,8 @@
 -- The cube Part is welded to the character so everyone sees it; clients draw the pet inside and the melt.
 -- A fresh freeze first waits on the ground where the pet stood (owner 2026-11-07): only the player who
 -- froze it picks it up, with E, and then it's carried like any other cube. Ground cubes don't melt;
--- one left alone for Config.carry.groundSeconds thaws back into a dazed pet.
+-- one left alone for Config.carry.groundSeconds thaws back into a dazed pet. With Config.carry.autoPickUp
+-- (QA 2026-11-08) FreezeService picks it up for you a moment after the snap, so there's no E.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -223,14 +224,15 @@ function CarryService.dropCube(player: Player, info: CubeInfo, petAt: Vector3, g
 end
 
 -- E on your own cube on the ground: it goes into your hands (the client flies it there), and only
--- starts melting from now
-function CarryService.pickUp(player: Player, uid: string)
+-- starts melting from now. auto = the server's own pick-up right after a freeze (Config.carry.autoPickUp):
+-- the pet may have been frozen from the gun's full range, past the E prompt's reach
+function CarryService.pickUp(player: Player, uid: string, auto: boolean?)
 	local list = ground[player]
 	local p = PlayerTracker.position(player)
 	local c: Cube? = nil
 	for i, g in list or {} do
 		local at = g.part and g.part.Position
-		local near = p ~= nil and at ~= nil and (Vector3.new(p.X, 0, p.Z) - Vector3.new(at.X, 0, at.Z)).Magnitude <= Config.carry.pickUpRange + 2
+		local near = auto == true or (p ~= nil and at ~= nil and (Vector3.new(p.X, 0, p.Z) - Vector3.new(at.X, 0, at.Z)).Magnitude <= Config.carry.pickUpRange + 2)
 		if g.uid == uid and near then
 			c = table.remove(list :: { Cube }, i)
 			break

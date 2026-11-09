@@ -106,6 +106,33 @@ local function nearestPet(from: Vector3, minDist: number, maxDist: number, zone:
 	return best
 end
 
+-- a frozen pet waiting in your Pets and a free Thaw Machine: the arrow points at that machine
+-- (owner 2026-11-09: you put each pet in yourself). Same spot as PenService.machineSpot.
+local function freeMachine(v: State.View): Vector3?
+	if not v.plot then
+		return nil
+	end
+	local frozen, busy = false, {} :: { [number]: boolean }
+	for _, p in v.pets do
+		if p.thawM then
+			busy[p.thawM] = true
+		elseif p.frozen then
+			frozen = true
+		end
+	end
+	if not frozen then
+		return nil
+	end
+	local T, P = Config.thaw, Config.world.pans
+	local spot = Config.world.plots[v.plot]
+	for m = 1, v.machines or 1 do
+		if not busy[m] then
+			return Vector3.new(spot.x + T.machine.x + (m - 1) * T.machine.gap, 0, P.frontZ - P.length + T.machine.z)
+		end
+	end
+	return nil
+end
+
 local function step()
 	local root = myRoot()
 	local v = State.view
@@ -132,6 +159,8 @@ local function step()
 		goal = WorldRules.plotCenter(v.plot)
 	elseif waiting then
 		goal = waiting -- go back and pick it up
+	elseif freeMachine(v) then
+		goal = freeMachine(v) -- put your frozen pet in the Thaw Machine
 	elseif #v.pets < G.earlyPets then
 		local p = nearestPet(pos, 0, math.huge, 1)
 		goal = if p then p.Position else nil

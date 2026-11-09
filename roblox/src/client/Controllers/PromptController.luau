@@ -202,6 +202,15 @@ local function refreshWorldPrompts(v: State.View)
 		if pp then
 			pp.Enabled = v.plot == i
 		end
+		-- the Thaw Machine's "Thaw a pet": only at your own pan, and machine 2 once you have it
+		local pan = map:FindFirstChild("Pan" .. i, true)
+		for m = 1, 2 do
+			local machine = pan and pan:FindFirstChild("ThawMachine" .. m)
+			local tp = machine and machine:FindFirstChild("ThawPrompt", true)
+			if tp and tp:IsA("ProximityPrompt") then
+				tp.Enabled = v.plot == i and m <= (v.machines or 1)
+			end
+		end
 	end
 end
 
@@ -258,12 +267,14 @@ function PromptController.Start()
 		end
 		if booth == "pan" then
 			action = Config.world.panUpgradeAction -- your pan's stand (Round 4 phase 5: the Pan Upgrades popup)
+		elseif booth == "thaw" then
+			action = "thaw" -- your Thaw Machine: pick a frozen pet to put in (owner 2026-11-09)
 		end
-		if action == "shop" or action == "equipment" or action == "pan" or action == "sell" or action == "rebirth" then
-			PopupController.open(action)
+		if action == "shop" or action == "equipment" or action == "pan" or action == "sell" or action == "rebirth" or action == "thaw" then
+			PopupController.open(action, if action == "thaw" then { machine = prompt:GetAttribute("Machine") or 1 } else nil)
 			-- a booth's buttons only work at the booth (the server checks its own range), so its popup
 			-- closes when you walk away (final QA 2026-11-03: Buy far away did nothing, with no answer)
-			local range = ({ equipment = Config.guns.boothRange, sell = Config.sell.boothRange, rebirth = Config.rebirth.boothRange, pan = Config.pan.standRange } :: { [string]: number })[action]
+			local range = ({ equipment = Config.guns.boothRange, sell = Config.sell.boothRange, rebirth = Config.rebirth.boothRange, pan = Config.pan.standRange, thaw = Config.thaw.useRange } :: { [string]: number })[action]
 			local at: Vector3? = nil
 			for _, b in Config.world.booths do
 				if b.id == booth then
@@ -295,4 +306,3 @@ function PromptController.Start()
 end
 
 return PromptController
-

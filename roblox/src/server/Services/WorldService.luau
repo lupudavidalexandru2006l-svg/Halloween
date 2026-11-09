@@ -359,12 +359,27 @@ local function applyLighting()
 	Lighting.Brightness = L.brightness
 	local atmo = Lighting:FindFirstChildOfClass("Atmosphere") or Instance.new("Atmosphere")
 	atmo.Density = L.atmosphereDensity
+	atmo.Offset = L.atmosphereOffset
+	atmo.Decay = L.atmosphereDecay
 	atmo.Glare = 0
 	atmo.Color = Theme.ice
 	atmo.Parent = Lighting
 	local cc = Lighting:FindFirstChildOfClass("ColorCorrectionEffect") or Instance.new("ColorCorrectionEffect")
 	cc.Saturation = L.saturation
+	cc.Contrast = L.contrast
 	cc.Parent = Lighting
+	-- the painted cartoon sky (World Rules > Sky)
+	local S = L.sky
+	local sky = Lighting:FindFirstChildOfClass("Sky") or Instance.new("Sky")
+	sky.SkyboxBk, sky.SkyboxDn, sky.SkyboxFt = S.bk, S.dn, S.ft
+	sky.SkyboxLf, sky.SkyboxRt, sky.SkyboxUp = S.lf, S.rt, S.up
+	sky.SunAngularSize = S.sunSize
+	sky.Parent = Lighting
+	local clouds = workspace.Terrain:FindFirstChildOfClass("Clouds") or Instance.new("Clouds")
+	clouds.Cover = L.clouds.cover
+	clouds.Density = L.clouds.density
+	clouds.Color = L.clouds.color
+	clouds.Parent = workspace.Terrain
 end
 
 -- day <-> night: the loop's blend fades the sky, ambient light, haze and the map's lamps (Config.night)
