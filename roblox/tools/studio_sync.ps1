@@ -3,7 +3,9 @@
 #   studio_sync.ps1 -Dir <bridge dir> -Files src/server/Services/WorldService.luau,src/shared/Config.luau
 #   studio_sync.ps1 -Dir <bridge dir> -Changed     (every file git sees as changed or new)
 #   studio_sync.ps1 -Dir <bridge dir> -Remove ServerScriptService.Server.Services.DevService
-param([Parameter(Mandatory)][string]$Dir, [string[]]$Files = @(), [switch]$Changed, [string[]]$Remove = @())
+# A script that was changed in Studio (it matches neither the repo's last commit nor the file) is left
+# alone: pull that work into the repo first, or pass -Force. Twice on 2026-11-09 a sync wiped Studio-only work.
+param([Parameter(Mandatory)][string]$Dir, [string[]]$Files = @(), [switch]$Changed, [string[]]$Remove = @(), [switch]$Force)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $call = Join-Path $PSScriptRoot 'studio_call.ps1'
@@ -30,7 +32,9 @@ foreach ($f in ($Files | Select-Object -Unique)) {
     else { $inner = $inner -replace '\.luau$', '' }
     $parts = $inner -split '/'
     $src = [IO.File]::ReadAllText((Join-Path $root $rel), $utf8) -replace "`r`n", "`n"
-    $eq = '='; while ($src.Contains("]$eq]")) { $eq += '=' }
+    $head = (git -C $root show "HEAD:./$rel" 2>$null) -join "`n"
+    $eq = '='; while ($src.Contains("]$eq]") -or $head.Contains("]$eq]")) { $eq += '=' }
+    $guard = if ($Force) { 'false' } else { 'true' }
     $names = ($parts | ForEach-Object { '"' + $_ + '"' }) -join ', '
     $code = @"
 local node = $($map[$base])
@@ -39,9 +43,16 @@ for i, n in names do
 	local child = node:FindFirstChild(n)
 	if i == #names then
 		if child and child.ClassName ~= "$class" then child:Destroy() child = nil end
-		if not child then child = Instance.new("$class") child.Name = n child.Parent = node end
-		child.Source = [$eq[
+		local new = [$eq[
 $src]$eq]
+		local head = [$eq[
+$head]$eq]
+		local function same(a, b) return (a:gsub("%s+$", "")) == (b:gsub("%s+$", "")) end
+		if $guard and child and #head > 0 and not same(child.Source, head) and not same(child.Source, new) then
+			return "REFUSED: changed in Studio (not the repo's last commit); pull it into the repo first, or -Force"
+		end
+		if not child then child = Instance.new("$class") child.Name = n child.Parent = node end
+		child.Source = new
 		return "ok " .. child:GetFullName() .. " " .. #child.Source
 	end
 	if not child then child = Instance.new("Folder") child.Name = n child.Parent = node end
