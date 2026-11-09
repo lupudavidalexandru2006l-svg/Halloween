@@ -13,7 +13,9 @@ MAX_TRIS = int(argv[4]) if len(argv) > 4 else 19000  # Pet Rules target: under 8
 
 bpy.ops.object.select_all(action="SELECT")
 bpy.ops.object.delete()
-bpy.ops.import_scene.gltf(filepath=RAW)
+# merge_vertices: glTF arrives split along every texture seam, and trimming pulls those split
+# edges apart into see-through cracks (Capcrown Badger, 2026-11-09); welded, the seams hold
+bpy.ops.import_scene.gltf(filepath=RAW, merge_vertices=True)
 meshes = [o for o in bpy.context.scene.objects if o.type == "MESH"]
 bpy.ops.object.select_all(action="DESELECT")
 for o in meshes:
@@ -32,7 +34,9 @@ obj.matrix_world = Matrix.Rotation(math.radians(TURN), 4, "Z") @ obj.matrix_worl
 bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
 
 # Optional fixes after the numbers: fill (close holes), hue=<deg>, sat=<x>, val=<x> (texture colour
-# shift when TRELLIS drifts from the painting's colour, e.g. magenta coming out red).
+# shift when TRELLIS drifts from the painting's colour, e.g. magenta coming out red),
+# only=<lo>-<hi> (limit that shift to one hue range in degrees, e.g. Shimmerfrog's teal body
+# without turning its yellow belly green).
 OPTS = dict((a.split("=") + [""])[:2] for a in argv[5:])
 if "fill" in OPTS:
     bpy.ops.object.mode_set(mode="EDIT")
@@ -193,6 +197,10 @@ if any(k in OPTS for k in ("hue", "sat", "val")):
         s, v = np.clip(s, 0, 1), np.clip(v, 0, 1)
         k = (np.arange(3)[None, :] * 0 + np.array([5, 3, 1])[None, :] + h[:, None] * 6) % 6
         rgb2 = v[:, None] - v[:, None] * s[:, None] * np.clip(np.minimum(k, 4 - k), 0, 1)
+        if "only" in OPTS:  # only=<lo>-<hi>: change just the colours whose hue (degrees) is in range
+            lo, hi = (float(x) / 360.0 for x in OPTS["only"].split("-"))
+            h0 = (h - dh) % 1.0
+            rgb2 = np.where(((h0 >= lo) & (h0 <= hi))[:, None], rgb2, rgb)
         px[:, :3] = rgb2
         img.pixels[:] = px.ravel()
         img.pack()
