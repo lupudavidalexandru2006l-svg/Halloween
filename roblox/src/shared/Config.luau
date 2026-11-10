@@ -17,7 +17,7 @@ export type Zone = {
 	heat: number,
 	zMin: number,
 	zMax: number,
-	gateCoins: number, -- coins to open it (owner 2026-10-30: zones open with coins; the pen no longer counts)
+	need: number, -- Cold Power to open it (Cold Power remake, 2026-11-10)
 	-- Round 4 phase 6
 	theme: string,
 	ready: boolean, -- its pets are approved and finished; false = a glowing "Coming soon" gate, no pets
@@ -99,7 +99,7 @@ Config.upgrades = { -- baseCost = the price of level 2; each step costs x1.5 the
 	backpack = { name = "Backpack", baseCost = 750, costGrowth = 1.5, maxLevel = 5, slowPerExtraCube = 0.08 },
 	-- owner 2026-11-05: 100 slots was "insane"; the pan tops out at 16 (10 to start, +1 a level, 7 levels).
 	-- One slot is a bigger share now, so each level costs x2.5 the last, rounded (100, 250, 600, 1.5K, 4K, 10K)
-	pen = { name = "Pan", baseCost = 100, costGrowth = 2.5, maxLevel = 7, slotsPerLevel = 1, rebirthGrowth = 6 },
+	pen = { name = "Pan", baseCost = 100, costGrowth = 2.5, maxLevel = 7, slotsPerLevel = 1, rebirthGrowth = 5 },
 } :: { [string]: { [string]: any } }
 Config.upgradeIds = { "ray", "boots", "backpack", "pen" } -- every saved upgrade level
 -- what the coin Shop sells: nothing since the owner removed its Upgrades list (2026-11-05); levels already
@@ -111,7 +111,6 @@ Config.shopUpgradeIds = {} :: { string }
 Config.pen = { baseSlots = 10, maxSlots = 16, storageMax = 500, -- maxSlots: the pan never holds more, whatever adds slots
 	displayMax = 32 } -- up to 32 of the pan's pets sit in it, frozen in a grid (Config.panCubes; Storage isn't shown in the world)
 Config.carryHomeMinStuds = 4 -- funnel step 4 counts a cube carried at least this far out of the hub and back
-Config.beachGateCoins = 500
 Config.notYetCooldown = 2 -- seconds between two of the same "not yet" message
 -- every pet's size multiplier (PetDefs.sizeHeight). QA 2026-11-08 (Studio-side work); restored 2026-11-09
 -- after a sync overwrote Studio's Config. The value there was lost: 1 = the sizes the repo always had
@@ -153,6 +152,7 @@ Config.dev = {
 	walkPresets = { 16, 32, 60, 100 },
 	maxRebirths = 50,
 	readoutSeconds = 1,
+	powerPresets = { 0, 1e3, 1e6, 1e9, 1e12 }, -- the Tester panel's Cold Power buttons
 }
 
 function Config.isTester(userId: number): boolean
@@ -252,6 +252,7 @@ export type RobuxItem = {
 	id: string, kind: string, name: string, text: string, icon: string, robux: number,
 	productId: number?, passId: number?, -- a developer product, or a game pass (kind "pass")
 	mult: number?, minutes: number?, floor: number?, stack: number?, charges: number?,
+	share: number?, -- a Cold Power pack: this share of your next island's need (Config.powerPack)
 }
 Config.monetization = {
 	-- Owner items: create the developer product in the Creator Dashboard and paste its id here.
@@ -271,6 +272,13 @@ Config.monetization = {
 		-- a Big Chill for the whole server, with "<name> started a Big Chill for everyone!" (2026-11-10,
 		-- Game Design Rules 10: server-wide events). Everyone gets it; it never moves the free Chill's clock.
 		{ id = "bigChill", kind = "chill", productId = 0, robux = 49, name = "Big Chill", text = "60 s for everyone", icon = "temp", stack = 1 },
+		-- Cold Power (2026-11-10; starting prices, the owner sets the real ones). Never needed to progress:
+		-- free Auto-Train runs at Config.rink.autoFree, and playing by hand is always the best rate.
+		-- A pack is a share of your next island's need (Config.powerPack), so it's worth the same at every stage.
+		{ id = "autoTrain", kind = "pass", passId = 0, robux = 149, name = "Full-Speed Auto-Train", text = "Auto trains at full speed", icon = "power", stack = 1 },
+		{ id = "doublePower", kind = "pass", passId = 0, robux = 199, mult = 2, name = "2x Cold Power", text = "Double Cold Power, forever", icon = "power", stack = 2 },
+		{ id = "powerSmall", kind = "power", productId = 0, robux = 49, share = 0.25, name = "Cold Power Pack", text = "", icon = "power", stack = 1 },
+		{ id = "powerBig", kind = "power", productId = 0, robux = 149, share = 1, name = "Big Cold Power Pack", text = "", icon = "power", stack = 3 },
 	} :: { RobuxItem },
 }
 
@@ -349,6 +357,7 @@ Config.analytics = {
 		offer_shown = { value = nil, fields = { "offer", "pet", "tier" } },
 		offer_bought = { value = "robux", fields = { "offer" } },
 		session_end = { value = "sessionSeconds", fields = { "zone", "lastAction", "carryingCube" } },
+		rink_wave = { value = "gain", fields = { "level" } }, -- a Training Rink wave finished
 	} :: { [string]: { value: string?, fields: { string } } },
 	lastActions = { "zapping", "carrying", "in_pen", "in_menu", "exploring" },
 }
@@ -432,6 +441,16 @@ Config.ui = {
 	-- owner 2026-10-31: smaller side tiles (still over 10% of the short side for small fingers);
 	-- owner 2026-11-07: the goal bar and temperature chip are gone; the island banner (below) took their place
 	tileSize = 0.105, tileGap = 0.016, coinsSize = { 0.3, 0.1 }, bannerSize = { 0.5, 0.088 },
+	-- Cold Power (2026-11-10): its counter sits under the coins, bottom left (the two lift together over
+	-- the thumbstick). popScale / popSeconds: the number's small bounce when it goes up.
+	powerSize = { 0.3, 0.07 }, powerPop = { scale = 1.18, seconds = 0.22 },
+	-- the Training Rink's HUD (Figma file "Chunky Pop Icons", page "Training Rink HUD"): the sprites-left
+	-- bar top centre with the combo beside it, Auto and Exit on the right edge, the result card in the
+	-- middle. While you're in the rink the menu tiles step aside (5 pieces: coins, Cold Power, hotbar,
+	-- bar, buttons). Sizes: shares of the screen's short side; gain* = the "+120" over a frozen sprite.
+	rink = { barSize = { 0.62, 0.052 }, barTop = 0.025, comboWidth = 0.2, buttonSize = 0.12, buttonGap = 0.02,
+		gainPx = 30, gainRise = 3, gainSeconds = 0.9, againPulse = { scale = 1.06, seconds = 0.6 },
+		resultShare = 0.74 }, -- the result card: this share of a normal popup
 	topInset = 0.02, sideInset = 0.03, touchLift = 0.28, -- the coins sit above the thumbstick on touch screens
 	-- the island banner (owner 2026-11-07, from a reference clip): walking onto an island drops a strip
 	-- in from above the top edge, top centre: the island's name in its colour, the thermometer and its
@@ -536,7 +555,7 @@ Config.lighting = {
 -- new entry (plus its art and pets); room is left for 20 sections (about 3,400 studs of tunnel).
 export type Island = {
 	key: string, name: string, open: boolean, theme: string,
-	length: number?, heat: number?, gateCoins: number?,
+	length: number?, heat: number?, need: number?,
 	ready: boolean?, iceLife: number?, lava: { count: number, r: { number } }?, -- Round 4 phase 6
 	landmark: string?, landmarkAt: { x: number, z: number }?, -- z is measured from the section's start
 	trees: { kind: string, count: number, r: { number } }?, sun: { count: number, r: { number } }?,
@@ -549,7 +568,7 @@ export type RayCue = { at: number, sound: string?, fx: string?, kick: string? }
 
 Config.world = {
 	maxPlayers = 6, -- one pan per server slot. Owner item: Server Size 6 in Game Settings > Places
-	mapVersion = 15, -- Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges, 6 = bigger square pans, 7 = pans measured against the real avatar, 8 = open gaps, open ground behind, level pans, 9 = no flush overlapping surfaces, 10 = booth details: sign bulbs, log ends, scalloped awnings, chalk coin, 11 = wide tunnel and big entrance for big pets, a clean road, 12 = booths shaped like what they do: treasure chest, gear workshop, ring portal, 13 = the detailed sci-fi Thaw Machine, 14 = each world's own gate towers, 15 = never-visible buried parts left out (PERF-AUDIT-2026-11-09))
+	mapVersion = 16, -- 16 = the Training Rink's door. Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges, 6 = bigger square pans, 7 = pans measured against the real avatar, 8 = open gaps, open ground behind, level pans, 9 = no flush overlapping surfaces, 10 = booth details: sign bulbs, log ends, scalloped awnings, chalk coin, 11 = wide tunnel and big entrance for big pets, a clean road, 12 = booths shaped like what they do: treasure chest, gear workshop, ring portal, 13 = the detailed sci-fi Thaw Machine, 14 = each world's own gate towers, 15 = never-visible buried parts left out (PERF-AUDIT-2026-11-09))
 	hubZMax = 0, -- the tunnel mouth: the hub is z < 0 (no wild pets, no heat)
 	-- wide enough for the row of six pans plus 10 studs at each end; zMin is worked out below (behind the pans' backSpace)
 	hub = { xMin = -150, xMax = 150, zMin = 0, wallHeight = 16, colliderHeight = 60 },
@@ -585,43 +604,43 @@ Config.world = {
 	-- island 10 3B (was a 13x jump over island 9, now 4x). GrindBot: everything in ~7.2 h typical, see Config.rebirth.
 	-- Hazards: sun patches (sun) and lava pools (lava) melt cubes faster and glow so you see them from far.
 	islands = {
-		{ key = "meadow", name = "Snowy Meadow", feel = "Cold", open = true, ready = true, theme = "meadow", length = 168, heat = 0.5, iceLife = 1, gateCoins = 0,
+		{ key = "meadow", name = "Snowy Meadow", feel = "Cold", open = true, ready = true, theme = "meadow", length = 168, heat = 0.5, iceLife = 1, need = 0,
 			landmark = "snowman", landmarkAt = { x = 66, z = 112 }, -- landmarks stand in the cliffs, tall enough to show over them (World Rules 9)
 			trees = { kind = "snowpine", count = 14, r = { 4, 6.5 } }, sun = { count = 5, r = { 7, 11 } },
 			near = { 8, 34 }, farFrom = 60 },
-		{ key = "forest", name = "Pine Forest", feel = "Cold", open = true, ready = true, theme = "forest", length = 176, heat = 0.8, iceLife = 1, gateCoins = 5000,
+		{ key = "forest", name = "Pine Forest", feel = "Cold", open = true, ready = true, theme = "forest", length = 176, heat = 0.8, iceLife = 1, need = 1e3,
 			landmark = "mushroom", landmarkAt = { x = -66, z = 104 },
 			trees = { kind = "pine", count = 34, r = { 4.5, 7.5 } }, sun = { count = 3, r = { 6, 10 } },
 			near = { 10, 42 }, farFrom = 10 },
-		{ key = "grove", name = "Mushroom Grove", feel = "Mild", open = true, ready = true, theme = "grove", length = 172, heat = 1.0, iceLife = 1.6, gateCoins = 7500,
+		{ key = "grove", name = "Mushroom Grove", feel = "Mild", open = true, ready = true, theme = "grove", length = 172, heat = 1.0, iceLife = 1.6, need = 25e3,
 			landmark = "toadstoolTower", landmarkAt = { x = 66, z = 100 },
 			trees = { kind = "toadstool", count = 22, r = { 4, 7 } }, sun = { count = 3, r = { 6, 9 } },
 			near = { 10, 40 }, farFrom = 12 },
-		{ key = "beach", name = "Sunny Beach", feel = "Warm", open = true, ready = true, theme = "beach", length = 172, heat = 1.3, iceLife = 2.4, gateCoins = 2e6,
+		{ key = "beach", name = "Sunny Beach", feel = "Warm", open = true, ready = true, theme = "beach", length = 172, heat = 1.3, iceLife = 2.4, need = 500e3,
 			landmark = "lighthouse", landmarkAt = { x = -66, z = 104 },
 			trees = { kind = "palm", count = 14, r = { 4, 6 } }, sun = { count = 7, r = { 7, 11 } },
 			near = { 10, 40 }, farFrom = 12 },
-		{ key = "jungle", name = "Jungle Falls", feel = "Hot and humid", open = true, ready = true, theme = "jungle", length = 176, heat = 1.6, iceLife = 3.3, gateCoins = 6e6,
+		{ key = "jungle", name = "Jungle Falls", feel = "Hot and humid", open = true, ready = true, theme = "jungle", length = 176, heat = 1.6, iceLife = 3.3, need = 10e6,
 			landmark = "waterfall", landmarkAt = { x = 56, z = 108 }, -- pours from the cliff face
 			trees = { kind = "jungle", count = 28, r = { 4.5, 7.5 } }, sun = { count = 4, r = { 6, 9 } },
 			near = { 10, 42 }, farFrom = 12 },
-		{ key = "desert", name = "Desert Dunes", feel = "Hot", open = true, ready = true, theme = "desert", length = 176, heat = 2.0, iceLife = 4.4, gateCoins = 30e6,
+		{ key = "desert", name = "Desert Dunes", feel = "Hot", open = true, ready = true, theme = "desert", length = 176, heat = 2.0, iceLife = 4.4, need = 150e6,
 			landmark = "cactus", landmarkAt = { x = -66, z = 104 },
 			trees = { kind = "cactus", count = 9, r = { 3.5, 5 } }, sun = { count = 9, r = { 8, 12 } },
 			near = { 10, 42 }, farFrom = 12 },
-		{ key = "canyon", name = "Canyon Mesa", feel = "Very hot", open = true, ready = true, theme = "canyon", length = 180, heat = 2.4, iceLife = 5.7, gateCoins = 100e6,
+		{ key = "canyon", name = "Canyon Mesa", feel = "Very hot", open = true, ready = true, theme = "canyon", length = 180, heat = 2.4, iceLife = 5.7, need = 4e9,
 			landmark = "arch", landmarkAt = { x = 0, z = 112 },
 			trees = { kind = "hoodoo", count = 10, r = { 4, 6 } }, sun = { count = 8, r = { 8, 12 } },
 			near = { 10, 42 }, farFrom = 12 },
-		{ key = "volcano", name = "Volcano Slopes", feel = "Lava", open = true, ready = true, theme = "volcano", length = 180, heat = 2.9, iceLife = 7.2, gateCoins = 250e6,
+		{ key = "volcano", name = "Volcano Slopes", feel = "Lava", open = true, ready = true, theme = "volcano", length = 180, heat = 2.9, iceLife = 7.2, need = 75e9,
 			landmark = "volcano", landmarkAt = { x = 70, z = 108 }, -- beside the tunnel, rising over the cliffs
 			trees = { kind = "charred", count = 8, r = { 4, 6 } }, sun = { count = 3, r = { 6, 9 } }, lava = { count = 5, r = { 5, 8 } },
 			near = { 10, 42 }, farFrom = 12 },
-		{ key = "lavalake", name = "Lava Lake", feel = "Lava", open = true, ready = true, theme = "lavalake", length = 184, heat = 3.4, iceLife = 9, gateCoins = 750e6,
+		{ key = "lavalake", name = "Lava Lake", feel = "Lava", open = true, ready = true, theme = "lavalake", length = 184, heat = 3.4, iceLife = 9, need = 1.2e12,
 			landmark = "spire", landmarkAt = { x = -66, z = 112 },
 			trees = { kind = "obsidian", count = 8, r = { 4, 6 } }, lava = { count = 8, r = { 6, 10 } },
 			near = { 10, 42 }, farFrom = 12 },
-		{ key = "magma", name = "Magma Core", feel = "Extreme", open = true, ready = true, theme = "magma", length = 184, heat = 4.0, iceLife = 11, gateCoins = 3e9,
+		{ key = "magma", name = "Magma Core", feel = "Extreme", open = true, ready = true, theme = "magma", length = 184, heat = 4.0, iceLife = 11, need = 20e12,
 			landmark = "core", landmarkAt = { x = 0, z = 116 },
 			trees = { kind = "obsidian", count = 7, r = { 4, 6 } }, lava = { count = 10, r = { 5, 9 } },
 			near = { 10, 42 }, farFrom = 12 },
@@ -645,6 +664,8 @@ Config.world = {
 		{ id = "sell", label = "Sell", action = "sell", pos = Vector3.new(-80, 0, -8), sign = { y = 8.6, z = -3.55 } },
 		{ id = "equipment", label = "Equipment", action = "equipment", pos = Vector3.new(80, 0, -8), sign = { y = 9, z = -3.3 } },
 		{ id = "rebirth", label = "Rebirth", action = "rebirth", pos = Vector3.new(-103, 0, -8), sign = { y = 14.6, z = 3.9 } },
+		-- the Training Rink's door (Cold Power, 2026-11-10): a frosty dome; its prompt takes you to your own rink in the sky
+		{ id = "rink", label = "Training Rink", action = "rink", pos = Vector3.new(126, 0, -8), sign = { y = 10.4, z = -3.6 } },
 	} :: { Booth },
 	boothSign = { y = 8.8, w = 9, h = 2.2, z = -3.2, text = 1.5 }, -- a booth sign's size (text = letter height in studs); y / z are the spot for a booth without its own `sign`
 	panUpgradeAction = "pan", -- the Pan Upgrades popup (Round 4 phase 5)
@@ -682,7 +703,7 @@ do
 		local len = isl.length :: number
 		table.insert(W.zones, {
 			id = id, key = isl.key, name = isl.name, heat = isl.heat :: number, zMin = z, zMax = z + len,
-			gateCoins = isl.gateCoins or 0,
+			need = isl.need or 0,
 			theme = isl.theme, ready = isl.ready == true, gateRebirth = W.rebirthGates[id] or 0, iceLife = isl.iceLife or 1,
 			feel = isl.feel or "",
 		})
@@ -709,6 +730,8 @@ Config.images = {
 		music = "rbxassetid://110832713318779", sound = "rbxassetid://117928774777865", motion = "rbxassetid://87612144122340",
 		graphics = "rbxassetid://136668522918870", temp = "rbxassetid://72963487370215",
 		paint = "rbxassetid://133624884100688", -- 2026-11-03: the Pan Upgrades Look card (icons/paint.png)
+		-- Cold Power. STAND-IN: the thermometer, until the painted snowflake crystal is made (owner's OK on Figma credits first)
+		power = "rbxassetid://72963487370215",
 		robux = "rbxasset://textures/ui/common/robux.png", -- Roblox's own Robux mark, on every Robux price
 	} :: { [string]: string },
 	-- pets with no 3D model yet are drawn as these painted sprites, facing the camera (prototype)
@@ -733,6 +756,7 @@ local I = Config.images.icons
 Config.ui.upgradeIcons = { ray = I.ray, boots = I.boots, backpack = I.bag, pen = I.pen } :: { [string]: string }
 Config.ui.settingIcons = { music = I.music, sound = I.sound, reducedMotion = I.motion, lowGraphics = I.graphics, unit = I.temp } :: { [string]: string }
 Config.ui.silhouetteTransparency = 0
+Config.ui.shopPerRow = 5 -- the Robux shop's product tiles to a row
 Config.ui.petSpriteScale = 1.25 -- a pet sprite is this many times the pet's height wide
 
 -- The world teaches (prototype client.js): a green arrow to a pet in your first minutes and home while
@@ -1099,30 +1123,41 @@ Config.show.gunBuy = {
 -- player would otherwise wait with nothing to buy; gun 2 (25K) fills the save between island 2 and Rebirth 1. Looks: Theme.guns[i]. A real model goes in ReplicatedStorage.GunModels.<key>
 -- once the painted line-up is approved and turned into 3D (Pet Rules 5); until then each gun is the
 -- part-built stand-in from RayController.
-export type Gun = { key: string, name: string, power: number, range: number, cold: number, beams: number, price: number, rebirths: number }
+-- Cold Power remake (2026-11-10): training = Cold Power per frozen fire sprite in the Training Rink (a
+-- multiplier), heat = the hottest island the gun works on (the old cold values). power and cold go in the cleanup.
+export type Gun = { key: string, name: string, training: number, range: number, heat: number, beams: number, price: number, rebirths: number }
 Config.guns = {
 	list = {
-		{ key = "frost_popper", name = "Frost Popper", power = 1, range = 10, cold = 2, beams = 1, price = 0, rebirths = 0 },
-		{ key = "snowball_blaster", name = "Snowball Blaster", power = 1.35, range = 11, cold = 2, beams = 1, price = 25e3, rebirths = 0 },
-		{ key = "icicle_repeater", name = "Icicle Repeater", power = 1.7, range = 12, cold = 4, beams = 1, price = 150e3, rebirths = 0 },
-		{ key = "glacier_cannon", name = "Glacier Cannon", power = 2.05, range = 13, cold = 4, beams = 2, price = 750e3, rebirths = 0 },
-		{ key = "blizzard_beam", name = "Blizzard Beam", power = 2.4, range = 14, cold = 6, beams = 2, price = 3e6, rebirths = 0 },
-		{ key = "aurora_ray", name = "Aurora Ray", power = 2.75, range = 15, cold = 6, beams = 2, price = 10e6, rebirths = 0 },
-		{ key = "cryo_lance", name = "Cryo Lance", power = 3.1, range = 16, cold = 8, beams = 3, price = 30e6, rebirths = 0 },
-		{ key = "polar_vortex", name = "Polar Vortex", power = 3.45, range = 17, cold = 8, beams = 3, price = 75e6, rebirths = 0 },
-		{ key = "absolute_zero", name = "Absolute Zero", power = 3.8, range = 18, cold = 10, beams = 3, price = 1e9, rebirths = 0 },
-		{ key = "starfrost_nova", name = "Starfrost Nova", power = 4.15, range = 19, cold = 10, beams = 4, price = 5e9, rebirths = 0 },
+		{ key = "frost_popper", name = "Frost Popper", training = 1, range = 10, heat = 2, beams = 1, price = 0, rebirths = 0 },
+		{ key = "snowball_blaster", name = "Snowball Blaster", training = 2, range = 11, heat = 2, beams = 1, price = 25e3, rebirths = 0 },
+		{ key = "icicle_repeater", name = "Icicle Repeater", training = 3, range = 12, heat = 4, beams = 1, price = 150e3, rebirths = 0 },
+		{ key = "glacier_cannon", name = "Glacier Cannon", training = 5, range = 13, heat = 4, beams = 2, price = 300e3, rebirths = 0 },
+		{ key = "blizzard_beam", name = "Blizzard Beam", training = 8, range = 14, heat = 6, beams = 2, price = 3e6, rebirths = 0 },
+		{ key = "aurora_ray", name = "Aurora Ray", training = 12, range = 15, heat = 6, beams = 2, price = 10e6, rebirths = 0 },
+		{ key = "cryo_lance", name = "Cryo Lance", training = 20, range = 16, heat = 8, beams = 3, price = 30e6, rebirths = 0 },
+		{ key = "polar_vortex", name = "Polar Vortex", training = 30, range = 17, heat = 8, beams = 3, price = 75e6, rebirths = 0 },
+		{ key = "absolute_zero", name = "Absolute Zero", training = 50, range = 18, heat = 10, beams = 3, price = 600e6, rebirths = 0 },
+		{ key = "starfrost_nova", name = "Starfrost Nova", training = 100, range = 19, heat = 10, beams = 4, price = 3e9, rebirths = 0 },
 		-- owner 2026-11-09: every gun shows a coin price (the free rebirth guns read "Rebirth 2" on only some
 		-- rows and looked odd), so all guns are bought with coins in order; rebirth gates islands, not guns
 	} :: { Gun },
 	-- the card's bars are scaled to the game's 20-island maximum, not to gun 10, so later guns fill them further
-	stats = { "power", "range", "cold", "beams" },
-	statLabels = { power = "Power", range = "Range", cold = "Cold", beams = "Beams" } :: { [string]: string },
-	statMax = { power = 8, range = 30, cold = 20, beams = 6 } :: { [string]: number },
+	-- Cold Power remake (2026-11-10): Training = Cold Power per frozen sprite in the rink (x1 to x100, so
+	-- its bar is drawn on a log scale: Config.gunStatShare), Heat = the hottest island the gun works on
+	stats = { "training", "heat", "range", "beams" },
+	statLabels = { training = "Training", heat = "Heat", range = "Range", beams = "Beams" } :: { [string]: string },
+	statMax = { training = 100, heat = 20, range = 30, beams = 6 } :: { [string]: number },
 	boothRange = 30, -- studs: guns are bought standing at the Equipment Booth
 	gridColumns = 2, gridGap = 0.03, -- the Equipment popup's gun tiles (owner 2026-11-09: bigger, themed, every price shown)
 	lockedGrey = 0.55, -- a gun you can't buy yet: its colour mixed this far toward grey
 	buyCooldown = 0.4, -- seconds between two buys (spam is dropped; a double charge can't happen anyway)
+	-- the gun's heat bar (0-1), kept on the server (GunService). Firing at a pet from an island one past the
+	-- gun's heat fills it in overSeconds (under a Mythic's 4.5 s floor, so a gun one step short can't finish
+	-- a Mythic or Secret); on islands it's made for, in okSeconds (it barely moves); in the Training Rink,
+	-- in rinkSeconds of nonstop firing. Full = it steams for steamSeconds and can't fire. Not firing, it
+	-- cools in coolSeconds. step = how finely clients hear about it (the arc round the aim ring).
+	-- coolAfter = it starts cooling this long after the last shot.
+	heatBar = { overSeconds = 4, okSeconds = 60, coolSeconds = 3, coolAfter = 0.3, steamSeconds = 2, rinkSeconds = 12, step = 0.05 },
 	maxRange = 0, -- the longest range of any gun (filled in below): the pet prompts' own reach on the server
 	-- a pet too warm for your gun gives a small side shake (Animation Rules 2: shake), never a freeze
 	tooWarmShake = { seconds = 0.3, amp = 0.22, speed = 40 },
@@ -1140,7 +1175,8 @@ end
 -- Rebirth (Round 4 phase 7): part of the journey, not an ending. The first comes after island 2 and
 -- every odd island after that has a rebirth gate (Config.world.rebirthGates). No cap: updates add gates.
 --   resets: coins and the pan's Slots upgrade (upgrades.pen)
---   keeps:  pets, the index, guns, opened gates (reach), Cold Level, Look (and gear later)
+--   keeps:  pets, the index, guns, opened gates (reach), Look (and gear later)
+--   also resets Cold Power (Cold Power remake, 2026-11-10); the +50% counts for coins and for training
 --   gives:  +50% coin income per rebirth (no pan slot since 2026-11-05: the pan caps at 16), and its gun tier (the free
 --           rebirth guns in Config.guns.list; the next island pair comes from the rebirth gates)
 -- Cost (owner 2026-11-07, priced like hit games' rebirths: a real goal each time): each rebirth costs
@@ -1151,7 +1187,9 @@ end
 Config.rebirth = {
 	incomePer = 0.5,
 	slotsPer = 0, -- pan slots a rebirth adds (0 = none: the 16-slot pan comes from the Slots upgrade only)
-	costs = { 150e3, 2e6, 20e6, 30e6, 200e6, 300e6, 2.5e9 }, -- Rebirth 1, 2, 3 ...
+	-- Retuned 2026-11-10 for Cold Power (gates cost no coins now, and training takes part of the time):
+	-- GrindBot, typical player: island 2 in 11 min, Rebirth 1 in 35 min, everything in about 4.4 h
+	costs = { 75e3, 1e6, 7.5e6, 20e6, 100e6, 200e6, 750e6 }, -- Rebirth 1, 2, 3 ...
 	costGrowth = 3,
 	fullAt = 7,
 	boothRange = 30, -- studs from the Rebirth Booth (the server's position)
@@ -1194,20 +1232,22 @@ Config.gear = {
 -- charges, plus a cooldown. Prices (GrindBot, repriced 2026-11-07): Cold Level n = island n's gate, Slots x6 a
 -- rebirth (all through Config.nice); each Look sits in a stretch that had nothing to buy (Wood 40K before Rebirth 1).
 Config.pan = {
-	order = { "slots", "cold", "look" },
-	names = { slots = "Slots", cold = "Cold Level", look = "Look" } :: { [string]: string },
+	-- Cold Power remake (2026-11-10): the Cold Level upgrade is gone (the pan keeps every pet frozen).
+	-- coldRefund = what each level cost (island n's old gate coins); DataService pays it back on load,
+	-- once, for levels above coldStart.
+	order = { "slots", "look" },
+	coldStart = 2,
+	coldRefund = { [3] = 7500, [4] = 2e6, [5] = 6e6, [6] = 30e6, [7] = 100e6, [8] = 250e6, [9] = 750e6, [10] = 3e9 } :: { [number]: number },
+	names = { slots = "Slots", look = "Look" } :: { [string]: string },
 	standRange = 16, -- studs from your own Pan Upgrades stand (the server's position)
 	buyCooldown = 0.4,
-	cold = { start = 2, max = 20, gateShare = 1 }, -- Cold Level n costs this share of island n's gate coins (Round 4 phase 7: priced with the island it opens)
 	looks = {
 		{ key = "garden", name = "Garden", price = 0 }, -- Round 5: white fences on a striped lawn (was straw)
 		{ key = "wood", name = "Wood", price = 40e3 },
 		{ key = "stone", name = "Stone", price = 1.2e6 },
 		{ key = "ice", name = "Crystal Ice", price = 20e6 },
-		{ key = "aurora", name = "Aurora", price = 1.5e9 },
+		{ key = "aurora", name = "Aurora", price = 1e9 },
 	} :: { { key: string, name: string, price: number } },
-	-- a cube too hot for your pan: you're pushed back out of the door, the cube shakes, the gauge flashes
-	bounce = { push = 30, up = 18, flashSeconds = 2.4, flashEvery = 0.3, again = 2.5 }, -- again: seconds before it can bounce again
 	crystalEvery = 2, -- crystal ice: a crystal on every 2nd fence post
 	auroraSpeed = 0.2, -- aurora: the rails' colours drift this many cycles a second
 	drawDistance = 160, -- studs: pans farther than this keep their look but stop animating
@@ -1217,25 +1257,16 @@ Config.pan = {
 function Config.panMax(kind: string): number
 	if kind == "slots" then
 		return Config.upgrades.pen.maxLevel
-	elseif kind == "cold" then
-		return math.clamp(Config.world.readyCount, Config.pan.cold.start, Config.pan.cold.max) -- as far as the islands with pets
 	end
 	return #Config.pan.looks
 end
 
 
--- what Cold Level n costs: a share of island n's gate, so it's priced with the island it lets you keep
-function Config.panColdCost(n: number): number
-	local zone = Config.world.zones[n]
-	return Config.nice((if zone then zone.gateCoins else 0) * Config.pan.cold.gateShare)
-end
 function Config.panPrice(kind: string, level: number, rebirths: number?): number?
 	if level >= Config.panMax(kind) then
 		return nil
 	elseif kind == "slots" then
 		return Config.slotsCost(level + 1, rebirths or 0)
-	elseif kind == "cold" then
-		return Config.panColdCost(level + 1)
 	end
 	local look = Config.pan.looks[level + 1]
 	return if look then look.price else nil
@@ -1443,6 +1474,16 @@ Config.tag = {
 -- (ServerStorage.Codes), so nobody can read them from the client.
 Config.codes = { needPets = 25, maxLength = 20, cooldown = 1.5 }
 
+-- how full a gun card's bar is for this stat (0-1). Training runs x1 to x100, so it's on a log scale:
+-- on a straight bar the early guns would all look empty.
+function Config.gunStatShare(stat: string, value: number): number
+	local max = Config.guns.statMax[stat] or 1
+	if stat == "training" then
+		return math.clamp(math.log(value + 1) / math.log(max + 1), 0, 1)
+	end
+	return math.clamp(value / max, 0, 1)
+end
+
 -- the gun a player holds (1 when the number is missing or out of range)
 function Config.gun(index: number?): Gun
 	local list = Config.guns.list
@@ -1479,7 +1520,8 @@ end
 
 -- a coin amount for prices and "need more": 750 / 2.5K / 40K / 1.2M / 7.5B. Never shows less than the
 -- real amount (rounds up), so "Need 1.3M more" is always enough.
-Config.coinUnits = { { size = 1e15, suffix = "Qa" }, { size = 1e12, suffix = "T" }, { size = 1e9, suffix = "B" },
+Config.coinUnits = { { size = 1e27, suffix = "Oc" }, { size = 1e24, suffix = "Sp" }, { size = 1e21, suffix = "Sx" }, { size = 1e18, suffix = "Qi" }, -- Cold Power is endless
+	{ size = 1e15, suffix = "Qa" }, { size = 1e12, suffix = "T" }, { size = 1e9, suffix = "B" },
 	{ size = 1e6, suffix = "M" }, { size = 1e3, suffix = "K" } }
 function Config.coinText(n: number): string
 	n = math.max(0, math.ceil(n))
@@ -1549,6 +1591,161 @@ function Config.zone(id: number): Zone?
 		end
 	end
 	return nil
+end
+
+-- ---------- Cold Power (core loop remake, owner 2026-11-09; prototype/ice-ray-for-pets/COLD-POWER-DESIGN.md) ----------
+-- One endless stat, never spent, trained in the Training Rink. It opens islands (each island's `need`),
+-- and the further it is above an island's need the faster that island's pets freeze, up to maxSpeed:
+-- speed = sqrt(power / need), so 4x the need is 2x faster and 25x the need hits the cap. Island 1 has
+-- no need, so its speed is measured against speedFloor. minSeconds = the freeze time no amount of
+-- power can skip, per rarity (real seconds with the ray on the pet). Past the last island the next
+-- "need" (rink levels, pack sizes) keeps growing x needGrowth, so the rink never runs out.
+Config.coldPower = {
+	max = 1e30,
+	maxSpeed = 5,
+	speedFloor = 50,
+	needGrowth = 20,
+	minSeconds = { Common = 0.5, Uncommon = 1, Rare = 1.5, Epic = 2.5, Legendary = 3.5, Mythic = 4.5, Secret = 6 } :: { [string]: number },
+}
+
+-- The Training Rink: a private ice arena in the sky, one per pan slot. A wave of waveSize fire sprites
+-- hops in from the edge toward the ice sculpture in the middle; hold the ray on one to freeze it for
+-- Cold Power. No clock: the wave ends when every sprite is frozen or has reached the sculpture.
+--   kinds: hold = seconds of ray to freeze it, value = its Cold Power before multipliers, size in studs,
+--          weight = how often it's picked, fromLevel = the rink level it first shows up at
+--   level  = Config.rinkLevel(your Cold Power): each level makes sprites worth x levelValue and a bit faster
+--   combo  = sprites frozen in a row: +perHit each, up to x max; one reaching the sculpture resets it
+--   auto   = the rink fires for you at autoFree of the hold speed (autoPass with the game pass), never a combo
+export type SpriteKind = { hold: number, value: number, size: number, weight: number, fromLevel: number }
+Config.rink = {
+	origin = Vector3.new(0, 600, -400), spacing = 160, -- rink i stands at origin + ((i - 3.5) * spacing, 0, 0)
+	radius = 30, wallHeight = 14, sculptureRadius = 4,
+	-- sprites come in over an arc (degrees) in front of the sculpture; you start playerAt studs in front
+	-- of it, facing them, so a gun's Range decides how early you can reach one. leaveAt = this far past
+	-- the rim and you've left the rink. firstSpawn = seconds before a wave's first sprite.
+	arc = 120, playerAt = 9, leaveAt = 20, firstSpawn = 0.6,
+	waveSize = 30, spawnEvery = 0.9, maxAlive = 8,
+	speed = 5, speedPerLevel = 0.4, speedMax = 9, -- studs a second toward the sculpture
+	kinds = {
+		small = { hold = 0.35, value = 1, size = 2.2, weight = 60, fromLevel = 0 },
+		medium = { hold = 0.9, value = 3, size = 3.2, weight = 28, fromLevel = 0 },
+		big = { hold = 1.8, value = 7, size = 4.4, weight = 12, fromLevel = 1 },
+	} :: { [string]: SpriteKind },
+	kindOrder = { "small", "medium", "big" },
+	goldenChance = 0.05, goldenValue = 10, -- a golden sprite is a small one worth x10
+	levelValue = 10,
+	combo = { perHit = 0.1, max = 3 },
+	thawPerSecond = 0.5, thawAfter = 0.3, -- a sprite's ice melts back this fast, this long after the ray leaves it
+	autoFree = 0.25, autoPass = 1, autoRestart = 2, -- autoRestart: seconds before Auto starts the next wave
+	boothRange = 30, cooldown = 1, tickSeconds = 0.1,
+	arrowSeconds = 6, -- after "Need more Cold Power" the guide arrow points at the rink's door this long
+}
+
+-- where rink number `index` (a pan slot) floats
+function Config.rinkCentre(index: number): Vector3
+	local R = Config.rink
+	return R.origin + Vector3.new((index - (Config.world.maxPlayers + 1) / 2) * R.spacing, 0, 0)
+end
+
+-- the Cold Power an island's gate needs (0 = none: island 1, or an island that doesn't exist)
+function Config.need(zoneId: number): number
+	local z = Config.zone(zoneId)
+	return if z then z.need else 0
+end
+
+local function cleanPower(power: number): number
+	if typeof(power) ~= "number" or power ~= power then
+		return 0
+	end
+	return math.clamp(power, 0, Config.coldPower.max)
+end
+
+-- the next threshold above this Cold Power: the island needs in order, then x needGrowth for ever
+function Config.nextNeed(power: number): number
+	power = cleanPower(power)
+	local last = 0
+	for _, z in Config.world.zones do
+		if z.need > power then
+			return z.need
+		end
+		last = math.max(last, z.need)
+	end
+	local g = Config.coldPower.needGrowth
+	local n = math.max(1, last) * g
+	while n <= power do
+		n *= g
+	end
+	return n
+end
+
+-- how many of those thresholds this Cold Power has passed (0 until island 2's need)
+function Config.rinkLevel(power: number): number
+	power = cleanPower(power)
+	local level, last = 0, 0
+	for _, z in Config.world.zones do
+		if z.need > 0 and z.need <= power then
+			level += 1
+		end
+		last = math.max(last, z.need)
+	end
+	local g = Config.coldPower.needGrowth
+	local n = math.max(1, last) * g
+	while n <= power do
+		level += 1
+		n *= g
+	end
+	return level
+end
+
+-- how many times faster an island's pets freeze at this Cold Power (1 to maxSpeed)
+function Config.freezeSpeed(power: number, zoneId: number): number
+	local CP = Config.coldPower
+	return math.clamp(math.sqrt(cleanPower(power) / math.max(Config.need(zoneId), CP.speedFloor)), 1, CP.maxSpeed)
+end
+
+-- real seconds of ray to freeze a pet (FreezeService times it on the server). The rarity's minimum
+-- comes last, so nothing skips it (not power, not a sleeping pet).
+function Config.freezeSeconds(tier: string, size: string, power: number, zoneId: number, asleep: boolean?): number
+	local F = Config.show.freeze
+	local raw = (F.tierSeconds[tier] or 1) * (F.sizeFactor[size] or 1) * Config.aim.timeScale / Config.freezeSpeed(power, zoneId)
+	if asleep then
+		raw *= Config.night.sleepFreezeFactor
+	end
+	return math.max(Config.coldPower.minSeconds[tier] or 0, raw)
+end
+
+-- the Cold Power one frozen fire sprite gives: its value x golden x the rink level x the gun's Training
+-- x the rebirth multiplier x the combo x the 2x Cold Power pass
+function Config.rinkGain(kind: string, golden: boolean, level: number, gun: number, rebirths: number, combo: number, doubled: boolean): number
+	local R = Config.rink
+	local k = R.kinds[kind]
+	if not k then
+		return 0
+	end
+	local gain = k.value * (if golden then R.goldenValue else 1) * R.levelValue ^ math.max(0, level)
+		* Config.gun(gun).training * Config.rebirthIncome(rebirths) * math.clamp(combo, 1, R.combo.max) * (if doubled then 2 else 1)
+	-- to the nearest whole number, never 0 (rounding up made a small sprite at x1.1 worth 2)
+	return math.min(Config.coldPower.max, math.max(1, math.round(gain)))
+end
+
+-- the smallest round number (Config.niceSteps) that is at least n
+function Config.niceUp(n: number): number
+	if n < 1 then
+		return 0
+	end
+	local p = 10 ^ math.floor(math.log10(n))
+	for _, s in Config.niceSteps do
+		if s * p >= n * (1 - 1e-9) then
+			return math.round(s * p)
+		end
+	end
+	return math.round(10 * p)
+end
+
+-- a Cold Power pack's size: a share of your next island's need, rounded up, so a pack is worth the
+-- same at every stage
+function Config.powerPack(item: RobuxItem, power: number): number
+	return Config.niceUp((item.share or 0) * Config.nextNeed(power))
 end
 
 return Config

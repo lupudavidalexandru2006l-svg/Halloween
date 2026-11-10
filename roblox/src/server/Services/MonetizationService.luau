@@ -6,6 +6,10 @@
 -- The Shop's Robux tab (owner 2026-11-05, Config.monetization.shop): coin packs and Super Freeze packs
 -- are developer products granted here the same way (saved before PurchaseGranted, receipt ids stop a
 -- double grant); 2x Coins is a game pass, checked with Roblox on join and after buying (PenService).
+-- Cold Power (2026-11-10): two more passes (Full-Speed Auto-Train, 2x Cold Power) and the Cold Power
+-- packs (kind "power": a share of your next island's need, granted like coin packs). Every pass a
+-- player owns is kept here (MonetizationService.owns) and marked on the player as a `Pass_<id>`
+-- attribute, which other services and the client read.
 
 local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
@@ -26,6 +30,22 @@ local MonetizationService = {}
 
 local SF = Config.monetization.superFreeze
 local randomItemsOk: { [Player]: boolean } = {}
+local passes: { [Player]: { [string]: boolean } } = {} -- the game passes each player owns, by shop item id
+
+function MonetizationService.owns(player: Player, id: string): boolean
+	local mine = passes[player]
+	return mine ~= nil and mine[id] == true
+end
+
+local function setPass(player: Player, id: string)
+	local mine = passes[player] or {}
+	passes[player] = mine
+	mine[id] = true
+	player:SetAttribute("Pass_" .. id, true)
+	if id == "doubleCoins" then
+		PenService.setDoubleCoins(player, true)
+	end
+end
 
 -- paid random items (Frozen Crates, a later layer) are hidden where they're restricted. A failed
 -- policy lookup counts as restricted: the safe answer for a child.
@@ -124,27 +144,31 @@ local function grantItem(player: Player, item: Config.RobuxItem): { [string]: an
 	end
 	local coins = if item.kind == "coins" then Config.robuxCoins(item, PenService.incomePerSecond(d)) else 0
 	local charges = if item.kind == "charges" then item.charges or 0 else 0
+	local power = if item.kind == "power" then Config.powerPack(item, d.coldPower) else 0 -- sized from the Cold Power you have right now
 	DataService.mutate(player, function(x)
 		x.coins = math.min(x.coins + coins, 1e15)
 		x.superFreezeCharges = math.min(x.superFreezeCharges + charges, 999)
+		x.coldPower = math.min(x.coldPower + power, Config.coldPower.max)
 	end)
 	local chill = item.kind == "chill"
 	if chill then
 		EventService.startBought(player.DisplayName) -- for everyone, at once; its shout-out is the thank-you
 	end
-	return { name = item.name, coins = coins, charges = charges, chill = chill }
+	return { name = item.name, coins = coins, charges = charges, chill = chill, power = power }
 end
 
+-- every game pass in the shop, asked of Roblox once the save is loaded
 local function checkPass(player: Player)
-	local item = Config.robuxItem("doubleCoins")
-	if not item or (item.passId or 0) == 0 then
-		return
-	end
-	local ok, owns = pcall(function()
-		return MarketplaceService:UserOwnsGamePassAsync(player.UserId, item.passId :: number)
-	end)
-	if ok and owns then
-		PenService.setDoubleCoins(player, true)
+	for _, item in Config.monetization.shop do
+		local passId = item.passId or 0
+		if item.kind == "pass" and passId ~= 0 then
+			local ok, has = pcall(function()
+				return MarketplaceService:UserOwnsGamePassAsync(player.UserId, passId)
+			end)
+			if ok and has and player.Parent then
+				setPass(player, item.id)
+			end
+		end
 	end
 end
 
@@ -157,13 +181,13 @@ local function buyRobux(player: Player, id: any)
 		return
 	end
 	if item.kind == "pass" then
-		if PenService.hasDoubleCoins(player) then
+		if MonetizationService.owns(player, item.id) then
 			return
 		end
 		if (item.passId or 0) ~= 0 then
 			MarketplaceService:PromptGamePassPurchase(player, item.passId :: number)
 		elseif RunService:IsStudio() then
-			PenService.setDoubleCoins(player, true) -- Studio test until the owner makes the pass (not saved)
+			setPass(player, item.id) -- Studio test until the owner makes the pass (not saved)
 			Remotes.fire(player, "Notify", "robuxBought", { name = item.name, coins = 0, charges = 0 })
 		else
 			Remotes.notYet(player, "Not available yet")
@@ -245,15 +269,20 @@ function MonetizationService.Start()
 		end
 	end
 	MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player: Player, passId: number, bought: boolean)
-		local item = Config.robuxItem("doubleCoins")
-		if bought and item and passId == item.passId and passId ~= 0 then
-			PenService.setDoubleCoins(player, true)
-			Remotes.fire(player, "Notify", "robuxBought", { name = item.name, coins = 0, charges = 0 })
-			AnalyticsSvc.event(player, "offer_bought", { offer = item.id, robux = item.robux })
+		if not bought or passId == 0 then
+			return
+		end
+		for _, item in Config.monetization.shop do
+			if item.kind == "pass" and item.passId == passId then
+				setPass(player, item.id)
+				Remotes.fire(player, "Notify", "robuxBought", { name = item.name, coins = 0, charges = 0 })
+				AnalyticsSvc.event(player, "offer_bought", { offer = item.id, robux = item.robux })
+			end
 		end
 	end)
 	Players.PlayerRemoving:Connect(function(p)
 		randomItemsOk[p] = nil
+		passes[p] = nil
 	end)
 end
 

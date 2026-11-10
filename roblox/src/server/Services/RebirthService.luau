@@ -2,11 +2,13 @@
 -- RebirthService (Round 4 phase 7): owns rebirths. Bought at the Rebirth Booth (the server's own
 -- position) for Config.rebirthCost coins. In one data change, checked again inside it so spam or a
 -- second call can't rebirth twice:
---   resets: coins and the pan's Slots upgrade (the best pets stay in the pan, the rest go to Storage)
---   keeps:  pets, the index, guns, opened gates, Cold Level, Look; carried cubes aren't in the save
---           at all, so a rebirth while carrying (or during a show) loses nothing
---   gives:  +50% income and +1 pan slot (PenService reads d.rebirths), and the free rebirth gun when
---           it's the next gun in line (Config.guns.list)
+--   resets: coins, the pan's Slots upgrade (the best pets stay in the pan, the rest go to Storage)
+--           and Cold Power (Cold Power remake, 2026-11-10: you train it back, faster each time)
+--   keeps:  pets, the index, guns, opened gates, Look; carried cubes aren't in the save at all, so a
+--           rebirth while carrying (or during a show) loses nothing. An open island's pets still
+--           wait for your Cold Power to reach its need again before they freeze (FreezeService).
+--   gives:  +50% on coin income AND on training (one multiplier, Config.rebirthIncome; PenService and
+--           Config.rinkGain read d.rebirths), and the free rebirth gun when it's the next in line
 -- Saved at once, so a quick rejoin can't roll it back or apply it twice. The client plays the show.
 
 local Players = game:GetService("Players")
@@ -83,6 +85,7 @@ local function rebirth(player: Player, yes: any)
 		end
 		x.rebirths = old + 1
 		x.coins = 0
+		x.coldPower = 0
 		x.upgrades.pen = 1
 		PenService.fitSlots(x)
 		PenService.fillEmptySlots(x) -- the new rebirth slot takes the best pet from Storage

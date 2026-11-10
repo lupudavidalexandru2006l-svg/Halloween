@@ -1263,6 +1263,51 @@ local function rebirthBooth(f: Instance, at: CFrame, color: Color3, outer: numbe
 	local _, _ = outer, rng
 end
 
+-- the Training Rink's door (Cold Power, 2026-11-10): an igloo of stacked ice rings under a snow cap,
+-- an ice porch with a dark doorway rimmed in glowing runes, a big snowflake turning over it and
+-- crystals either side. Its prompt takes you up to your own rink in the sky (TrainingService).
+local function rinkBooth(f: Instance, at: CFrame, color: Color3, outer: number, sign: { y: number, z: number }, rng: () -> number)
+	local T = Theme.rink
+	local ice, deep = T.floor, T.floorSide
+	local y0 = 0.6
+	block(Vector3.new(18, y0, 14), at * CFrame.new(0, y0 / 2, 3), V.stone:Lerp(Theme.white, 0.3), f, true, Enum.Material.Slate)
+	-- the igloo: three rings, each smaller, and a cap of snow
+	cyl(8, 3.2, at * CFrame.new(0, y0 + 1.6, 3.4), ice, f, true, Enum.Material.Ice)
+	cyl(7.1, 2.6, at * CFrame.new(0, y0 + 4.5, 3.4), ice:Lerp(deep, 0.25), f, true, Enum.Material.Ice)
+	cyl(5.6, 2, at * CFrame.new(0, y0 + 6.8, 3.4), ice, f, false, Enum.Material.Ice)
+	ellipsoid(Vector3.new(8.6, 3.6, 8.6), at * CFrame.new(0, y0 + 8.1, 3.4), Theme.snow, f)
+	-- the porch and its doorway, facing the plaza
+	local pw, ph, pz = 7.6, 7.2, -2.6
+	block(Vector3.new(pw, ph, 4.4), at * CFrame.new(0, y0 + ph / 2, pz), ice:Lerp(deep, 0.12), f, true, Enum.Material.Ice)
+	block(Vector3.new(pw + 0.8, 0.7, 5), at * CFrame.new(0, y0 + ph + 0.35, pz), Theme.snow, f)
+	local front = pz - 2.2
+	quiet(block(Vector3.new(5.4, 6, 0.2), at * CFrame.new(0, y0 + 3, front - 0.05), deep:Lerp(Theme.ink, 0.6), f))
+	for _, s in { -1, 1 } do
+		quiet(glow(block(Vector3.new(0.35, 6.2, 0.3), at * CFrame.new(s * 2.9, y0 + 3.1, front - 0.12), T.rune, f), 0.1))
+		-- crystals either side of the door
+		local c = quiet(glow(shape("Octa", Vector3.new(2, 4.6, 2), at * CFrame.new(s * 6.2, y0 + 2.5, front + 0.6), T.crystal, f), 0.15))
+		light(c, T.rune, 10, 0.7)
+		quiet(glow(shape("Octa", Vector3.new(1.2, 2.6, 1.2), at * CFrame.new(s * 7.6, y0 + 1.5, front - 0.6), T.crystal, f), 0.2))
+		-- the posts that carry the sign
+		block(Vector3.new(0.5, sign.y - (y0 + ph) - 0.4, 0.5), at * CFrame.new(s * 3.4, (sign.y + y0 + ph + 0.3) / 2, sign.z + 0.7), deep:Lerp(Theme.ink, 0.4), f)
+	end
+	quiet(glow(block(Vector3.new(6.15, 0.35, 0.3), at * CFrame.new(0, y0 + 6.2, front - 0.12), T.rune, f), 0.1))
+	sparkles(f, Vector3.new(4.6, 0.4, 0.8), at * CFrame.new(0, y0 + 0.6, front - 0.8), T.rune, 6, 1.2, Enum.NormalId.Top, 0.3)
+	signBoard(f, at, sign.y, sign.z, deep:Lerp(Theme.ink, 0.5), color, 0.6)
+	-- the big snowflake over the igloo, turning slowly (MapController moves it)
+	local pivot = at * CFrame.new(0, y0 + 13.4, 3.4)
+	local m = motion(f, "spin", pivot, { Axis = Vector3.new(0, 0, 1), Speed = 0.4 })
+	for k = 0, 2 do
+		local arm = pivot * CFrame.Angles(0, 0, k * math.pi / 3)
+		quiet(glow(block(Vector3.new(6.4, 0.55, 0.45), arm, T.rune, m), 0.1))
+		for _, e in { -1, 1 } do -- the little barbs near each tip
+			quiet(glow(block(Vector3.new(0.4, 1.7, 0.4), arm * CFrame.new(e * 2.3, 0, 0), T.rune, m), 0.1))
+		end
+	end
+	light(quiet(glow(ball(0.7, pivot.Position, Theme.white, m), 0.05)), T.rune, 16, 1)
+	local _, _ = outer, rng
+end
+
 local function booth(parent: Instance, b: Config.Booth, rng: () -> number)
 	local f = folder("Booth_" .. b.id, parent)
 	local at = CFrame.new(b.pos.X, 0, b.pos.Z)
@@ -1275,6 +1320,8 @@ local function booth(parent: Instance, b: Config.Booth, rng: () -> number)
 		equipmentBooth(f, at, color, outer, sign, rng)
 	elseif b.id == "rebirth" then
 		rebirthBooth(f, at, color, outer, sign, rng)
+	elseif b.id == "rink" then
+		rinkBooth(f, at, color, outer, sign, rng)
 	else
 		signBoard(f, at, sign.y, sign.z, A.post, color, 0.5)
 	end

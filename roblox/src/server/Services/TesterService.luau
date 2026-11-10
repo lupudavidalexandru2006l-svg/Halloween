@@ -6,6 +6,8 @@
 
 local Players = game:GetService("Players")
 local TextChatService = game:GetService("TextChatService")
+local RunService = game:GetService("RunService")
+local ServerStorage = game:GetService("ServerStorage")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local PetDefs = require(ReplicatedStorage.Shared.PetDefs)
@@ -102,6 +104,15 @@ ACTIONS.closeGates = function(player)
 	WorldService.setReach(player, 1)
 end
 
+-- Cold Power (2026-11-10): set it to any amount, to test gates, freeze speed and the rink's levels
+ACTIONS.power = function(player, n)
+	if finite(n) then
+		change(player, function(d)
+			d.coldPower = math.clamp(n, 0, Config.coldPower.max)
+		end)
+	end
+end
+
 ACTIONS.rebirths = function(player, n)
 	if finite(n) then
 		change(player, function(d)
@@ -140,15 +151,11 @@ ACTIONS.upgrade = function(player, id, level)
 	PlayerTracker.updateSpeed(player)
 end
 
--- the pan's Cold Level or Look (Round 4 phase 5; Slots is the "pen" upgrade above)
+-- the pan's Look (Round 4 phase 5; Slots is the "pen" upgrade above; Cold Level is gone)
 ACTIONS.pan = function(player, kind, level)
-	if (kind == "cold" or kind == "look") and finite(level) then
+	if kind == "look" and finite(level) then
 		change(player, function(d)
-			if kind == "cold" then
-				d.pan.cold = math.clamp(math.floor(level), Config.pan.cold.start, Config.pan.cold.max)
-			else
-				d.pan.look = math.clamp(math.floor(level), 1, #Config.pan.looks)
-			end
+			d.pan.look = math.clamp(math.floor(level), 1, #Config.pan.looks)
 		end)
 	end
 end
@@ -332,7 +339,7 @@ ACTIONS.readout = function(player)
 		table.insert(targets, { id = t.id, label = t.label })
 	end
 	Remotes.fire(player, "Notify", "testerReadout", {
-		coins = math.floor(d.coins), mult = d.tester.mult, rebirths = d.rebirths,
+		coins = math.floor(d.coins), mult = d.tester.mult, rebirths = d.rebirths, power = d.coldPower,
 		income = PenService.incomePerSecond(d), saveKey = key, qa = qa, targets = targets,
 	})
 end
@@ -379,6 +386,29 @@ function TesterService.Start()
 		end
 	end)
 	command.Parent = TextChatService
+	-- Studio only: automated play-tests run outside this server's module cache, so they can't call the
+	-- services. This hook runs the same tester actions for a player and gives a short look at their save.
+	if RunService:IsStudio() then
+		local hook = Instance.new("BindableFunction")
+		hook.Name = "TesterHook"
+		hook.OnInvoke = function(userId: any, action: any, a: any, b: any): any
+			local player = if typeof(userId) == "number" then Players:GetPlayerByUserId(userId) else nil
+			local d = player and DataService.get(player)
+			if not player or not d then
+				return nil
+			end
+			if action == "data" then
+				return {
+					coins = d.coins, coldPower = d.coldPower, reach = d.reach, rebirths = d.rebirths,
+					gunBest = d.guns.best, gunEquipped = d.guns.equipped, panLook = d.pan.look, slots = d.upgrades.pen,
+					pets = #d.pets, frozen = d.stats.frozen, banked = d.stats.banked,
+				}
+			end
+			TesterService.run(player, action, a, b)
+			return true
+		end
+		hook.Parent = ServerStorage
+	end
 end
 
 return TesterService

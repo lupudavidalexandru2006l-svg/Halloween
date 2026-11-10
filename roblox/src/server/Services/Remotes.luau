@@ -20,6 +20,7 @@ local NAMES = {
 	"ClaimPage", -- claim a full Index page's +10% (IndexService, 2026-11-09)
 	"ClaimChallenge", -- claim a finished daily challenge (ChallengeService, 2026-11-09)
 	"Tutorial", -- Ranger Bo's tutorial: "next" on a talk step, "skip", "replay" (TutorialService, 2026-11-10)
+	"Rink", -- the Training Rink: "enter", "leave", "again", "auto" + on/off (TrainingService, 2026-11-10)
 	-- server -> client (what happened)
 	"Data", "Notify", "BoardRank",
 }

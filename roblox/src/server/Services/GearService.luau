@@ -75,6 +75,12 @@ function GearService.unstowRay(player: Player)
 	end
 end
 
+-- TrainingService: the rink is played with the ray, so going in puts it in your hand
+function GearService.equipRay(player: Player)
+	stowed[player] = nil
+	setHeld(player, "ray")
+end
+
 function GearService.isStowed(player: Player): boolean
 	return stowed[player] == true
 end

@@ -3,8 +3,10 @@
 -- register them here. Sizes are fractions of the screen's short side, turned into Scale (no Offset)
 -- each time the screen size, the device or a piece changes. The ScreenGuis use the core-UI safe
 -- insets, so nothing sits under Roblox's top bar; on touch the coins sit above the thumbstick.
--- HUD (5 at most): tile grid (left, centred), coins (bottom left), the island banner (top centre,
--- only while it shows), the hotbar (bottom centre, Round 5) and the banner (only while it shows).
+-- HUD (5 at most): tile grid (left, centred), coins and Cold Power (bottom left, one block), the island
+-- banner (top centre, only while it shows), the hotbar (bottom centre, Round 5) and the banner (only
+-- while it shows). In the Training Rink (setRinkMode) the tiles step aside for the sprites-left bar
+-- (top centre) and the Auto / Exit buttons (right edge).
 -- Ranger Bo's tutorial card sits over the hotbar, for new players only, until the tutorial ends.
 
 local Players = game:GetService("Players")
@@ -76,11 +78,35 @@ function Screen.layout()
 	local slotSize = if touch then math.max(Config.hotbar.size, U.hotbarMinPx / short) else Config.hotbar.size
 	local coins = items.coins
 	local coinsTop = 1
+	-- Cold Power sits in the corner, the coins straight above it (both lifted over the thumbstick on touch)
+	local power = items.power
+	local powerH = if power then U.powerSize[2] else 0
+	if power then
+		power.AnchorPoint = Vector2.new(0, 1)
+		power.Size = UDim2.fromScale(sx(U.powerSize[1]), sy(U.powerSize[2]))
+		power.Position = UDim2.fromScale(sx(U.sideInset), 1 - sy(U.sideInset + lift))
+	end
 	if coins then
 		coins.AnchorPoint = Vector2.new(0, 1)
 		coins.Size = UDim2.fromScale(sx(U.coinsSize[1]), sy(U.coinsSize[2]))
-		coins.Position = UDim2.fromScale(sx(U.sideInset), 1 - sy(U.sideInset + lift))
-		coinsTop = 1 - sy(U.sideInset + lift + U.coinsSize[2])
+		coins.Position = UDim2.fromScale(sx(U.sideInset), 1 - sy(U.sideInset + lift + powerH))
+		coinsTop = 1 - sy(U.sideInset + lift + powerH + U.coinsSize[2])
+	end
+	-- the Training Rink's pieces (only shown in the rink)
+	local RK = U.rink
+	local rinkBar = items.rinkBar
+	if rinkBar then
+		rinkBar.AnchorPoint = Vector2.new(0.5, 0)
+		rinkBar.Size = UDim2.fromScale(math.min(0.62, sx(RK.barSize[1])), sy(RK.barSize[2]))
+		rinkBar.Position = UDim2.fromScale(0.5, sy(U.topInset + RK.barTop))
+	end
+	local rinkButtons = items.rinkButtons
+	if rinkButtons then
+		local bs = if touch then math.max(RK.buttonSize, U.minTouchPx / short) else RK.buttonSize
+		local n = math.max(1, (rinkButtons:GetAttribute("Slots") or 2) :: number) -- Auto, Exit, and the pass button while it's for sale
+		rinkButtons.AnchorPoint = Vector2.new(1, 0.5)
+		rinkButtons.Size = UDim2.fromScale(sx(bs), sy(bs * n + RK.buttonGap * (n - 1)))
+		rinkButtons.Position = UDim2.fromScale(1 - sx(U.sideInset), 0.5)
 	end
 	local IB = U.islandBanner
 	local island = items.island
@@ -152,7 +178,7 @@ function Screen.layout()
 	end
 end
 
--- name: "tiles" | "coins" | "island" | "banner" | "hotbar" | "tutorial"; count = number of tiles for "tiles"
+-- name: "tiles" | "coins" | "power" | "island" | "banner" | "hotbar" | "tutorial" | "rinkBar" | "rinkButtons"; count = number of tiles for "tiles"
 -- (the hotbar's slot count is its "Slots" attribute)
 function Screen.register(name: string, obj: GuiObject, count: number?)
 	items[name] = obj
@@ -162,6 +188,20 @@ function Screen.register(name: string, obj: GuiObject, count: number?)
 	obj.Parent = if name == "banner" then Screen.hud else main
 	obj:GetPropertyChangedSignal("Visible"):Connect(Screen.layout) -- a piece appearing re-runs the layout
 	obj:GetAttributeChangedSignal("Slots"):Connect(Screen.layout)
+	Screen.layout()
+end
+
+-- in the Training Rink the menu tiles step aside and the rink's bar and buttons show (TrainingController)
+Screen.rinkMode = false
+function Screen.setRinkMode(on: boolean)
+	Screen.rinkMode = on
+	for name, obj in items do
+		if name == "tiles" then
+			obj.Visible = not on
+		elseif name == "rinkBar" or name == "rinkButtons" then
+			obj.Visible = on
+		end
+	end
 	Screen.layout()
 end
 

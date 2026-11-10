@@ -1,6 +1,6 @@
 --!strict
 -- PanPopup (Round 4 phase 5): the contents of the Pan Upgrades popup (your own pan's stand). One card
--- per upgrade in Config.pan.order: Slots, Cold Level, Look. Redesign 2026-11-03 (owner approved the
+-- per upgrade in Config.pan.order: Slots, Look (Cold Level was removed 2026-11-10). Redesign 2026-11-03 (owner approved the
 -- Figma mock, file "Ice Ray for Pets UI"): a Chunky Pop card on a lip, a painted icon on a coloured
 -- tile, the name with a level badge, one big "now > next" line, and the full price. The button you
 -- can afford is the focal point (it pulses); short of coins it's grey with a bar of how close you are;
@@ -20,16 +20,14 @@ local UpgradeMotion = require(script.Parent.UpgradeMotion)
 local PanPopup = {}
 local P = Config.pan
 local I = Config.images.icons
-local ICONS: { [string]: string } = { slots = I.pen, cold = I.temp, look = I.paint }
-local TILES: { [string]: Color3 } = { slots = Theme.pen, cold = Theme.ice, look = Theme.grassFar }
-local NAMES: { [string]: string } = { slots = "Slots", cold = "Cold", look = "Look" }
+local ICONS: { [string]: string } = { slots = I.pen, look = I.paint }
+local TILES: { [string]: Color3 } = { slots = Theme.pen, look = Theme.grassFar }
+local NAMES: { [string]: string } = { slots = "Slots", look = "Look" }
 local PROGRESS_STEPS = 20 -- the "how close" bar redraws in 5% steps (the popup only rebuilds on a key change)
 
 function PanPopup.level(v: State.View, kind: string): number
 	if kind == "slots" then
 		return v.upgrades.pen or 1
-	elseif kind == "cold" then
-		return if v.pan then v.pan.cold else P.cold.start
 	end
 	return if v.pan then v.pan.look else 1
 end
@@ -54,8 +52,6 @@ end
 local function values(kind: string, level: number, rebirths: number, canBuy: boolean): (string, string?, string?)
 	if kind == "slots" then
 		return tostring(slotsAt(level, rebirths)), if canBuy then tostring(slotsAt(level + 1, rebirths)) else nil, "pets"
-	elseif kind == "cold" then
-		return `Islands 1-{level}`, if canBuy then `1-{level + 1}` else nil, nil
 	end
 	local cur, nxt = P.looks[level], P.looks[level + 1]
 	return if cur then cur.name else "", if canBuy and nxt then nxt.name else nil, nil
@@ -221,7 +217,7 @@ function PanPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
 			word(stat, unit, Theme.tiers.Common:Lerp(Theme.ink, 0.35), "small", h, 4)
 		end
 		if not price then
-			flatBox(face, if kind == "cold" and level < P.cold.max then "Soon" else "Max", h)
+			flatBox(face, "Max", h)
 			continue
 		end
 		local afford = v.coins >= price

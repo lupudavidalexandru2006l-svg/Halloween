@@ -66,11 +66,10 @@ end
 
 -- what a stat reads on the card
 function EquipmentPopup.statText(stat: string, g: Config.Gun): string
-	if stat == "power" then
-		local s = string.format("%.2f", g.power):gsub("0+$", ""):gsub("%.$", "")
-		return "x" .. s
-	elseif stat == "cold" then
-		return `1-{g.cold}`
+	if stat == "training" then
+		return `x{g.training}` -- Cold Power per frozen sprite in the Training Rink
+	elseif stat == "heat" then
+		return `1-{g.heat}` -- the islands it works on
 	end
 	return tostring((g :: any)[stat])
 end
@@ -200,8 +199,7 @@ local function statBar(h: Helpers, l: GuiObject, order: number, stat: string, g:
 	Ui.corner(track, 0.5)
 	Ui.stroke(track)
 	track.Parent = r
-	local max = G.statMax[stat]
-	local share = math.clamp(((g :: any)[stat] :: number) / max, 0, 1)
+	local share = Config.gunStatShare(stat, (g :: any)[stat] :: number)
 	local fill = Instance.new("Frame")
 	fill.Name = "Fill"
 	fill.BackgroundColor3 = color
@@ -212,7 +210,7 @@ local function statBar(h: Helpers, l: GuiObject, order: number, stat: string, g:
 	mark.Name = "Current"
 	mark.BackgroundColor3 = Theme.ink
 	mark.AnchorPoint = Vector2.new(0.5, 0.5)
-	mark.Position = UDim2.fromScale(math.clamp(((cur :: any)[stat] :: number) / max, 0, 1), 0.5)
+	mark.Position = UDim2.fromScale(Config.gunStatShare(stat, (cur :: any)[stat] :: number), 0.5)
 	mark.Size = UDim2.fromScale(0.012, 1.5)
 	mark.Parent = track
 	local value = h.text(r, EquipmentPopup.statText(stat, g), 0.8, 0.2)

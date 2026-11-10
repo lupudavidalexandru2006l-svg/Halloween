@@ -30,7 +30,6 @@ local incomeCarry: { [Player]: number } = {}
 local sessionBest: { [Player]: number } = {}
 local dirty: { [Player]: boolean } = {}
 local bankingNow: { [Player]: boolean } = {}
-local bouncedAt: { [Player]: number } = {} -- when a too-hot cube last bounced off this player's pan
 local penShown: { [Player]: { key: string, parts: { [string]: Part } } } = {}
 -- The Thaw Machine (owner 2026-11-09): banked pets go into your Pets still frozen (PetEntry.frozen, not
 -- earning). You put one in a machine at your pan (remote "ThawPet"); its time (Config.thawSeconds) is
@@ -437,9 +436,6 @@ local function bank(player: Player)
 	if not d or bankingNow[player] or CarryService.count(player) == 0 then
 		return
 	end
-	if os.clock() - (bouncedAt[player] or -math.huge) < Config.pan.bounce.again then
-		return -- it just bounced: one bounce, not one every tick while you stand in the pan
-	end
 	if #d.pets >= Config.pen.storageMax then
 		Remotes.notYet(player, "Storage full", "pets") -- the cubes stay on your back
 		return
@@ -448,16 +444,9 @@ local function bank(player: Player)
 	local cubes = CarryService.takeAll(player)
 	local banked = {}
 	local handBack = {}
-	local need = 0 -- the Cold Level a too-hot cube needs (Round 4 phase 5)
 	for _, c in cubes do
 		local def = PetDefs.get(c.key)
 		if not def then
-			continue
-		end
-		if def.zone > d.pan.cold then
-			-- from an island hotter than this pan's Cold Level: it can't stay frozen here, it bounces back
-			table.insert(handBack, c)
-			need = math.max(need, def.zone)
 			continue
 		end
 		if #d.pets >= Config.pen.storageMax then
@@ -501,11 +490,7 @@ local function bank(player: Player)
 		-- nothing is lost: cubes that don't fit go back on your back (paid ones back into the save)
 		CarryService.addCube(player, { key = c.key, zone = c.zone, pose = c.pose, mut = c.mut, superFrozen = c.superFrozen, superUsed = c.superUsed, offered = c.offered })
 	end
-	if need > 0 then
-		bouncedAt[player] = os.clock()
-		Remotes.notYet(player, `Your pan needs Cold Level {need}`, "pan")
-		Remotes.fire(player, "Notify", "panBounce", { need = need, cold = d.pan.cold, plot = WorldService.plotOf(player) })
-	elseif #handBack > 0 then
+	if #handBack > 0 then
 		Remotes.notYet(player, "Storage full", "pets")
 	end
 	if #banked > 0 then
@@ -731,9 +716,10 @@ local function placeSecondMachine(i: number)
 	end
 end
 
--- ---------- zone gates (owner 2026-10-30: pay coins at the gate) ----------
+-- ---------- zone gates ----------
 -- Round 4 phase 6: every island after the first has a gate, opened in order (reach = the last one open).
--- A gate costs its coins and, on the odd islands from 3, a number of rebirths (Config.world.rebirthGates).
+-- Cold Power remake (2026-11-10): a gate opens when your Cold Power reaches the island's need. Nothing
+-- is spent, and it stays open for good. The odd islands from 3 also ask for a number of rebirths (Config.world.rebirthGates).
 -- An island whose pets aren't ready stays shut ("coming soon"). Checked again inside the one data change.
 local gateCooldown: { [Player]: number } = {}
 local function openGate(player: Player, id: number)
@@ -755,15 +741,15 @@ local function openGate(player: Player, id: number)
 		Remotes.notYet(player, `Needs Rebirth {zone.gateRebirth}`, "gate")
 		return
 	end
-	local price = zone.gateCoins
-	if d.coins < price then
-		Remotes.notYet(player, `Need {Config.coinText(price - d.coins)} more coins`, "gate")
+	local need = zone.need
+	if d.coldPower < need then
+		Remotes.fire(player, "Notify", "needPower", { zone = id }) -- the client's arrow to the Training Rink
+		Remotes.notYet(player, `Need {Config.coinText(need - d.coldPower)} more Cold Power`, "gate")
 		return
 	end
 	local opened = false
 	DataService.mutate(player, function(x)
-		if x.reach + 1 == id and x.coins >= price and x.rebirths >= zone.gateRebirth then
-			x.coins -= price
+		if x.reach + 1 == id and x.coldPower >= need and x.rebirths >= zone.gateRebirth then
 			x.reach = id
 			x.forestUnlocked = x.reach >= 2
 			opened = true
@@ -772,10 +758,9 @@ local function openGate(player: Player, id: number)
 	if not opened then
 		return
 	end
-	DataService.saveNow(player) -- paid and opened in the same save
+	DataService.saveNow(player) -- an opened island is written at once
 	WorldService.setReach(player, id)
-	AnalyticsSvc.funnel(player, "first_coins_spent")
-	Remotes.fire(player, "Notify", "zoneUnlocked", { zone = zone.id, price = price })
+	Remotes.fire(player, "Notify", "zoneUnlocked", { zone = zone.id, need = need })
 end
 
 -- ---------- the client's copy of its data ----------
@@ -802,6 +787,7 @@ local function view(player: Player, d: Data): { [string]: any }
 		gift = PenService.giftState(d),
 		forestUnlocked = d.forestUnlocked,
 		reach = d.reach,
+		coldPower = d.coldPower,
 		welcome = d.welcome,
 		settings = d.settings,
 		superFreezeCharges = d.superFreezeCharges,
@@ -810,7 +796,7 @@ local function view(player: Player, d: Data): { [string]: any }
 		plot = WorldService.plotOf(player),
 		rebirths = d.rebirths,
 		seenShows = d.seenShows,
-		pan = d.pan, -- Cold Level and Look (Slots = slots / upgrades.pen)
+		pan = d.pan, -- Look (Slots = slots / upgrades.pen)
 		tutorial = d.tutorial, -- Ranger Bo's step (TutorialService)
 		tester = if Config.isTester(player.UserId) then d.tester else nil, -- only testers learn the panel exists
 	}
@@ -837,6 +823,11 @@ function PenService.Start()
 			data.week = { id = w, coins = 0 }
 		end
 		checkWelcome(player, data)
+		if data.coldRefund > 0 then
+			-- the removed pan Cold Level: its coins are already back in the save (DataService); say so once
+			Remotes.fire(player, "Notify", "refund", { coins = data.coldRefund })
+			data.coldRefund = 0
+		end
 		dirty[player] = true
 	end)
 	DataService.Changed:Connect(function(player: Player)
@@ -847,7 +838,6 @@ function PenService.Start()
 		sessionBest[player] = nil
 		dirty[player] = nil
 		bankingNow[player] = nil
-		bouncedAt[player] = nil
 		gateCooldown[player] = nil
 		clearPen(player)
 	end)

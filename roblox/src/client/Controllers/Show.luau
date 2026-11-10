@@ -471,11 +471,11 @@ GUN_BEATS.bars = function(ctx, seconds, keep)
 		local fill = Instance.new("Frame")
 		fill.Name = "Fill"
 		fill.BackgroundColor3 = ctx.color
-		fill.Size = UDim2.fromScale(math.clamp((old :: any)[stat] / G.statMax[stat], 0, 1), 1)
+		fill.Size = UDim2.fromScale(Config.gunStatShare(stat, (old :: any)[stat]), 1)
 		Ui.corner(fill, 0.5)
 		fill.Parent = track
 		Ui.label(row, EquipmentPopup.statText(stat, new), UDim2.fromScale(0.15, 1), UDim2.fromScale(0.85, 0))
-		local to = math.clamp((new :: any)[stat] / G.statMax[stat], 0, 1)
+		local to = Config.gunStatShare(stat, (new :: any)[stat])
 		TweenService:Create(fill, TweenInfo.new(seconds * 0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Size = UDim2.fromScale(to, 1) }):Play()
 	end
 	hold(ctx, seconds, keep)

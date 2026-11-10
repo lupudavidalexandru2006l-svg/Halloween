@@ -228,7 +228,8 @@ function CritterService.Start()
 			end
 			c.pushedAt = os.clock()
 			local d = DataService.get(player)
-			local seconds = if d and d.tester.instantFreeze then 0 else C.freezeSeconds / Config.gun(gun).power
+			-- like the island's pets: the further your Cold Power is above the island's need, the faster
+			local seconds = if d and d.tester.instantFreeze then 0 else C.freezeSeconds / Config.freezeSpeed(if d then d.coldPower else 0, c.zone)
 			local m = if seconds <= 0 then 1 else math.min(1, c.meter + dt / seconds)
 			setMeter(c, m, player)
 			if m >= 1 then

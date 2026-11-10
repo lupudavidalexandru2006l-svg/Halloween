@@ -23,6 +23,10 @@ local HudController = {}
 local coinsRoot: Frame
 local coinsText: TextLabel
 local coinsRate: TextLabel
+local powerRoot: Frame -- Cold Power: its icon and number, under the coins
+local powerText: TextLabel
+local powerScale: UIScale
+local lastPower: number? = nil
 local banner: Ui.Block
 local dailyDot: Frame? = nil -- a round dot on the Daily tile while a finished challenge waits to be claimed
 
@@ -45,18 +49,20 @@ end
 -- gain text appears beside the coin counter, never on a HUD item. It wears the counter's own look
 -- (white-to-gold fill, the firm outline) a size smaller, starts just past the number's visible end
 -- (owner 2026-11-05: it sat on the last digit in flat yellow), pops in, then drifts up and fades.
-local function floatGain(amount: number)
+-- power = true: the same pop beside the Cold Power number, fading white to its cyan
+local function floatGain(amount: number, power: boolean?)
 	local G = Config.ui.gain
-	local w = math.max(1, coinsRoot.AbsoluteSize.X)
-	local x = coinsText.Position.X.Scale + coinsText.TextBounds.X / w + G.gap
-	local t = Ui.label(coinsRoot, `+{Ui.short(amount)}`, UDim2.fromScale(G.width, G.height), UDim2.fromScale(x, G.y))
+	local root, number = if power then powerRoot else coinsRoot, if power then powerText else coinsText
+	local w = math.max(1, root.AbsoluteSize.X)
+	local x = number.Position.X.Scale + number.TextBounds.X / w + G.gap
+	local t = Ui.label(root, `+{if power then Config.coinText(amount) else Ui.short(amount)}`, UDim2.fromScale(G.width, if power then G.height * 1.4 else G.height), UDim2.fromScale(x, G.y))
 	t.Name = "Gain"
 	t.TextXAlignment = Enum.TextXAlignment.Left
 	local stroke = t:FindFirstChildOfClass("UIStroke") :: UIStroke
 	stroke.Thickness = Config.ui.floatingStroke
 	local gold = Instance.new("UIGradient")
 	gold.Rotation = 90
-	gold.Color = ColorSequence.new(Theme.white, Theme.coin)
+	gold.Color = ColorSequence.new(Theme.white, if power then Theme.rink.power else Theme.coin)
 	gold.Parent = t
 	local pop = Instance.new("UIScale")
 	pop.Scale = 0.4
@@ -104,6 +110,18 @@ local function render(v: State.View)
 		else ""
 	coinsRate.Text = if v.income > 0 then `+{Ui.short(v.income)}/s{friendsText}` else ""
 	coinsRate.Visible = v.income > 0
+	-- Cold Power: the number, a "+N" beside it and a small bounce when it goes up (not on the first sync)
+	local power = v.coldPower or 0
+	powerText.Text = Config.coinText(power)
+	if lastPower and power > lastPower then
+		floatGain(power - lastPower, true)
+		if SettingsController.get("reducedMotion") ~= true then
+			local P = Config.ui.powerPop
+			powerScale.Scale = P.scale
+			TweenService:Create(powerScale, TweenInfo.new(P.seconds, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+		end
+	end
+	lastPower = power
 	if dailyDot then
 		local ready = false
 		for _, c in (if v.daily then v.daily.list else {}) do
@@ -249,7 +267,7 @@ end
 -- the gun that can freeze this island's pets: the first one whose Cold reaches it
 local function gunFor(id: number): string
 	for _, g in Config.guns.list do
-		if g.cold >= id then
+		if g.heat >= id then
 			return g.name
 		end
 	end
@@ -398,6 +416,22 @@ function HudController.Start()
 		s.Thickness = Config.ui.floatingStroke -- nothing behind it now, so a firmer outline reads over snow
 	end
 	Screen.register("coins", coinsRoot)
+	-- Cold Power under the coins, the same look a size smaller: icon, then the number in white-to-cyan
+	powerRoot = Instance.new("Frame")
+	powerRoot.Name = "Power"
+	powerRoot.BackgroundTransparency = 1
+	Ui.image(powerRoot, Config.images.icons.power, UDim2.fromScale(0.26, 0.96), UDim2.fromScale(0.04, 0.02))
+	powerText = Ui.label(powerRoot, "0", UDim2.fromScale(1.4, 0.84), UDim2.fromScale(0.34, 0.08))
+	powerText.TextXAlignment = Enum.TextXAlignment.Left
+	local cyan = Instance.new("UIGradient")
+	cyan.Rotation = 90
+	cyan.Color = ColorSequence.new(Theme.white, Theme.rink.power)
+	cyan.Parent = powerText
+	local ps = powerText:FindFirstChildOfClass("UIStroke") :: UIStroke
+	ps.Thickness = Config.ui.floatingStroke
+	powerScale = Instance.new("UIScale")
+	powerScale.Parent = powerText
+	Screen.register("power", powerRoot)
 	buildIsland()
 	-- banner
 	banner = Ui.block(Screen.hud :: ScreenGui, "Banner", Theme.info, "", nil)
@@ -452,6 +486,9 @@ function HudController.Start()
 		elseif kind == "zoneUnlocked" then
 			local z = Config.zone(if typeof(data.zone) == "number" then data.zone else 2)
 			HudController.banner(`{if z then z.name else "The next island"} is open!`, Theme.go)
+		elseif kind == "refund" and typeof(data) == "table" and typeof(data.coins) == "number" then
+			-- the pan's Cold Level was removed (Cold Power, 2026-11-10): what you spent on it is back
+			HudController.banner(`Cold Level is gone. +{Config.coinText(data.coins)} coins back`, Theme.coin, Config.ui.bannerSeconds * 2)
 		elseif kind == "comingSoon" then
 			HudController.banner(`{tostring(data.label)}: coming soon!`, Theme.info)
 		elseif kind == "upgraded" then
@@ -470,6 +507,8 @@ function HudController.Start()
 			elseif (data.coins or 0) > 0 then
 				HudController.banner(`{data.name}! +{Ui.short(data.coins)} coins`, Theme.coin)
 				floatGain(data.coins)
+			elseif (data.power or 0) > 0 then
+				HudController.banner(`{data.name}! +{Config.coinText(data.power)} Cold Power`, Theme.rink.power)
 			elseif (data.charges or 0) > 0 then
 				HudController.banner(`+{data.charges} Super Freezes!`, Theme.go)
 			else

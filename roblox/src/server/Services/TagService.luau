@@ -147,7 +147,7 @@ function TagService.Start()
 			local v = victims[p] or { meter = 0, pushedAt = 0, by = nil }
 			victims[p] = v
 			v.pushedAt = os.clock()
-			local seconds = T.freezeSeconds / Config.gun(gun).power
+			local seconds = T.freezeSeconds -- the same for everyone: no gun or Cold Power makes tagging faster
 			setMeter(p, v, math.min(1, v.meter + dt / seconds), shooter)
 			if v.meter >= 1 then
 				tag(p, shooter)

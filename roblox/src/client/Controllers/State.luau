@@ -27,6 +27,7 @@ export type View = {
 	gift: { ready: boolean, locked: boolean, streak: number, nextStreak: number, coins: number },
 	forestUnlocked: boolean,
 	reach: number?, -- Round 4 phase 6: islands 1..reach have their gates open
+	coldPower: number?, -- the endless stat trained in the Training Rink (decided on the server)
 	welcome: { coins: number, awaySeconds: number, capped: boolean, best: string? }?,
 	settings: { music: boolean, sound: boolean, reducedMotion: boolean, lowGraphics: boolean, unit: string },
 	superFreezeCharges: number,
@@ -35,7 +36,7 @@ export type View = {
 	plot: number?,
 	rebirths: number,
 	seenShows: { [string]: boolean }?, -- shows watched once (SKIP shows after that)
-	pan: { cold: number, look: number }?, -- the pan's Cold Level and Look (Round 4 phase 5; Slots = slots)
+	pan: { look: number }?, -- the pan's Look (Round 4 phase 5; Slots = slots)
 	tutorial: { step: number, done: boolean }?, -- Ranger Bo's tutorial (TutorialService): the step you're on, or done
 	tester: { mult: number, walk: number, instantFreeze: boolean, noMelt: boolean }?, -- only sent to testers
 }

@@ -1,5 +1,5 @@
 --!strict
--- SignsController: draws the gauge at every pan's door: that pan's Cold Level (Round 4 phase 5).
+-- SignsController: draws the gauge at every pan's door: its owner's Cold Power (2026-11-10; it showed the pan's Cold Level before).
 -- (The zone odds signs it also drew were removed, owner 2026-11-03.)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -11,9 +11,9 @@ local SettingsController = require(script.Parent.SettingsController)
 
 local SignsController = {}
 
--- the gauge at each pan's door: a thermometer drawn from UI shapes showing that pan's Cold Level
--- (the hottest island whose pets it keeps frozen; the map's PanCold<i>, set by PanService). When a cube
--- is too hot for your pan, your gauge flashes the level it needs (Config.pan.bounce).
+-- the gauge at each pan's door: a thermometer drawn from UI shapes showing its owner's Cold Power
+-- (the map's PanPower<i>, set by PanService): the number, and the tube filled by how far it is toward
+-- the next island's need.
 type Gauge = { label: TextLabel, fill: Frame, tube: Frame, bulb: Frame, flashing: boolean }
 local gauges: { [number]: Gauge } = {}
 local function buildGauge(i: number)
@@ -59,16 +59,15 @@ local function buildGauge(i: number)
 	g.Parent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
 end
 
-local function coldOf(i: number): number
+local function powerOf(i: number): number
 	local map = workspace:FindFirstChild("Map")
-	local v = map and map:GetAttribute("PanCold" .. i)
-	return if typeof(v) == "number" then v else Config.pan.cold.start
+	local v = map and map:GetAttribute("PanPower" .. i)
+	return if typeof(v) == "number" then v else 0
 end
 
--- the tube fills toward the 20-island maximum, so every Cold Level up shows
-local function setGauge(gauge: Gauge, cold: number, color: Color3, text: string)
+local function setGauge(gauge: Gauge, share: number, color: Color3, text: string)
 	gauge.label.Text = text
-	gauge.fill.Size = UDim2.fromScale(0.6, math.clamp(cold / Config.pan.cold.max, 0.12, 1))
+	gauge.fill.Size = UDim2.fromScale(0.6, math.clamp(share, 0.12, 1))
 	gauge.fill.BackgroundColor3 = color
 	gauge.bulb.BackgroundColor3 = color
 end
@@ -78,36 +77,10 @@ local function drawGauges()
 		buildGauge(i)
 		local gauge = gauges[i]
 		if gauge and not gauge.flashing then
-			local cold = coldOf(i)
-			setGauge(gauge, cold, Theme.hubArt.gaugeFill, `Cold {cold}`)
+			local power = powerOf(i)
+			setGauge(gauge, power / Config.nextNeed(power), Theme.rink.power, Config.coinText(power))
 		end
 	end
-end
-
--- a cube too hot for your pan: your gauge flashes between the level it needs and the one it has
-local function flashGauge(data: any)
-	local i = if typeof(data) == "table" then data.plot else nil
-	local gauge = if typeof(i) == "number" then gauges[i] else nil
-	if not gauge or gauge.flashing or typeof(data.need) ~= "number" then
-		return
-	end
-	local B = Config.pan.bounce
-	local reduced = SettingsController.get("reducedMotion") == true
-	gauge.flashing = true
-	task.spawn(function()
-		local t0, on = os.clock(), true
-		while os.clock() - t0 < B.flashSeconds do
-			if on or reduced then -- reduced motion: no blinking, the needed level just stays up
-				setGauge(gauge, data.need, Theme.panBounce, `Need {data.need}`)
-			else
-				setGauge(gauge, coldOf(i), Theme.hubArt.gaugeFill, `Cold {coldOf(i)}`)
-			end
-			on = not on
-			task.wait(B.flashEvery) -- about 1.7 flashes a second (under 3, Animation Rules 1)
-		end
-		gauge.flashing = false
-		drawGauges()
-	end)
 end
 
 local function watchGauges()
@@ -115,7 +88,7 @@ local function watchGauges()
 		local map = workspace:WaitForChild("Map", 30)
 		if map then
 			map.AttributeChanged:Connect(function(name: string)
-				if string.sub(name, 1, 7) == "PanCold" then
+				if string.sub(name, 1, 8) == "PanPower" then
 					drawGauges()
 				end
 			end)
@@ -125,11 +98,6 @@ end
 function SignsController.Init() end
 
 function SignsController.Start()
-	State.Notify:Connect(function(kind: string, data: any)
-		if kind == "panBounce" then
-			flashGauge(data)
-		end
-	end)
 	watchGauges()
 	SettingsController.Changed:Connect(drawGauges)
 	-- the pans are in the hub, which streams in first; look again a few times in case it's late

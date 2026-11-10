@@ -38,6 +38,8 @@ export type Data = {
 	funnel: { [string]: boolean },
 	forestUnlocked: boolean, -- kept in step with reach (reach >= 2) for older code
 	reach: number, -- Round 4 phase 6: islands 1..reach have their gates open (rebirth keeps it)
+	coldPower: number, -- the endless stat trained in the Training Rink (never spent; rebirth resets it)
+	coldRefund: number, -- coins paid back for the removed pan Cold Level, not yet shown to the player (PenService tells them once)
 	superFreezeCharges: number,
 	superCubes: { { key: string, pose: string, mut: string? } }, -- bought Super Freeze cubes not yet banked (back on your back after a rejoin)
 	lastBest: string?, -- best pet banked last session, shown in the welcome back (end on a high, on the return)
@@ -46,7 +48,7 @@ export type Data = {
 	rebirths: number,
 	seenShows: { [string]: boolean }, -- shows watched once (their SKIP button shows after that)
 	guns: { best: number, equipped: number }, -- guns are bought in order, so the best one says which you own (Round 4 phase 4)
-	pan: { cold: number, look: number }, -- the pan's Cold Level and Look (Round 4 phase 5; Slots is upgrades.pen). Rebirth keeps these
+	pan: { look: number }, -- the pan's Look (Round 4 phase 5; Slots is upgrades.pen; Cold Level was removed 2026-11-10). Rebirth keeps it
 	tester: TesterSettings,
 	gear: { gel: boolean }, -- gear bought at the Equipment Booth's Gear tab (Round 5)
 	codes: { [string]: boolean }, -- codes already redeemed (Round 5)
@@ -92,6 +94,8 @@ local function defaults(): Data
 		funnel = {},
 		forestUnlocked = false,
 		reach = 1,
+		coldPower = 0,
+		coldRefund = 0,
 		superFreezeCharges = 0,
 		superCubes = {},
 		lastBest = nil,
@@ -100,7 +104,7 @@ local function defaults(): Data
 		rebirths = 0,
 		seenShows = {},
 		guns = { best = 1, equipped = 1 },
-		pan = { cold = Config.pan.cold.start, look = 1 },
+		pan = { look = 1 },
 		tester = testerDefaults(),
 		gear = { gel = false },
 		codes = {},
@@ -242,6 +246,8 @@ local function migrate(old: any): Data
 	d.forestUnlocked = old.forestUnlocked == true
 	d.reach = math.max(int(old.reach, 1, math.max(1, #Config.world.zones), 1), if d.forestUnlocked then 2 else 1) -- old saves: the Forest flag
 	d.forestUnlocked = d.reach >= 2
+	-- a save from before Cold Power starts at the need of its highest open island, so nobody is locked out
+	d.coldPower = if typeof(old.coldPower) == "number" then num(old.coldPower, 0, Config.coldPower.max) else Config.need(d.reach)
 	d.superFreezeCharges = int(old.superFreezeCharges, 0, 999)
 	for _, c in tbl(old.superCubes) do
 		if #d.superCubes < 5 and typeof(c) == "table" and typeof(c.key) == "string" and PetDefs.get(c.key) then
@@ -269,7 +275,14 @@ local function migrate(old: any): Data
 	d.guns.best = int(gu.best, 1, #Config.guns.list, 1)
 	d.guns.equipped = int(gu.equipped, 1, d.guns.best, d.guns.best)
 	local pa = tbl(old.pan)
-	d.pan.cold = int(pa.cold, Config.pan.cold.start, Config.pan.cold.max, Config.pan.cold.start)
+	-- the pan's Cold Level is gone (Cold Power remake, 2026-11-10): the coins spent on it come back.
+	-- The level itself isn't copied, so a save written from now on has nothing left to refund.
+	local refund = 0
+	for n = Config.pan.coldStart + 1, int(pa.cold, Config.pan.coldStart, 20, Config.pan.coldStart) do
+		refund += Config.pan.coldRefund[n] or 0
+	end
+	d.coins = math.min(d.coins + refund, 1e15)
+	d.coldRefund = math.min(num(old.coldRefund, 0, 1e15) + refund, 1e15)
 	d.pan.look = int(pa.look, 1, #Config.pan.looks, 1)
 	local te = tbl(old.tester)
 	d.tester = {

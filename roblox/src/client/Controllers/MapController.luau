@@ -160,7 +160,8 @@ local function gateSign(id: number, v: State.View)
 	if not zone or not sign or not sign:IsA("BasePart") or not label or not label:IsA("TextLabel") then
 		return
 	end
-	local price = zone.gateCoins
+	local need = zone.need -- Cold Power opens a gate (2026-11-10); nothing is spent
+	local power = v.coldPower or 0
 	local gateBar = gateBars[id]
 	if not gateBar or not gateBar.Parent then
 		label.Size = UDim2.fromScale(1, 0.7)
@@ -173,7 +174,7 @@ local function gateSign(id: number, v: State.View)
 		Ui.corner(back, 1)
 		local fill = Instance.new("Frame")
 		fill.Name = "Fill"
-		fill.BackgroundColor3 = Theme.coin
+		fill.BackgroundColor3 = Theme.rink.power
 		fill.Size = UDim2.fromScale(0, 1)
 		Ui.corner(fill, 1)
 		fill.Parent = back
@@ -183,16 +184,16 @@ local function gateSign(id: number, v: State.View)
 	end
 	local open = reachOf(v) >= id
 	local needRebirth = not open and zone.ready and v.rebirths < zone.gateRebirth
-	local ready = open or (zone.ready and not needRebirth and v.coins >= price)
+	local ready = open or (zone.ready and not needRebirth and power >= need)
 	local color = if ready then Theme.go else Theme.info
 	label.Text = if open then string.upper(zone.name) elseif not zone.ready then "COMING SOON"
-		elseif needRebirth then `NEEDS REBIRTH {zone.gateRebirth}` else `OPEN FOR {Ui.price(price)} COINS`
+		elseif needRebirth then `NEEDS REBIRTH {zone.gateRebirth}` elseif ready then "READY TO OPEN" else `NEEDS {Ui.price(need)} COLD POWER`
 	label.BackgroundColor3 = color
 	sign.Color = color
 	local bar = gateBar :: Frame
-	local frac = if needRebirth then v.rebirths / math.max(1, zone.gateRebirth) else v.coins / math.max(1, price)
+	local frac = if needRebirth then v.rebirths / math.max(1, zone.gateRebirth) else power / math.max(1, need)
 	bar.Size = UDim2.fromScale(if open then 1 else math.clamp(frac, 0, 1), 1)
-	bar.BackgroundColor3 = if ready then Theme.go elseif needRebirth then Theme.booths.rebirth else Theme.coin
+	bar.BackgroundColor3 = if ready then Theme.go elseif needRebirth then Theme.booths.rebirth else Theme.rink.power
 	local back = bar.Parent :: Frame
 	local showBar = not open and zone.ready
 	back.Visible = showBar

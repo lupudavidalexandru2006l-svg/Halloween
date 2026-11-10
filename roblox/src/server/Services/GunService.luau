@@ -119,6 +119,68 @@ local function equip(player: Player, index: any)
 	Remotes.fire(player, "Notify", "gunEquipped", { gun = index })
 end
 
+-- ---------- the heat bar (Cold Power remake, 2026-11-10; Config.guns.heatBar) ----------
+-- One bar per player, 0-1, kept here. FreezeService and TrainingService push it while the ray fires;
+-- full = the gun steams for steamSeconds and can't fire, then the bar is empty again. Left alone it
+-- cools. Clients draw it from the GunHeat / GunSteam attributes (the arc round the aim ring).
+local HB = G.heatBar
+type Heat = { value: number, pushedAt: number, steamUntil: number }
+local heat: { [Player]: Heat } = {}
+
+local function publishHeat(player: Player, h: Heat)
+	local stepped = math.round(h.value / HB.step) * HB.step
+	if player:GetAttribute("GunHeat") ~= stepped then
+		player:SetAttribute("GunHeat", stepped)
+	end
+	local steam = h.steamUntil > 0
+	if player:GetAttribute("GunSteam") ~= steam then
+		player:SetAttribute("GunSteam", steam)
+	end
+end
+
+-- the gun is steaming: it can't fire until it has cooled
+function GunService.steaming(player: Player): boolean
+	local h = heat[player]
+	return h ~= nil and h.steamUntil > 0
+end
+
+-- adds to the bar; true when this push filled it (the steam starts now)
+function GunService.addHeat(player: Player, amount: number): boolean
+	local h = heat[player]
+	if not h then
+		h = { value = 0, pushedAt = 0, steamUntil = 0 }
+		heat[player] = h
+	end
+	if h.steamUntil > 0 then
+		return false
+	end
+	local now = os.clock()
+	h.pushedAt = now
+	h.value = math.min(1, h.value + math.max(0, amount))
+	local full = h.value >= 1
+	if full then
+		h.steamUntil = now + HB.steamSeconds
+	end
+	publishHeat(player, h)
+	return full
+end
+
+local function coolHeat(dt: number)
+	local now = os.clock()
+	for player, h in heat do
+		if h.steamUntil > 0 then
+			if now >= h.steamUntil then
+				h.steamUntil = 0
+				h.value = 0
+				publishHeat(player, h)
+			end
+		elseif h.value > 0 and now - h.pushedAt > HB.coolAfter then
+			h.value = math.max(0, h.value - dt / HB.coolSeconds)
+			publishHeat(player, h)
+		end
+	end
+end
+
 local function setAttribute(player: Player)
 	local d = DataService.get(player)
 	if d then
@@ -138,6 +200,16 @@ function GunService.Start()
 	end
 	Players.PlayerRemoving:Connect(function(p)
 		lastBuy[p] = nil
+		heat[p] = nil
+	end)
+	task.spawn(function()
+		local last = os.clock()
+		while true do
+			task.wait(0.1)
+			local now = os.clock()
+			coolHeat(now - last)
+			last = now
+		end
 	end)
 end
 

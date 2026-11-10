@@ -3,9 +3,13 @@
 -- A client says what it aims at (remote "Aim": a pet, a Heat Critter or a player, or "none"); this
 -- service keeps one freeze meter per target on the server and, every Config.aim.tickSeconds, raises
 -- the meter of each target someone aims at (1 / the freeze's seconds: the pet's tier and size against
--- the gun's power, Config.show.freeze x Config.aim.timeScale) and lets every other meter melt back.
+-- your Cold Power on its island, never under the rarity's minimum: Config.freezeSeconds) and lets
+-- every other meter melt back.
 -- Checked each tick on the server: the ray is in your hands (GearService), the target is in your gun's
--- range from the server's own character position, you can freeze it (gun's Cold, backpack space).
+-- range from the server's own character position, you can freeze it (your Cold Power reaches its
+-- island's need, the gun's Heat rating, backpack space). Firing fills the gun's heat bar (GunService):
+-- on an island one past the gun's Heat it overheats in a few seconds and the ice melts back; two or
+-- more past it the ray fizzles and nothing freezes (Cold Power remake, 2026-11-10).
 -- A pet's meter is published on its root ("Meter", "AimedBy", "FreezeStyle") so every client draws the
 -- ice creeping up and the beam; WildPetSpawner makes it run away while scared and stop once stuck.
 -- At 1 the cube shuts: decided and stored first, then the client plays the snap or the show
@@ -32,6 +36,7 @@ local GearService = require(script.Parent.GearService)
 local FreezeService = {}
 local F = Config.show.freeze
 local A = Config.aim
+local HB = Config.guns.heatBar
 -- froze = this shot has shut at least one cube; the ray goes away once every beam of it is done
 type Aim = { kind: string, id: string, extras: { string }, froze: boolean? }
 local aims: { [Player]: Aim } = {} -- what each player shoots at right now
@@ -76,14 +81,12 @@ end
 
 -- how long this freeze takes with the ray on it the whole time, and how it looks: flash (quick snap),
 -- normal, or layered (slow, cracks). A dazed pet zaps back quickly; a sleeping one freezes faster.
-function FreezeService.plan(def: PetDefs.PetDef, gun: number, dazed: boolean, asleep: boolean?): (number, string)
+function FreezeService.plan(def: PetDefs.PetDef, power: number, dazed: boolean, asleep: boolean?): (number, string)
 	if dazed then
 		return A.refreezeSeconds, "flash"
 	end
-	local base = math.max(F.minSeconds, (F.tierSeconds[def.tier] or 1) * (F.sizeFactor[def.size] or 1) / Config.gun(gun).power)
-	local look = FreezeService.styleFor(base)
-	local seconds = base * A.timeScale * (if asleep then Config.night.sleepFreezeFactor else 1)
-	return seconds, look
+	local seconds = Config.freezeSeconds(def.tier, def.size, power, def.zone, asleep)
+	return seconds, FreezeService.styleFor(seconds / A.timeScale)
 end
 
 function FreezeService.styleFor(seconds: number): string
@@ -107,10 +110,18 @@ local function canFreeze(player: Player, pet: any, data: any, loud: boolean?): b
 	if pet.state == "dazed" and pet.dazedOwner and pet.dazedOwner ~= player then
 		return false -- only the player who carried it can zap a dazed pet back (nobody takes it from them)
 	end
-	if pet.zone > Config.gun(FreezeService.gunTier(player)).cold then
-		if loud then -- a little shake at the pet and two words, no freeze
+	if pet.zone - Config.gun(FreezeService.gunTier(player)).heat >= 2 then
+		if loud then -- the ray fizzles: a little shake at the pet and a few words, no freeze
 			Remotes.fire(player, "Notify", "tooWarm", { id = pet.id })
-			Remotes.notYet(player, "Needs a colder gun", "pet")
+			Remotes.notYet(player, "Need a better gun", "pet")
+		end
+		return false
+	end
+	if data.coldPower < Config.need(pet.zone) then
+		if loud then -- after a rebirth: the island is open, but its pets wait for your Cold Power
+			Remotes.fire(player, "Notify", "tooWarm", { id = pet.id })
+			Remotes.fire(player, "Notify", "needPower", { zone = pet.zone }) -- the client's arrow to the Training Rink
+			Remotes.notYet(player, "Need more Cold Power", "pet")
 		end
 		return false
 	end
@@ -164,7 +175,8 @@ local function freezeOne(player: Player, pet: any)
 	local info = { key = pet.def.key, zone = pet.zone, pose = pose, mut = mut, superFrozen = false, superUsed = pet.superUsed, offered = pet.offered }
 	local at = pet.root.Position
 	local gun = FreezeService.gunTier(player)
-	local _, style = FreezeService.plan(pet.def, gun, dazed)
+	local data = DataService.get(player)
+	local _, style = FreezeService.plan(pet.def, if data then data.coldPower else 0, dazed)
 	-- a show only for a first freeze (zapping a melted pet back is quick and plain)
 	local show = if dazed then nil else F.shows[pet.def.tier]
 	WildPetSpawner.remove(id)
@@ -214,7 +226,7 @@ local function pushPet(player: Player, pet: any, data: any, gun: number, dt: num
 		return nil
 	end
 	local asleep = pet.state == "wild" and pet.action == "sleep"
-	local seconds, style = FreezeService.plan(pet.def, gun, pet.state == "dazed", asleep)
+	local seconds, style = FreezeService.plan(pet.def, data.coldPower, pet.state == "dazed", asleep)
 	if data.tester.instantFreeze then -- tester switch: freezes on the first touch of the ray
 		seconds = 0
 	end
@@ -251,6 +263,9 @@ local function clearAim(player: Player)
 	end
 end
 
+-- another target's owner ends this player's shot (TrainingService: the gun overheated in the rink)
+FreezeService.stopAim = clearAim
+
 local function tick(dt: number)
 	local pushed: { [any]: boolean } = {}
 	for player, aim in aims do
@@ -263,11 +278,14 @@ local function tick(dt: number)
 			-- the main pet and every extra beam's pet rise together; each cube shuts on its own, and the
 			-- ray goes away only once nothing of this shot is still freezing
 			local busy = false
+			local hot = false -- a pet from an island one past this gun's Heat is being frozen
+			local gunHeat = Config.gun(gun).heat
 			local pet = WildPetSpawner.get(aim.id)
 			if pet and inRange(player, pet.root.Position, A.rangeGrace) then
 				local r = pushPet(player, pet, data, gun, dt, pushed)
 				aim.froze = aim.froze or r == "frozen"
 				busy = r == "pushed"
+				hot = busy and pet.zone > gunHeat
 			end
 			local left: { string } = {}
 			for _, x in aim.extras do
@@ -277,11 +295,19 @@ local function tick(dt: number)
 					aim.froze = aim.froze or r == "frozen"
 					if r == "pushed" then
 						busy = true
+						hot = hot or e.zone > gunHeat
 						table.insert(left, x)
 					end
 				end
 			end
 			aim.extras = left
+			-- firing heats the gun: it barely moves on islands the gun is made for, and overheats in a few
+			-- seconds one island past them (the ice then melts back by itself; nothing is lost)
+			if busy and GunService.addHeat(player, dt / (if hot then HB.overSeconds else HB.okSeconds)) then
+				Remotes.notYet(player, "Gun too hot!", "pet")
+				clearAim(player)
+				continue
+			end
 			if aim.froze and not busy and aims[player] == aim then
 				clearAim(player) -- the shot is done: the ray goes away (stowAfterShot)
 			end
@@ -312,6 +338,10 @@ local function onAim(player: Player, kind: any, id: any)
 	end
 	local data = DataService.get(player)
 	if not data or GearService.held(player) ~= "ray" then
+		return
+	end
+	if GunService.steaming(player) then
+		clearAim(player) -- cooling down: the ray won't fire
 		return
 	end
 	local cur = aims[player]

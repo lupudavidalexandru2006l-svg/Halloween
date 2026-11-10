@@ -269,6 +269,15 @@ local function candidates(): { Target }
 			end
 		end
 	end
+	-- the Training Rink's fire sprites: only my own (TrainingService checks it too)
+	local sprites = workspace:FindFirstChild("RinkSprites")
+	if sprites then
+		for _, r in sprites:GetChildren() do
+			if r:IsA("BasePart") and r:GetAttribute("OwnerUserId") == me.UserId then
+				table.insert(out, { kind = "sprite", id = r:GetAttribute("SpriteId") :: string, part = r })
+			end
+		end
+	end
 	for _, p in Players:GetPlayers() do
 		local hrp = p ~= me and p.Character and p.Character:FindFirstChild("HumanoidRootPart")
 		if hrp and hrp:IsA("BasePart") and p:GetAttribute("Taggable") == true and me:GetAttribute("Shielded") ~= true then
@@ -904,6 +913,28 @@ local function makeReticle(): { gui: BillboardGui, ring: Frame, fill: Frame, hin
 	hs.Color = Theme.ink
 	hs.Parent = hint
 	hint.Parent = gui
+	-- the gun's heat (Cold Power remake, 2026-11-10): a thin arc round the ring that fills from the
+	-- bottom as the gun heats, blue to orange to red. Only while firing (drawReticle).
+	local arc = Instance.new("Frame")
+	arc.Name = "HeatArc"
+	arc.AnchorPoint = Vector2.new(0.5, 0.5)
+	arc.Position = UDim2.fromScale(0.5, 0.42)
+	arc.Size = UDim2.fromScale(0.82, 0.82 / 1.35)
+	arc.BackgroundTransparency = 1
+	arc.Visible = false
+	local ac = Instance.new("UICorner")
+	ac.CornerRadius = UDim.new(0.5, 0)
+	ac.Parent = arc
+	local as = Instance.new("UIStroke")
+	as.Name = "Stroke"
+	as.Thickness = 5
+	as.Color = Theme.rink.heatCool
+	as.Parent = arc
+	local ag = Instance.new("UIGradient")
+	ag.Name = "Sweep"
+	ag.Rotation = -90
+	ag.Parent = as
+	arc.Parent = gui
 	gui.Parent = me:WaitForChild("PlayerGui")
 	return { gui = gui, ring = ring, fill = fill, hint = hint }
 end
@@ -938,6 +969,27 @@ local function drawReticle()
 	local v = State.view
 	r.hint.Visible = not aiming() and v ~= nil and v.stats.frozen < 5
 	r.hint.Text = hintText()
+	-- the heat arc: only while you fire, or while the gun steams (it can't fire until it has cooled)
+	local heat = (me:GetAttribute("GunHeat") or 0) :: number
+	local steam = me:GetAttribute("GunSteam") == true
+	local arc = r.gui:FindFirstChild("HeatArc") :: Frame?
+	local as = arc and arc:FindFirstChild("Stroke") :: UIStroke?
+	local sweep = as and as:FindFirstChild("Sweep") :: UIGradient?
+	if arc and as and sweep then
+		arc.Visible = steam or (aiming() and heat > 0)
+		if arc.Visible then
+			local h = math.clamp(if steam then 1 else heat, 0.02, 0.98)
+			sweep.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(h, 0), NumberSequenceKeypoint.new(h + 0.01, 1), NumberSequenceKeypoint.new(1, 1),
+			})
+			local HT = Theme.rink
+			as.Color = if steam or heat > 0.75 then HT.heatHot elseif heat > 0.4 then HT.heatWarm else HT.heatCool
+		end
+	end
+	if steam then
+		r.hint.Visible = true
+		r.hint.Text = "COOLING"
+	end
 end
 
 -- ---------- what other controllers read ----------
@@ -1205,9 +1257,21 @@ local function hintCloser(screen: Vector2?)
 	State.local_("notYet", { reason = "Get closer!", at = "hotbar" })
 end
 
+-- the gun is full of heat: a puff of steam from its tip and a fizz (it cools by itself)
+local function watchSteam()
+	me:GetAttributeChangedSignal("GunSteam"):Connect(function()
+		local c = me.Character
+		if me:GetAttribute("GunSteam") == true and c then
+			muzzle(c, "vent")
+			SoundController.play("ray_fizz")
+		end
+	end)
+end
+
 function RayController.Init() end
 
 function RayController.Start()
+	watchSteam()
 	for _, p in Players:GetPlayers() do
 		watchPlayer(p)
 	end

@@ -194,13 +194,15 @@ function RebirthPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
 	item(h, keep, 2, I.book, "Index")
 	item(h, keep, 3, I.ray, "Guns")
 	item(h, keep, 4, nil, "Gates", Theme.ink)
-	item(h, keep, 5, I.pen, "Cold + Look")
+	item(h, keep, 5, I.pen, "Look")
 	local resets = column(h, o.body, R.colWidth + R.colGap, "RESETS", Theme.no)
 	item(h, resets, 1, I.coin, "Coins")
 	item(h, resets, 2, I.pen, "Slots")
+	item(h, resets, 3, I.power, "Cold Power")
 	local get = column(h, o.body, (R.colWidth + R.colGap) * 2, "YOU GET", Theme.coin)
 	item(h, get, 1, I.coin, `x{Config.rebirthIncome(n)} coins`)
-	local order = 2
+	item(h, get, 2, I.power, `x{Config.rebirthIncome(n)} training`)
+	local order = 3
 	if Config.rebirth.slotsPer > 0 then
 		item(h, get, order, I.pen, `+{Config.rebirth.slotsPer} slot`)
 		order += 1

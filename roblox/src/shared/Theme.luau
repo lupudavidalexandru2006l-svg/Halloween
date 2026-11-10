@@ -36,6 +36,7 @@ local Theme = {
 		coins = Color3.fromHex("ffb020"),
 		charges = Color3.fromHex("3aa8ff"),
 		chill = Color3.fromHex("2ec4c4"),
+		power = Color3.fromHex("35c8e8"), -- Cold Power packs: the Training Rink's frosty cyan
 	} :: { [string]: Color3 },
 	board = Color3.fromHex("2b1f5c"),
 	-- the leaderboards: each board's header colour, its plain rows, and the top 3's medal rows
@@ -176,7 +177,17 @@ local Theme = {
 	upgradeGlow = { slots = Color3.fromHex("ffd45a"), cold = Color3.fromHex("7fdcff") } :: { [string]: Color3 },
 	booths = {
 		sell = Color3.fromHex("ffc93c"), equipment = Color3.fromHex("3aa8ff"), rebirth = Color3.fromHex("aa50e6"), pan = Color3.fromHex("3ccf6e"),
+		rink = Color3.fromHex("35c8e8"), -- the Training Rink: frosty cyan (not the info blue of Equipment)
 	} :: { [string]: Color3 },
+	-- the Training Rink (Cold Power, 2026-11-10): candy-orange fire sprites with ink faces on a pale ice
+	-- floor with glowing cyan runes. power = the Cold Power number and its bars everywhere.
+	rink = {
+		flame = Color3.fromHex("ff8a2a"), flameCore = Color3.fromHex("ffd84a"), golden = Color3.fromHex("ffc93c"),
+		goldenCore = Color3.fromHex("fff3a0"), face = Color3.fromHex("1b1433"), cheek = Color3.fromHex("ff5a8a"),
+		ice = Color3.fromHex("bfe9ff"), rune = Color3.fromHex("5ee6ff"), floor = Color3.fromHex("e3f4ff"), floorSide = Color3.fromHex("8fc8ee"),
+		crystal = Color3.fromHex("9fe3ff"), sculpture = Color3.fromHex("d9f6ff"), power = Color3.fromHex("5ee6ff"),
+		heatCool = Color3.fromHex("5ee6ff"), heatWarm = Color3.fromHex("ffb020"), heatHot = Color3.fromHex("ff5a5f"), -- the gun's heat arc
+	},
 
 	-- effects and guides (prototype client.js)
 	fx = {
@@ -303,3 +314,4 @@ local Theme = {
 }
 
 return Theme
+

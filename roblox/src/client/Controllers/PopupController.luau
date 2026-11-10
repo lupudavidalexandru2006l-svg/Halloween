@@ -313,7 +313,9 @@ end
 -- (stacked 1-3 deep for bigger packs), the name, what it gives, and a green Robux button.
 -- featured = the wide banner on top (icon left, words middle, button right); else a tall tile.
 local function robuxCard(o: Open, v: State.View, parent: Instance, item: Config.RobuxItem, featured: boolean): Ui.Block
-	local owned = item.kind == "pass" and v.doubleCoins == true
+	-- a pass you own (the server marks each one on the player; 2x Coins also arrives in the view)
+	local owned = item.kind == "pass"
+		and (game:GetService("Players").LocalPlayer:GetAttribute("Pass_" .. item.id) == true or (item.id == "doubleCoins" and v.doubleCoins == true))
 	-- the whole card buys, not just its button (mobile QA 2026-11-10: a pack's Buy was 68x22 px on a
 	-- phone). Roblox's own purchase prompt still asks to confirm, so a stray tap costs nothing.
 	local c = Ui.block(parent, "Robux_" .. item.id, Theme.shopCards[item.kind] or Theme.info, "", if owned then nil else function()
@@ -341,7 +343,9 @@ local function robuxCard(o: Open, v: State.View, parent: Instance, item: Config.
 	local name = Ui.label(c.face, item.name)
 	name.Name = "Name"
 	sized(name, if featured then "title" else "body")
-	local gives = if item.kind == "coins" then `+{Ui.short(Config.robuxCoins(item, v.income))} coins` else item.text
+	local gives = if item.kind == "coins" then `+{Ui.short(Config.robuxCoins(item, v.income))} coins`
+		elseif item.kind == "power" then `+{Config.coinText(Config.powerPack(item, v.coldPower or 0))} Cold Power`
+		else item.text
 	local what = Ui.label(c.face, gives)
 	what.Name = "Gives"
 	sized(what, "small")
@@ -404,13 +408,22 @@ local function robuxShop(o: Open, v: State.View, holder: Frame)
 	tiles.Position = UDim2.fromScale(0, top)
 	tiles.Size = UDim2.fromScale(1, 1 - top)
 	tiles.Parent = holder
+	-- up to Config.ui.shopPerRow tiles to a row (the Cold Power items made a second row, 2026-11-10)
+	local perRow = Config.ui.shopPerRow
+	local rows = math.max(1, math.ceil(#packs / perRow))
 	local gap = 0.025
-	local w = math.min(0.3, (1 - gap * (#packs - 1)) / math.max(1, #packs))
-	local left = (1 - (w * #packs + gap * (#packs - 1))) / 2
-	for i, item in packs do
-		local t = robuxCard(o, v, tiles, item, false)
-		t.root.Position = UDim2.fromScale(left + (i - 1) * (w + gap), 0)
-		t.root.Size = UDim2.fromScale(w, 1)
+	local rowGap = if rows > 1 then 0.05 else 0
+	local rowH = (1 - rowGap * (rows - 1)) / rows
+	for r = 1, rows do
+		local first = (r - 1) * perRow + 1
+		local n = math.min(perRow, #packs - first + 1)
+		local w = math.min(0.3, (1 - gap * (n - 1)) / math.max(1, n))
+		local left = (1 - (w * n + gap * (n - 1))) / 2
+		for k = 1, n do
+			local t = robuxCard(o, v, tiles, packs[first + k - 1], false)
+			t.root.Position = UDim2.fromScale(left + (k - 1) * (w + gap), (r - 1) * (rowH + rowGap))
+			t.root.Size = UDim2.fromScale(w, rowH)
+		end
 	end
 end
 
@@ -963,7 +976,7 @@ local function tester(o: Open, v: State.View)
 			end
 		end
 		local r = testerReadout
-		readout.Text = `FPS {math.round(fps)}   Parts {Ui.commas(parts)}   Server: {Ui.short(r.coins or 0)} coins, x{r.mult or 1}, rebirths {r.rebirths or 0}`
+		readout.Text = `FPS {math.round(fps)}   Parts {Ui.commas(parts)}   Server: {Ui.short(r.coins or 0)} coins, x{r.mult or 1}, rebirths {r.rebirths or 0}, power {Config.coinText(r.power or 0)}`
 	end)
 
 	heading("Money multiplier")
@@ -999,6 +1012,14 @@ local function tester(o: Open, v: State.View)
 		local label = if n >= 1e9 then `+{n // 1e9}B` elseif n >= 1e6 then `+{n // 1e6}M` else `+{n // 1e3}K`
 		button(r, Theme.coin, label, 0.49 + (i - 1) * 0.17, 0.155, function()
 			send("coinsAdd", n)
+		end)
+	end
+
+	heading("Cold Power")
+	r = line()
+	for i, n in D.powerPresets do
+		button(r, Theme.rink.power, Config.coinText(n), 0.02 + (i - 1) * 0.19, 0.17, function()
+			send("power", n)
 		end)
 	end
 
@@ -1073,9 +1094,9 @@ local function tester(o: Open, v: State.View)
 			end
 		end
 	end
-	-- the pan's Cold Level and Look (Round 4 phase 5); every pan pet into Storage for money tests
+	-- the pan's Look (Round 4 phase 5; Cold Level was removed 2026-11-10); every pan pet into Storage for money tests
 	r = line()
-	for j, kind in { "cold", "look" } do
+	for j, kind in { "look" } do
 		local x = 0.02 + (j - 1) * 0.49
 		local lv = text(r, "", x, 0.27)
 		local function now(): number

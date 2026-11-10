@@ -284,6 +284,10 @@ function PromptController.Start()
 		elseif booth == "thaw" then
 			action = "thaw" -- your Thaw Machine: pick a frozen pet to put in (owner 2026-11-09)
 		end
+		if action == "rink" then
+			State.send("Rink", "enter") -- the Training Rink: the server checks you're at its door and takes you up
+			return
+		end
 		if action == "shop" or action == "equipment" or action == "pan" or action == "sell" or action == "rebirth" or action == "thaw" then
 			PopupController.open(action, if action == "thaw" then { machine = prompt:GetAttribute("Machine") or 1 } else nil)
 			-- a booth's buttons only work at the booth (the server checks its own range), so its popup

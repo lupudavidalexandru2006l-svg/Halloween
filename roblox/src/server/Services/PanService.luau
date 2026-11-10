@@ -1,14 +1,14 @@
 --!strict
--- PanService (Round 4 phase 5): owns the three pan upgrades, bought at your own pan's Pan Upgrades stand.
+-- PanService (Round 4 phase 5): owns the pan upgrades, bought at your own pan's Pan Upgrades stand.
 --   Slots      = upgrades.pen (how many pets the pan holds; rebirth resets it)
---   Cold Level = pan.cold (the hottest island whose pets the pan keeps frozen; rebirth keeps it).
---                PenService checks it before it banks a cube; a hotter one bounces back.
 --   Look       = pan.look (straw -> wood -> stone -> crystal ice -> aurora; rebirth keeps it)
+-- (Cold Level was removed with the Cold Power remake, 2026-11-10: the pan keeps every pet frozen.)
 -- Prices and levels: Config.pan / Config.panPrice / Config.panMax. Buying follows GunService: decided
 -- here, at the stand (the server's own position), price looked up on the server, checked again inside
 -- the one DataService.mutate that charges (nothing can run in between), plus a short cooldown.
--- It also puts each pan's Cold Level and Look on the map (attributes PanCold<i> / PanLook<i>), so every
--- client draws every pan's gauge and look; the buyer's client then plays the upgrade show (Show).
+-- It also puts each pan's Look and its owner's Cold Power on the map (attributes PanLook<i> /
+-- PanPower<i>), so every client draws every pan's look and gauge; the buyer's client then plays the
+-- upgrade show (Show).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -30,8 +30,6 @@ local shownOn: { [Player]: number } = {} -- the plot whose attributes this playe
 function PanService.level(d: Data, kind: string): number
 	if kind == "slots" then
 		return d.upgrades.pen
-	elseif kind == "cold" then
-		return d.pan.cold
 	end
 	return d.pan.look
 end
@@ -41,7 +39,7 @@ function PanService.blocker(d: Data, kind: string): string?
 	local level = PanService.level(d, kind)
 	local price = Config.panPrice(kind, level, d.rebirths)
 	if not price then
-		return if kind == "cold" and level < P.cold.max then "Colder islands are coming soon" else "Max level"
+		return "Max level"
 	elseif d.coins < price then
 		return `Need {Config.coinText(price - d.coins)} more`
 	end
@@ -69,8 +67,14 @@ local function publish(player: Player)
 		return
 	end
 	shownOn[player] = plot
-	if map:GetAttribute("PanCold" .. plot) ~= d.pan.cold then
-		map:SetAttribute("PanCold" .. plot, d.pan.cold)
+	-- the owner's Cold Power on their pan's gauge, to 2 digits (it changes many times a second in the rink)
+	local power = d.coldPower
+	if power >= 100 then
+		local unit = 10 ^ (math.floor(math.log10(power)) - 1)
+		power = math.floor(power / unit) * unit
+	end
+	if map:GetAttribute("PanPower" .. plot) ~= power then
+		map:SetAttribute("PanPower" .. plot, power)
 	end
 	if map:GetAttribute("PanLook" .. plot) ~= d.pan.look then
 		map:SetAttribute("PanLook" .. plot, d.pan.look)
@@ -108,8 +112,6 @@ local function buy(player: Player, kind: any)
 		if kind == "slots" then
 			x.upgrades.pen = old + 1
 			PenService.fillEmptySlots(x) -- the new slots take the best pets from Storage
-		elseif kind == "cold" then
-			x.pan.cold = old + 1
 		else
 			x.pan.look = old + 1
 		end
@@ -141,7 +143,7 @@ function PanService.Start()
 		shownOn[player] = nil
 		local map = workspace:FindFirstChild("Map")
 		if plot and map then
-			map:SetAttribute("PanCold" .. plot, nil) -- a free pan looks like a new one
+			map:SetAttribute("PanPower" .. plot, nil) -- a free pan looks like a new one
 			map:SetAttribute("PanLook" .. plot, nil)
 		end
 	end)
