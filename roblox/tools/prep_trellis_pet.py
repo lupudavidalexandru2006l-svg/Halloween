@@ -200,7 +200,9 @@ if any(k in OPTS for k in ("hue", "sat", "val")):
         if "only" in OPTS:  # only=<lo>-<hi>: change just the colours whose hue (degrees) is in range
             lo, hi = (float(x) / 360.0 for x in OPTS["only"].split("-"))
             h0 = (h - dh) % 1.0
-            rgb2 = np.where(((h0 >= lo) & (h0 <= hi))[:, None], rgb2, rgb)
+            # lo > hi wraps past red, e.g. only=300-20 (Starbit's red-to-magenta)
+            inside = ((h0 >= lo) & (h0 <= hi)) if lo <= hi else ((h0 >= lo) | (h0 <= hi))
+            rgb2 = np.where(inside[:, None], rgb2, rgb)
         px[:, :3] = rgb2
         img.pixels[:] = px.ravel()
         img.pack()
