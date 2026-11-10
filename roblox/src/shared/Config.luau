@@ -45,9 +45,9 @@ Config.data = {
 
 Config.player = {
 	-- owner 2026-11-10: 16 (Roblox's default) made the walk out "slow and boring". The pans' doors are 85-145
-	-- studs from the first meadow pets, so 28 gets you there in 3-5 s, and every later island ~43% sooner.
+	-- studs from the first meadow pets, so 32 gets you there in 3-5 s, and every later island in half the time.
 	-- Nothing sells speed (no Boots in the Shop), so this is everyone's speed for the whole game.
-	walkSpeed = 28,
+	walkSpeed = 32,
 	respawnSeconds = 1, -- Game Design Rules 7: failure is gentle, quick respawn (Roblox's default is 5)
 	freezeRange = 10,
 	refreezeHold = 0.35, -- zapping a melted pet back (a first freeze takes Config.show.freeze seconds)
@@ -837,7 +837,7 @@ Config.tutorial = {
 	popSeconds = 0.25, closeSeconds = 0.15, -- the card pops in and closes (Animation Rules: pop, close)
 	pulseSeconds = 0.6, pulseScale = 1.06, -- Next breathes (Animation Rules: pulse, 1.2 s a loop)
 	npc = {
-		walkSpeed = 14, runSpeed = 34, runFrom = 14, -- runs to catch up when this far from where he wants to be (faster than Config.player.walkSpeed, or he falls behind)
+		walkSpeed = 14, runSpeed = 38, runFrom = 14, -- runs to catch up when this far from where he wants to be (faster than Config.player.walkSpeed, or he falls behind)
 		arrive = 1.5, teleport = 90, -- snaps to you if left this far behind (a gate, a respawn)
 		followGap = 9, followSide = 5, -- walks at your side; only moves when you get this far away
 		focusRange = 45, focusStand = 6, -- stands this far from the thing he's showing, on your side
