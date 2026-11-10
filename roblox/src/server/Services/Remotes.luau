@@ -19,6 +19,7 @@ local NAMES = {
 	"BuyRobux", -- the Shop's Robux tab (MonetizationService shows Roblox's own prompt)
 	"ClaimPage", -- claim a full Index page's +10% (IndexService, 2026-11-09)
 	"ClaimChallenge", -- claim a finished daily challenge (ChallengeService, 2026-11-09)
+	"Tutorial", -- Ranger Bo's tutorial: "next" on a talk step, "skip", "replay" (TutorialService, 2026-11-10)
 	-- server -> client (what happened)
 	"Data", "Notify", "BoardRank",
 }

@@ -463,6 +463,10 @@ Config.ui = {
 	listInset = 0.015, -- scrolling lists keep this gap on every side so outlines and lips aren't clipped
 	-- a block face's dressing (Ui.block): white wash at the top, a shade toward the lip, a bevel line (transparencies)
 	face = { topLight = 0.75, bottomShade = 0.82, rimInset = 0.035, rimThickness = 2, rimTop = 0.35 },
+	-- the tutorial card (Ranger Bo's lines): bottom centre, just above the hotbar. Shares of the screen's
+	-- short side: phone is wider (fewer pixels), PC and tablet use `wide`. text = the line's size, a share of the card's height
+	tutorial = { phone = { 1.08, 0.27 }, wide = { 0.82, 0.2 }, text = 0.17, goalText = 0.13 },
+	settingsRow = 0.128, -- a Settings row's height (share of the list): 7 rows and their gaps fit
 	gamepadKeys = { close = Enum.KeyCode.ButtonB, superFreeze = Enum.KeyCode.ButtonY, menu = Enum.KeyCode.ButtonSelect, skip = Enum.KeyCode.ButtonA },
 	keys = { pets = Enum.KeyCode.P, shop = Enum.KeyCode.B, index = Enum.KeyCode.I, close = Enum.KeyCode.Backspace, superFreeze = Enum.KeyCode.F, tester = Enum.KeyCode.T, skip = Enum.KeyCode.Return }, -- Escape belongs to Roblox's own menu,
 	testerTile = { id = "tester", label = "Tester" }, -- only testers see it
@@ -712,6 +716,69 @@ Config.guide = {
 	arrowDistance = 6.5, arrowHideNear = 8, arrowY = 0.5, arrowBob = 0.35, arrowBobSpeed = 4,
 	markerRange = 45, markerY = 1, markerBob = 0.3, markerSpin = 1.5,
 	beaconRadius = 3.2, beaconHeight = 70, beaconTransparency = 0.78, beaconPulse = 0.06,
+}
+-- The tutorial (owner 2026-11-10): Ranger Bo, a guide only you can see, walks a new player through one
+-- full catch. The world still teaches (the green arrow, the glow on the next thing); Bo says one short
+-- line per step and reacts to what you do (Game Design Rules 2: goal shown, not told).
+-- on = what finishes a step: an action the server saw (TutorialService.did) or "next" (the Next
+-- button). A later step's action counts too, so a player who runs ahead is never held back.
+-- focus = what Bo walks to, points at and makes glow (GuideController's arrow target).
+-- hints = said again if the step takes a while, worded for the player's device (or "all").
+-- Saved per player (DataService tutorial = { step, done }); saves from before it existed count as done
+-- (Lessons: new-player things are for new players only). Replay is in Settings.
+Config.tutorial = {
+	name = "Ranger Bo",
+	modelName = "TutorialGuide", -- the server builds the guide here in ReplicatedStorage; each client clones it
+	steps = {
+		{ id = "hello", on = "next", say = "Hi, I'm Bo! The pets out here run too hot. Let's cool one down!" },
+		{ id = "zap", on = "zap", focus = "pet", say = "See that pet? Point your ice ray at it.", goal = "Aim at a pet",
+			hints = { keyboard = "Hold click on the pet!", touch = "Hold your finger on the pet!", gamepad = "Aim at it and hold R2!" } },
+		{ id = "freeze", on = "freeze", focus = "pet", say = "Keep the ray on it until it freezes!", goal = "Freeze the pet",
+			hints = { keyboard = "Don't let go yet!", touch = "Keep holding!", gamepad = "Keep holding R2!" } },
+		{ id = "pickup", on = "pickup", focus = "cube", say = "Brrr! Now grab the ice cube.", goal = "Pick up the cube",
+			hints = { keyboard = "Walk to the cube and press E!", touch = "Walk to the cube and tap Pick up!", gamepad = "Walk to the cube and press X!" } },
+		{ id = "carry", on = "bank", focus = "pan", say = "Run it home to your pan. Follow the arrow!", goal = "Bring it to your pan",
+			hints = { all = "Walk into your pan with the cube on your back!" } },
+		{ id = "thaw", on = "thawStart", focus = "machine", say = "Pop it in your Thaw Machine!", goal = "Use the Thaw Machine",
+			hints = { keyboard = "Stand by the machine and press E!", touch = "Stand by the machine and tap its button!", gamepad = "Stand by the machine and press X!" } },
+		{ id = "wait", on = "thawed", focus = "machine", say = "It's thawing! It hops out in a few seconds.", goal = "Wait for your pet" },
+		{ id = "done", on = "next", say = "Your pet makes coins for you now. Go catch them all!" },
+	} :: { { id: string, on: string, say: string, focus: string?, goal: string?, hints: { [string]: string }? } },
+	actions = { zap = true, freeze = true, pickup = true, bank = true, thawStart = true, thawed = true } :: { [string]: boolean },
+	praise = { "Nice!", "Great job!", "You got it!", "Perfect!" },
+	react = {
+		melted = "Oh no, it thawed out! Zap it again.",
+		tooWarm = "Too hot for your ray! Try a pet near the start.",
+		wrongWay = "Your pan is the other way! Follow the arrow.",
+		skipped = "No problem! Have fun out there.",
+		finished = "See you around!",
+		skipConfirm = "Sure?",
+	},
+	-- timings (seconds) and distances (studs)
+	typeCps = 45, -- typewriter letters per second
+	praiseHold = 1.3, -- "Nice!" stays this long before the next step's line
+	hintAfter = 14, hintEvery = 20, -- a stuck player hears the step's hint after this, then again every hintEvery
+	reactCooldown = 8, -- at most one reaction line this often
+	wrongWayStuds = 18, -- carrying home: this much farther from the pan than your closest = wrong way
+	skipConfirmSeconds = 3, -- Skip asks "Sure?"; a second press within this skips
+	nextCooldown = 0.5, -- the server ignores a second "next" sooner than this
+	leaveSeconds = 2.5, -- after the last line Bo waves, then goes
+	popSeconds = 0.25, closeSeconds = 0.15, -- the card pops in and closes (Animation Rules: pop, close)
+	pulseSeconds = 0.6, pulseScale = 1.06, -- Next breathes (Animation Rules: pulse, 1.2 s a loop)
+	npc = {
+		walkSpeed = 14, runSpeed = 24, runFrom = 14, -- runs to catch up when this far from where he wants to be
+		arrive = 1.5, teleport = 90, -- snaps to you if left this far behind (a gate, a respawn)
+		followGap = 9, followSide = 5, -- walks at your side; only moves when you get this far away
+		focusRange = 45, focusStand = 6, -- stands this far from the thing he's showing, on your side
+		leadAhead = 9, -- farther than focusRange: he walks this far ahead of you toward it, leading the way
+		turnRate = 10, groundRay = 80, stepUp = 6, -- the ground ray starts this far over his feet
+		helloOffset = Vector3.new(4, 0, 9), -- from the spawn, toward the tunnel and the pets
+		pillY = 1.8, -- name pill height over his head
+		-- Roblox's own R15 animations: owned by Roblox, so they play in any game (Animation Rules 4)
+		anims = { idle = 507766388, walk = 507777826, run = 507767714, wave = 507770239, point = 507770453, cheer = 507770677 } :: { [string]: number },
+		portraitFov = 26, portraitDistance = 3.4,
+	},
+	sounds = { line = "click", praise = "coin", finish = "unlock" },
 }
 -- the ice ray: a small gun in every player's right hand, a beam while you hold Freeze
 Config.ray = { beamCore = 0.28, beamGlow = 0.84, armRaise = 90, tipSize = 0.76, sparkleRate = 20,

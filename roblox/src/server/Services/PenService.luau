@@ -14,6 +14,7 @@ local WorldRules = require(ReplicatedStorage.Shared.WorldRules)
 local Remotes = require(script.Parent.Remotes)
 local DataService = require(script.Parent.DataService)
 local AnalyticsSvc = require(script.Parent.AnalyticsSvc)
+local TutorialService = require(script.Parent.TutorialService)
 local PlayerTracker = require(script.Parent.PlayerTracker)
 local WorldService = require(script.Parent.WorldService)
 local CarryService = require(script.Parent.CarryService)
@@ -511,6 +512,7 @@ local function bank(player: Player)
 		-- the feedback first: the save can take seconds on a slow DataStore, and the pets are already
 		-- in the data (a leave saves them too), so the player shouldn't wait for it (QA 2026-11-05, CA-04)
 		Remotes.fire(player, "Notify", "banked", { banked = banked, income = PenService.incomePerSecond(d) })
+		TutorialService.did(player, "bank")
 		DataService.saveNow(player)
 	end
 	bankingNow[player] = nil
@@ -596,6 +598,7 @@ local function thawPet(player: Player, id: any, m: any)
 	end
 	DataService.saveNow(player) -- the timer is saved, so leaving never loses it
 	Remotes.fire(player, "Notify", "thawStarted", { key = p.key, seconds = p.thawTotal, machine = m })
+	TutorialService.did(player, "thawStart")
 end
 
 -- a pet whose time is up hops out: into the pen when there's a free slot, else Storage
@@ -619,6 +622,7 @@ local function releaseThawed(player: Player, d: Data)
 	end)
 	for _, o in out do
 		Remotes.fire(player, "Notify", "thawed", { key = o.p.key, income = earn(o.p), plot = WorldService.plotOf(player), machine = o.m, stored = not o.p.eq })
+		TutorialService.did(player, "thawed")
 	end
 end
 
@@ -786,6 +790,7 @@ local function view(player: Player, d: Data): { [string]: any }
 		rebirths = d.rebirths,
 		seenShows = d.seenShows,
 		pan = d.pan, -- Cold Level and Look (Slots = slots / upgrades.pen)
+		tutorial = d.tutorial, -- Ranger Bo's step (TutorialService)
 		tester = if Config.isTester(player.UserId) then d.tester else nil, -- only testers learn the panel exists
 	}
 end

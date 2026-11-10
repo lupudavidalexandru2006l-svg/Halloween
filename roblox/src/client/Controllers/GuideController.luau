@@ -16,6 +16,13 @@ local State = require(script.Parent.State)
 local SettingsController = require(script.Parent.SettingsController)
 
 local GuideController = {}
+-- what the arrow points at this frame (TutorialController walks Ranger Bo there and makes it glow):
+-- kind = "pet" | "cube" | "machine" | "pan"; inst = the pet or cube part when there is one
+export type Target = { kind: string, pos: Vector3, inst: Instance? }
+GuideController.target = nil :: Target?
+-- the tutorial is teaching the catch: point at pets even if you own plenty (a replay) and before a
+-- frozen pet waiting for the Thaw Machine
+GuideController.pointPets = false
 local G = Config.guide
 local me = Players.LocalPlayer
 local folder: Folder
@@ -123,14 +130,19 @@ local function freeMachine(v: State.View): Vector3?
 	if not frozen then
 		return nil
 	end
-	local T, P = Config.thaw, Config.world.pans
-	local spot = Config.world.plots[v.plot]
 	for m = 1, v.machines or 1 do
 		if not busy[m] then
-			return Vector3.new(spot.x + T.machine.x + (m - 1) * T.machine.gap, 0, P.frontZ - P.length + T.machine.z)
+			return GuideController.machineAt(v.plot :: number, m)
 		end
 	end
 	return nil
+end
+
+-- where Thaw Machine m of a pan stands (same spot as PenService.machineSpot)
+function GuideController.machineAt(plot: number, m: number): Vector3
+	local T, P = Config.thaw, Config.world.pans
+	local spot = Config.world.plots[plot]
+	return Vector3.new(spot.x + T.machine.x + (m - 1) * T.machine.gap, 0, P.frontZ - P.length + T.machine.z)
 end
 
 local function step()
@@ -141,30 +153,38 @@ local function step()
 	local holding = carrying()
 	-- my frozen pet still waiting on the ground for E (CarryService.dropCube)
 	local waiting: Vector3? = nil
+	local waitingPart: BasePart? = nil
 	local gf = workspace:FindFirstChild("GroundCubes")
 	for _, g in (if gf then gf:GetChildren() else {}) do
 		if g:IsA("BasePart") and g:GetAttribute("OwnerUserId") == me.UserId then
-			waiting = g.Position
+			waiting, waitingPart = g.Position, g
 			break
 		end
 	end
 	if not root or not v then
 		arrow.Parent, marker.Parent, beacon.Parent = nil, nil, nil
+		GuideController.target = nil
 		return
 	end
 	local pos = root.Position
 	-- arrow
 	local goal: Vector3? = nil
+	local kind: string? = nil
+	local inst: Instance? = nil
+	local machine = freeMachine(v)
 	if holding and v.plot then
-		goal = WorldRules.plotCenter(v.plot)
+		goal, kind = WorldRules.plotCenter(v.plot), "pan"
 	elseif waiting then
-		goal = waiting -- go back and pick it up
-	elseif freeMachine(v) then
-		goal = freeMachine(v) -- put your frozen pet in the Thaw Machine
-	elseif #v.pets < G.earlyPets then
+		goal, kind, inst = waiting, "cube", waitingPart -- go back and pick it up
+	elseif machine and not GuideController.pointPets then
+		goal, kind = machine, "machine" -- put your frozen pet in the Thaw Machine
+	elseif #v.pets < G.earlyPets or GuideController.pointPets then
 		local p = nearestPet(pos, 0, math.huge, 1)
-		goal = if p then p.Position else nil
+		if p then
+			goal, kind, inst = p.Position, "pet", p
+		end
 	end
+	GuideController.target = if goal and kind then { kind = kind, pos = goal, inst = inst } else nil
 	local flat = if goal then Vector3.new(goal.X - pos.X, 0, goal.Z - pos.Z) else Vector3.zero
 	local showArrow = goal ~= nil and flat.Magnitude > G.arrowHideNear
 	if showArrow then

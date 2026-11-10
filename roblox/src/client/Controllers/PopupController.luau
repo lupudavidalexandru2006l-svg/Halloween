@@ -765,8 +765,10 @@ local function settings(o: Open)
 		{ key = "reducedMotion", label = "Reduced motion" }, { key = "lowGraphics", label = "Low graphics" },
 		{ key = "unit", label = "Temperature in F" },
 	}
+	-- the rows share the panel: 5 settings, the tutorial and codes (0.128 x 7 plus the gaps fits in 1)
+	local rowH = Config.ui.settingsRow
 	for i, r in rows do
-		local line = card(row(l, i, 0.145))
+		local line = card(row(l, i, rowH))
 		local icon = Config.ui.settingIcons[r.key]
 		if icon then
 			Ui.image(line, icon, UDim2.fromScale(0.1, 0.84), UDim2.fromScale(0.015, 0.08))
@@ -785,11 +787,22 @@ local function settings(o: Open)
 			o.first = b.face
 		end
 	end
-	-- Codes (Round 5): unlocked after catching Config.codes.needPets pets; the server checks the code
 	local v = State.view
+	-- the tutorial (2026-11-10): Ranger Bo walks you through a catch again. While it runs, the button rests.
+	local tut = card(row(l, #rows + 1, rowH))
+	tut.Name = "Tutorial"
+	text(tut, "Tutorial with " .. Config.tutorial.name, 0.03, 0.66)
+	local running = v ~= nil and v.tutorial ~= nil and not v.tutorial.done
+	button(tut, if running then Theme.tutorial.skip else Theme.info, if running then "On now" else "Replay", 0.72, 0.26, function()
+		if not running then
+			State.send("Tutorial", "replay")
+			PopupController.close()
+		end
+	end)
+	-- Codes (Round 5): unlocked after catching Config.codes.needPets pets; the server checks the code
 	local need = Config.codes.needPets
 	local caught = if v then v.stats.frozen else 0
-	local line = card(row(l, #rows + 1, 0.145))
+	local line = card(row(l, #rows + 2, rowH))
 	line.Name = "Codes"
 	local title = text(line, "Codes", 0.03, 0.2)
 	title.Size = UDim2.fromScale(0.2, 0.7)

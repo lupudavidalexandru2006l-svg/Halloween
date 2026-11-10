@@ -37,6 +37,18 @@ local Theme = {
 		charges = Color3.fromHex("3aa8ff"),
 	} :: { [string]: Color3 },
 	board = Color3.fromHex("2b1f5c"),
+	-- Ranger Bo, the tutorial guide: a park ranger in the game's ice blue, with a red scarf like the snowmen
+	tutorial = {
+		skin = Color3.fromHex("e8b98f"),
+		coat = Color3.fromHex("3aa8ff"),
+		pants = Color3.fromHex("2d3561"),
+		hat = Color3.fromHex("9a6b43"),
+		hatBand = Color3.fromHex("ffc93c"),
+		scarf = Color3.fromHex("e8414a"),
+		portrait = Color3.fromHex("bfe9ff"), -- behind his face on the card
+		focus = Color3.fromHex("3ccf6e"), -- the glow on the thing he's showing (go-green, like the arrow)
+		skip = Color3.fromHex("9aa5b1"), -- quiet grey: Skip shouldn't compete with Next
+	},
 
 	tiers = {
 		Common = Color3.fromHex("9aa5b1"),

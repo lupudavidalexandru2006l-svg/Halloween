@@ -36,6 +36,7 @@ export type View = {
 	rebirths: number,
 	seenShows: { [string]: boolean }?, -- shows watched once (SKIP shows after that)
 	pan: { cold: number, look: number }?, -- the pan's Cold Level and Look (Round 4 phase 5; Slots = slots)
+	tutorial: { step: number, done: boolean }?, -- Ranger Bo's tutorial (TutorialService): the step you're on, or done
 	tester: { mult: number, walk: number, instantFreeze: boolean, noMelt: boolean }?, -- only sent to testers
 }
 

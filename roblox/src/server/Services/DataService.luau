@@ -52,6 +52,7 @@ export type Data = {
 	codes: { [string]: boolean }, -- codes already redeemed (Round 5)
 	shieldLeft: number, -- seconds of the new-player tag shield still to use (counts down only while playing)
 	daily: DailyState,
+	tutorial: { step: number, done: boolean }, -- Ranger Bo's tutorial (TutorialService): the step you're on, or done
 	createdAt: number,
 	lock: { job: string, t: number }?,
 }
@@ -105,6 +106,7 @@ local function defaults(): Data
 		codes = {},
 		shieldLeft = Config.tag.shieldMinutes * 60,
 		daily = { day = "", list = {}, claimed = {}, rares = 0 },
+		tutorial = { step = 1, done = false },
 		createdAt = os.time(),
 		lock = nil,
 	}
@@ -296,6 +298,14 @@ local function migrate(old: any): Data
 	end
 	if #d.daily.list ~= math.min(#oldList, Config.challenges.perDay) then
 		d.daily = { day = "", list = {}, claimed = {}, rares = d.daily.rares } -- damaged: handed out fresh
+	end
+	-- a save from before the tutorial existed is a player who already knows the game (Lessons:
+	-- new-player things are for new players only); they can still replay it from Settings
+	local tu = old.tutorial
+	if typeof(tu) == "table" then
+		d.tutorial = { step = int(tu.step, 1, #Config.tutorial.steps, 1), done = tu.done == true }
+	else
+		d.tutorial = { step = #Config.tutorial.steps, done = true }
 	end
 	d.createdAt = num(old.createdAt, 0, 1e12, os.time())
 	d.lastBest = if typeof(old.lastBest) == "string" and PetDefs.get(old.lastBest) then old.lastBest else nil

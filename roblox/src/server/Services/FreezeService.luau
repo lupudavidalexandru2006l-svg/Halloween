@@ -20,6 +20,7 @@ local PetDefs = require(ReplicatedStorage.Shared.PetDefs)
 local Remotes = require(script.Parent.Remotes)
 local DataService = require(script.Parent.DataService)
 local AnalyticsSvc = require(script.Parent.AnalyticsSvc)
+local TutorialService = require(script.Parent.TutorialService)
 local PlayerTracker = require(script.Parent.PlayerTracker)
 local WildPetSpawner = require(script.Parent.WildPetSpawner)
 local CarryService = require(script.Parent.CarryService)
@@ -176,6 +177,7 @@ local function freezeOne(player: Player, pet: any)
 		end
 	end)
 	AnalyticsSvc.funnel(player, "first_freeze")
+	TutorialService.did(player, "freeze")
 	if show and uid then
 		local list = shows[player] or {}
 		shows[player] = list
@@ -325,6 +327,7 @@ local function onAim(player: Player, kind: any, id: any)
 		-- a new pick while a shot that already froze something runs on carries that on (the ray still goes away after)
 		aims[player] = { kind = kind, id = id, extras = pickExtras(player, pet, data, FreezeService.gunTier(player)), froze = cur and cur.froze }
 		AnalyticsSvc.funnel(player, "first_zap")
+		TutorialService.did(player, "zap")
 	elseif targets[kind] and targets[kind].canAim(player, id) then
 		aims[player] = { kind = kind, id = id, extras = {}, froze = cur and cur.froze }
 	else

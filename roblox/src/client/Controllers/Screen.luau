@@ -5,6 +5,7 @@
 -- insets, so nothing sits under Roblox's top bar; on touch the coins sit above the thumbstick.
 -- HUD (5 at most): tile grid (left, centred), coins (bottom left), the island banner (top centre,
 -- only while it shows), the hotbar (bottom centre, Round 5) and the banner (only while it shows).
+-- Ranger Bo's tutorial card sits over the hotbar, for new players only, until the tutorial ends.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -101,6 +102,15 @@ function Screen.layout()
 		hotbar.Size = UDim2.fromScale(sx(H.size * n + H.gap * (n - 1)), sy(H.size * 1.45))
 		hotbar.Position = UDim2.fromScale(0.5, 1 - sy(H.bottomInset))
 	end
+	-- Ranger Bo's card (only during the tutorial): bottom centre, just above the hotbar
+	local tutorial = items.tutorial
+	if tutorial then
+		local H, TU = Config.hotbar, U.tutorial
+		local size = if Screen.deviceClass() == "phone" then TU.phone else TU.wide
+		tutorial.AnchorPoint = Vector2.new(0.5, 1)
+		tutorial.Size = UDim2.fromScale(math.min(0.96, sx(size[1])), sy(size[2]))
+		tutorial.Position = UDim2.fromScale(0.5, 1 - sy(H.bottomInset + H.size * 1.45 + U.tileGap))
+	end
 	local tiles = items.tiles
 	if tiles then
 		local rows = math.ceil(tileCount / 2)
@@ -123,7 +133,7 @@ function Screen.layout()
 	end
 end
 
--- name: "tiles" | "coins" | "island" | "banner" | "hotbar"; count = number of tiles for "tiles"
+-- name: "tiles" | "coins" | "island" | "banner" | "hotbar" | "tutorial"; count = number of tiles for "tiles"
 -- (the hotbar's slot count is its "Slots" attribute)
 function Screen.register(name: string, obj: GuiObject, count: number?)
 	items[name] = obj

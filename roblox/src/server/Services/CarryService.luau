@@ -17,6 +17,7 @@ local WorldRules = require(ReplicatedStorage.Shared.WorldRules)
 local Remotes = require(script.Parent.Remotes)
 local DataService = require(script.Parent.DataService)
 local AnalyticsSvc = require(script.Parent.AnalyticsSvc)
+local TutorialService = require(script.Parent.TutorialService)
 local PlayerTracker = require(script.Parent.PlayerTracker)
 local WorldService = require(script.Parent.WorldService)
 local WildPetSpawner = require(script.Parent.WildPetSpawner)
@@ -253,6 +254,7 @@ function CarryService.pickUp(player: Player, uid: string, auto: boolean?)
 	carrying[player] = hands
 	changed(player)
 	Remotes.fire(player, "Notify", "pickedUp", { uid = cube.uid, key = cube.key, from = from })
+	TutorialService.did(player, "pickup")
 end
 
 -- left on the ground too long: the pet wakes up dazed where it stood (only you can zap it back)
