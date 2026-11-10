@@ -479,10 +479,8 @@ function HudController.Start()
 			end
 			if best and Config.tier(best.tier).rank >= Config.effects.showRank then
 				HudController.banner(`{string.upper(best.tier)}! {best.name}`, Theme.tiers[best.tier]) -- prototype: Epic and up get the show
-			else
-				-- it's in your Pets, still frozen: the guide arrow points at your Thaw Machine (owner 2026-11-09)
-				HudController.banner("Put it in your Thaw Machine!", Theme.go)
 			end
+			-- no green "Put it in your Thaw Machine!" banner: the guide arrow already points there (owner 2026-11-10)
 		elseif kind == "zoneUnlocked" then
 			local z = Config.zone(if typeof(data.zone) == "number" then data.zone else 2)
 			HudController.banner(`{if z then z.name else "The next island"} is open!`, Theme.go)
@@ -524,19 +522,7 @@ function HudController.Start()
 			end
 		elseif kind == "gearBought" then
 			HudController.banner("Slow Gel is on your hotbar!", Theme.go)
-		elseif kind == "thawStarted" then
-			local def = PetDefs.get(data.key)
-			HudController.banner(`{if def then def.name else "Your pet"} is thawing: {Config.timeText(data.seconds or 0)}`, Theme.info)
-		elseif kind == "thawed" then
-			local def = PetDefs.get(data.key)
-			local gone = if typeof(data.replaced) == "string" then PetDefs.get(data.replaced) else nil
-			if gone then
-				HudController.banner(`{if def then def.name else "Your pet"} is out! It took {gone.name}'s spot`, Theme.go)
-			elseif data.stored then
-				HudController.banner(`{if def then def.name else "Your pet"} is out! Pan full: it's in Storage`, Theme.info)
-			else
-				HudController.banner(`{if def then def.name else "Your pet"} is out!`, Theme.go) -- no income text (owner 2026-11-07)
-			end
+		-- no banner when a pet goes into or comes out of the Thaw Machine (owner 2026-11-10)
 		elseif kind == "critterCaught" then
 			HudController.banner("A Heat Critter grabbed your cube! Zap it back", Theme.round5.critter)
 		elseif kind == "tagged" then
