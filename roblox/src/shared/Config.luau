@@ -497,7 +497,7 @@ Config.ui = {
 	headerHeight = 0.13, -- the coloured title ribbon at the top of a popup
 	listInset = 0.015, -- scrolling lists keep this gap on every side so outlines and lips aren't clipped
 	-- a block face's dressing (Ui.block): white wash at the top, a shade toward the lip, a bevel line (transparencies)
-	face = { topLight = 0.75, bottomShade = 0.82, rimInset = 0.035, rimThickness = 2, rimTop = 0.35 },
+	face = { topLight = 0.75, bottomShade = 0.82, rimInset = 0.035, rimThickness = 2, rimTop = 0.35, shineMix = 0.35 }, -- shineMix: how far the shine leans from the face colour to white
 	-- the tutorial card (Ranger Bo's lines): bottom centre, just above the hotbar. Shares of the screen's
 	-- short side: phone is wider (fewer pixels), PC and tablet use `wide`. text = the line's size, a share of the card's height
 	tutorial = { phone = { 1.08, 0.27 }, wide = { 0.82, 0.2 }, text = 0.17, goalText = 0.13 },

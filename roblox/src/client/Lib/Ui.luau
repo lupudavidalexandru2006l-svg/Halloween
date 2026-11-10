@@ -168,6 +168,15 @@ local function dress(face: GuiObject)
 	rg.Rotation = 90
 	rg.Transparency = NumberSequence.new(F.rimTop, 1)
 	rg.Parent = rs
+	-- the shine and the bevel are a light shade of the face's own colour, not white, so a green tile
+	-- stays green at the top (owner 2026-11-10)
+	local function tint()
+		local c = face.BackgroundColor3:Lerp(Theme.white, F.shineMix)
+		light.BackgroundColor3 = c
+		rs.Color = c
+	end
+	tint()
+	face:GetPropertyChangedSignal("BackgroundColor3"):Connect(tint)
 end
 
 -- a pressable block; onPress runs on click / tap / gamepad A. plain = no dressing (big panels and
