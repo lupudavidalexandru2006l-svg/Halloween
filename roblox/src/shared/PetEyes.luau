@@ -65,6 +65,20 @@ local PetEyes: { [string]: Spec } = {
 	sporewing_drake = { part = "Head", lid = Color3.fromRGB(160, 20, 30), eyes = {
 		eye(0.1570, 0.1600, -0.4613, 0.236, 0.266, -0.935, 0.0608),
 		eye(-0.0780, 0.1405, -0.4273, -0.759, 0.135, -0.637, 0.0548) } },
+	-- measured 2026-11-10: Myco Golem and Sunny Beach TRELLIS pets (eyes found as the biggest dark spots
+	-- on a 6-stud front capture; Flopseal's lid colour picked by hand, its eye ring reached the sky)
+	myco_golem = { part = "Body", lid = Color3.fromRGB(45, 165, 170), eyes = {
+		eye(0.1265, 0.1457, -0.2955, 0.278, 0.180, -0.944, 0.0427),
+		eye(-0.1018, 0.1452, -0.3018, -0.250, -0.041, -0.967, 0.0422) } },
+	puffsy = { part = "Body", lid = Color3.fromRGB(194, 132, 28), eyes = {
+		eye(0.1786, 0.1026, -0.4341, 0.234, 0.093, -0.968, 0.0687),
+		eye(-0.1756, 0.1027, -0.4342, -0.216, 0.202, -0.955, 0.0696) } },
+	starbit = { part = "Body", lid = Color3.fromRGB(186, 27, 181), eyes = {
+		eye(0.1248, 0.0058, -0.1864, 0.208, -0.062, -0.976, 0.0587),
+		eye(-0.1184, -0.0253, -0.1844, -0.227, -0.120, -0.966, 0.0523) } },
+	flopseal = { part = "Head", lid = Color3.fromRGB(28, 70, 185), eyes = {
+		eye(0.1659, 0.2153, -0.4092, 0.400, 0.568, -0.719, 0.0569),
+		eye(-0.1444, 0.2116, -0.4187, -0.643, 0.372, -0.670, 0.0528) } },
 }
 
 return PetEyes

@@ -61,8 +61,8 @@ local PetDefs: { PetDef } = {
 	pet("bloomhorn_stag", "Bloomhorn Stag", 2, "Mythic", "Custom", "M", "d6286f", { "Antlers", "Hooves", "LeafEmblem" }),
 	pet("glowshroom_mammoth", "Glowshroom Mammoth", 2, "Secret", "Custom", "M", "1f5a6a", { "Mushrooms" }),
 	-- Mushroom Grove (zone 3): roster and concepts approved (2026-11-05); 3D + rig done for Toddle,
-	-- Puffball, Trufflet (2026-11-06), Glimmermoth, Shimmerfrog, Capcrown Badger, Sporewing Drake (2026-11-09);
-	-- Myco Golem is next
+	-- Puffball, Trufflet (2026-11-06), Glimmermoth, Shimmerfrog, Capcrown Badger, Sporewing Drake (2026-11-09),
+	-- Myco Golem (2026-11-10): all 8 grove pets are 3D
 	pet("toddle", "Toddle", 3, "Common", "Quadruped", "S", "e8641c"),
 	pet("puffball", "Puffball", 3, "Common", "Blob", "S", "c2185b"),
 	pet("trufflet", "Trufflet", 3, "Uncommon", "Quadruped", "S", "5c3a26"),
@@ -75,7 +75,8 @@ local PetDefs: { PetDef } = {
 	-- desert 4 -> 6, volcano 5 -> 8). They are designs waiting for the owner's line-up approval: until
 	-- their island is ready (Config.world.islands ready = true) inZone gives nothing, so they never spawn.
 	-- Islands 3, 5, 7, 9 and 10 have roster cards only (vault: Games/Ice Ray for Pets/Pet Roster).
-	-- Sunny Beach (zone 4): concepts made (4 full size, 4 previews)
+	-- Sunny Beach (zone 4): line-up approved 2026-11-10; 3D + rig done for Puffsy, Starbit, Flopseal (island still
+	-- closed: Pearlsnail's 3D and full concepts for the other four come first)
 	pet("puffsy", "Puffsy", 4, "Common", "Swimmer", "S", "f07a1e"),
 	pet("starbit", "Starbit", 4, "Common", "Blob", "S", "e0157a"),
 	pet("flopseal", "Flopseal", 4, "Uncommon", "Swimmer", "M", "1f3fd6"),
