@@ -44,7 +44,10 @@ Config.data = {
 }
 
 Config.player = {
-	walkSpeed = 16,
+	-- owner 2026-11-10: 16 (Roblox's default) made the walk out "slow and boring". The pans' doors are 85-145
+	-- studs from the first meadow pets, so 28 gets you there in 3-5 s, and every later island ~43% sooner.
+	-- Nothing sells speed (no Boots in the Shop), so this is everyone's speed for the whole game.
+	walkSpeed = 28,
 	respawnSeconds = 1, -- Game Design Rules 7: failure is gentle, quick respawn (Roblox's default is 5)
 	freezeRange = 10,
 	refreezeHold = 0.35, -- zapping a melted pet back (a first freeze takes Config.show.freeze seconds)
@@ -834,7 +837,7 @@ Config.tutorial = {
 	popSeconds = 0.25, closeSeconds = 0.15, -- the card pops in and closes (Animation Rules: pop, close)
 	pulseSeconds = 0.6, pulseScale = 1.06, -- Next breathes (Animation Rules: pulse, 1.2 s a loop)
 	npc = {
-		walkSpeed = 14, runSpeed = 24, runFrom = 14, -- runs to catch up when this far from where he wants to be
+		walkSpeed = 14, runSpeed = 34, runFrom = 14, -- runs to catch up when this far from where he wants to be (faster than Config.player.walkSpeed, or he falls behind)
 		arrive = 1.5, teleport = 90, -- snaps to you if left this far behind (a gate, a respawn)
 		followGap = 9, followSide = 5, -- walks at your side; only moves when you get this far away
 		focusRange = 45, focusStand = 6, -- stands this far from the thing he's showing, on your side
@@ -1389,7 +1392,7 @@ Config.aim = {
 	timeScale = 2.2, -- a shot freeze takes this much longer than the old prompt hold (time to see it run)
 	thawPerSecond = 0.3, -- meter lost each second nobody aims at it
 	stuckAt = 0.5,
-	fleeSpeed = 4.5, -- studs a second while scared (wandering is Config.spawner.wanderSpeed; you walk 16)
+	fleeSpeed = 4.5, -- studs a second while scared (wandering is Config.spawner.wanderSpeed; you walk Config.player.walkSpeed)
 	rangeGrace = 2, -- studs past the gun's range the server still accepts (lag)
 	pickRadius = 0.12, -- a click / touch picks the nearest target this close on screen (share of the short side)
 	autoAimDot = 0.3, -- E / R2: only targets in front of the camera (dot product) within range
