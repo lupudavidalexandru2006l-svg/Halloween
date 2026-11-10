@@ -5,7 +5,7 @@
 -- The cube Part is welded to the character so everyone sees it; clients draw the pet inside and the melt.
 -- A fresh freeze first waits on the ground where the pet stood (owner 2026-11-07): only the player who
 -- froze it picks it up, with E, and then it's carried like any other cube. Ground cubes don't melt;
--- one left alone for Config.carry.groundSeconds thaws back into a dazed pet. With Config.carry.autoPickUp
+-- one left alone for Config.carry.groundSeconds thaws back into a dazed pet (0 = never). With Config.carry.autoPickUp
 -- (QA 2026-11-08) FreezeService picks it up for you a moment after the snap, so there's no E.
 
 local Players = game:GetService("Players")
@@ -406,7 +406,7 @@ end
 local function tick(dt: number)
 	-- cubes waiting on the ground: the ice clears up as their time runs out (same look as a melt), then the pet wakes up
 	local now = os.clock()
-	for player, list in ground do
+	for player, list in (if Config.carry.groundSeconds > 0 then ground else {}) do -- 0: they never wake up
 		for _, c in table.clone(list) do
 			local left = Config.carry.groundSeconds - (now - math.max(c.since, c.graceUntil))
 			if left <= 0 then

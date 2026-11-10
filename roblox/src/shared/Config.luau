@@ -987,10 +987,12 @@ Config.carry = { scale = 0.62, handY = 0.4, front = 0.9, stackGap = 0.15, armRai
 	-- a freeze leaves the cube on the ground where the pet stood; E picks it up (owner 2026-11-07).
 	-- Only the player who froze it can. Left alone this long, it thaws back into a dazed pet that
 	-- only you can zap, so a forgotten cube never blocks your hands.
-	pickUpRange = 10, groundSeconds = 60,
+	-- groundSeconds = 0 (owner 2026-11-10): it never wakes up; the frozen pet stays down until you pick it up.
+	pickUpRange = 10, groundSeconds = 0,
 	-- QA 2026-11-08 (Studio-side work): the cube flies into your hands by itself this many seconds after
-	-- the snap, no E. Restored 2026-11-09 after a sync overwrote Studio's Config: the delay is a guess
-	autoPickUp = true, autoPickUpDelay = 0.6 }
+	-- the snap, no E. Restored 2026-11-09 after a sync overwrote Studio's Config: the delay is a guess.
+	-- Off again (owner 2026-11-10): the frozen pet stays on the ground until you pick it up with E
+	autoPickUp = false, autoPickUpDelay = 0.6 }
 
 -- Trees (shade) and sun patches, placed with the prototype's generator (mulberry32) so the same seed
 -- always gives the same map. Each island's own list (Config.world.islands) says how many and how big;
