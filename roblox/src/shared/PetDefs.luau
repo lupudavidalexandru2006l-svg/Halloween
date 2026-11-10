@@ -72,9 +72,9 @@ local PetDefs: { PetDef } = {
 	pet("sporewing_drake", "Sporewing Drake", 3, "Mythic", "Custom", "M", "b3152f", { "WingGills" }),
 	pet("myco_golem", "Myco Golem", 3, "Secret", "Custom", "M", "0f8fa3", { "Mushrooms" }),
 	-- Round 4 phase 6 moved the next three rosters to their places on the 10-island ladder (beach 3 -> 4,
-	-- desert 4 -> 6, volcano 5 -> 8). They are designs waiting for the owner's line-up approval: until
-	-- their island is ready (Config.world.islands ready = true) inZone gives nothing, so they never spawn.
-	-- Islands 3, 5, 7, 9 and 10 have roster cards only (vault: Games/Ice Ray for Pets/Pet Roster).
+	-- desert 4 -> 6, volcano 5 -> 8). Owner 2026-11-10: "implement every pet in the game" for now, so every
+	-- island is ready and all 80 pets spawn. A pet with no model shows its painting, or with no painting a
+	-- ball in its colour with its name. Islands 5, 7, 9 and 10 come from the roster cards (vault Pet Roster).
 	-- Sunny Beach (zone 4): line-up approved 2026-11-10; 3D + rig done for Puffsy, Starbit, Flopseal (island still
 	-- closed: Pearlsnail's 3D and full concepts for the other four come first)
 	pet("puffsy", "Puffsy", 4, "Common", "Swimmer", "S", "f07a1e"),
@@ -85,6 +85,15 @@ local PetDefs: { PetDef } = {
 	pet("reefback_turtle", "Reefback Turtle", 4, "Legendary", "Swimmer", "L", "e8413a"),
 	pet("prismapus", "Prismapus", 4, "Mythic", "Custom", "M", "7a2fb0", { "TentacleTips", "Gem" }),
 	pet("beacon_orca", "Beacon Orca", 4, "Secret", "Swimmer", "M", "1a1a1a", { "Lamp" }),
+	-- Jungle Falls (zone 5): roster card only (vault Pet Roster), in the game as stand-ins (owner 2026-11-10)
+	pet("bananabo", "Bananabo", 5, "Common", "Biped", "S", "e0a810"),
+	pet("splashfrog", "Splashfrog", 5, "Common", "Quadruped", "S", "1f4fe0"),
+	pet("tucanny", "Tucanny", 5, "Uncommon", "Bird", "S", "1c1c22"),
+	pet("chamelo", "Chamelo", 5, "Rare", "Quadruped", "S", "c2187a"),
+	pet("glowpanther", "Glowpanther", 5, "Epic", "Quadruped", "M", "5b21a8", { "Spots" }),
+	pet("fallcrown_gorilla", "Fallcrown Gorilla", 5, "Legendary", "Biped", "L", "137a7a", { "Crown" }),
+	pet("rainbow_quetzal", "Rainbow Quetzal", 5, "Mythic", "Bird", "M", "0f8a4a", { "TailTips" }),
+	pet("vinewyrm", "Vinewyrm", 5, "Secret", "Custom", "M", "c21d4a", { "FlowerCrown" }),
 	-- Desert Dunes (zone 6): roster designed, no art yet
 	pet("catcus", "Catcus", 6, "Common", "Quadruped", "S", "3f9a3a"),
 	pet("fenny", "Fenny", 6, "Common", "Quadruped", "S", "f0742a"),
@@ -94,6 +103,15 @@ local PetDefs: { PetDef } = {
 	pet("dunehorn_ram", "Dunehorn Ram", 6, "Legendary", "Quadruped", "L", "d64f86"),
 	pet("solaris_sphinx", "Solaris Sphinx", 6, "Mythic", "Custom", "M", "e3a81c", { "Wings", "SunGem", "TailTip" }),
 	pet("mirage_manta", "Mirage Manta", 6, "Secret", "Swimmer", "M", "14837f", { "WingDots" }),
+	-- Canyon Mesa (zone 7): roster card only, in the game as stand-ins (owner 2026-11-10)
+	pet("yipyap", "Yipyap", 7, "Common", "Quadruped", "S", "b8481a"),
+	pet("hopalope", "Hopalope", 7, "Common", "Quadruped", "S", "2a8fd6"),
+	pet("gilly", "Gilly", 7, "Uncommon", "Quadruped", "S", "d63f86"),
+	pet("burrowl", "Burrowl", 7, "Rare", "Bird", "S", "c99a12"),
+	pet("sparkhorn_goat", "Sparkhorn Goat", 7, "Epic", "Quadruped", "M", "6a2fb0", { "Horns" }),
+	pet("mesa_tortoise", "Mesa Tortoise", 7, "Legendary", "Quadruped", "L", "b5412a", { "Crown" }),
+	pet("sandstorm_lynx", "Sandstorm Lynx", 7, "Mythic", "Custom", "M", "139a8f", { "DustTail" }),
+	pet("echo_whale", "Echo Whale", 7, "Secret", "Swimmer", "M", "1b2a6b", { "Stripes" }),
 	-- Volcano Slopes (zone 8): roster designed, no art yet
 	pet("emberpup", "Emberpup", 8, "Common", "Quadruped", "S", "f37a1b"),
 	pet("magmallow", "Magmallow", 8, "Common", "Blob", "S", "c4204f"),
@@ -103,6 +121,24 @@ local PetDefs: { PetDef } = {
 	pet("geodillo", "Geodillo", 8, "Legendary", "Quadruped", "L", "5b2aa6", { "Geodes", "Crown" }),
 	pet("pyrokoi", "Pyrokoi", 8, "Mythic", "Swimmer", "M", "e8a21c", { "Fins", "Tail" }),
 	pet("lavalamp_jelly", "Lavalamp Jelly", 8, "Secret", "Blob", "M", "2a2f8f", { "Blobs" }),
+	-- Lava Lake (zone 9): roster card only, in the game as stand-ins (owner 2026-11-10)
+	pet("bubblava", "Bubblava", 9, "Common", "Blob", "S", "f06a12"),
+	pet("crustacrab", "Crustacrab", 9, "Common", "Custom", "S", "5a2a9a"),
+	pet("paddleduck", "Paddleduck", 9, "Uncommon", "Bird", "S", "f2c41a"),
+	pet("basalt_beaver", "Basalt Beaver", 9, "Rare", "Quadruped", "M", "6b3e1f"),
+	pet("ember_eel", "Ember Eel", 9, "Epic", "Swimmer", "M", "c41a7a", { "Stripe" }),
+	pet("caldera_hippo", "Caldera Hippo", 9, "Legendary", "Quadruped", "L", "167a7a", { "Crown" }),
+	pet("obsidian_swan", "Obsidian Swan", 9, "Mythic", "Bird", "M", "5a1fa0", { "FlameTrail" }),
+	pet("lakeheart_serpent", "Lakeheart Serpent", 9, "Secret", "Custom", "M", "b0132a", { "Core" }),
+	-- Magma Core (zone 10): roster card only, in the game as stand-ins (owner 2026-11-10)
+	pet("coreling", "Coreling", 10, "Common", "Blob", "S", "e8661a", { "Core" }),
+	pet("sparkmole", "Sparkmole", 10, "Common", "Quadruped", "S", "1d2a6b"),
+	pet("ironhorn_beetle", "Ironhorn Beetle", 10, "Uncommon", "Custom", "S", "1f7a3a"),
+	pet("pyrolamb", "Pyrolamb", 10, "Rare", "Quadruped", "M", "e0508f"),
+	pet("thermowl", "Thermowl", 10, "Epic", "Bird", "M", "1f4fd0", { "ChestGem" }),
+	pet("forge_bear", "Forge Bear", 10, "Legendary", "Quadruped", "L", "b81f24", { "Plates" }),
+	pet("coreflare_drake", "Coreflare Drake", 10, "Mythic", "Custom", "M", "d9a316", { "Wings" }),
+	pet("planetcore_turtle", "Planetcore Turtle", 10, "Secret", "Custom", "M", "1f3fb0", { "Planet" }),
 }
 
 local byKey: { [string]: PetDef } = {}
