@@ -265,6 +265,9 @@ Config.monetization = {
 		{ id = "coinsMedium", kind = "coins", productId = 0, robux = 99, minutes = 180, floor = 10e3, name = "Coin Chest", text = "", icon = "coin", stack = 2 },
 		{ id = "coinsBig", kind = "coins", productId = 0, robux = 199, minutes = 480, floor = 25e3, name = "Coin Vault", text = "", icon = "coin", stack = 3 },
 		{ id = "superFreeze3", kind = "charges", productId = 0, robux = 39, charges = 3, name = "Super Freeze", text = "3 for rare pets", icon = "ray", stack = 1 },
+		-- a Big Chill for the whole server, with "<name> started a Big Chill for everyone!" (2026-11-10,
+		-- Game Design Rules 10: server-wide events). Everyone gets it; it never moves the free Chill's clock.
+		{ id = "bigChill", kind = "chill", productId = 0, robux = 49, name = "Big Chill", text = "60 s for everyone", icon = "temp", stack = 1 },
 	} :: { RobuxItem },
 }
 
@@ -1349,6 +1352,7 @@ Config.thaw = {
 	sizeFactor = { S = 0.85, M = 1, L = 1.2 } :: { [string]: number },
 	mutFactor = { Frosty = 1.2, Golden = 1.5, Starry = 2 } :: { [string]: number },
 	islandGrowth = 1.3, -- island 2 x1.3, island 3 x1.69, island 8 x6.3
+	swapWeakest = true, -- pan full: a thawed pet that earns more takes the weakest pan pet's place (that one goes to Storage)
 	useRange = 14, -- studs from the machine's pad the server accepts "put this pet in"
 	perLevel = 1.33, -- 7 Slots levels: about x5.5 at the top, as fast as the old 19 levels at x1.1
 	secondAt = Config.upgrades.pen.maxLevel - 1,

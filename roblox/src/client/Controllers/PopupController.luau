@@ -3,8 +3,10 @@
 -- One at a time, centred a little above the middle; reward popups wait in a queue behind a menu.
 -- Buttons only send intent; the server answers and the next "Data" redraws the popup.
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local SocialService = game:GetService("SocialService")
 local TweenService = game:GetService("TweenService")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Theme = require(ReplicatedStorage.Shared.Theme)
@@ -455,6 +457,25 @@ end
 
 -- Daily challenges (ChallengeService): one card per goal: what to do, a bar with the count, and on the
 -- right what it pays (a coin tag), a pulsing Claim button once it's done, or "Done" once claimed.
+-- may this player send game invites? Asked of Roblox once at Start (it yields); until it answers, or
+-- where Roblox says no, the Daily popup has no Invite row
+local canInvite = false
+
+-- the Daily popup's last row (2026-11-10): the friend bonus (Config.friends) and an Invite button that
+-- opens Roblox's own friend picker. Roblox doesn't show invite prompts in Studio play tests.
+local function inviteRow(l: GuiObject, order: number)
+	local r = card(row(l, order, 0.16))
+	r.Name = "Invite"
+	local F = Config.friends
+	text(r, `Play with friends: +{math.round(F.perFriend * 100)}% coins each (up to {F.max})`, 0.03, 0.6)
+	local b = button(r, Theme.go, "Invite", 0.66, 0.32, function()
+		pcall(function()
+			SocialService:PromptGameInvite(Players.LocalPlayer)
+		end)
+	end)
+	b.root.Name = "InviteButton"
+end
+
 local function daily(o: Open, v: State.View)
 	local l = list(o.body, false)
 	local d = v.daily
@@ -496,6 +517,9 @@ local function daily(o: Open, v: State.View)
 				show()
 			end
 		end)
+	end
+	if canInvite then
+		inviteRow(l, #items + 2)
 	end
 end
 
@@ -1454,6 +1478,13 @@ end
 function PopupController.Init() end
 
 function PopupController.Start()
+	task.spawn(function()
+		local ok, yes = pcall(function()
+			return SocialService:CanSendGameInviteAsync(Players.LocalPlayer)
+		end)
+		-- shown in Studio too, so its layout can be checked (the prompt itself only opens in the real game)
+		canInvite = (ok and yes == true) or RunService:IsStudio()
+	end)
 	InputController.Action:Connect(function(a: string)
 		if a == "close" then
 			PopupController.close()

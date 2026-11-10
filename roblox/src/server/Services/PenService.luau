@@ -601,10 +601,23 @@ local function thawPet(player: Player, id: any, m: any)
 	TutorialService.did(player, "thawStart")
 end
 
--- a pet whose time is up hops out: into the pen when there's a free slot, else Storage
+-- the pan pet that earns least (nil when the pan is empty)
+local function weakestInPan(d: Data): PetEntry?
+	local worst: PetEntry? = nil
+	for _, p in d.pets do
+		if p.eq and (not worst or earn(p) < earn(worst :: PetEntry)) then
+			worst = p
+		end
+	end
+	return worst
+end
+
+-- a pet whose time is up hops out: into the pen when there's a free slot. With the pan full it takes
+-- the weakest pan pet's place when it earns more (Config.thaw.swapWeakest; that pet goes to Storage,
+-- nothing is lost), else it goes to Storage. Before 2026-11-10 a full pan sent even a Legendary to Storage.
 local function releaseThawed(player: Player, d: Data)
 	local now = os.time()
-	local out: { { p: PetEntry, m: number } } = {}
+	local out: { { p: PetEntry, m: number, replaced: string? } } = {}
 	for _, p in d.pets do
 		if p.thawM and (p.thawEnd or 0) <= now then
 			table.insert(out, { p = p, m = p.thawM :: number })
@@ -618,10 +631,18 @@ local function releaseThawed(player: Player, d: Data)
 			local p = o.p
 			p.frozen, p.thawM, p.thawEnd, p.thawTotal = nil, nil, nil, nil
 			p.eq = PenService.equippedCount(x) < PenService.slots(x)
+			if not p.eq and Config.thaw.swapWeakest then
+				local worst = weakestInPan(x)
+				if worst and earn(p) > earn(worst) then
+					worst.eq = false
+					p.eq = true
+					o.replaced = worst.key
+				end
+			end
 		end
 	end)
 	for _, o in out do
-		Remotes.fire(player, "Notify", "thawed", { key = o.p.key, income = earn(o.p), plot = WorldService.plotOf(player), machine = o.m, stored = not o.p.eq })
+		Remotes.fire(player, "Notify", "thawed", { key = o.p.key, income = earn(o.p), plot = WorldService.plotOf(player), machine = o.m, stored = not o.p.eq, replaced = o.replaced })
 		TutorialService.did(player, "thawed")
 	end
 end

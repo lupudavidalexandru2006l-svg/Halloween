@@ -35,6 +35,7 @@ local Theme = {
 		pass = Color3.fromHex("aa50e6"),
 		coins = Color3.fromHex("ffb020"),
 		charges = Color3.fromHex("3aa8ff"),
+		chill = Color3.fromHex("2ec4c4"),
 	} :: { [string]: Color3 },
 	board = Color3.fromHex("2b1f5c"),
 	-- Ranger Bo, the tutorial guide: a park ranger in the game's ice blue, with a red scarf like the snowmen

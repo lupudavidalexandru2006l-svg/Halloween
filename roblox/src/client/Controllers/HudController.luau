@@ -414,7 +414,11 @@ function HudController.Start()
 		elseif kind == "chillWarn" then
 			HudController.banner(`Big Chill in {data.inSeconds} s!`, Theme.info)
 		elseif kind == "chillStart" then
-			HudController.banner("Big Chill! Nothing melts", Theme.info, data.seconds)
+			if typeof(data.by) == "string" then
+				HudController.banner(`{data.by} started a Big Chill for everyone!`, Theme.info, data.seconds)
+			else
+				HudController.banner("Big Chill! Nothing melts", Theme.info, data.seconds)
+			end
 		elseif kind == "nightStart" then
 			HudController.banner("Night time! Pets are sleeping", Theme.info)
 		elseif kind == "nightEnd" then
@@ -461,7 +465,9 @@ function HudController.Start()
 			HudController.banner("Super Freeze saved for next time", Theme.info)
 		elseif kind == "robuxBought" then
 			-- a Robux shop item arrived (saved first, MonetizationService)
-			if (data.coins or 0) > 0 then
+			if data.chill then
+				-- nothing here: the server-wide "<name> started a Big Chill for everyone!" is the thank-you
+			elseif (data.coins or 0) > 0 then
 				HudController.banner(`{data.name}! +{Ui.short(data.coins)} coins`, Theme.coin)
 				floatGain(data.coins)
 			elseif (data.charges or 0) > 0 then
@@ -484,7 +490,10 @@ function HudController.Start()
 			HudController.banner(`{if def then def.name else "Your pet"} is thawing: {Config.timeText(data.seconds or 0)}`, Theme.info)
 		elseif kind == "thawed" then
 			local def = PetDefs.get(data.key)
-			if data.stored then
+			local gone = if typeof(data.replaced) == "string" then PetDefs.get(data.replaced) else nil
+			if gone then
+				HudController.banner(`{if def then def.name else "Your pet"} is out! It took {gone.name}'s spot`, Theme.go)
+			elseif data.stored then
 				HudController.banner(`{if def then def.name else "Your pet"} is out! Pan full: it's in Storage`, Theme.info)
 			else
 				HudController.banner(`{if def then def.name else "Your pet"} is out!`, Theme.go) -- no income text (owner 2026-11-07)

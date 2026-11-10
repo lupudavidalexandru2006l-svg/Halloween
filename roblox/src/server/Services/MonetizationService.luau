@@ -20,6 +20,7 @@ local PlayerTracker = require(script.Parent.PlayerTracker)
 local WildPetSpawner = require(script.Parent.WildPetSpawner)
 local CarryService = require(script.Parent.CarryService)
 local PenService = require(script.Parent.PenService)
+local EventService = require(script.Parent.EventService)
 
 local MonetizationService = {}
 
@@ -127,7 +128,11 @@ local function grantItem(player: Player, item: Config.RobuxItem): { [string]: an
 		x.coins = math.min(x.coins + coins, 1e15)
 		x.superFreezeCharges = math.min(x.superFreezeCharges + charges, 999)
 	end)
-	return { name = item.name, coins = coins, charges = charges }
+	local chill = item.kind == "chill"
+	if chill then
+		EventService.startBought(player.DisplayName) -- for everyone, at once; its shout-out is the thank-you
+	end
+	return { name = item.name, coins = coins, charges = charges, chill = chill }
 end
 
 local function checkPass(player: Player)

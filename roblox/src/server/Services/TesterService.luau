@@ -174,6 +174,18 @@ ACTIONS.givePet = function(player, key, mut)
 	end)
 end
 
+-- a pet into your Pets still in its ice cube, ready for the Thaw Machine (QA of thawing, 2026-11-10)
+ACTIONS.giveFrozen = function(player, key)
+	if typeof(key) ~= "string" or not PetDefs.get(key) then
+		return
+	end
+	change(player, function(d)
+		if not PenService.addPet(d, key, "idle", nil, true) then
+			Remotes.notYet(player, "Storage full", "pets")
+		end
+	end)
+end
+
 -- fill every free pen slot with pets from the zones
 ACTIONS.fillPan = function(player)
 	local pool: { PetDefs.PetDef } = {}

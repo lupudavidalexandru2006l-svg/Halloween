@@ -49,14 +49,26 @@ local function nightTick()
 	end
 end
 
--- starts one now (dev command; later the paid server-wide Big Chill, Game Plan 15)
+-- starts one now (the free clock, and the tester button). A Chill already running (a bought one) is
+-- never cut short by it.
 function EventService.startNow()
 	local B = Config.bigChill
-	untilAt = os.clock() + B.durationSeconds
+	untilAt = math.max(untilAt, os.clock() + B.durationSeconds)
 	nextAt = os.clock() + B.everySeconds
 	warned = false
 	publish()
-	Remotes.fireAll("Notify", "chillStart", { seconds = B.durationSeconds })
+	Remotes.fireAll("Notify", "chillStart", { seconds = math.round(untilAt - os.clock()) })
+end
+
+-- a Big Chill someone bought for the whole server (MonetizationService, Game Design Rules 10: a
+-- server-wide event for everyone, with a shout-out). Adds its time to a Chill already running, or starts
+-- one. It never moves the free Chill's clock (nextAt), so free players never wait longer because of it.
+function EventService.startBought(byName: string)
+	local B = Config.bigChill
+	local now = os.clock()
+	untilAt = math.max(untilAt, now) + B.durationSeconds
+	publish()
+	Remotes.fireAll("Notify", "chillStart", { seconds = math.round(untilAt - now), by = byName })
 end
 
 local function tick()
