@@ -253,10 +253,12 @@ export type RobuxItem = {
 	productId: number?, passId: number?, -- a developer product, or a game pass (kind "pass")
 	mult: number?, minutes: number?, floor: number?, stack: number?, charges: number?,
 	share: number?, -- a Cold Power pack: this share of your next island's need (Config.powerPack)
+	big: string?, chip: string?, -- the shop card's big number and its white chip, when the game can't work them out
 }
 Config.monetization = {
 	-- Owner items: create the developer product in the Creator Dashboard and paste its id here.
 	superFreeze = { productId = 0, robux = 15, minTier = "Rare", walkAwayStuds = 18 },
+	passCheck = { tries = 5, seconds = 4 }, -- after a pass purchase: ask Roblox this many times, this far apart, before giving up
 	-- the Robux tab of the Shop, top to bottom (owner 2026-11-05). An id of 0 = not made yet: hidden in
 	-- live servers, given free in Studio so it can be tested. Coin packs are minutes of your own income
 	-- (never under floor), so a pack is worth the same at every stage. Bought coins skip the weekly board.
@@ -268,10 +270,10 @@ Config.monetization = {
 		{ id = "coinsSmall", kind = "coins", productId = 0, robux = 49, minutes = 60, floor = 2500, name = "Coin Bag", text = "", icon = "coin", stack = 1 },
 		{ id = "coinsMedium", kind = "coins", productId = 0, robux = 99, minutes = 180, floor = 10e3, name = "Coin Chest", text = "", icon = "coin", stack = 2 },
 		{ id = "coinsBig", kind = "coins", productId = 0, robux = 199, minutes = 480, floor = 25e3, name = "Coin Vault", text = "", icon = "coin", stack = 3 },
-		{ id = "superFreeze3", kind = "charges", productId = 0, robux = 39, charges = 3, name = "Super Freeze", text = "3 for rare pets", icon = "ray", stack = 1 },
+		{ id = "superFreeze3", kind = "charges", productId = 0, robux = 39, charges = 3, name = "Super Freeze", text = "3 for rare pets", icon = "ray", stack = 1, chip = "Rare+ pets, instantly" },
 		-- a Big Chill for the whole server, with "<name> started a Big Chill for everyone!" (2026-11-10,
 		-- Game Design Rules 10: server-wide events). Everyone gets it; it never moves the free Chill's clock.
-		{ id = "bigChill", kind = "chill", productId = 0, robux = 49, name = "Big Chill", text = "60 s for everyone", icon = "temp", stack = 1 },
+		{ id = "bigChill", kind = "chill", productId = 0, robux = 49, name = "Big Chill", text = "60 s for everyone", icon = "temp", stack = 1, big = "60s", chip = "For everyone" },
 		-- Cold Power (2026-11-10; starting prices, the owner sets the real ones). Never needed to progress:
 		-- free Auto-Train runs at Config.rink.autoFree, and playing by hand is always the best rate.
 		-- A pack is a share of your next island's need (Config.powerPack), so it's worth the same at every stage.
@@ -280,6 +282,15 @@ Config.monetization = {
 		{ id = "powerSmall", kind = "power", productId = 0, robux = 49, share = 0.25, name = "Cold Power Pack", text = "", icon = "power", stack = 1 },
 		{ id = "powerBig", kind = "power", productId = 0, robux = 149, share = 1, name = "Big Cold Power Pack", text = "", icon = "power", stack = 3 },
 	} :: { RobuxItem },
+	-- the Shop's tabs (shop v2, 2026-11-10: mobile-store layout), top to bottom on the left rail.
+	-- kinds = the items each tab shows; colour = Theme.shopCards[colour]. The shop opens on Forever
+	-- while a pass is still unowned, else on Coins.
+	shopTabs = {
+		{ id = "forever", label = "Forever", icon = "star", colour = "pass", kinds = { pass = true }, title = "Forever passes", sub = "Buy once, keep it for good" },
+		{ id = "coins", label = "Coins", icon = "coin", colour = "coins", kinds = { coins = true }, title = "Coins", sub = "Bigger packs give more coins for each Robux" },
+		{ id = "power", label = "Power", icon = "power", colour = "power", kinds = { power = true }, title = "Cold Power", sub = "" },
+		{ id = "boosts", label = "Boosts", icon = "ray", colour = "charges", kinds = { charges = true, chill = true }, title = "Boosts", sub = "Use them when you need them" },
+	} :: { { id: string, label: string, icon: string, colour: string, kinds: { [string]: boolean }, title: string, sub: string } },
 }
 
 function Config.robuxItem(id: string): RobuxItem?
@@ -558,6 +569,7 @@ export type Island = {
 	length: number?, heat: number?, need: number?,
 	ready: boolean?, iceLife: number?, lava: { count: number, r: { number } }?, -- Round 4 phase 6
 	landmark: string?, landmarkAt: { x: number, z: number }?, -- z is measured from the section's start
+	landmarkScale: number?, -- this island's landmark size, if not Config.art.landmarkScale (map pass 2026-11-10)
 	trees: { kind: string, count: number, r: { number } }?, sun: { count: number, r: { number } }?,
 	near: { number }?, farFrom: number?, -- spawn bands, measured from the section's start
 	feel: string?, -- the island banner's heat word (Round 4 Prompt 6: "cold", "mild", "lava"...)
@@ -568,7 +580,7 @@ export type RayCue = { at: number, sound: string?, fx: string?, kick: string? }
 
 Config.world = {
 	maxPlayers = 6, -- one pan per server slot. Owner item: Server Size 6 in Game Settings > Places
-	mapVersion = 16, -- 16 = the Training Rink's door. Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges, 6 = bigger square pans, 7 = pans measured against the real avatar, 8 = open gaps, open ground behind, level pans, 9 = no flush overlapping surfaces, 10 = booth details: sign bulbs, log ends, scalloped awnings, chalk coin, 11 = wide tunnel and big entrance for big pets, a clean road, 12 = booths shaped like what they do: treasure chest, gear workshop, ring portal, 13 = the detailed sci-fi Thaw Machine, 14 = each world's own gate towers, 15 = never-visible buried parts left out (PERF-AUDIT-2026-11-09))
+	mapVersion = 19, -- 19 = open plaza: no fountain, no paved boulevard, no spawn pad, 18 = the Sell and Equipment booths no longer run into the village wall, 17 = map pass 2026-11-10 (rink door in front, its beacon, bigger snowman and waterfall), 16 = the Training Rink's door. Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges, 6 = bigger square pans, 7 = pans measured against the real avatar, 8 = open gaps, open ground behind, level pans, 9 = no flush overlapping surfaces, 10 = booth details: sign bulbs, log ends, scalloped awnings, chalk coin, 11 = wide tunnel and big entrance for big pets, a clean road, 12 = booths shaped like what they do: treasure chest, gear workshop, ring portal, 13 = the detailed sci-fi Thaw Machine, 14 = each world's own gate towers, 15 = never-visible buried parts left out (PERF-AUDIT-2026-11-09))
 	hubZMax = 0, -- the tunnel mouth: the hub is z < 0 (no wild pets, no heat)
 	-- wide enough for the row of six pans plus 10 studs at each end; zMin is worked out below (behind the pans' backSpace)
 	hub = { xMin = -150, xMax = 150, zMin = 0, wallHeight = 16, colliderHeight = 60 },
@@ -605,7 +617,7 @@ Config.world = {
 	-- Hazards: sun patches (sun) and lava pools (lava) melt cubes faster and glow so you see them from far.
 	islands = {
 		{ key = "meadow", name = "Snowy Meadow", feel = "Cold", open = true, ready = true, theme = "meadow", length = 168, heat = 0.5, iceLife = 1, need = 0,
-			landmark = "snowman", landmarkAt = { x = 66, z = 112 }, -- landmarks stand in the cliffs, tall enough to show over them (World Rules 9)
+			landmark = "snowman", landmarkAt = { x = 66, z = 112 }, landmarkScale = 2.6, -- map pass 2026-11-10: the first landmark a new player sees, now well over the cliffs -- landmarks stand in the cliffs, tall enough to show over them (World Rules 9)
 			trees = { kind = "snowpine", count = 14, r = { 4, 6.5 } }, sun = { count = 5, r = { 7, 11 } },
 			near = { 8, 34 }, farFrom = 60 },
 		{ key = "forest", name = "Pine Forest", feel = "Cold", open = true, ready = true, theme = "forest", length = 176, heat = 0.8, iceLife = 1, need = 1e3,
@@ -621,7 +633,7 @@ Config.world = {
 			trees = { kind = "palm", count = 14, r = { 4, 6 } }, sun = { count = 7, r = { 7, 11 } },
 			near = { 10, 40 }, farFrom = 12 },
 		{ key = "jungle", name = "Jungle Falls", feel = "Hot and humid", open = true, ready = true, theme = "jungle", length = 176, heat = 1.6, iceLife = 3.3, need = 10e6,
-			landmark = "waterfall", landmarkAt = { x = 56, z = 108 }, -- pours from the cliff face
+			landmark = "waterfall", landmarkAt = { x = 56, z = 108 }, landmarkScale = 2.3, -- map pass 2026-11-10: it hid behind the jungle trees -- pours from the cliff face
 			trees = { kind = "jungle", count = 28, r = { 4.5, 7.5 } }, sun = { count = 4, r = { 6, 9 } },
 			near = { 10, 42 }, farFrom = 12 },
 		{ key = "desert", name = "Desert Dunes", feel = "Hot", open = true, ready = true, theme = "desert", length = 176, heat = 2.0, iceLife = 4.4, need = 150e6,
@@ -662,14 +674,16 @@ Config.world = {
 		-- sign = where its sign stands (y up, z toward the plaza, from pos): over the chest's window, over
 		-- the workshop's opening, on the portal's keystone
 		{ id = "sell", label = "Sell", action = "sell", pos = Vector3.new(-80, 0, -8), sign = { y = 8.6, z = -3.55 } },
-		{ id = "equipment", label = "Equipment", action = "equipment", pos = Vector3.new(80, 0, -8), sign = { y = 9, z = -3.3 } },
+		-- Map pass 2026-11-10: the Training Rink (Cold Power opens every island) takes the front-row spot by the
+		-- tunnel mouth, in view from the spawn; Equipment moves one slot out, mirroring Rebirth
+		{ id = "equipment", label = "Equipment", action = "equipment", pos = Vector3.new(103, 0, -8), sign = { y = 9, z = -3.3 } },
 		{ id = "rebirth", label = "Rebirth", action = "rebirth", pos = Vector3.new(-103, 0, -8), sign = { y = 14.6, z = 3.9 } },
 		-- the Training Rink's door (Cold Power, 2026-11-10): a frosty dome; its prompt takes you to your own rink in the sky
-		{ id = "rink", label = "Training Rink", action = "rink", pos = Vector3.new(126, 0, -8), sign = { y = 10.4, z = -3.6 } },
+		{ id = "rink", label = "Training Rink", action = "rink", pos = Vector3.new(80, 0, -8), sign = { y = 10.4, z = -3.6 } },
 	} :: { Booth },
 	boothSign = { y = 8.8, w = 9, h = 2.2, z = -3.2, text = 1.5 }, -- a booth sign's size (text = letter height in studs); y / z are the spot for a booth without its own `sign`
 	panUpgradeAction = "pan", -- the Pan Upgrades popup (Round 4 phase 5)
-	giftBox = Vector3.new(106, 0, -10),
+	giftBox = Vector3.new(126, 0, -10), -- map pass 2026-11-10: the outer slot (it was 106, now Equipment's)
 	-- leaderboards on the hub's side walls, turned to face the plaza
 	boards = { Vector3.new(-146, 0, -46), Vector3.new(-146, 0, -24), Vector3.new(146, 0, -46) },
 	-- filled in below from the lists above
@@ -724,12 +738,13 @@ end
 Config.images = {
 	icons = {
 		coin = "rbxassetid://114690725766316", bag = "rbxassetid://76257814527627", book = "rbxassetid://103706811541834",
-		gear = "rbxassetid://84856334538368", gift = "rbxassetid://86444394737076", trophy = "rbxassetid://96802650316741",
+		gear = "rbxassetid://84856334538368", gift = "rbxassetid://86444394737076", trophy = "rbxassetid://99838454157287",
 		-- 2026-10-31 batch (prototype/ice-ray-for-pets/icons, cleaned with tools/icon_cleanup.ps1)
 		ray = "rbxassetid://139931668460856", boots = "rbxassetid://82792097425872", pen = "rbxassetid://92747015965127",
 		music = "rbxassetid://110832713318779", sound = "rbxassetid://117928774777865", motion = "rbxassetid://87612144122340",
 		graphics = "rbxassetid://136668522918870", temp = "rbxassetid://72963487370215",
 		paint = "rbxassetid://133624884100688", -- 2026-11-03: the Pan Upgrades Look card (icons/paint.png)
+		star = "rbxassetid://124754707375216", -- 2026-11-10: the Shop's Forever tab (starter-kit/icons/ai/star.png)
 		-- Cold Power. STAND-IN: the thermometer, until the painted snowflake crystal is made (owner's OK on Figma credits first)
 		power = "rbxassetid://72963487370215",
 		robux = "rbxasset://textures/ui/common/robux.png", -- Roblox's own Robux mark, on every Robux price
@@ -757,6 +772,9 @@ Config.ui.upgradeIcons = { ray = I.ray, boots = I.boots, backpack = I.bag, pen =
 Config.ui.settingIcons = { music = I.music, sound = I.sound, reducedMotion = I.motion, lowGraphics = I.graphics, unit = I.temp } :: { [string]: string }
 Config.ui.silhouetteTransparency = 0
 Config.ui.shopPerRow = 5 -- the Robux shop's product tiles to a row
+-- shop v2 (2026-11-10): the tab rail's width (share of the body), the card row's top, a card's widest share,
+-- how much bigger the Best Value card is, and the bonus sticker's step (a "+47%" shows as "+45%": never more than true)
+Config.ui.shop = { rail = 0.19, gap = 0.035, head = 0.17, cardMax = 0.3, bestGrow = 1.07, bonusStep = 0.05, bigText = 1.5 }
 Config.ui.petSpriteScale = 1.25 -- a pet sprite is this many times the pet's height wide
 
 -- The world teaches (prototype client.js): a green arrow to a pet in your first minutes and home while
@@ -998,11 +1016,15 @@ Config.art = {
 	edge = { from = 51, to = 55.5, stripFrom = 52, stripHeight = 0.2, stripDarken = 0.4 }, -- tunnel half-width 56, pets wander to 50
 	canopyClear = 6.5, -- a shade pine's lowest branches start this high, above an avatar's head, so pets under it stay in view
 	penPostEvery = 3.2,
-	statue = Vector3.new(0, 0, -50),
 	lamps = { Vector3.new(-20, 0, -4), Vector3.new(20, 0, -4), Vector3.new(-30, 0, -40), Vector3.new(30, 0, -40) },
 	benches = { { pos = Vector3.new(76, 0, -24), ry = math.pi / 2 }, { pos = Vector3.new(76, 0, -32), ry = math.pi / 2 } },
 	farPeaks = 14,
 	clouds = { cover = 0.55, density = 0.6 },
+	-- Map pass 2026-11-10 (vault: Games/Ice Ray for Pets/Map Report 2026-11-10). false switches it off.
+	-- rinkBeacon: a column of frost light over the Training Rink's door, crowned by a turning snowflake.
+	--   The hub's tallest thing: "where Cold Power comes from" shows from anywhere in the hub and the first islands
+	--   (past ~500 studs the haze, World Rules 10, hides it, like everything far).
+	rinkBeacon = { height = 150, radius = 3.2, clear = 0.45, haloRadius = 7, crownSize = 16, crownSpin = 0.25 } :: any,
 }
 
 Config.camera = { fov = 70, minZoom = 10, maxZoom = 40, carryFov = 74, fovSeconds = 0.4,
@@ -1539,6 +1561,24 @@ function Config.coinText(n: number): string
 	return tostring(n)
 end
 
+-- a Cold Power amount you HAVE or GAIN: the whole number up to 99,999, then short (45.2M). It never
+-- shows more than the real amount (rounds down), where coinText (prices, "need more") rounds up.
+function Config.powerText(n: number): string
+	n = math.max(0, math.floor(n))
+	if n < 1e5 then
+		local s = tostring(n):reverse():gsub("(%d%d%d)", "%1,"):reverse()
+		return (s:gsub("^,", ""))
+	end
+	for _, u in Config.coinUnits do
+		if n >= u.size then
+			local v = n / u.size
+			local text = if v >= 100 then tostring(math.floor(v)) else string.format("%.1f", math.floor(v * 10 + 1e-9) / 10)
+			return (text:gsub("%.0$", "")) .. u.suffix
+		end
+	end
+	return tostring(n)
+end
+
 function Config.upgradeCost(id: string, level: number): number
 	local u = Config.upgrades[id]
 	return Config.nice(u.baseCost * u.costGrowth ^ (level - 2)) -- level 2 costs baseCost
@@ -1670,7 +1710,7 @@ function Config.nextNeed(power: number): number
 		end
 		last = math.max(last, z.need)
 	end
-	local g = Config.coldPower.needGrowth
+	local g = math.max(1.5, Config.coldPower.needGrowth) -- never 1 or less: the loop below would not end
 	local n = math.max(1, last) * g
 	while n <= power do
 		n *= g
@@ -1688,7 +1728,7 @@ function Config.rinkLevel(power: number): number
 		end
 		last = math.max(last, z.need)
 	end
-	local g = Config.coldPower.needGrowth
+	local g = math.max(1.5, Config.coldPower.needGrowth)
 	local n = math.max(1, last) * g
 	while n <= power do
 		level += 1

@@ -165,8 +165,8 @@ local function buildHub()
 	spawnLoc.CFrame = CFrame.new(W.spawn.X, 0.5, W.spawn.Z) * CFrame.Angles(0, math.pi, 0)
 	spawnLoc.Anchored = true
 	spawnLoc.Color = Theme.ice
-	spawnLoc.Transparency = 1 -- MapArt draws the round spawn pad
-	spawnLoc.Neutral = true
+	spawnLoc.Transparency = 1 -- no pad is drawn: you spawn on the open plaza
+	spawnLoc.CanCollide = false -- so it's no invisible step on the plaza	spawnLoc.Neutral = true
 	spawnLoc.Duration = 0
 	spawnLoc.Parent = map
 	-- the booths by the tunnel mouth (features come later; MapArt draws the stall, awning and sign)

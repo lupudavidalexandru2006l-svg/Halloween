@@ -3,7 +3,7 @@
 -- leaderboards, islands"). The look of the world, built once by WorldService.buildMap; every gameplay
 -- part, name and tag still comes from WorldService.
 -- The hub is a winter village: a low stone wall with lanterns, candy-coloured cottages and big pines
--- outside it, a frozen three-tier fountain, tiled paths, lawns with flower beds, benches and lamps.
+-- outside it, and open snowy ground inside it.
 -- The pans are striped lawns with white rail fences (the owner's picture), a white gate arch, flower
 -- boxes and the Thaw Machine(s) at the back (PanLooks restyles fences per Look, shows machine 2).
 -- Booths are giant versions of what they do: a treasure chest (Sell), a workshop with turning gears
@@ -217,14 +217,6 @@ local function farTree(x: number, y: number, z: number, s: number, kind: string,
 	far(shape("Cone", Vector3.new(4.4 * s, 7 * s, 4.4 * s), CFrame.new(x, y + 3.5 * s, z), col, parent))
 	if kind == "snowpine" then
 		far(shape("Cone", Vector3.new(2.2 * s, 2.6 * s, 2.2 * s), CFrame.new(x, y + 6 * s, z), A.snowCap, parent))
-	end
-end
-
-local function bench(parent: Instance, cf: CFrame)
-	block(Vector3.new(4.4, 0.35, 1.3), cf * CFrame.new(0, 1, 0), A.penRail, parent, true, Enum.Material.WoodPlanks)
-	block(Vector3.new(4.4, 1.1, 0.3), cf * CFrame.new(0, 1.7, 0.6), A.penRail, parent, true, Enum.Material.WoodPlanks)
-	for _, x in { -1.8, 1.8 } do
-		block(Vector3.new(0.35, 1, 1.2), cf * CFrame.new(x, 0.5, 0), V.iron, parent, true)
 	end
 end
 
@@ -564,48 +556,6 @@ local function panArt(parent: Instance, i: number, pl: { x: number, z: number },
 end
 
 -- ---------- the hub ----------
-local function fountain(parent: Instance, at: Vector3)
-	local f = folder("Fountain", parent)
-	local cf = CFrame.new(at.X, 0, at.Z)
-	-- the plaza round it: a stone ring with a tiled band
-	quiet(cyl(13, 0.1, cf * CFrame.new(0, 0.05, 0), V.stone, f, false, Enum.Material.Slate))
-	quiet(cyl(11.6, 0.16, cf * CFrame.new(0, 0.08, 0), V.tileWarm, f, false, Enum.Material.Slate)) -- clearly above the ring (0.02 flickered)
-	-- the pool: a rim you can't walk through, frozen water inside
-	cyl(7, 1.4, cf * CFrame.new(0, 0.7, 0), V.stone, f, true, Enum.Material.Cobblestone)
-	cyl(7.3, 0.4, cf * CFrame.new(0, 1.5, 0), V.trim, f, true)
-	local water = cyl(6.2, 0.2, cf * CFrame.new(0, 1.42, 0), V.water, f, false, Enum.Material.Ice)
-	water.Transparency = 0.15
-	-- the middle column and two basins, each with frozen spill arcs
-	cyl(1.3, 6, cf * CFrame.new(0, 4, 0), V.stone, f, true, Enum.Material.Cobblestone)
-	cyl(3.8, 0.7, cf * CFrame.new(0, 4.4, 0), V.trim, f)
-	cyl(3.4, 0.3, cf * CFrame.new(0, 4.8, 0), V.water, f, false, Enum.Material.Ice)
-	cyl(0.9, 3, cf * CFrame.new(0, 6.5, 0), V.stone, f)
-	cyl(2.3, 0.55, cf * CFrame.new(0, 7.9, 0), V.trim, f)
-	cyl(2, 0.25, cf * CFrame.new(0, 8.2, 0), V.water, f, false, Enum.Material.Ice)
-	for k = 0, 7 do
-		local a = k * math.pi / 4
-		local icicle = shape("Cone", Vector3.new(0.6, 2.4, 0.6), cf * CFrame.new(math.cos(a) * 3.5, 3.2, math.sin(a) * 3.5) * CFrame.Angles(math.pi, 0, 0), A.crystal, f)
-		icicle.Material = Enum.Material.Ice
-		icicle.Transparency = 0.2
-		local arc = cyl(0.25, 2.6, cf * CFrame.new(math.cos(a) * 5.2, 3, math.sin(a) * 5.2) * CFrame.Angles(math.sin(a) * 0.5, 0, -math.cos(a) * 0.5), V.water, f, false, Enum.Material.Glass)
-		arc.Transparency = 0.25
-	end
-	-- the crystal on top: the hub's landmark, glowing softly
-	local top = shape("Octa", Vector3.new(2.6, 5, 2.6), cf * CFrame.new(0, 10.9, 0), A.crystalGlow, f)
-	glow(top, 0.15)
-	light(top, A.crystalGlow, 18, 1.4)
-	for k = 0, 3 do
-		local a = k * math.pi / 2 + 0.4
-		glow(shape("Octa", Vector3.new(1.1, 2.4, 1.1), cf * CFrame.new(math.cos(a) * 1.4, 9.6, math.sin(a) * 1.4) * CFrame.Angles(math.cos(a) * 0.4, 0, math.sin(a) * 0.4), A.crystal, f), 0.25)
-	end
-	-- benches round it, looking at it
-	for k = 0, 3 do
-		local a = k * math.pi / 2 + math.pi / 4
-		local p = Vector3.new(at.X + math.cos(a) * 10, 0, at.Z + math.sin(a) * 10)
-		bench(f, CFrame.lookAt(p, Vector3.new(at.X, 0, at.Z)) * CFrame.Angles(0, math.pi, 0))
-	end
-end
-
 -- a horizontal log: a cylinder along the X axis of cf
 local function log(len: number, r: number, cf: CFrame, color: Color3, parent: Instance): BasePart
 	local p = Instance.new("Part")
@@ -762,7 +712,9 @@ local function sellBooth(f: Instance, at: CFrame, color: Color3, outer: number, 
 	local gold, goldHi, goldLo = V.gold, V.gold:Lerp(Theme.white, 0.3), V.gold:Lerp(Theme.ink, 0.22)
 	local velvet = V.flag:Lerp(Theme.ink, 0.3)
 	local Wd, y0, top = 16, 0.6, 10 -- the chest's width, floor and rim
-	local fz, bz = -2.6, 9 -- its front and back faces
+	-- its front and back faces. The back stays clear of the village wall (front face at hub z = 0, the
+	-- booth stands at z = -8): at 9 the wall's pillar and rails ran through the shop inside
+	local fz, bz = -2.6, 6.6
 	local mz, D, H = (fz + bz) / 2, bz - fz, top - y0
 	local winX, winLo, winHi = 4.6, 3.6, 7.2 -- the shop window in its front
 	-- a stone plinth, wide enough for the coin piles out front
@@ -944,7 +896,7 @@ local function equipmentBooth(f: Instance, at: CFrame, color: Color3, outer: num
 	local brass = V.gold:Lerp(V.barrel, 0.25)
 	local paint = color:Lerp(Theme.white, 0.62)
 	local Wd, y0, H = 16, 0.6, 9.4
-	local fz, bz = -2.6, 9.4
+	local fz, bz = -2.6, 6.6 -- clear of the village wall, as the Sell chest (at 9.4 the roof and back sat in it)
 	local eave = y0 + H
 	local mz, D = (fz + bz) / 2, bz - fz
 	local opX, opHi = 5.4, 7 -- the open front
@@ -1305,6 +1257,32 @@ local function rinkBooth(f: Instance, at: CFrame, color: Color3, outer: number, 
 		end
 	end
 	light(quiet(glow(ball(0.7, pivot.Position, Theme.white, m), 0.05)), T.rune, 16, 1)
+	-- the sky beacon (map pass 2026-11-10): a column of frost light from the snowflake up toward the rinks
+	-- in the sky, crowned by a big turning snowflake. The hub's one tall weenie: it says where Cold Power
+	-- comes from, and from the first islands it marks the hub
+	local B = C.rinkBeacon
+	if B then
+		local bm = folder("RinkBeacon", f)
+		local base = pivot.Position.Y + 2
+		local mid = CFrame.new(pivot.Position.X, base + B.height / 2, pivot.Position.Z)
+		far(glow(cyl(B.radius, B.height, mid, Theme.white, bm), B.clear))
+		far(glow(cyl(B.radius * 1.9, B.height, mid, T.rune, bm), 0.82))
+		local top = CFrame.new(pivot.Position.X, base + B.height, pivot.Position.Z)
+		far(glow(shape("Ring", Vector3.new(B.haloRadius * 2, 1.2, B.haloRadius * 2), top * CFrame.new(0, -B.height * 0.35, 0), T.rune, bm), 0.2))
+		-- upright and facing along the tunnel, so it reads from the plaza and from the islands alike
+		local crown = motion(bm, "spin", top, { Axis = Vector3.new(0, 0, 1), Speed = B.crownSpin })
+		local arm = B.crownSize / 2
+		for k = 0, 2 do
+			local a = top * CFrame.Angles(0, 0, k * math.pi / 3)
+			far(glow(block(Vector3.new(B.crownSize, 1.6, 1.6), a, T.rune, crown), 0.05))
+			for _, e in { -1, 1 } do -- the barbs near each tip
+				far(glow(block(Vector3.new(1.2, arm * 0.55, 1.2), a * CFrame.new(e * arm * 0.68, 0, 0), T.rune, crown), 0.05))
+			end
+		end
+		local core = far(glow(ball(2.2, top.Position, Theme.white, crown), 0))
+		light(core, T.rune, 40, 2)
+		sparkles(bm, Vector3.new(B.radius * 2, 2, B.radius * 2), CFrame.new(pivot.Position.X, base + 2, pivot.Position.Z), T.rune, 10, 18, Enum.NormalId.Top, 1.2)
+	end
 	local _, _ = outer, rng
 end
 
@@ -1352,36 +1330,6 @@ local function boardFrame(parent: Instance, pos: Vector3, i: number)
 	end
 	-- a flower bed at its foot
 	planter(f, cf * CFrame.new(0, -10, -1.2), 12, Scenery.rng(i * 7))
-end
-
-local function hubGround(parent: Instance, rng: () -> number)
-	local f = folder("Ground", parent)
-	-- (no paved strip along the pans' gates: the plaza ground runs right up to the fences, as in the
-	-- owner's reference)
-	-- the boulevard from the spawn to the tunnel mouth: one plain strip of light slate, as wide as the
-	-- island road it leads into, with a low stone edge (owner 2026-11-07: no clutter on the road)
-	local pw = W.tunnel.pathWidth
-	quiet(block(Vector3.new(pw, 0.1, 32), CFrame.new(0, 0.06, -16), V.tileA, f, false, Enum.Material.Slate))
-	for _, sx in { -pw / 2 - 0.4, pw / 2 + 0.4 } do
-		quiet(block(Vector3.new(0.8, 0.25, 32), CFrame.new(sx, 0.12, -16), V.stone, f, false, Enum.Material.Cobblestone))
-	end
-	-- lawns either side of the plaza: snowy grass, a little white fence, flower beds, trees, a bench
-	for _, side in { -1, 1 } do
-		local cx, cz = side * 33, -40
-		quiet(block(Vector3.new(24, 0.2, 20), CFrame.new(cx, 0.1, cz), V.lawn, f, false, Enum.Material.Grass))
-		-- its stone edge tops out below the grass (flush tops flickered)
-		quiet(block(Vector3.new(24.6, 0.3, 20.6), CFrame.new(cx, 0, cz), V.stone, f, false, Enum.Material.Cobblestone))
-		for _, sp in { { -7, -5 }, { 6, 4 }, { -2, 6 } } do
-			snowyBush(f, Vector3.new(cx + sp[1], 0.2, cz + sp[2]), 0.8 + rng() * 0.4, true)
-		end
-		tree(cx + side * 7, 0.2, cz - 5, 0.95, rng() * 6, "snowpine", f)
-		tree(cx - side * 8, 0.2, cz + 6, 0.8, rng() * 6, "snowpine", f)
-		for b = 0, 3 do
-			flowers(f, Vector3.new(cx - 8 + b * 5, 0.2, cz + side * 0 - 8.5), 5, rng)
-		end
-		bench(f, CFrame.lookAt(Vector3.new(cx - side * 9.5, 0.2, cz), Vector3.new(0, 0.2, cz)) * CFrame.Angles(0, math.pi, 0))
-		smallSnowman(f, Vector3.new(cx + side * 2, 0.2, cz - 2), 0.9, side * 0.6 + math.pi)
-	end
 end
 
 -- the low village wall round the hub (the real walls are WorldService's invisible colliders), with
@@ -1457,7 +1405,8 @@ end
 local function hub(parent: Instance, rng: () -> number)
 	local P, T = W.pans, W.tunnel
 	local half = T.width / 2
-	hubGround(parent, rng)
+	-- (owner 2026-11-10: no fountain, no paved boulevard and no lawns on the plaza; the hub ground
+	-- stays open space)
 	village(parent, rng)
 	-- the pans, with open walkable ground between them (as in the owner's reference) and a lantern at
 	-- the front of each gap
@@ -1470,11 +1419,7 @@ local function hub(parent: Instance, rng: () -> number)
 			end
 		end
 	end
-	-- the spawn pad: a ring of light on the plaza
-	local sp = W.spawn
-	cyl(W.spawnPadRadius - 0.25, 0.35, CFrame.new(sp.X, 0.18, sp.Z), A.spawnPad, parent, true)
-	glow(cyl(W.spawnPadRadius, 0.2, CFrame.new(sp.X, 0.12, sp.Z), Theme.white, parent), 0.1)
-	fountain(parent, C.statue)
+	-- (owner 2026-11-10: no spawn pad drawn; you spawn on the open plaza)
 	for _, b in W.booths do
 		booth(parent, b, rng)
 	end
@@ -2183,10 +2128,12 @@ local function waterfall(parent: Instance, x: number, z: number, s: number)
 	for k = -1, 1 do
 		shape("Rock", Vector3.new(9, 24 + math.abs(k) * -4, 8) * s, CFrame.new(back + side * math.abs(k) * 1.5 * s, (12 - math.abs(k) * 2) * s, z + k * 6 * s), if k == 0 then Theme.cliffs.jungle.rock else Theme.cliffs.jungle.rockDark, parent)
 	end
-	local sheet = block(Vector3.new(0.6, 22, 6) * s, CFrame.new(back - side * 4.4 * s, 11.4 * s, z), IA.waterfall, parent)
-	sheet.Transparency = 0.2
-	sheet.Material = Enum.Material.Glass
+	-- map pass 2026-11-10: wider and nearly solid, SmoothPlastic not Glass (World Rules 6), with a bright foam
+	-- lip at the top, so the falls read from the road instead of vanishing behind the jungle trees
+	local sheet = block(Vector3.new(0.8, 22, 9) * s, CFrame.new(back - side * 4.4 * s, 11.4 * s, z), IA.waterfall, parent)
+	sheet.Transparency = 0.08
 	quiet(sheet)
+	quiet(ellipsoid(Vector3.new(2.2, 1.6, 10) * s, CFrame.new(back - side * 4.6 * s, 22.4 * s, z), IA.foam, parent))
 	local pool = cyl(5.5 * s, 0.3, CFrame.new(x - side * 2 * s, 0.15, z), IA.pool, parent, false, Enum.Material.Glass)
 	pool.Transparency = 0.1
 	for k = 0, 4 do
@@ -2735,7 +2682,7 @@ local function section(parent: Instance, zone: Config.Zone, isl: Config.Island, 
 	end
 	hazards(f, zone)
 	if isl.landmark and isl.landmarkAt and LANDMARKS[isl.landmark] then
-		LANDMARKS[isl.landmark](f, isl.landmarkAt.x, zone.zMin + isl.landmarkAt.z, C.landmarkScale)
+		LANDMARKS[isl.landmark](f, isl.landmarkAt.x, zone.zMin + isl.landmarkAt.z, isl.landmarkScale or C.landmarkScale)
 	end
 	local gz = WorldRules.gateZ(zone.id)
 	if gz then

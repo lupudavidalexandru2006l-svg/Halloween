@@ -55,7 +55,7 @@ local function floatGain(amount: number, power: boolean?)
 	local root, number = if power then powerRoot else coinsRoot, if power then powerText else coinsText
 	local w = math.max(1, root.AbsoluteSize.X)
 	local x = number.Position.X.Scale + number.TextBounds.X / w + G.gap
-	local t = Ui.label(root, `+{if power then Config.coinText(amount) else Ui.short(amount)}`, UDim2.fromScale(G.width, if power then G.height * 1.4 else G.height), UDim2.fromScale(x, G.y))
+	local t = Ui.label(root, `+{if power then Config.powerText(amount) else Ui.short(amount)}`, UDim2.fromScale(G.width, if power then G.height * 1.4 else G.height), UDim2.fromScale(x, G.y))
 	t.Name = "Gain"
 	t.TextXAlignment = Enum.TextXAlignment.Left
 	local stroke = t:FindFirstChildOfClass("UIStroke") :: UIStroke
@@ -112,7 +112,7 @@ local function render(v: State.View)
 	coinsRate.Visible = v.income > 0
 	-- Cold Power: the number, a "+N" beside it and a small bounce when it goes up (not on the first sync)
 	local power = v.coldPower or 0
-	powerText.Text = Config.coinText(power)
+	powerText.Text = Config.powerText(power)
 	if lastPower and power > lastPower then
 		floatGain(power - lastPower, true)
 		if SettingsController.get("reducedMotion") ~= true then
@@ -488,7 +488,7 @@ function HudController.Start()
 			HudController.banner(`{if z then z.name else "The next island"} is open!`, Theme.go)
 		elseif kind == "refund" and typeof(data) == "table" and typeof(data.coins) == "number" then
 			-- the pan's Cold Level was removed (Cold Power, 2026-11-10): what you spent on it is back
-			HudController.banner(`Cold Level is gone. +{Config.coinText(data.coins)} coins back`, Theme.coin, Config.ui.bannerSeconds * 2)
+			HudController.banner(`Cold Level is gone. +{Ui.commas(data.coins)} coins back`, Theme.coin, Config.ui.bannerSeconds * 2)
 		elseif kind == "comingSoon" then
 			HudController.banner(`{tostring(data.label)}: coming soon!`, Theme.info)
 		elseif kind == "upgraded" then
@@ -508,7 +508,7 @@ function HudController.Start()
 				HudController.banner(`{data.name}! +{Ui.short(data.coins)} coins`, Theme.coin)
 				floatGain(data.coins)
 			elseif (data.power or 0) > 0 then
-				HudController.banner(`{data.name}! +{Config.coinText(data.power)} Cold Power`, Theme.rink.power)
+				HudController.banner(`{data.name}! +{Config.powerText(data.power)} Cold Power`, Theme.rink.power)
 			elseif (data.charges or 0) > 0 then
 				HudController.banner(`+{data.charges} Super Freezes!`, Theme.go)
 			else

@@ -38,6 +38,9 @@ local Theme = {
 		chill = Color3.fromHex("2ec4c4"),
 		power = Color3.fromHex("35c8e8"), -- Cold Power packs: the Training Rink's frosty cyan
 	} :: { [string]: Color3 },
+	-- shop v2 badges: the "+45% MORE" sticker in present pink (a bonus, never red), and the Best Value
+	-- ribbon in gold on ink, so the two never read as the same thing
+	shopBadge = { more = Color3.fromHex("ff5a8a"), bestBack = Color3.fromHex("1b1433"), bestText = Color3.fromHex("ffd34a"), bonus = Color3.fromHex("2f9e5a") },
 	board = Color3.fromHex("2b1f5c"),
 	-- the leaderboards: each board's header colour, its plain rows, and the top 3's medal rows
 	boards = {
@@ -91,7 +94,6 @@ local Theme = {
 		penPost = Color3.fromHex("b77b48"), penRail = Color3.fromHex("c98f58"), benchLeg = Color3.fromHex("5d3b22"),
 		sandPost = Color3.fromHex("d9b26a"), sandRail = Color3.fromHex("e8c27a"),
 		crystal = Color3.fromHex("bff1ff"), crystalGlow = Color3.fromHex("9fe8ff"), iceBar = Color3.fromHex("9fe3ff"),
-		spawnPad = Color3.fromHex("9fdcff"),
 		lampPost = Color3.fromHex("3a3f63"), lampGlow = Color3.fromHex("fff1c4"), lanternGlow = Color3.fromHex("ffd47a"),
 		mound = Color3.fromHex("f4f9ff"), rock = Color3.fromHex("93a2b8"), bush = Color3.fromHex("3f8c46"),
 		stem = Color3.fromHex("fff1dc"), cap = Color3.fromHex("e2453f"),
