@@ -315,11 +315,13 @@ Config.leaderboards = {
 	-- scores come from the server's own counters and are clamped before writing (OrderedDataStore needs an integer under 2^63)
 	limits = { frozen = 10000000, weekCoins = 1e13, freezesPerSecond = 1 },
 	storePrefix = "LB_v1_",
+	-- icon = a Config.images.icons name on the header; the header's colour is Theme.boards[id]
 	boards = {
-		{ id = "pets_frozen", title = "Most pets frozen", kind = "alltime" },
-		{ id = "rarest_pet", title = "Rarest pet found", kind = "alltime" },
-		{ id = "coins_week", title = "Coins earned this week", kind = "weekly" },
+		{ id = "pets_frozen", title = "MOST FROZEN", subtitle = "Pets frozen, all time", icon = "ray", kind = "alltime" },
+		{ id = "rarest_pet", title = "RAREST PET", subtitle = "Best pet ever found", icon = "trophy", kind = "alltime" },
+		{ id = "coins_week", title = "TOP COINS", subtitle = "Coins earned this week", icon = "coin", kind = "weekly" },
 	},
+	updatesLabel = "Updates every minute",
 	cosmeticReward = "Top 3 each week get a glowing name",
 	weeklyTopReward = 3, -- how many places get the name-plate glow; never coins or pets
 	weeklyBadgeId = 0, -- optional owner item: a badge for weekly top 3 (0 = off)
@@ -493,7 +495,16 @@ Config.worldText = {
 	lightInfluence = 0, -- signs stay bright at night and in shade
 	outlineRatio = 0.08, -- outline thickness = text size x this
 	signPadding = 0.06,
-	board = { title = 1.4, row = 1.05, footer = 0.75 }, -- leaderboards (14 x 18 studs, 12 lines of 1.44 studs)
+	-- leaderboards (14 x 18 studs). Text sizes in studs; pixelsPerStud is lower than signs' 100 so the
+	-- 1.3-stud title stays under Roblox's 100 px text cap. Layout = shares of the board: pad (sides /
+	-- top), header height, the "updates" line under it, row height and gap; lip = share of a block's height,
+	-- strokePx / rimPx in pixels. The bottom stays clear: the flower bed in front covers it.
+	board = {
+		pixelsPerStud = 70,
+		text = { title = 1.3, subtitle = 0.55, row = 0.6, rank = 0.58, note = 0.42 },
+		padX = 0.035, padY = 0.022, header = 0.15, note = 0.045, row = 0.064, rowGap = 0.0085,
+		lip = 0.1, strokePx = 4, rimPx = 8, iconScale = 1.18, emptyFade = 0.6,
+	},
 	gate = 1.9, -- the gate signs (biggest size; long names shrink to fit)
 	tag = { textPx = 19, heightPx = 32, padPx = 22, maxDistance = 45, offset = 0.9 }, -- pet name pills (45: the camera sits ~30 studs back)
 	gift = { textPx = 24, heightPx = 44, padPx = 30, maxDistance = 80 },

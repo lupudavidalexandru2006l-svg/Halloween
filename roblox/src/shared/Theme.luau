@@ -38,6 +38,14 @@ local Theme = {
 		chill = Color3.fromHex("2ec4c4"),
 	} :: { [string]: Color3 },
 	board = Color3.fromHex("2b1f5c"),
+	-- the leaderboards: each board's header colour, its plain rows, and the top 3's medal rows
+	boards = {
+		pets_frozen = Color3.fromHex("3aa8ff"), -- info blue, like the Freeze prompt
+		rarest_pet = Color3.fromHex("aa50e6"), -- Epic purple
+		coins_week = Color3.fromHex("ffb020"), -- coin gold (the shop's coin cards)
+	} :: { [string]: Color3 },
+	boardRow = Color3.fromHex("3d3a8f"),
+	medals = { Color3.fromHex("ffc93c"), Color3.fromHex("cdd8ec"), Color3.fromHex("e8945a") },
 	-- Ranger Bo, the tutorial guide: a park ranger in the game's ice blue, with a red scarf like the snowmen
 	tutorial = {
 		skin = Color3.fromHex("e8b98f"),
