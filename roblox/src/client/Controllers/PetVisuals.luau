@@ -482,6 +482,18 @@ end
 
 -- moves one pet for this frame; returns how high it is off the ground (0-1 of its height) for the shadow.
 -- speed: the pet's clock rate (slower while held and while freezing); wiggle: the freeze struggle roll
+-- Every drawn pet part is moved in one BulkMoveTo per frame instead of one CFrame write per part
+-- (PERF-AUDIT-2026-11-09: ~1,000 parts a frame). Same CFrames, same frame.
+local moveParts: { BasePart } = {}
+local moveCFs: { CFrame } = {}
+local function flushMoves()
+	if #moveParts > 0 then
+		workspace:BulkMoveTo(moveParts, moveCFs, Enum.BulkMoveMode.FireCFrameChanged)
+	end
+	table.clear(moveParts)
+	table.clear(moveCFs)
+end
+
 local function animate(root: BasePart, d: Drawn, dt: number, now: number, cam: Camera, speed: number, wiggle: number): number
 	local a = d.anim
 	local h = d.height
@@ -691,7 +703,8 @@ local function animate(root: BasePart, d: Drawn, dt: number, now: number, cam: C
 				local base = CFrame.new(pv.X * sx, feet + (pv.Y - feet) * sy, pv.Z * sx)
 				place = base * CFrame.Angles(0, tailYaw, 0) * base:Inverse() * place
 			end
-			part.part.CFrame = cf * place
+			table.insert(moveParts, part.part) -- moved together at the end of the frame (flushMoves)
+			table.insert(moveCFs, cf * place)
 			local s = part.rel:VectorToObjectSpace(Vector3.new(sx, sy, sx))
 			local size = part.size * Vector3.new(math.abs(s.X), math.abs(s.Y), math.abs(s.Z))
 			if size ~= part.part.Size then
@@ -1390,7 +1403,12 @@ function PetVisuals.Start()
 	end, removePet)
 	watch("Cubes", addCube, removeCube)
 	watch("GroundCubes", addCube, removeCube)
-	RunService.RenderStepped:Connect(step)
+	RunService.RenderStepped:Connect(function(dt: number)
+		table.clear(moveParts) -- a frame that errored part-way leaves nothing stale behind
+		table.clear(moveCFs)
+		step(dt)
+		flushMoves()
+	end)
 	InputController.Action:Connect(function(a: string)
 		if a == "superFreeze" then
 			local root = nearestOffer()

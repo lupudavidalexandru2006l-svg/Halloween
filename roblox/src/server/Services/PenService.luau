@@ -6,6 +6,7 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Theme = require(ReplicatedStorage.Shared.Theme)
 local PetDefs = require(ReplicatedStorage.Shared.PetDefs)
@@ -662,6 +663,49 @@ local function machinePrompts()
 	end
 end
 
+-- The second Thaw Machine stays out of the world until its pan has it (PERF-AUDIT-2026-11-09: six
+-- unowned machines were 720 hidden parts every client still received). It waits in
+-- ServerStorage.SpareThawMachines with its prompt already made, and comes back the moment the plot's
+-- "Machines" attribute says 2 (PanLooks and ThawMachines pick it up when it arrives).
+local parked: { [number]: { model: Instance, pan: Instance } } = {}
+local watchedPlots: { [Instance]: boolean } = {}
+local function placeSecondMachine(i: number)
+	local map = workspace:FindFirstChild("Map")
+	local plot = map and map:FindFirstChild("Plot" .. i)
+	local pan = map and map:FindFirstChild("Pan" .. i, true)
+	if not plot or not pan then
+		return
+	end
+	if not watchedPlots[plot] then
+		watchedPlots[plot] = true
+		plot:GetAttributeChangedSignal("Machines"):Connect(function()
+			placeSecondMachine(i)
+		end)
+	end
+	local spare = parked[i]
+	if spare and spare.pan ~= pan then -- the map was rebuilt: the parked one belonged to the old pan
+		spare.model:Destroy()
+		parked[i], spare = nil, nil
+	end
+	local own = plot:GetAttribute("Machines") == 2
+	local inPan = pan:FindFirstChild("ThawMachine2")
+	if own and spare then
+		spare.model.Name = "ThawMachine2"
+		spare.model.Parent = pan
+		parked[i] = nil
+	elseif not own and inPan and inPan:FindFirstChild("ThawPrompt", true) then -- wait for its prompt first
+		local folder = ServerStorage:FindFirstChild("SpareThawMachines")
+		if not folder then
+			folder = Instance.new("Folder")
+			folder.Name = "SpareThawMachines"
+			folder.Parent = ServerStorage
+		end
+		inPan.Name = "ThawMachine2_Pan" .. i
+		inPan.Parent = folder
+		parked[i] = { model = inPan, pan = pan }
+	end
+end
+
 -- ---------- zone gates (owner 2026-10-30: pay coins at the gate) ----------
 -- Round 4 phase 6: every island after the first has a gate, opened in order (reach = the last one open).
 -- A gate costs its coins and, on the odd islands from 3, a number of rebirths (Config.world.rebirthGates).
@@ -813,6 +857,9 @@ function PenService.Start()
 	task.spawn(function()
 		while true do
 			pcall(machinePrompts) -- the map can be rebuilt or stream in late
+			for i in Config.world.plots do
+				pcall(placeSecondMachine, i)
+			end
 			task.wait(5)
 		end
 	end)

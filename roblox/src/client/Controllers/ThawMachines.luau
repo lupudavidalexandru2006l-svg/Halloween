@@ -87,6 +87,22 @@ local function heatColor(h: number): Color3
 	return R5.machineWarm:Lerp(R5.machineHot, (h - 0.5) * 2)
 end
 
+-- Performance (PERF-AUDIT-2026-11-09): an idle machine sets mostly the same values every frame, so
+-- each write goes through put(), which skips a value the instance already has. Only this module
+-- writes these properties, so the remembered value is always the real one.
+local written: { [Instance]: { [string]: any } } = setmetatable({}, { __mode = "k" }) :: any
+local function put(inst: Instance, key: string, value: any)
+	local seen = written[inst]
+	if not seen then
+		seen = {}
+		written[inst] = seen
+	end
+	if seen[key] ~= value then
+		seen[key] = value;
+		(inst :: any)[key] = value
+	end
+end
+
 local function wave(t: number, hz: number, phase: number?): number -- 0..1, smooth
 	return 0.5 + 0.5 * math.sin(t * hz * TAU + (phase or 0))
 end
@@ -438,23 +454,31 @@ local function scanModels()
 	end
 end
 
+local plotParts: { [number]: Instance } = {} -- looked up once, not every frame
 local function hidden(mc: Machine): boolean
 	if mc.m == 1 then
 		return false
 	end
-	local map = workspace:FindFirstChild("Map")
-	local plot = map and map:FindFirstChild("Plot" .. mc.plot)
-	return not plot or plot:GetAttribute("Machines") ~= 2
+	local plot = plotParts[mc.plot]
+	if not plot or not plot.Parent then
+		local map = workspace:FindFirstChild("Map")
+		plot = map and map:FindFirstChild("Plot" .. mc.plot) :: Instance
+		if not plot then
+			return true
+		end
+		plotParts[mc.plot] = plot
+	end
+	return plot:GetAttribute("Machines") ~= 2
 end
 
 local function sleep(mc: Machine)
 	mc.culled = true
-	mc.mist.Rate = 0
+	put(mc.mist, "Rate", 0)
 	for _, e in mc.stacks do
-		e.Rate = 0
+		put(e, "Rate", 0)
 	end
 	for _, b in mc.beams do
-		b.Enabled = false
+		put(b, "Enabled", false)
 	end
 end
 
@@ -479,7 +503,7 @@ local function updateScreen(mc: Machine, active: boolean, p: number, left: numbe
 	if s.status.Text ~= status then
 		s.status.Text = status
 	end
-	s.status.TextColor3 = color
+	put(s.status, "TextColor3", color)
 	if s.sub.Text ~= sub then
 		s.sub.Text = sub
 	end
@@ -487,8 +511,8 @@ local function updateScreen(mc: Machine, active: boolean, p: number, left: numbe
 	if s.queue.Text ~= q then
 		s.queue.Text = q
 	end
-	s.fill.Size = UDim2.fromScale(math.clamp(bar, 0, 1), 1)
-	s.fill.BackgroundColor3 = barColor
+	put(s.fill, "Size", UDim2.fromScale(math.clamp(bar, 0, 1), 1))
+	put(s.fill, "BackgroundColor3", barColor)
 	s.scan.Position = UDim2.fromScale(0, (t / FX.scanline) % 1)
 end
 
@@ -519,20 +543,20 @@ local function update(mc: Machine, t: number, dt: number, reduced: boolean)
 	for i, c in mc.chase do
 		local behind = (mc.chaseAt - (i - 1)) % n
 		local on = if behind < C.tail then 1 - behind / C.tail else 0
-		c.Color = lit
-		c.Transparency = 0.78 - 0.78 * on
+		put(c, "Color", lit)
+		put(c, "Transparency", 0.78 - 0.78 * on)
 	end
 	-- the pad's coils and core: a soft ripple outward
 	for k, c in mc.coils do
-		c.Color = lit
-		c.Transparency = if active then 0.25 * wave(t, 1.6 + 2 * h, -k) else 0.3 + 0.25 * wave(t, 0.5, -k)
+		put(c, "Color", lit)
+		put(c, "Transparency", if active then 0.25 * wave(t, 1.6 + 2 * h, -k) else 0.3 + 0.25 * wave(t, 0.5, -k))
 	end
-	mc.core.Color = lit
-	mc.core.Transparency = if active then 0 else 0.2 * wave(t, 0.5)
+	put(mc.core, "Color", lit)
+	put(mc.core, "Transparency", if active then 0 else 0.2 * wave(t, 0.5))
 	local L = FX.light
 	if mc.light then
-		mc.light.Color = lit
-		mc.light.Brightness = (if active then L.from + (L.to - L.from) * h else L.idle) + mc.flash * 2
+		put(mc.light, "Color", lit)
+		put(mc.light, "Brightness", (if active then L.from + (L.to - L.from) * h else L.idle) + mc.flash * 2)
 	end
 	-- the core tube fills with the heat (drains back after a release)
 	local fill = mc.fill
@@ -540,37 +564,37 @@ local function update(mc: Machine, t: number, dt: number, reduced: boolean)
 		local G = FX.gauge
 		local full = mc.fillSize.X -- an upright cylinder's length is its X size
 		local len = math.max(0.05, full * math.max(G.idleLevel + G.breathe * math.sin(t * 1.4), h))
-		fill.Size = Vector3.new(len, mc.fillSize.Y, mc.fillSize.Z)
-		fill.CFrame = mc.fillCF - Vector3.yAxis * ((full - len) / 2)
-		fill.Color = lit
+		put(fill, "Size", Vector3.new(len, mc.fillSize.Y, mc.fillSize.Z))
+		put(fill, "CFrame", mc.fillCF - Vector3.yAxis * ((full - len) / 2))
+		put(fill, "Color", lit)
 	end
 	-- emitters, nodes, the halo's edge and the inner ring
 	for _, g in mc.glows do
-		g.Color = lit
-		g.Transparency = if active or mc.flash > 0 then 0 else 0.35
+		put(g, "Color", lit)
+		put(g, "Transparency", if active or mc.flash > 0 then 0 else 0.35)
 	end
 	for _, s in mc.strips do
-		s.Color = lit
-		s.Transparency = if active then 0.05 + FX.pulse.strip * pulse else 0.45
+		put(s, "Color", lit)
+		put(s, "Transparency", if active then 0.05 + FX.pulse.strip * pulse else 0.45)
 	end
 	-- status lights: power (steady), working (pulses while thawing), ready (breathes while idle)
 	local power, busy, ready = mc.leds[1], mc.leds[2], mc.leds[3]
 	if power then
-		power.Color = R5.machineCold
-		power.Transparency = 0.05
+		put(power, "Color", R5.machineCold)
+		put(power, "Transparency", 0.05)
 	end
 	if busy then
-		busy.Color = R5.machineWarm
-		busy.Transparency = if active then 0.6 * wave(t, 1) else 0.85
+		put(busy, "Color", R5.machineWarm)
+		put(busy, "Transparency", if active then 0.6 * wave(t, 1) else 0.85)
 	end
 	if ready then
-		ready.Color = R5.machineReady
-		ready.Transparency = if active then 0.85 else 0.35 * wave(t, 0.5)
+		put(ready, "Color", R5.machineReady)
+		put(ready, "Transparency", if active then 0.85 else 0.35 * wave(t, 0.5))
 	end
 	if mc.beacon then
 		local B = FX.beacon
-		mc.beacon.Color = if active then R5.machineWarm else R5.machineReady
-		mc.beacon.Transparency = 0.6 * wave(t, if active then B.active else B.idle)
+		put(mc.beacon, "Color", if active then R5.machineWarm else R5.machineReady)
+		put(mc.beacon, "Transparency", 0.6 * wave(t, if active then B.active else B.idle))
 	end
 	-- the halo turns (and wobbles a little while thawing); the inner ring turns the other way
 	local H = FX.halo
@@ -597,7 +621,7 @@ local function update(mc: Machine, t: number, dt: number, reduced: boolean)
 	local tr = NumberSequence.new(FX.beam.transparency + FX.pulse.beam * pulse, math.min(1, 0.55 + FX.pulse.beam * pulse))
 	local width = 0.8 + 0.4 * h
 	for _, b in mc.beams do
-		b.Enabled = beamOn
+		put(b, "Enabled", beamOn)
 		if beamOn then
 			b.Color = seq
 			b.Transparency = tr
@@ -606,9 +630,9 @@ local function update(mc: Machine, t: number, dt: number, reduced: boolean)
 		end
 	end
 	local M, S = FX.mist, FX.steam
-	mc.mist.Rate = if active then M.from + (M.to - M.from) * h else 0
+	put(mc.mist, "Rate", if active then M.from + (M.to - M.from) * h else 0)
 	for _, e in mc.stacks do
-		e.Rate = if active then S.from + (S.to - S.from) * h else S.idle
+		put(e, "Rate", if active then S.from + (S.to - S.from) * h else S.idle)
 	end
 	updateScreen(mc, active, p, left, lit, t)
 end
@@ -645,13 +669,13 @@ function ThawMachines.Start()
 					sleep(mc)
 				end
 				if mc.screen then
-					mc.screen.gui.Enabled = false
+					put(mc.screen.gui, "Enabled", false)
 				end
 				continue
 			end
 			mc.culled = false
 			if mc.screen then
-				mc.screen.gui.Enabled = true
+				put(mc.screen.gui, "Enabled", true)
 			end
 			update(mc, t, dt, reduced)
 		end

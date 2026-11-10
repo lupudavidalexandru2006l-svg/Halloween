@@ -51,6 +51,15 @@ local function scan(i: number): { Piece }?
 end
 
 -- the second Thaw Machine: only on pans that have it
+local function styleSecond(d: Instance, on: boolean)
+	if d:IsA("BasePart") then
+		d.LocalTransparencyModifier = if on then 0 else 1
+		d.CanCollide = false
+	elseif d:IsA("Light") or d:IsA("ParticleEmitter") then
+		(d :: any).Enabled = on
+	end
+end
+
 local function machines(i: number)
 	local map = workspace:FindFirstChild("Map")
 	local plot = map and map:FindFirstChild("Plot" .. i)
@@ -61,12 +70,7 @@ local function machines(i: number)
 	end
 	local on = plot:GetAttribute("Machines") == 2
 	for _, d in second:GetDescendants() do
-		if d:IsA("BasePart") then
-			d.LocalTransparencyModifier = if on then 0 else 1
-			d.CanCollide = false
-		elseif d:IsA("Light") or d:IsA("ParticleEmitter") then
-			(d :: any).Enabled = on
-		end
+		styleSecond(d, on)
 	end
 end
 
@@ -341,6 +345,19 @@ function PanLooks.Start()
 			if plot then
 				plot:GetAttributeChangedSignal("Machines"):Connect(function()
 					machines(i)
+				end)
+			end
+			-- the server only puts the second machine in once the pan has it (PenService), so it can
+			-- arrive after the attribute: set it up when it lands (its parts stream in after it)
+			local pan = map:FindFirstChild("Pan" .. i, true)
+			if pan then
+				pan.ChildAdded:Connect(function(child: Instance)
+					if child.Name == "ThawMachine2" then
+						machines(i)
+						child.DescendantAdded:Connect(function(d: Instance)
+							styleSecond(d, plot ~= nil and plot:GetAttribute("Machines") == 2)
+						end)
+					end
 				end)
 			end
 		end

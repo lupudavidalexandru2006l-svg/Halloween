@@ -279,18 +279,18 @@ local function buildMap()
 	areas.Parent = map
 	for _, t in list.trees do
 		local shade = part("Shade", Vector3.new(0.2, t.r * 2, t.r * 2), CFrame.new(t.x, 0.25, t.z) * CFrame.Angles(0, 0, math.rad(90)), A.shade, areas,
-			{ Shape = Enum.PartType.Cylinder, Transparency = 0.82, CanCollide = false, CanQuery = false, CastShadow = false })
+			{ Shape = Enum.PartType.Cylinder, Transparency = 0.82, CanCollide = false, CanQuery = false, CanTouch = false, CastShadow = false })
 		CollectionService:AddTag(shade, "ShadeZone")
 	end
 	for _, s in list.sun do
 		local patch = part("SunPatch", Vector3.new(0.2, s.r * 2, s.r * 2), CFrame.new(s.x, 0.15, s.z) * CFrame.Angles(0, 0, math.rad(90)), A.sunGlow, areas,
-			{ Shape = Enum.PartType.Cylinder, Transparency = 0.45, CanCollide = false, CanQuery = false, CastShadow = false })
+			{ Shape = Enum.PartType.Cylinder, Transparency = 0.45, CanCollide = false, CanQuery = false, CanTouch = false, CastShadow = false })
 		CollectionService:AddTag(patch, "SunZone")
 	end
 	-- lava pools on the hot islands: cubes melt fastest here (Config.melt.lava); MapArt draws the glow
 	for _, l in list.lava do
 		local pool = part("LavaPool", Vector3.new(0.2, l.r * 2, l.r * 2), CFrame.new(l.x, 0.09, l.z) * CFrame.Angles(0, 0, math.rad(90)), Theme.islandArt.lava, areas,
-			{ Shape = Enum.PartType.Cylinder, Transparency = 1, CanCollide = false, CanQuery = false, CastShadow = false })
+			{ Shape = Enum.PartType.Cylinder, Transparency = 1, CanCollide = false, CanQuery = false, CanTouch = false, CastShadow = false })
 		CollectionService:AddTag(pool, "LavaZone")
 	end
 	MapArt.build(map)

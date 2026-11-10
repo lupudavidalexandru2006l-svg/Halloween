@@ -2787,6 +2787,127 @@ local function farScenery(parent: Instance, rng: () -> number)
 	end
 end
 
+-- Parts no camera can ever see: every corner inside a bigger, solid, still block (coins packed inside
+-- the Sell chest, booth backs inside the hub wall, props sunk in island ground). PERF-AUDIT-2026-11-09.
+-- Runs after the whole map is built, so the random layout of everything else is unchanged. Only the
+-- booths and tunnel props are checked; a block can hide them only if nothing ever moves, restyles or
+-- fades it (no pans, gate bars, motion folders, see-through or neon blocks).
+local function stillBlock(p: Instance): boolean
+	if p.ClassName ~= "Part" or (p :: Part).Shape ~= Enum.PartType.Block then
+		return false
+	end
+	local b = p :: Part
+	if b.Transparency ~= 0 or b.Material == Enum.Material.Neon then
+		return false
+	end
+	if b:FindFirstChildWhichIsA("DataModelMesh") then
+		return false -- drawn as another shape (ellipsoid() is a Block with a sphere mesh): its box hides nothing
+	end
+	local x: Instance? = b.Parent
+	while x and x.Name ~= "Art" do
+		if CollectionService:HasTag(x, Config.mapFx.motionTag) or string.match(x.Name, "^Pan%d") or string.match(x.Name, "^GateBars") then
+			return false
+		end
+		x = x.Parent
+	end
+	return true
+end
+
+local function pruneBuried(art: Instance): number
+	local CELL = 8
+	local grid: { [number]: { BasePart } } = {}
+	local function cellKey(cx: number, cy: number, cz: number): number
+		return ((cx + 500) * 1000 + (cy + 500)) * 1000 + (cz + 500)
+	end
+	for _, d in art:GetDescendants() do
+		if stillBlock(d) then
+			local b = d :: BasePart
+			-- the rotated block's world-aligned box: each axis gets |rotation| x half size
+			local h, cf = b.Size / 2, b.CFrame
+			local rx, ry, rz = cf.RightVector, cf.UpVector, -cf.LookVector
+			local ext = Vector3.new(
+				math.abs(rx.X) * h.X + math.abs(ry.X) * h.Y + math.abs(rz.X) * h.Z,
+				math.abs(rx.Y) * h.X + math.abs(ry.Y) * h.Y + math.abs(rz.Y) * h.Z,
+				math.abs(rx.Z) * h.X + math.abs(ry.Z) * h.Y + math.abs(rz.Z) * h.Z
+			)
+			local lo, hi = (b.Position - ext) / CELL, (b.Position + ext) / CELL
+			for cx = math.floor(lo.X), math.floor(hi.X) do
+				for cy = math.floor(lo.Y), math.floor(hi.Y) do
+					for cz = math.floor(lo.Z), math.floor(hi.Z) do
+						local key = cellKey(cx, cy, cz)
+						local cell = grid[key]
+						if not cell then
+							cell = {}
+							grid[key] = cell
+						end
+						table.insert(cell, b)
+					end
+				end
+			end
+		end
+	end
+	local candidates: { Instance } = {}
+	local hub = art:FindFirstChild("Hub")
+	for _, name in { "Booth_sell", "Booth_equipment" } do
+		local f = hub and hub:FindFirstChild(name)
+		if f then
+			table.insert(candidates, f)
+		end
+	end
+	local tunnel = art:FindFirstChild("Tunnel")
+	if tunnel then
+		for _, sec in tunnel:GetChildren() do
+			local props = sec:FindFirstChild("Props")
+			if props then
+				table.insert(candidates, props)
+			end
+		end
+	end
+	local removed = 0
+	for _, root in candidates do
+		for _, d in root:GetDescendants() do
+			if not d:IsA("BasePart") or #d:GetChildren() > 0 then
+				continue -- a part with children (a prompt, light, sparkles) stays
+			end
+			local p = d :: BasePart
+			local moving = false
+			local x: Instance? = p.Parent
+			while x and x ~= root do
+				if CollectionService:HasTag(x, Config.mapFx.motionTag) then
+					moving = true
+					break
+				end
+				x = x.Parent
+			end
+			if moving then
+				continue
+			end
+			local h = p.Size / 2
+			local cell = grid[cellKey(math.floor(p.Position.X / CELL), math.floor(p.Position.Y / CELL), math.floor(p.Position.Z / CELL))]
+			for _, box in cell or {} do
+				if box ~= p and box.Size.Magnitude > p.Size.Magnitude then
+					local half = box.Size / 2 + Vector3.new(0.01, 0.01, 0.01)
+					local all = true
+					for _, c in { Vector3.new(1, 1, 1), Vector3.new(1, 1, -1), Vector3.new(1, -1, 1), Vector3.new(1, -1, -1),
+						Vector3.new(-1, 1, 1), Vector3.new(-1, 1, -1), Vector3.new(-1, -1, 1), Vector3.new(-1, -1, -1) } do
+						local l = box.CFrame:PointToObjectSpace(p.CFrame:PointToWorldSpace(h * c))
+						if math.abs(l.X) > half.X or math.abs(l.Y) > half.Y or math.abs(l.Z) > half.Z then
+							all = false
+							break
+						end
+					end
+					if all then
+						p:Destroy()
+						removed += 1
+						break
+					end
+				end
+			end
+		end
+	end
+	return removed
+end
+
 function MapArt.build(map: Instance)
 	meshes = ReplicatedStorage:FindFirstChild("SceneryMeshes")
 	if not meshes then
@@ -2818,6 +2939,8 @@ function MapArt.build(map: Instance)
 	for _, x in { -0.55, 0.55 } do
 		shape("Ring", Vector3.new(1.6, 0.4, 1.6), at * CFrame.new(x, 3.4, 0) * CFrame.Angles(0, 0, math.pi / 2), F.giftRibbon, giftArt)
 	end
+	local pruned = pruneBuried(art)
+	art:SetAttribute("PrunedHidden", pruned) -- how many never-visible parts were left out (QA reads it)
 	local terrain = workspace.Terrain
 	if not terrain:FindFirstChildOfClass("Clouds") then
 		local clouds = Instance.new("Clouds")

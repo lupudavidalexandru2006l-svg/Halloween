@@ -32,6 +32,7 @@ local giftParts: { { part: BasePart, cf: CFrame } } = {}
 local giftLabel: Ui.Block? = nil
 local giftGui: BillboardGui? = nil
 local glows: { BasePart } = {}
+local glowBase: { [BasePart]: number } = setmetatable({}, { __mode = "k" }) :: any -- each glow's resting transparency
 local lightZone = -1
 local gateBars: { [number]: Frame } = {} -- each gate sign's progress fill
 
@@ -43,25 +44,54 @@ end
 -- motionTag. Each part's built CFrame is kept the first time it's seen (a part that streams in again
 -- is a new one, back at its built place), then moved from there. t = 0 puts everything back.
 local motionBase: { [BasePart]: CFrame } = setmetatable({}, { __mode = "k" }) :: any
-local function moveMapParts(t: number)
-	local parts: { BasePart } = {}
-	local cfs: { CFrame } = {}
+-- each tagged folder's settings, read once when it arrives (PERF-AUDIT-2026-11-09: these were looked up
+-- with GetTagged and GetAttribute every frame)
+type MotionSpec = { pivot: CFrame, spin: boolean, axis: Vector3?, speed: number?, amp: number?, hz: number?, phase: number }
+local motionSpecs: { [Instance]: MotionSpec } = {}
+local function addMotion(f: Instance)
+	local pivot = f:GetAttribute("Pivot")
+	if typeof(pivot) ~= "CFrame" then
+		return
+	end
+	local axis, speed, amp, hz, phase = f:GetAttribute("Axis"), f:GetAttribute("Speed"), f:GetAttribute("Amp"), f:GetAttribute("Hz"), f:GetAttribute("Phase")
+	motionSpecs[f] = {
+		pivot = pivot,
+		spin = f:GetAttribute("Kind") == "spin",
+		axis = if typeof(axis) == "Vector3" then axis else nil,
+		speed = if typeof(speed) == "number" then speed else nil,
+		amp = if typeof(amp) == "number" then amp else nil,
+		hz = if typeof(hz) == "number" then hz else nil,
+		phase = if typeof(phase) == "number" then phase else 0,
+	}
+end
+local function watchMotion()
 	for _, f in CollectionService:GetTagged(M.motionTag) do
-		local pivot = f:GetAttribute("Pivot")
-		if typeof(pivot) ~= "CFrame" then
-			continue
+		addMotion(f)
+	end
+	CollectionService:GetInstanceAddedSignal(M.motionTag):Connect(addMotion)
+	CollectionService:GetInstanceRemovedSignal(M.motionTag):Connect(function(f: Instance)
+		motionSpecs[f] = nil
+	end)
+end
+
+local moveParts: { BasePart } = {}
+local moveCFs: { CFrame } = {}
+local function moveMapParts(t: number, from: Vector3?)
+	local parts, cfs = moveParts, moveCFs
+	table.clear(parts)
+	table.clear(cfs)
+	for f, spec in motionSpecs do
+		local pivot = spec.pivot
+		if from and (pivot.Position - from).Magnitude > M.motionDistance then
+			continue -- too far to see it move: it holds still where it is
 		end
 		local move = CFrame.identity
-		if f:GetAttribute("Kind") == "spin" then
-			local axis, speed = f:GetAttribute("Axis"), f:GetAttribute("Speed")
-			if typeof(axis) == "Vector3" and typeof(speed) == "number" then
-				move = pivot * CFrame.fromAxisAngle(axis, t * speed) * pivot:Inverse()
+		if spec.spin then
+			if spec.axis and spec.speed then
+				move = pivot * CFrame.fromAxisAngle(spec.axis, t * spec.speed) * pivot:Inverse()
 			end
-		else
-			local amp, hz, phase = f:GetAttribute("Amp"), f:GetAttribute("Hz"), f:GetAttribute("Phase")
-			if typeof(amp) == "number" and typeof(hz) == "number" then
-				move = CFrame.new(0, math.sin((t * hz + (if typeof(phase) == "number" then phase else 0)) * math.pi * 2) * amp * (if t == 0 then 0 else 1), 0)
-			end
+		elseif spec.amp and spec.hz then
+			move = CFrame.new(0, math.sin((t * spec.hz + spec.phase) * math.pi * 2) * spec.amp * (if t == 0 then 0 else 1), 0)
 		end
 		for _, p in f:GetChildren() do
 			if p:IsA("BasePart") then
@@ -327,6 +357,7 @@ function MapController.Start()
 			end
 		end
 	end)
+	watchMotion()
 	RunService.Heartbeat:Connect(gateWalls)
 	RunService.RenderStepped:Connect(function()
 		local t = os.clock()
@@ -336,15 +367,26 @@ function MapController.Start()
 		local c = Config.world.giftBox
 		local pivot = CFrame.new(c.X, 0, c.Z)
 		local move = if bob then pivot * CFrame.new(0, math.abs(math.sin(t * 3)) * M.giftBob, 0) * CFrame.Angles(0, math.sin(t * 2) * M.giftSway, 0) * pivot:Inverse() else CFrame.identity
-		moveMapParts(if still then 0 else t)
+		local cam = workspace.CurrentCamera
+		local from = if cam then cam.CFrame.Position else nil
+		moveMapParts(if still then 0 else t, from)
 		for _, g in giftParts do
 			g.part.CFrame = move * g.cf -- the whole box hops and sways round its middle
 		end
-		-- the gates breathe slowly (well under the 3 flashes a second limit); still with reduced motion
+		-- the gates breathe slowly (well under the 3 flashes a second limit); still with reduced motion.
+		-- A gate farther than motionDistance holds its glow (too far to see it breathe).
 		local breath = if still then 0 else (math.sin(t * math.pi * 2 / M.gateGlowPulse) * 0.5 + 0.5) * 0.35
 		for _, g in glows do
-			local base = g:GetAttribute("BaseTransparency")
-			g.Transparency = (if typeof(base) == "number" then base else 0) + breath
+			if from and (g.Position - from).Magnitude > M.motionDistance then
+				continue
+			end
+			local base = glowBase[g]
+			if base == nil then
+				local attr = g:GetAttribute("BaseTransparency")
+				base = if typeof(attr) == "number" then attr else 0
+				glowBase[g] = base
+			end
+			g.Transparency = (base :: number) + breath
 		end
 		islandLight()
 	end)
