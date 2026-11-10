@@ -124,6 +124,11 @@ local function row(parent: Instance, order: number, height: number, aspect: numb
 	f.LayoutOrder = order
 	f.BackgroundTransparency = 1
 	f.Size = UDim2.fromScale(1, if aspect then 1 else height)
+	if aspect and aspect >= 6 and Screen.deviceClass() ~= "pc" then
+		-- touch screens: fewer, taller list rows (UI Rules), so a row's button is thumb-sized (mobile QA 2026-11-10:
+		-- "In pen" was 29 px tall). Only long thin list rows; the Index pages and Sell grid keep their shape.
+		aspect *= Config.ui.touchRowAspect
+	end
 	if aspect then
 		local a = Instance.new("UIAspectRatioConstraint")
 		a.AspectRatio = aspect
@@ -309,7 +314,12 @@ end
 -- featured = the wide banner on top (icon left, words middle, button right); else a tall tile.
 local function robuxCard(o: Open, v: State.View, parent: Instance, item: Config.RobuxItem, featured: boolean): Ui.Block
 	local owned = item.kind == "pass" and v.doubleCoins == true
-	local c = Ui.block(parent, "Robux_" .. item.id, Theme.shopCards[item.kind] or Theme.info, "", nil)
+	-- the whole card buys, not just its button (mobile QA 2026-11-10: a pack's Buy was 68x22 px on a
+	-- phone). Roblox's own purchase prompt still asks to confirm, so a stray tap costs nothing.
+	local c = Ui.block(parent, "Robux_" .. item.id, Theme.shopCards[item.kind] or Theme.info, "", if owned then nil else function()
+		SoundController.play("click")
+		State.send("BuyRobux", item.id)
+	end)
 	c.text.Visible = false
 	local function box(t: GuiObject, x: number, y: number, w: number, h: number)
 		t.Position = UDim2.fromScale(x, y)
@@ -609,7 +619,9 @@ local function pets(o: Open, v: State.View)
 			ice += 1
 		end
 	end
-	local head = row(o.body, 0, 0.14)
+	-- touch screens: a taller head row so "Equip best" is thumb-sized (mobile QA 2026-11-10: 22 px tall)
+	local headH = if Screen.deviceClass() ~= "pc" then 0.2 else 0.14
+	local head = row(o.body, 0, headH)
 	text(head, `Pan {pen} / {v.slots}   Storage {#v.pets - pen - ice}` .. (if ice > 0 then `   Frozen {ice}` else ""), 0.02, 0.6)
 	local best = button(head, Theme.go, "Equip best", 0.66, 0.32, function()
 		State.send("EquipBest")
@@ -617,8 +629,8 @@ local function pets(o: Open, v: State.View)
 	o.first = best.face
 	local holder = Instance.new("Frame")
 	holder.BackgroundTransparency = 1
-	holder.Position = UDim2.fromScale(0, 0.16)
-	holder.Size = UDim2.fromScale(1, 0.84)
+	holder.Position = UDim2.fromScale(0, headH + 0.02)
+	holder.Size = UDim2.fromScale(1, 1 - headH - 0.02)
 	holder.Parent = o.body
 	local l = list(holder, true)
 	-- thawing first, then frozen (they need you), then the pan, then Storage
@@ -783,7 +795,13 @@ local function index(o: Open, v: State.View)
 end
 
 local function settings(o: Open)
-	local l = list(o.body, false)
+	-- touch screens (phones and tablets): the 7 rows scroll, each tall enough for a thumb (mobile QA
+	-- 2026-11-10: On / Off were 20 px tall on a phone when all 7 shared the panel)
+	local touch = Screen.deviceClass() ~= "pc"
+	local l = list(o.body, touch)
+	local function settingRow(order: number, height: number): Frame
+		return card(row(l, order, if touch then 0 else height, if touch then 9 else nil))
+	end
 	local rows = {
 		{ key = "music", label = "Music" }, { key = "sound", label = "Sound" },
 		{ key = "reducedMotion", label = "Reduced motion" }, { key = "lowGraphics", label = "Low graphics" },
@@ -792,7 +810,7 @@ local function settings(o: Open)
 	-- the rows share the panel: 5 settings, the tutorial and codes (0.128 x 7 plus the gaps fits in 1)
 	local rowH = Config.ui.settingsRow
 	for i, r in rows do
-		local line = card(row(l, i, rowH))
+		local line = settingRow(i, rowH)
 		local icon = Config.ui.settingIcons[r.key]
 		if icon then
 			Ui.image(line, icon, UDim2.fromScale(0.1, 0.84), UDim2.fromScale(0.015, 0.08))
@@ -813,7 +831,7 @@ local function settings(o: Open)
 	end
 	local v = State.view
 	-- the tutorial (2026-11-10): Ranger Bo walks you through a catch again. While it runs, the button rests.
-	local tut = card(row(l, #rows + 1, rowH))
+	local tut = settingRow(#rows + 1, rowH)
 	tut.Name = "Tutorial"
 	text(tut, "Tutorial with " .. Config.tutorial.name, 0.03, 0.66)
 	local running = v ~= nil and v.tutorial ~= nil and not v.tutorial.done
@@ -826,7 +844,7 @@ local function settings(o: Open)
 	-- Codes (Round 5): unlocked after catching Config.codes.needPets pets; the server checks the code
 	local need = Config.codes.needPets
 	local caught = if v then v.stats.frozen else 0
-	local line = card(row(l, #rows + 2, rowH))
+	local line = settingRow(#rows + 2, rowH)
 	line.Name = "Codes"
 	local title = text(line, "Codes", 0.03, 0.2)
 	title.Size = UDim2.fromScale(0.2, 0.7)
@@ -1388,6 +1406,7 @@ function PopupController.close()
 	o.closed = true
 	current = nil
 	Screen.setMenuHidden(false)
+	Screen.setPopupOpen(false)
 	InputController.select(nil)
 	State.send("SetMenuOpen", false)
 	local nextOne = table.remove(queue, 1)
@@ -1396,7 +1415,8 @@ function PopupController.close()
 	end
 end
 
-function PopupController.open(name: string, data: any?)
+-- rebuilt = the same popup drawn again for a new screen size (no "ShopOpened" twice)
+function PopupController.open(name: string, data: any?, rebuilt: boolean?)
 	if name == "tester" and not (State.view and State.view.tester) then
 		return -- not a tester: the panel doesn't exist
 	end
@@ -1411,20 +1431,30 @@ function PopupController.open(name: string, data: any?)
 		end
 		PopupController.close()
 	end
-	local frame = Screen.popupFrame(Config.ui.bigPopups[name] == true)
+	local frame = Screen.popupFrame(Config.ui.bigPopups[name] == true, Config.ui.hideHudFor[name] ~= true)
+	-- short messages get a smaller panel; on a phone only a little smaller, or their text came out 8.8 px
+	local smallK = if Screen.deviceClass() == "phone" then Config.ui.phoneSmallPopup else 0.62
 	if SMALL[name] then
-		frame.Size = UDim2.fromScale(frame.Size.X.Scale * 0.62, frame.Size.Y.Scale * 0.62)
+		frame.Size = UDim2.fromScale(frame.Size.X.Scale * smallK, frame.Size.Y.Scale * smallK)
 	end
 	local T = Config.ui.popupText
-	local ph = frame.AbsoluteSize.Y / (if SMALL[name] then 0.62 else 1) -- text keeps the big panel's sizes
+	local ph = frame.AbsoluteSize.Y / (if SMALL[name] then smallK else 1) -- text keeps the big panel's sizes
 	px = { title = ph * T.title, body = ph * T.body, small = ph * T.small, button = ph * T.button, tiny = ph * T.small * 0.72 }
+	if Screen.deviceClass() ~= "pc" then
+		-- touch screens: no role's cap under a readable size (a 338 px tall phone capped small text at 10 px).
+		-- Only the cap rises: text whose box is too small still shrinks to fit (sized)
+		local F = Config.ui.touchTextFloor
+		for role, size in px do
+			px[role] = math.max(size, F[role] or F.small)
+		end
+	end
 	-- the body is a pale tint of the menu's colour and the title sits on a ribbon in the full colour,
 	-- so the popup reads as one piece with its tile (a flat cream body looked like another game's UI)
 	local menuColor = HEADER[name] or Theme.tiles[name] or Theme.info
 	local panel = Ui.block(frame, "Panel", menuColor:Lerp(Theme.white, Config.ui.panelTint), "", nil, true)
 	panel.root.Size = UDim2.fromScale(1, 1)
 	panel.text.Visible = false
-	local hh = Config.ui.headerHeight / (if SMALL[name] then 0.62 else 1)
+	local hh = Config.ui.headerHeight / (if SMALL[name] then smallK else 1)
 	local header = Ui.block(panel.face, "Header", menuColor, TITLES[name] or "", nil)
 	header.root.Position = UDim2.fromScale(0.02, 0.025)
 	header.root.Size = UDim2.fromScale(0.96, hh)
@@ -1450,6 +1480,28 @@ function PopupController.open(name: string, data: any?)
 	ca.AspectRatio = 1.15
 	ca.Parent = closeB.root
 	sized(closeB.text, "title")
+	-- an invisible tap area round the X, never under a thumb's size (mobile QA 2026-11-10: the X was 27x20 px on a phone)
+	local hit = Instance.new("TextButton")
+	hit.Name = "CloseHit"
+	hit.Text = ""
+	hit.BackgroundTransparency = 1
+	hit.Selectable = false
+	hit.AnchorPoint = Vector2.new(0.5, 0.5)
+	hit.Position = UDim2.fromScale(0.5, 0.5)
+	hit.ZIndex = 0 -- under the X's face (a tap on the X itself still plays its press), over the ribbon beside it
+	hit.Parent = closeB.root
+	closeB.root.ZIndex = 2
+	local function fitHit()
+		local s = closeB.root.AbsoluteSize
+		local m = Config.ui.minTouchPx
+		hit.Size = UDim2.fromScale(math.max(1, m / math.max(1, s.X)), math.max(1, m / math.max(1, s.Y)))
+	end
+	closeB.root:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitHit)
+	fitHit()
+	hit.Activated:Connect(function()
+		SoundController.play("click")
+		PopupController.close()
+	end)
 	local body = Instance.new("Frame")
 	body.Name = "Body"
 	body.BackgroundTransparency = 1
@@ -1459,8 +1511,9 @@ function PopupController.open(name: string, data: any?)
 	local o: Open = { name = name, data = data, frame = frame, body = body, first = nil }
 	current = o
 	Screen.setMenuHidden(Config.ui.hideHudFor[name] == true)
+	Screen.setPopupOpen(true)
 	State.send("SetMenuOpen", true)
-	if name == "shop" then
+	if name == "shop" and not rebuilt then
 		State.send("ShopOpened")
 	end
 	if name == "tester" then
@@ -1504,8 +1557,32 @@ function PopupController.Start()
 		end
 	end)
 	game:GetService("RunService").RenderStepped:Connect(function(dt: number)
-		fps = fps * 0.95 + (1 / math.max(dt, 1e-3)) * 0.05
+		if current and current.name == "tester" then -- only the Tester readout shows it
+			fps = fps * 0.95 + (1 / math.max(dt, 1e-3)) * 0.05
+		end
 	end)
+	-- the screen changed size (iPad split view, a resized window, the top bar): text sizes and corners are
+	-- worked out when a popup opens, so the open one is drawn again for the new size (mobile QA 2026-11-10)
+	local resizeToken = 0
+	local function redraw()
+		resizeToken += 1
+		local my = resizeToken
+		task.delay(0.15, function()
+			local o = current
+			if my ~= resizeToken or not o or o.closed then
+				return
+			end
+			o.closed = true
+			o.frame:Destroy()
+			current = nil
+			PopupController.open(o.name, o.data, true)
+		end)
+	end
+	local popups = Screen.popups
+	if popups then
+		popups:GetPropertyChangedSignal("AbsoluteSize"):Connect(redraw)
+	end
+	InputController.DeviceChanged:Connect(redraw) -- touch vs mouse picks the phone layout
 	State.Notify:Connect(function(kind: string, data: any)
 		if kind == "testerReadout" then
 			local hadTargets = testerReadout.targets ~= nil

@@ -24,7 +24,7 @@ local NAMES = {
 	"Data", "Notify", "BoardRank",
 }
 local events: { [string]: RemoteEvent } = {}
-local calls: { [Player]: { number } } = {}
+local calls: { [Player]: { [string]: { number } } } = {} -- per player: bucket ("*" or a remote's name) -> call times
 local notYetAt: { [Player]: { [string]: number } } = {}
 
 function Remotes.Init()
@@ -46,21 +46,28 @@ function Remotes.Start()
 	end)
 end
 
-local function allowed(player: Player): boolean
+-- each player has one shared budget per second, and a remote listed in Config.player.rateLimits has its
+-- own, so a burst of aiming (or calls bunched up by a phone's lag spike) can't crowd out "Aim none" or
+-- "SetMenuOpen" (mobile QA 2026-11-10)
+local function allowed(player: Player, name: string): boolean
+	local own = Config.player.rateLimits[name]
+	local bucket = if own then name else "*"
+	local limit = own or Config.player.rateLimitPerSecond
 	local now = os.clock()
-	local list: { number } = calls[player] or {}
+	local buckets = calls[player] or {}
+	calls[player] = buckets
+	local list: { number } = buckets[bucket] or {}
 	local kept: { number } = {}
 	for _, t in list do
 		if now - t < 1 then
 			table.insert(kept, t)
 		end
 	end
-	if #kept >= Config.player.rateLimitPerSecond then
-		calls[player] = kept
+	buckets[bucket] = kept
+	if #kept >= limit then
 		return false -- dropped quietly
 	end
 	table.insert(kept, now)
-	calls[player] = kept
 	return true
 end
 
@@ -69,7 +76,7 @@ function Remotes.on(name: string, handler: (Player, ...any) -> ...any)
 	local e = events[name]
 	assert(e, "unknown remote " .. name)
 	e.OnServerEvent:Connect(function(player: Player, ...)
-		if not allowed(player) then
+		if not allowed(player, name) then
 			return
 		end
 		local ok, err = pcall(handler, player, ...)

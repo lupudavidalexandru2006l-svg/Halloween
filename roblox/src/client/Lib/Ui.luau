@@ -19,14 +19,36 @@ end
 -- no scale = the one shared radius: a fixed share of the screen's short side, the same on a button,
 -- a card and a popup. (A share of each block's own size made big panels almost pill-shaped next to
 -- small buttons, QA 2026-10-31.) A scale (0.5 = pill, 1 = circle) is for shapes that should stay round.
+-- shared-radius corners follow the screen size (mobile QA 2026-11-10: after a resize they kept the old size)
+local sharedCorners: { [UICorner]: boolean } = setmetatable({} :: any, { __mode = "k" })
+local watching: Camera? = nil
+local function radiusNow(): UDim
+	local cam = workspace.CurrentCamera
+	local short = if cam then math.min(cam.ViewportSize.X, cam.ViewportSize.Y) else 720
+	return UDim.new(0, math.max(4, math.round(short * Config.ui.radius)))
+end
+local function watchViewport()
+	local cam = workspace.CurrentCamera
+	if not cam or cam == watching then
+		return
+	end
+	watching = cam
+	cam:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+		local r = radiusNow()
+		for c in sharedCorners do
+			c.CornerRadius = r
+		end
+	end)
+end
+
 function Ui.corner(parent: Instance, scale: number?)
 	local c = Instance.new("UICorner")
 	if scale then
 		c.CornerRadius = UDim.new(scale, 0)
 	else
-		local cam = workspace.CurrentCamera
-		local short = if cam then math.min(cam.ViewportSize.X, cam.ViewportSize.Y) else 720
-		c.CornerRadius = UDim.new(0, math.max(4, math.round(short * Config.ui.radius)))
+		watchViewport()
+		c.CornerRadius = radiusNow()
+		sharedCorners[c] = true
 	end
 	c.Parent = parent
 end

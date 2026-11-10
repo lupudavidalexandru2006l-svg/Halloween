@@ -102,8 +102,11 @@ local function frame(character: Model)
 	local distance = math.sqrt(C.startHeight ^ 2 + C.startBack ^ 2)
 	player.CameraMinZoomDistance = math.min(distance, C.maxZoom)
 	task.wait(C.frameSettleSeconds)
-	local look = (root.CFrame.LookVector * Vector3.new(1, 0, 1)).Unit
-	cam.CFrame = CFrame.lookAt(root.Position - look * C.startBack + Vector3.new(0, C.startHeight, 0), root.Position + look * C.startLookAhead)
+	-- a show that owns the camera keeps it: a respawn mid-show made its shot jump (mobile QA 2026-11-10)
+	if not borrowed then
+		local look = (root.CFrame.LookVector * Vector3.new(1, 0, 1)).Unit
+		cam.CFrame = CFrame.lookAt(root.Position - look * C.startBack + Vector3.new(0, C.startHeight, 0), root.Position + look * C.startLookAhead)
+	end
 	task.wait(C.frameSettleSeconds)
 	player.CameraMinZoomDistance = C.minZoom
 end

@@ -52,6 +52,9 @@ Config.player = {
 	openHold = 0, -- booths, the Pan Upgrades stand and the gift open on a tap (owner 2026-11-02: "E to open doesn't work" = a tap did nothing)
 	freezeCooldown = 0.3,
 	rateLimitPerSecond = 12,
+	-- remotes with their own budget, so a burst of one (aiming while you drag, or calls bunched up by a lag
+	-- spike on a phone) can't crowd out the rest (mobile QA 2026-11-10)
+	rateLimits = { Aim = 20 } :: { [string]: number },
 	maxSpeedTolerance = 1.6, -- server flags positions that move faster than this x walk speed
 }
 
@@ -414,7 +417,15 @@ Config.sounds = {
 
 Config.ui = {
 	tiles = { { id = "pets", label = "Pets" }, { id = "shop", label = "Shop" }, { id = "index", label = "Index" }, { id = "daily", label = "Daily" }, { id = "settings", label = "Settings" } },
-	scale = { phone = 1, tablet = 1.2, pc = 1.35 },
+	-- touch screens (mobile QA 2026-11-10): no tap target under this many pixels (Apple asks 44). Tiles,
+	-- world prompts and the popup X use it; the hotbar slot has its own floor so its name stays readable
+	minTouchPx = 46, hotbarMinPx = 52,
+	-- phones: popups take the whole height under the top bar (at 70% the text came out 8.8 px), short
+	-- reward popups keep this share instead of 0.62 (at 0.8 a 338 px tall phone still had 9 px text),
+	-- and the banner is at least this share of the width
+	phoneSmallPopup = 1, bannerPhoneWidth = 0.62,
+	touchTextFloor = { title = 18, body = 14, button = 14, small = 12, tiny = 11 } :: { [string]: number }, -- popup text caps never go under these on touch screens (px)
+	touchRowAspect = 0.8, -- phones and tablets: long list rows (Pets, Thaw, Tester) are this much less wide-for-their-height
 	-- sizes are fractions of the screen's short side (Scale only, UI Rules); the Screen module places them
 	-- owner 2026-10-31: smaller side tiles (still over 10% of the short side for small fingers);
 	-- owner 2026-11-07: the goal bar and temperature chip are gone; the island banner (below) took their place

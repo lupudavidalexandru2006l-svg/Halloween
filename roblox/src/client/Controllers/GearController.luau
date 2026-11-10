@@ -216,7 +216,9 @@ function GearController.Start()
 		if processed or held() ~= "gel" then
 			return
 		end
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		-- a finger throws on a tap (TouchTap below), not when it lands: every camera drag threw a puddle
+		-- and started the cooldown (mobile QA 2026-11-10)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
 			throwAt(Vector2.new(input.Position.X, input.Position.Y))
 		elseif input.KeyCode == Enum.KeyCode.ButtonR2 then
 			local cam = workspace.CurrentCamera
@@ -224,6 +226,12 @@ function GearController.Start()
 				throwAt(cam.ViewportSize / 2)
 			end
 		end
+	end)
+	UserInputService.TouchTap:Connect(function(positions: { Vector2 }, processed: boolean)
+		if processed or held() ~= "gel" or not positions[1] then
+			return
+		end
+		throwAt(positions[1])
 	end)
 	State.Notify:Connect(function(kind: string)
 		if kind == "gearBought" then

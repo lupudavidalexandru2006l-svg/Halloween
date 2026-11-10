@@ -9,6 +9,7 @@
 
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Theme = require(ReplicatedStorage.Shared.Theme)
@@ -41,6 +42,12 @@ local function show(prompt: ProximityPrompt)
 	local ps = Config.ui.promptSize
 	local compact = prompt:GetAttribute("Compact") == true
 	local k = if compact then Config.ui.promptCompact else 1
+	if InputController.device() == "touch" then
+		-- a thumb has to hit it (mobile QA 2026-11-10: the compact Pick up was 26 px tall on a phone); the
+		-- width grows with it, so the pill keeps its shape
+		local floor = Config.ui.minTouchPx * (if compact then 0.87 else 1)
+		k = math.max(k, floor / (ps[2] * short))
+	end
 	gui.Size = UDim2.fromOffset(ps[1] * short * k, ps[2] * short * k)
 	gui.StudsOffset = Vector3.new(0, Config.ui.promptLift, 0) -- on the pet, just over its head (it floated well above before)
 	if compact then
@@ -145,17 +152,24 @@ local function show(prompt: ProximityPrompt)
 		TweenService:Create(gui, TweenInfo.new(Config.motion.promptPop * (if reduced then 0.5 else 1), Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Size = full }):Play()
 	end
 	local conns: { RBXScriptConnection } = {}
-	-- touch and mouse: the block is the hold button
+	-- touch and mouse: the block is the hold button. The hold ends when that finger (or the mouse button)
+	-- lifts anywhere: a finger that slid off the pill kept the hold going (mobile QA 2026-11-10)
+	local holding: InputObject? = nil
+	local function release(input: InputObject)
+		local h = holding
+		if h and (input == h or (input.UserInputType == Enum.UserInputType.MouseButton1 and h.UserInputType == Enum.UserInputType.MouseButton1)) then
+			holding = nil
+			prompt:InputHoldEnd()
+		end
+	end
 	table.insert(conns, top.InputBegan:Connect(function(input: InputObject)
 		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+			holding = input
 			prompt:InputHoldBegin()
 		end
 	end))
-	table.insert(conns, top.InputEnded:Connect(function(input: InputObject)
-		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-			prompt:InputHoldEnd()
-		end
-	end))
+	table.insert(conns, top.InputEnded:Connect(release))
+	table.insert(conns, UserInputService.InputEnded:Connect(release))
 	table.insert(conns, InputController.DeviceChanged:Connect(function()
 		key.Text = InputController.keyHint(prompt)
 		fitKey()

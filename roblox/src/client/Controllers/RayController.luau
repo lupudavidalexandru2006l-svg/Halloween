@@ -352,6 +352,12 @@ local function aiming(): boolean
 end
 
 local function updateAim()
+	-- a finger whose end never arrived (app switched away, a system gesture) must not hold the ray forever:
+	-- every later tap on a pet was ignored and the ray kept shooting at the old spot (mobile QA 2026-11-10)
+	local pt = pointer
+	if pt and pt.touch and (pt.touch.UserInputState == Enum.UserInputState.End or pt.touch.UserInputState == Enum.UserInputState.Cancel) then
+		pointer = nil
+	end
 	if not aiming() or (locked and not stillValid(locked :: Target)) then
 		locked = nil
 	end
@@ -1216,8 +1222,10 @@ function RayController.Start()
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
 			pointer = { pos = Vector2.new(input.Position.X, input.Position.Y), touch = nil }
 			locked, shot = nil, false -- a new click picks again (clicking the same pet keeps the shot going)
-		elseif input.UserInputType == Enum.UserInputType.Touch and not pointer then
-			pointer = { pos = Vector2.new(input.Position.X, input.Position.Y), touch = input } -- a drag turns the camera: the shot keeps going
+		elseif input.UserInputType == Enum.UserInputType.Touch and (not pointer or (pointer.touch ~= nil and not locked)) then
+			-- a drag turns the camera: the shot keeps going. A new finger takes over from one that isn't on a
+			-- target (only turning the camera), so a tap on a pet still shoots (mobile QA 2026-11-10)
+			pointer = { pos = Vector2.new(input.Position.X, input.Position.Y), touch = input }
 		elseif input.KeyCode == Enum.KeyCode.E and myGroundCube(true) then
 			return -- E next to my frozen pet picks it up (its prompt), it doesn't aim
 		elseif isAimKey(input.KeyCode) then
@@ -1247,6 +1255,13 @@ function RayController.Start()
 			hintCloser(screen)
 		end
 	end)
+	-- the game lost focus (app in the background, Roblox's menu): a held finger or key can't end here
+	local function letGo()
+		pointer = nil
+		autoAim = false
+	end
+	UserInputService.WindowFocusReleased:Connect(letGo)
+	game:GetService("GuiService").MenuOpened:Connect(letGo)
 	UserInputService.InputChanged:Connect(function(input: InputObject)
 		local pt = pointer
 		if not pt then

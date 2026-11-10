@@ -69,7 +69,11 @@ function Screen.layout()
 	local function sy(f: number): number
 		return f * short / h
 	end
-	local lift = if InputController.device() == "touch" then U.touchLift else 0
+	local touch = InputController.device() == "touch"
+	local lift = if touch then U.touchLift else 0
+	-- touch screens: tiles and hotbar slots never shrink under a thumb's size (mobile QA 2026-11-10: 40 px tiles on a phone)
+	local tileSize = if touch then math.max(U.tileSize, U.minTouchPx / short) else U.tileSize
+	local slotSize = if touch then math.max(Config.hotbar.size, U.hotbarMinPx / short) else Config.hotbar.size
 	local coins = items.coins
 	local coinsTop = 1
 	if coins then
@@ -90,16 +94,24 @@ function Screen.layout()
 	if banner then
 		-- under the island banner, so the two never overlap
 		banner.AnchorPoint = Vector2.new(0.5, 0)
-		banner.Size = UDim2.fromScale(sx(U.bannerSize[1]), sy(U.bannerSize[2]))
+		-- a phone's short side is small next to its width: at 50% of it long messages wrapped into two ~10 px lines
+		local bw = sx(U.bannerSize[1])
+		if Screen.deviceClass() == "phone" then
+			bw = math.max(bw, U.bannerPhoneWidth)
+		end
+		banner.Size = UDim2.fromScale(bw, sy(U.bannerSize[2]))
 		banner.Position = UDim2.fromScale(0.5, sy(U.topInset * 2 + IB.height))
 	end
 	-- the hotbar: bottom centre, between the thumbstick and the jump button on touch screens
 	local hotbar = items.hotbar
 	if hotbar then
+		-- a phone popup takes the whole height, so the hotbar would peek out from under it: it steps aside
+		hotbar.Visible = not (Screen.popupOpen and Screen.deviceClass() == "phone")
 		local H = Config.hotbar
 		local n = math.max(1, (hotbar:GetAttribute("Slots") or 1) :: number)
+		local k = slotSize / H.size -- the gap grows with the slot, so GearController's proportions still hold
 		hotbar.AnchorPoint = Vector2.new(0.5, 1)
-		hotbar.Size = UDim2.fromScale(sx(H.size * n + H.gap * (n - 1)), sy(H.size * 1.45))
+		hotbar.Size = UDim2.fromScale(sx((H.size * n + H.gap * (n - 1)) * k), sy(slotSize * 1.45))
 		hotbar.Position = UDim2.fromScale(0.5, 1 - sy(H.bottomInset))
 	end
 	-- Ranger Bo's card (only during the tutorial): bottom centre, just above the hotbar
@@ -109,12 +121,19 @@ function Screen.layout()
 		local size = if Screen.deviceClass() == "phone" then TU.phone else TU.wide
 		tutorial.AnchorPoint = Vector2.new(0.5, 1)
 		tutorial.Size = UDim2.fromScale(math.min(0.96, sx(size[1])), sy(size[2]))
-		tutorial.Position = UDim2.fromScale(0.5, 1 - sy(H.bottomInset + H.size * 1.45 + U.tileGap))
+		tutorial.Position = UDim2.fromScale(0.5, 1 - sy(H.bottomInset + slotSize * 1.45 + U.tileGap))
 	end
 	local tiles = items.tiles
 	if tiles then
 		local rows = math.ceil(tileCount / 2)
-		local tw, th = sx(U.tileSize * 2 + U.tileGap), sy(U.tileSize * rows + U.tileGap * math.max(0, rows - 1))
+		if tileSize > U.tileSize and rows > 0 then
+			-- the touch floor only grows a tile as far as the room above the coins allows (a 338 px tall
+			-- phone had 46 px tiles running into the coin counter); never below the normal size
+			local room = (coinsTop - sy(U.topInset) - sy(U.tileGap)) * h / short -- in short-side units
+			local fit = (room - U.tileGap * (rows - 1)) / rows
+			tileSize = math.max(U.tileSize, math.min(tileSize, fit))
+		end
+		local tw, th = sx(tileSize * 2 + U.tileGap), sy(tileSize * rows + U.tileGap * math.max(0, rows - 1))
 		-- centred on the screen's middle; pushed up only if it would touch the coins
 		local top = 0.5 - th / 2
 		local gap = sy(U.tileGap)
@@ -126,9 +145,9 @@ function Screen.layout()
 		tiles.Position = UDim2.fromScale(sx(U.sideInset), top)
 		local grid = tiles:FindFirstChildOfClass("UIGridLayout")
 		if grid then
-			local cell = U.tileSize / (U.tileSize * 2 + U.tileGap)
-			grid.CellSize = UDim2.fromScale(cell, U.tileSize / (U.tileSize * rows + U.tileGap * math.max(0, rows - 1)))
-			grid.CellPadding = UDim2.fromScale(1 - cell * 2, if rows > 1 then U.tileGap / (U.tileSize * rows + U.tileGap * (rows - 1)) else 0)
+			local cell = tileSize / (tileSize * 2 + U.tileGap)
+			grid.CellSize = UDim2.fromScale(cell, tileSize / (tileSize * rows + U.tileGap * math.max(0, rows - 1)))
+			grid.CellPadding = UDim2.fromScale(1 - cell * 2, if rows > 1 then U.tileGap / (tileSize * rows + U.tileGap * (rows - 1)) else 0)
 		end
 	end
 end
@@ -157,24 +176,61 @@ end
 -- aspect, so a popup is the same share of the screen everywhere.
 -- big = the booth and Index popups (owner 2026-11-09: "make it bigger"): Config.ui.popupSizeBig, and
 -- they hide the HUD while open (Config.ui.hideHudFor) so the wider panel never sits on the tiles
-function Screen.popupFrame(big: boolean?): Frame
+-- keepsHud = the popup leaves the tiles on screen: it is kept narrow enough to clear them (mobile QA
+-- 2026-11-10: on a 4:3 tablet the Pets popup covered the second tile column by 46 px).
+-- Phones (mobile QA 2026-11-10): the popup takes the whole height under the top bar. At 70% of a 330 px
+-- layer the text came out 8.8 px and buttons 17-22 px tall; the island banner never shows with a popup open.
+function Screen.popupFrame(big: boolean?, keepsHud: boolean?): Frame
 	local cam = workspace.CurrentCamera
 	local short = if cam then math.min(cam.ViewportSize.X, cam.ViewportSize.Y) else 720
-	local h = if Screen.popups and Screen.popups.AbsoluteSize.Y > 0 then Screen.popups.AbsoluteSize.Y elseif cam then math.max(1, cam.ViewportSize.Y) else 720
-	local top = (U.topInset + U.islandBanner.height * U.islandBanner.nameRow + U.tileGap) * short / h
+	local layer = if Screen.popups and Screen.popups.AbsoluteSize.Y > 0 then Screen.popups.AbsoluteSize elseif cam then cam.ViewportSize else Vector2.new(1280, 720)
+	local w, h = math.max(1, layer.X), math.max(1, layer.Y)
+	local phone = Screen.deviceClass() == "phone"
+	local top = if phone then U.sideInset * short / h else (U.topInset + U.islandBanner.height * U.islandBanner.nameRow + U.tileGap) * short / h
 	local bottom = 1 - U.sideInset * short / h
 	local f = Instance.new("Frame")
 	f.Name = "Popup"
 	f.AnchorPoint = Vector2.new(0.5, 0.5)
 	f.Position = UDim2.fromScale(0.5, (top + bottom) / 2)
 	local size = if big then U.popupSizeBig else U.popupSize
-	f.Size = UDim2.fromScale(size[1], math.min(size[2], bottom - top))
+	local width = size[1]
+	if keepsHud and Screen.popups and not Screen.menuHidden then
+		-- the right edge of the tiles and of the coin number (its text runs past its frame), plus a gap,
+		-- mirrored on the right: the popup stays between them (on a tablet it cut "242,518" to "242,3")
+		local function rightOf(g: GuiObject?): number
+			if not g or not g.Visible then
+				return 0
+			end
+			local r = g.AbsolutePosition.X + g.AbsoluteSize.X
+			for _, d in g:GetChildren() do
+				if d:IsA("TextLabel") and d.Visible then
+					r = math.max(r, d.AbsolutePosition.X + d.TextBounds.X)
+				end
+			end
+			return r
+		end
+		-- the coins only reach the popup's height on touch screens (lifted over the thumbstick); on PC they
+		-- sit in the corner under it
+		local coinsRight = if InputController.device() == "touch" then rightOf(items.coins) else 0
+		local right = math.max(rightOf(items.tiles), coinsRight) - Screen.popups.AbsolutePosition.X + U.tileGap * short
+		width = math.min(width, math.max(0.3, (w - 2 * right) / w))
+	end
+	f.Size = UDim2.fromScale(width, if phone then bottom - top else math.min(size[2], bottom - top))
 	f.BackgroundTransparency = 1
 	local aspect = Instance.new("UIAspectRatioConstraint")
 	aspect.AspectRatio = if big then U.popupAspectBig else 1.6
 	aspect.Parent = f
 	f.Parent = Screen.popups
 	return f
+end
+
+-- any popup is open (PopupController): on a phone the hotbar steps aside (see layout)
+Screen.popupOpen = false
+function Screen.setPopupOpen(open: boolean)
+	if Screen.popupOpen ~= open then
+		Screen.popupOpen = open
+		Screen.layout()
+	end
 end
 
 -- a shop is open: the HUD pieces and the world prompts step aside (the banner stays)
