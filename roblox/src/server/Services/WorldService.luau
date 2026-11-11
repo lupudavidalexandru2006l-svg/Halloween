@@ -137,13 +137,21 @@ local function buildHub()
 	local sw = -half - H.xMin
 	collider("HubWallSW", Vector3.new(sw, hc, 2), CFrame.new(H.xMin + sw / 2, hc / 2, W.hubZMax + 1), map)
 	collider("HubWallSE", Vector3.new(sw, hc, 2), CFrame.new(H.xMax - sw / 2, hc / 2, W.hubZMax + 1), map)
-	-- the pans: a thick soil bed per lane with no walls at all, so anyone can walk in from any side
-	-- (owner 2026-11-07: visiting other pans is fine; every pan action checks your own pan). The fences
-	-- are art only (no collision).
+	-- the pans: a thick soil bed per lane. Visiting other pans is fine (owner 2026-11-07; every pan action
+	-- checks your own pan), but the fences are solid (owner 2026-11-11): invisible walls along the sides,
+	-- back and front corners, so everyone comes and goes through the gate. Named PanFence*, not the old
+	-- PanWall*, which findExisting still strips from saved maps.
 	for i, pl in W.plots do
 		local pan = part("Plot" .. i, Vector3.new(P.width, P.soilHeight, P.length), CFrame.new(pl.x, P.soilHeight / 2, pl.z), HA.soil, map, { Material = Enum.Material.Ground })
 		pan:SetAttribute("PlotIndex", i)
 		CollectionService:AddTag(pan, "Plot")
+		local x0, x1, ph = pl.x - P.width / 2, pl.x + P.width / 2, P.wallHeight
+		collider("PanFenceL", Vector3.new(1, ph, P.length), CFrame.new(x0, ph / 2, pl.z), pan)
+		collider("PanFenceR", Vector3.new(1, ph, P.length), CFrame.new(x1, ph / 2, pl.z), pan)
+		collider("PanFenceB", Vector3.new(P.width + 1, ph, 1), CFrame.new(pl.x, ph / 2, pl.z - P.length / 2), pan)
+		local side = (P.width - P.doorWidth) / 2
+		collider("PanFenceFL", Vector3.new(side, ph, 1), CFrame.new(x0 + side / 2, ph / 2, P.frontZ), pan)
+		collider("PanFenceFR", Vector3.new(side, ph, 1), CFrame.new(x1 - side / 2, ph / 2, P.frontZ), pan)
 		-- the temperature gauge right of the door, facing the plaza (the name sign over the door was
 		-- removed, owner 2026-11-03)
 		local front = Vector3.new(pl.x, 0, P.frontZ + 40)
