@@ -3,25 +3,25 @@
 -- Every pan has its own trainer in front of it (TrainingService builds it at its owner's level). The
 -- server decides every shot and its Cold Power; this only draws, and sends intent ("Train" "shot" on a
 -- click / tap / R2 / E while you stand on your own trainer). Stations below = pans' trainers.
---   Signs:  each trainer's "x5 Cold Power" title floats over it in its level's colour (the reference's
---           "X3 Strength" signs), so you see how far everyone has upgraded.
+--   Label:  "+N/shot" over my own trainer (the Cold Power one shot gives me now), only while I'm within
+--           signShowStuds of it (owner 2026-11-11, from the reference's "+30/step").
 --   Bolts:  a frost bolt flies from a player's gun tip to the target on each of their shots: my clicks at
 --           once, my gun's own shots when the server says (Notify "train"), everyone else's from their
 --           TrainShots counter. The gun flashes, the target wobbles and puffs frost where it's hit.
 --   Frost:  on the target I'm training on, frost climbs up it and its warm parts (named Heat) cool toward
 --           ice as my meter fills; at a shatter it bursts, flashes and the frost falls away.
---   Hint:   "CLICK!" / "TAP!" / "R2!" pulses over my target with the shatter meter under it (the one next action).
 --   Pops:   "+N" shoots off the target to one side on each of my shots (CoinPops' motion); a shatter's
 --           bonus is a big gold one.
 --   Facing: standing still on a station turns you to face its target.
 --   Lock:   while the server holds you at your trainer ("TrainLocked", owner 2026-11-11), you always face
---           the target, can't jump, the camera swings round behind you once, and a red STOP button
---           takes the hotbar's place (click / tap, Space, or gamepad B). STOP tells the server to let you go.
--- One HUD piece, the STOP button; the Cold Power counter (HudController) already bounces as it climbs.
+--           the target and the camera swings round behind you once. Any jump (Space, the touch jump
+--           button, gamepad A) or gamepad B tells the server to let you go and hops you off to your right,
+--           clear of the pad (the owner's reference clip, 2026-11-11; Config.training.lock.hop). The hop is
+--           a drawn arc, so it clears side walls. No STOP button (owner 2026-11-11: like the reference).
+-- No HUD pieces; the Cold Power counter (HudController) already bounces as it climbs.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
 local TextService = game:GetService("TextService")
 local UserInputService = game:GetService("UserInputService")
 local CollectionService = game:GetService("CollectionService")
@@ -31,7 +31,6 @@ local Config = require(ReplicatedStorage.Shared.Config)
 local Theme = require(ReplicatedStorage.Shared.Theme)
 local Ui = require(script.Parent.Parent.Lib.Ui)
 local State = require(script.Parent.State)
-local InputController = require(script.Parent.InputController)
 local SettingsController = require(script.Parent.SettingsController)
 local SoundController = require(script.Parent.SoundController)
 local EffectsController = require(script.Parent.EffectsController)
@@ -87,7 +86,7 @@ local function myStation(): number
 	return if typeof(i) == "number" and Config.world.plots[i] then i else 0
 end
 
--- the server holds me at my trainer until I press STOP
+-- the server holds me at my trainer until I jump off
 local function locked(): boolean
 	return me:GetAttribute("TrainLocked") == true
 end
@@ -441,19 +440,23 @@ local function stepPops(now: number)
 	end
 end
 
--- ---------- the trainer signs ----------
--- "x5 Cold Power" over each owned pan's trainer, in its level's colour, lighter at the top (the
--- reference's chunky titles); retitled when its owner upgrades it
-type Sign = { gui: BillboardGui, title: TextLabel, grad: UIGradient, anchor: Part, tier: number }
-local signs: { [number]: Sign } = {}
+-- ---------- the trainers' levels, and my "+N/shot" label ----------
+-- Every pan: when its trainer's level changes, the bolts aim at the new target's middle and the new
+-- trainer arrives with a burst in its colour.
+-- Over MY trainer only (owner 2026-11-11, from the reference's "+30/step"): "+N/shot", the Cold Power one
+-- shot gives me right now (the server's own Config.trainGain), in my trainer level's colour. It shows only
+-- while my character stands within signShowStuds of the trainer.
+local tiers: { [number]: number } = {}
+type Sign = { gui: BillboardGui, title: TextLabel, grad: UIGradient, anchor: Part, plot: number, tier: number, text: string }
+local sign: Sign? = nil
 
-local function buildSign(i: number)
-	local anchor = anchorPart("TrainSign" .. i, Config.trainerTarget(i)) -- placed by refreshSigns
+local function buildSign()
+	local anchor = anchorPart("TrainSign", Vector3.zero) -- placed by refreshTrainers
 	local g = Instance.new("BillboardGui")
 	g.Name = "TrainSign"
 	g.LightInfluence = 0
-	g.MaxDistance = U.signMaxDistance
 	g.ResetOnSpawn = false
+	g.Enabled = false
 	g.Adornee = anchor
 	local title = Ui.label(g, "", UDim2.fromScale(1, 1), UDim2.fromScale(0, 0))
 	title.Name = "Title"
@@ -466,108 +469,69 @@ local function buildSign(i: number)
 	grad.Rotation = 90
 	grad.Parent = title
 	g.Parent = me:WaitForChild("PlayerGui")
-	signs[i] = { gui = g, title = title, grad = grad, anchor = anchor, tier = 0 }
+	sign = { gui = g, title = title, grad = grad, anchor = anchor, plot = 0, tier = 0, text = "" }
 end
 
--- each frame: a sign shows only over a pan someone owns, with its trainer's current level
-local function refreshSigns()
-	local map = workspace:FindFirstChild("Map")
-	for i, s in signs do
-		local owned = map ~= nil and typeof(map:GetAttribute("PlotOwner" .. i)) == "number"
-		s.gui.Enabled = owned
+-- the Cold Power one of my shots gives on a trainer of this level (what TrainingService pays)
+local function myGain(tier: number): number
+	local v = State.view
+	if not v then
+		return 0
+	end
+	local gun = me:GetAttribute("GunTier")
+	return Config.trainGain(tier, Config.powerLevel(v.coldPower or 0), if typeof(gun) == "number" then gun else 1,
+		v.rebirths or 0, me:GetAttribute("Pass_doublePower") == true)
+end
+
+local function refreshTrainers()
+	for i in Config.world.plots do
 		local tier = tierAt(i)
-		if tier ~= s.tier then
-			local upgraded = s.tier ~= 0 and tier > s.tier
-			s.tier = tier
-			local st = T.stations[tier]
-			local col = TT.stations[st.kind] and TT.stations[st.kind].title or TT.power
-			local text = `x{st.mult} Cold Power`
-			s.title.Text = text
-			s.grad.Color = ColorSequence.new(col:Lerp(Theme.white, 0.35), col)
-			local w = TextService:GetTextSize(text, U.signPx, Theme.font, Vector2.new(2000, 400)).X
-			s.gui.Size = UDim2.fromOffset(w + 24, U.signPx * 1.3)
+		local was = tiers[i]
+		if tier ~= was then
+			tiers[i] = tier
 			local a = aims[i]
 			if a then
-				a.CFrame = CFrame.new(aimAt(i)) -- the bolts aim at the new target's middle
+				a.CFrame = CFrame.new(aimAt(i))
 			end
-			-- the title floats signGap studs over this level's target (clear of the CLICK! hint)
-			s.anchor.CFrame = CFrame.new(Config.trainerTarget(i) + Vector3.new(0, T.padHeight + st.shell.bottom + st.shell.height + U.signGap, 0))
-			if upgraded then -- the new trainer arrives with a burst in its colour
+			if was and tier > was then
+				local st = T.stations[tier]
+				local col = TT.stations[st.kind] and TT.stations[st.kind].title or TT.power
 				EffectsController.burst(aimAt(i) - Vector3.new(0, 2, 0), col, 30)
 				EffectsController.burst(aimAt(i) - Vector3.new(0, 2, 0), Theme.white, 12)
 			end
 		end
 	end
-end
-
--- ---------- "CLICK!" and the shatter meter over my target ----------
-local hint: { gui: BillboardGui, text: TextLabel, fill: Frame, scale: UIScale }? = nil
-local hintTween: Tween? = nil
-
-local function buildHint()
-	local g = Instance.new("BillboardGui")
-	g.Name = "TrainHint"
-	g.LightInfluence = 0
-	g.AlwaysOnTop = true
-	g.ResetOnSpawn = false
-	g.Enabled = false
-	g.Size = UDim2.fromOffset(U.hintPx * 5, U.hintPx * 2.1)
-	local box = Instance.new("Frame")
-	box.BackgroundTransparency = 1
-	box.Size = UDim2.fromScale(1, 1)
-	box.Parent = g
-	local scale = Instance.new("UIScale")
-	scale.Parent = box
-	local text = Ui.label(box, "CLICK!", UDim2.new(1, 0, 0, U.hintPx * 1.25), UDim2.fromScale(0, 0))
-	text.TextScaled = false
-	text.TextSize = U.hintPx
-	text.TextColor3 = TT.power
-	local track = Instance.new("Frame")
-	track.Name = "Meter"
-	track.AnchorPoint = Vector2.new(0.5, 0)
-	track.Position = UDim2.new(0.5, 0, 0, U.hintPx * 1.35)
-	track.Size = UDim2.new(0.62, 0, 0, U.hintPx * 0.42)
-	track.BackgroundColor3 = Theme.ink:Lerp(Theme.white, Config.ui.barTrackAlpha)
-	track.BorderSizePixel = 0
-	Ui.corner(track, 1)
-	Ui.stroke(track)
-	track.Parent = box
-	local fill = Instance.new("Frame")
-	fill.Name = "Fill"
-	fill.BackgroundColor3 = TT.power
-	fill.BorderSizePixel = 0
-	fill.Size = UDim2.fromScale(0, 1)
-	Ui.corner(fill, 1)
-	fill.Parent = track
-	g.Parent = me:WaitForChild("PlayerGui")
-	hint = { gui = g, text = text, fill = fill, scale = scale }
-end
-
-local function showHint(i: number)
-	local h = hint
-	if not h then
+	local s = sign
+	if not s then
 		return
 	end
-	local on = i ~= 0 and me:GetAttribute("TrainReady") == true
-	if on then
-		local d = InputController.device()
-		h.text.Text = if d == "touch" then "TAP!" elseif d == "gamepad" then "R2!" else "CLICK!"
-		local anchor = aims[i]
-		h.gui.Adornee = anchor
-		local st = stationOf(i)
-		h.gui.StudsOffset = Vector3.new(0, st.shell.bottom + st.shell.height - st.aimY + U.hintY, 0) -- just over the target's top
+	local v = State.view
+	local i = if v and v.plot and Config.world.plots[v.plot] then v.plot else 0
+	local root = me.Character and me.Character:FindFirstChild("HumanoidRootPart")
+	local near = false
+	if i ~= 0 and root and root:IsA("BasePart") then
+		local t = Config.trainerTarget(i)
+		near = Vector3.new(root.Position.X - t.X, 0, root.Position.Z - t.Z).Magnitude <= U.signShowStuds
 	end
-	if on ~= h.gui.Enabled then
-		h.gui.Enabled = on
-		if hintTween then
-			hintTween:Cancel()
-			hintTween = nil
-		end
-		h.scale.Scale = 1
-		if on and not reduced() then
-			hintTween = TweenService:Create(h.scale, TweenInfo.new(U.hintPulse.seconds, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Scale = U.hintPulse.scale })
-			hintTween:Play()
-		end
+	s.gui.Enabled = near
+	if not near then
+		return
+	end
+	local tier = tiers[i] or 1
+	if i ~= s.plot or tier ~= s.tier then
+		s.plot, s.tier = i, tier
+		local st = T.stations[tier]
+		local col = TT.stations[st.kind] and TT.stations[st.kind].title or TT.power
+		s.grad.Color = ColorSequence.new(col:Lerp(Theme.white, 0.35), col)
+		-- signGap studs over this level's target
+		s.anchor.CFrame = CFrame.new(Config.trainerTarget(i) + Vector3.new(0, T.padHeight + st.shell.bottom + st.shell.height + U.signGap, 0))
+	end
+	local text = `+{Config.powerText(myGain(tier))}/shot`
+	if text ~= s.text then
+		s.text = text
+		s.title.Text = text
+		local w = TextService:GetTextSize(text, U.signPx, Theme.font, Vector2.new(2000, 400)).X
+		s.gui.Size = UDim2.fromOffset(w + 24, U.signPx * 1.3)
 	end
 end
 
@@ -650,56 +614,96 @@ local function tryShot(): boolean
 	return true
 end
 
--- ---------- lock mode: the STOP button ----------
-local stopButton: Frame? = nil
-local jumpOff = false -- I switched jumping off for the lock
+-- ---------- lock mode: hopping off (any jump, gamepad B) ----------
+local hopped = false -- I've asked to leave this lock (cleared when the next one starts)
+type Hop = { t0: number, from: Vector3, to: Vector3, look: Vector3, right: Vector3 }
+local hop: Hop? = nil
 
-local function pressStop()
-	if not locked() then
-		return
-	end
-	SoundController.play("click")
-	State.send("Train", "stop")
+-- locked in and not already leaving
+local function holding(): boolean
+	return locked() and not hopped
 end
 
-local function buildStop()
-	local holder = Instance.new("Frame")
-	holder.Name = "TrainStop"
-	holder.BackgroundTransparency = 1
-	holder.Visible = false
-	local b = Ui.block(holder, "Stop", Theme.no, "STOP", pressStop) -- red = stop / no (UI Rules)
-	b.root.Size = UDim2.fromScale(1, 1)
-	stopButton = holder
-	Screen.register("trainStop", holder)
+-- the ground's height under a point (my character ignored)
+local function groundY(from: Vector3, ignore: Instance): number?
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { ignore }
+	local hit = workspace:Raycast(from, Vector3.new(0, -40, 0), params)
+	return if hit then hit.Position.Y else nil
+end
+
+local function hopOff()
+	if not holding() then
+		return
+	end
+	hopped = true
+	State.send("Train", "stop")
+	local i = myStation()
+	local c = me.Character
+	local hum = c and c:FindFirstChildOfClass("Humanoid")
+	local root = c and c:FindFirstChild("HumanoidRootPart")
+	if i == 0 or not c or not hum or not root or not root:IsA("BasePart") or hum.Health <= 0 then
+		return
+	end
+	local p = root.Position
+	local at = Config.trainerTarget(i)
+	local flat = Vector3.new(at.X - p.X, 0, at.Z - p.Z)
+	local look = if flat.Magnitude > 0.1 then flat.Unit else Vector3.zAxis
+	local right = look:Cross(Vector3.yAxis) -- my right as I face the target
+	local land = p + right * T.lock.hop.side
+	local standH = p.Y - (groundY(p, c) or p.Y - hum.HipHeight - root.Size.Y / 2)
+	local gy = groundY(Vector3.new(land.X, p.Y + 6, land.Z), c)
+	local to = Vector3.new(land.X, if gy then gy + standH else p.Y - T.padHeight, land.Z)
+	hum:ChangeState(Enum.HumanoidStateType.Jumping) -- the jump animation and sound
+	hum.AutoRotate = false
+	hop = { t0 = os.clock(), from = p, to = to, look = look, right = right }
+end
+
+-- each frame of the hop: up and over to the landing spot, turning toward where I'm going
+local function stepHop(now: number)
+	local h = hop
+	if not h then
+		return
+	end
+	local c = me.Character
+	local hum = c and c:FindFirstChildOfClass("Humanoid")
+	local root = c and c:FindFirstChild("HumanoidRootPart")
+	if not hum or not root or not root:IsA("BasePart") or hum.Health <= 0 then
+		hop = nil
+		return
+	end
+	local H = T.lock.hop
+	local u = math.min(1, (now - h.t0) / H.seconds)
+	local base = h.from:Lerp(h.to, u)
+	local pos = base + Vector3.new(0, 4 * H.height * u * (1 - u), 0)
+	local face = h.look:Lerp(h.right, math.min(1, u * 1.5))
+	root.CFrame = CFrame.lookAt(pos, pos + face)
+	if u < 1 then
+		-- moving along the arc, so physics carries on the same way between frames
+		local d = (h.to - h.from) / H.seconds
+		root.AssemblyLinearVelocity = Vector3.new(d.X, d.Y + 4 * H.height * (1 - 2 * u) / H.seconds, d.Z)
+	else
+		root.AssemblyLinearVelocity = Vector3.new(0, -10, 0)
+		hum.AutoRotate = true
+		hop = nil
+	end
 end
 
 local function applyLock()
 	local on = locked()
-	if stopButton then
-		stopButton.Visible = on
-	end
-	local c = me.Character
-	local hum = c and c:FindFirstChildOfClass("Humanoid")
-	if hum then
-		if on then
-			hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
-			jumpOff = true
-		elseif jumpOff then
-			hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-			jumpOff = false
-		end
-	end
 	if on then
-		-- Space (jumping is off while locked) and gamepad B press STOP; B leaves an open popup to close it
+		hopped = false
+		-- gamepad B hops off too (jumps come through JumpRequest); B leaves an open popup to close it
 		ContextActionService:BindActionAtPriority("IceRay_TrainStop", function(_, st: Enum.UserInputState, input: InputObject)
-			if UserInputService:GetFocusedTextBox() or (Screen.popupOpen and input.KeyCode == Enum.KeyCode.ButtonB) then
+			if UserInputService:GetFocusedTextBox() or Screen.popupOpen then
 				return Enum.ContextActionResult.Pass
 			end
 			if st == Enum.UserInputState.Begin then
-				pressStop()
+				hopOff()
 			end
 			return Enum.ContextActionResult.Sink
-		end, false, Enum.ContextActionPriority.High.Value, Enum.KeyCode.Space, Enum.KeyCode.ButtonB)
+		end, false, Enum.ContextActionPriority.High.Value, Enum.KeyCode.ButtonB)
 		-- once the server's snap has landed, the camera swings round behind me toward the target
 		task.delay(0.2, function()
 			local i = myStation()
@@ -719,11 +723,11 @@ local function faceTarget(i: number, dt: number)
 	local c = me.Character
 	local hum = c and c:FindFirstChildOfClass("Humanoid")
 	local root = c and c:FindFirstChild("HumanoidRootPart")
-	if not hum or not root or not root:IsA("BasePart") then
-		return
+	if not hum or not root or not root:IsA("BasePart") or hop then
+		return -- the hop steers me itself
 	end
 	local still = hum.MoveDirection.Magnitude < 0.1 and hum.FloorMaterial ~= Enum.Material.Air
-	if i ~= 0 and (locked() or me:GetAttribute("TrainReady") == true and still) then
+	if i ~= 0 and not hopped and (locked() or me:GetAttribute("TrainReady") == true and still) then
 		local goal = Config.trainerTarget(i)
 		local flat = Vector3.new(goal.X, root.Position.Y, goal.Z)
 		if (flat - root.Position).Magnitude > 1 then
@@ -740,7 +744,7 @@ end
 
 local function step(dt: number)
 	local now = os.clock()
-	refreshSigns()
+	refreshTrainers()
 	stepBolts(now)
 	stepPops(now)
 	local i = myStation()
@@ -760,10 +764,7 @@ local function step(dt: number)
 	for si, l in looks do
 		stepWobble(l, now, if si == frost.station then shiver else 0)
 	end
-	local h = hint
-	if h and h.gui.Enabled then
-		h.fill.Size = UDim2.fromScale(math.clamp(frost.shown, 0, 1), 1)
-	end
+	stepHop(now)
 	faceTarget(i, dt)
 end
 
@@ -797,13 +798,11 @@ function TrainingController.Start()
 	frost.shell = shell
 	for i in Config.world.plots do
 		aims[i] = anchorPart("TrainAim" .. i, aimAt(i))
-		buildSign(i)
 	end
-	buildHint()
-	buildStop()
+	buildSign()
 	me:GetAttributeChangedSignal("TrainLocked"):Connect(applyLock)
 	applyLock()
-	refreshSigns()
+	refreshTrainers()
 	for _, m in CollectionService:GetTagged(T.targetTag) do
 		addTarget(m)
 	end
@@ -817,7 +816,6 @@ function TrainingController.Start()
 		if i ~= 0 and frost.station == i and typeof(m) == "number" and m > frost.goal then
 			frost.goal = m -- coming back to a target you'd half-frosted
 		end
-		showHint(i)
 	end
 	for _, name in { "TrainStation", "TrainReady", "TrainMeter" } do
 		me:GetAttributeChangedSignal(name):Connect(refreshMine)
@@ -842,6 +840,8 @@ function TrainingController.Start()
 			tryShot()
 		end
 	end)
+	-- any jump while locked in (Space, the touch jump button, gamepad A) hops me off
+	UserInputService.JumpRequest:Connect(hopOff)
 	RunService.RenderStepped:Connect(step)
 end
 

@@ -112,19 +112,10 @@ function Screen.layout()
 		banner.Position = UDim2.fromScale(0.5, sy(U.topInset * 2 + IB.height))
 	end
 	-- the hotbar: bottom centre, between the thumbstick and the jump button on touch screens
-	-- the STOP button (only while locked in at your trainer): it takes the hotbar's place
-	local stop = items.trainStop
-	local stopOn = stop ~= nil and stop.Visible
-	if stop then
-		local S = U.training.stop
-		stop.AnchorPoint = Vector2.new(0.5, 1)
-		stop.Size = UDim2.fromScale(sx(S[1]), sy(if touch then math.max(S[2], U.minTouchPx / short) else S[2]))
-		stop.Position = UDim2.fromScale(0.5, 1 - sy(Config.hotbar.bottomInset))
-	end
 	local hotbar = items.hotbar
 	if hotbar then
 		-- a phone popup takes the whole height, so the hotbar would peek out from under it: it steps aside
-		hotbar.Visible = not (Screen.popupOpen and Screen.deviceClass() == "phone") and not stopOn
+		hotbar.Visible = not (Screen.popupOpen and Screen.deviceClass() == "phone")
 		local H = Config.hotbar
 		local n = math.max(1, (hotbar:GetAttribute("Slots") or 1) :: number)
 		local k = slotSize / H.size -- the gap grows with the slot, so GearController's proportions still hold
@@ -170,7 +161,7 @@ function Screen.layout()
 	end
 end
 
--- name: "tiles" | "coins" | "power" | "island" | "banner" | "hotbar" | "tutorial" | "trainStop"; count = number of tiles for "tiles"
+-- name: "tiles" | "coins" | "power" | "island" | "banner" | "hotbar" | "tutorial"; count = number of tiles for "tiles"
 -- (the hotbar's slot count is its "Slots" attribute)
 function Screen.register(name: string, obj: GuiObject, count: number?)
 	items[name] = obj

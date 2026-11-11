@@ -462,22 +462,18 @@ Config.ui = {
 	powerSize = { 0.3, 0.07 }, powerPop = { scale = 1.18, seconds = 0.22 },
 	-- Cold Power trainers (2026-11-10): no HUD pieces, everything floats in the world (pixel-sized
 	-- BillboardGuis, the same size at any distance, like the coin pops).
-	--   sign*  = each owned pan's "x5 Cold Power" title, signGap studs over its trainer's target
-	--   hint*  = "CLICK!" / "TAP!" / "R2!" pulsing over the target you're training on (the one next action)
+	--   sign*  = "+N/shot" over your own trainer (owner 2026-11-11), signGap studs over its target. It shows
+	--            only while your character is within signShowStuds of the target (flat distance)
 	--   pop    = the "+N" that shoots off the target on every shot (CoinPops' motion), big* on a shatter
 	--   bolt   = the frost bolt from the gun's tip to the target (seconds in flight, size in studs)
 	--   wobble = the target's squash when a bolt lands; turnSpeed = how fast you turn to face it
 	training = {
-		signPx = 40, signGap = 4.6, signMaxDistance = 150,
-		hintPx = 30, hintY = 1.4, hintPulse = { scale = 1.14, seconds = 0.45 },
+		signPx = 32, signGap = 3.5, signShowStuds = 25, -- signGap clears the heat bag frame's top beam
 		pop = { px = 34, bigPx = 56, iconPx = 36, outX = { 40, 95 }, outY = { 36, 78 }, out = 0.22, hold = 0.5, exit = 0.18,
 			drift = 12, tilt = 10, startScale = 0.45, exitScale = 0.8, maxActive = 18, maxDistance = 90, boxPx = { 420, 260 } },
 		bolt = { seconds = 0.13, size = 0.55, clickSize = 0.9, trail = 0.14 },
 		wobble = { squash = 0.12, seconds = 0.28, shatterSeconds = 0.5 },
 		turnSpeed = 10,
-		-- lock mode: the red STOP button takes the hotbar's place (bottom centre) while you're locked in.
-		-- stop = its size (w, h) as shares of the screen's short side
-		stop = { 0.34, 0.1 },
 	},
 	topInset = 0.02, sideInset = 0.03, touchLift = 0.28, -- the coins sit above the thumbstick on touch screens
 	-- the island banner (owner 2026-11-07, from a reference clip): walking onto an island drops a strip
@@ -1724,11 +1720,14 @@ Config.training = {
 	shatterHits = 12, shatterBonus = 5,
 	tickSeconds = 0.1,
 	arrowSeconds = 6, -- after "Need more Cold Power" the guide arrow points at your trainer this long
-	-- lock mode (owner 2026-11-11, from a reference clip): stepping on your trainer snaps you to the stand
-	-- spot (standZ) facing the target and holds you there, training, until you press STOP. After STOP you
-	-- walk off; the pad locks you again only once you've stepped off it. breakStuds: pulled further than
-	-- this from the stand spot (a tester teleport, a fling) = the lock lets go.
-	lock = { breakStuds = 8 },
+	-- lock mode (owner 2026-11-11, from reference clips): stepping on your trainer snaps you to the stand
+	-- spot (standZ) facing the target and holds you there, training, until you jump (Space, the touch jump
+	-- button, gamepad A or B; no STOP button, owner 2026-11-11). Then you hop off to your right, clear of
+	-- the pad: hop.side studs sideways, an arc hop.height studs high, over hop.seconds (it passes over the
+	-- side walls). The pad
+	-- locks you again only once you've stepped off it. breakStuds: pulled further than this from the stand
+	-- spot (a tester teleport, a fling) = the lock lets go.
+	lock = { breakStuds = 8, hop = { side = 9, height = 4.5, seconds = 0.45 } },
 }
 
 -- pan `plot`'s trainer: its middle on the ground; its local +Z (the target side) faces the plaza

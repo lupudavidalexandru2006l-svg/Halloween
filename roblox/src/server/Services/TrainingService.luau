@@ -13,7 +13,8 @@
 -- client draws every bolt. Nothing is lost and there's no clock: step off and the frost is kept.
 -- Lock mode (owner 2026-11-11, Config.training.lock): stepping on your trainer snaps you to its stand spot
 -- facing the target and holds you there ("TrainLocked"; PlayerTracker drops your walk speed to 0) until
--- you press STOP ("Train" "stop"). After a STOP the pad stays quiet until you've stepped off it.
+-- you jump ("Train" "stop"; the client hops you off the pad). After that the pad stays
+-- quiet until you've stepped off it.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -40,8 +41,8 @@ type State = {
 	clicks: { number }, -- click shots counted in the last second
 	gained: number, -- Cold Power since they stepped on (analytics)
 	shots: number,
-	locked: boolean, -- held at the stand spot until STOP
-	released: boolean, -- pressed STOP: the pad won't lock them again until they step off it
+	locked: boolean, -- held at the stand spot until they jump off
+	released: boolean, -- jumped off: the pad won't lock them again until they step off it
 }
 local states: { [Player]: State } = {}
 local folder: Folder
@@ -208,7 +209,7 @@ end
 
 -- a click shot: counted only on your trainer when you can train, at most clickMax a second
 local function onTrain(player: Player, action: any)
-	if action == "stop" then -- the STOP button: let go and stay free until they step off the pad
+	if action == "stop" then -- they jumped off: let go and stay free until they step off the pad
 		local s = states[player]
 		if s and s.locked then
 			setLocked(player, s, false)
