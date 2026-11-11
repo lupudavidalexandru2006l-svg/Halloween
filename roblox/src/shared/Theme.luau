@@ -36,7 +36,7 @@ local Theme = {
 		coins = Color3.fromHex("ffb020"),
 		charges = Color3.fromHex("3aa8ff"),
 		chill = Color3.fromHex("2ec4c4"),
-		power = Color3.fromHex("35c8e8"), -- Cold Power packs: the Training Rink's frosty cyan
+		power = Color3.fromHex("35c8e8"), -- Cold Power packs: frosty cyan
 	} :: { [string]: Color3 },
 	-- shop v2 badges: the "+45% MORE" sticker in present pink (a bonus, never red), and the Best Value
 	-- ribbon in gold on ink, so the two never read as the same thing
@@ -176,19 +176,44 @@ local Theme = {
 		endCap = Color3.fromHex("dff6ff"), endCapGlow = Color3.fromHex("bfe9ff"),
 	},
 	-- the fast pan upgrade's flash cools into these (a new Look uses its own glow, panLooks)
-	upgradeGlow = { slots = Color3.fromHex("ffd45a"), cold = Color3.fromHex("7fdcff") } :: { [string]: Color3 },
+	upgradeGlow = { slots = Color3.fromHex("ffd45a"), cold = Color3.fromHex("7fdcff"), trainer = Color3.fromHex("5ee6ff") } :: { [string]: Color3 },
 	booths = {
 		sell = Color3.fromHex("ffc93c"), equipment = Color3.fromHex("3aa8ff"), rebirth = Color3.fromHex("aa50e6"), pan = Color3.fromHex("3ccf6e"),
-		rink = Color3.fromHex("35c8e8"), -- the Training Rink: frosty cyan (not the info blue of Equipment)
 	} :: { [string]: Color3 },
-	-- the Training Rink (Cold Power, 2026-11-10): candy-orange fire sprites with ink faces on a pale ice
-	-- floor with glowing cyan runes. power = the Cold Power number and its bars everywhere.
-	rink = {
-		flame = Color3.fromHex("ff8a2a"), flameCore = Color3.fromHex("ffd84a"), golden = Color3.fromHex("ffc93c"),
-		goldenCore = Color3.fromHex("fff3a0"), face = Color3.fromHex("1b1433"), cheek = Color3.fromHex("ff5a8a"),
-		ice = Color3.fromHex("bfe9ff"), rune = Color3.fromHex("5ee6ff"), floor = Color3.fromHex("e3f4ff"), floorSide = Color3.fromHex("8fc8ee"),
-		crystal = Color3.fromHex("9fe3ff"), sculpture = Color3.fromHex("d9f6ff"), power = Color3.fromHex("5ee6ff"),
+	-- Cold Power (2026-11-10). power = the Cold Power number and its bars everywhere; heat* = the gun's
+	-- heat arc. The Frost Training Yard (2026-11-10, replaces the sky rink): each station's own palette,
+	-- warm targets (a snowman, a heat bag, a magma golem, a little sun) that frost over as you shoot them.
+	-- title = its floating "x5 Cold Power" sign, in the reference's lime / yellow / purple / orange order.
+	training = {
+		power = Color3.fromHex("5ee6ff"), frost = Color3.fromHex("bfe9ff"), frostGlow = Color3.fromHex("8ff0ff"),
 		heatCool = Color3.fromHex("5ee6ff"), heatWarm = Color3.fromHex("ffb020"), heatHot = Color3.fromHex("ff5a5f"), -- the gun's heat arc
+		shatter = Color3.fromHex("ffd34a"), -- the big "+N" when a target freezes solid and shatters
+		pad = Color3.fromHex("ece6f7"), padSide = Color3.fromHex("9b92b8"), padEdge = Color3.fromHex("6d6390"),
+		stations = {
+			snowman = {
+				title = Color3.fromHex("7ee35a"), floor = Color3.fromHex("eef7ff"), tile = Color3.fromHex("cfe7fb"),
+				wood = Color3.fromHex("b77b48"), woodDark = Color3.fromHex("8a5530"), snow = Color3.fromHex("f7fbff"),
+				hat = Color3.fromHex("ff5a5f"), hatBand = Color3.fromHex("ffd34a"), ring = Color3.fromHex("ff5a5f"), ringLight = Color3.fromHex("fff8ec"),
+				carrot = Color3.fromHex("ff9a3c"), coal = Color3.fromHex("2b2340"), scarf = Color3.fromHex("3aa8ff"),
+			},
+			heatbag = {
+				title = Color3.fromHex("ffd23a"), floor = Color3.fromHex("d98a4e"), tile = Color3.fromHex("c27640"),
+				post = Color3.fromHex("2f3a6b"), cap = Color3.fromHex("ff4f5e"), rope = Color3.fromHex("fff8ec"),
+				mat = Color3.fromHex("e8414f"), matRing = Color3.fromHex("fff1e0"), bag = Color3.fromHex("ff5a4a"), band = Color3.fromHex("fff1e0"),
+				heat = Color3.fromHex("ffb020"), chain = Color3.fromHex("6d6390"),
+			},
+			golem = {
+				title = Color3.fromHex("c77dff"), floor = Color3.fromHex("c4bdd6"), tile = Color3.fromHex("aca4c2"),
+				wall = Color3.fromHex("a49cbb"), wallDark = Color3.fromHex("7e7699"), gold = Color3.fromHex("ffc93c"),
+				carpet = Color3.fromHex("d6334a"), banner = Color3.fromHex("c7283f"), rock = Color3.fromHex("4a3f5c"), rockLight = Color3.fromHex("66597d"),
+				magma = Color3.fromHex("ff7a1a"), eyes = Color3.fromHex("ffd84a"), flame = Color3.fromHex("5ee6ff"),
+			},
+			sun = {
+				title = Color3.fromHex("ff8a2a"), floor = Color3.fromHex("2a3160"), tile = Color3.fromHex("343d75"),
+				pylon = Color3.fromHex("3b4478"), trim = Color3.fromHex("e9f6ff"), neon = Color3.fromHex("5ee6ff"), neonAlt = Color3.fromHex("ff5ad1"),
+				core = Color3.fromHex("ffb020"), coreHot = Color3.fromHex("fff3a0"), corona = Color3.fromHex("ff8a2a"), ring = Color3.fromHex("ffd84a"),
+			},
+		} :: { [string]: { [string]: Color3 } },
 	},
 
 	-- effects and guides (prototype client.js)

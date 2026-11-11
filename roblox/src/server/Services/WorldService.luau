@@ -173,7 +173,7 @@ local function buildHub()
 	-- the booths by the tunnel mouth (features come later; MapArt draws the stall, awning and sign)
 	for _, b in W.booths do
 		local counter = collider("Booth_" .. b.id, Vector3.new(10, 4, 5), CFrame.new(b.pos.X, 2, b.pos.Z), map)
-		local pp = prompt(counter, if b.action == "rink" then "Enter" else "Open", b.label, Config.player.openHold, Vector3.new(0, 1, -3))
+		local pp = prompt(counter, "Open", b.label, Config.player.openHold, Vector3.new(0, 1, -3))
 		pp:SetAttribute("Booth", b.id)
 		pp:SetAttribute("Action", b.action)
 		local BS = W.boothSign

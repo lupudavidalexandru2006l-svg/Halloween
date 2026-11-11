@@ -77,6 +77,20 @@ function CameraController.giveBack()
 	fovNow = nil -- glide back from whatever the show left
 end
 
+-- lock mode (TrainingController): swing the follow camera round behind the character, looking at `at`
+-- (the spawn framing's angle). Roblox's camera keeps its own zoom and carries on from this direction.
+function CameraController.lookPast(root: BasePart, at: Vector3)
+	local cam = workspace.CurrentCamera
+	local flat = Vector3.new(at.X - root.Position.X, 0, at.Z - root.Position.Z)
+	if not cam or borrowed or flat.Magnitude < 0.1 then
+		return
+	end
+	local C = Config.camera
+	local dist = (cam.CFrame.Position - cam.Focus.Position).Magnitude
+	local back = Vector3.new(0, C.startHeight, 0) - flat.Unit * C.startBack
+	cam.CFrame = CFrame.lookAt(root.Position + back.Unit * math.max(dist, C.minZoom), root.Position + flat.Unit * C.startLookAhead)
+end
+
 -- where the camera was when the show borrowed it (the show flies back there before handing it over)
 function CameraController.homeCFrame(): CFrame?
 	return if borrowed then borrowed.cframe else nil

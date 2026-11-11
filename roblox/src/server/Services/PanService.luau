@@ -2,12 +2,14 @@
 -- PanService (Round 4 phase 5): owns the pan upgrades, bought at your own pan's Pan Upgrades stand.
 --   Slots      = upgrades.pen (how many pets the pan holds; rebirth resets it)
 --   Look       = pan.look (straw -> wood -> stone -> crystal ice -> aurora; rebirth keeps it)
+--   Trainer    = pan.trainer (snowman -> heat bag -> magma golem -> little sun: x1 -> x10 Cold Power;
+--                rebirth keeps it; TrainingService builds it)
 -- (Cold Level was removed with the Cold Power remake, 2026-11-10: the pan keeps every pet frozen.)
 -- Prices and levels: Config.pan / Config.panPrice / Config.panMax. Buying follows GunService: decided
 -- here, at the stand (the server's own position), price looked up on the server, checked again inside
 -- the one DataService.mutate that charges (nothing can run in between), plus a short cooldown.
 -- It also puts each pan's Look and its owner's Cold Power on the map (attributes PanLook<i> /
--- PanPower<i>), so every client draws every pan's look and gauge; the buyer's client then plays the
+-- PanPower<i> / PanTrainer<i>), so every client draws every pan's look and gauge; the buyer's client then plays the
 -- upgrade show (Show).
 
 local Players = game:GetService("Players")
@@ -30,6 +32,9 @@ local shownOn: { [Player]: number } = {} -- the plot whose attributes this playe
 function PanService.level(d: Data, kind: string): number
 	if kind == "slots" then
 		return d.upgrades.pen
+	end
+	if kind == "trainer" then
+		return d.pan.trainer
 	end
 	return d.pan.look
 end
@@ -67,7 +72,7 @@ local function publish(player: Player)
 		return
 	end
 	shownOn[player] = plot
-	-- the owner's Cold Power on their pan's gauge, to 2 digits (it changes many times a second in the rink)
+	-- the owner's Cold Power on their pan's gauge, to 2 digits (it changes several times a second while training)
 	local power = d.coldPower
 	if power >= 100 then
 		local unit = 10 ^ (math.floor(math.log10(power)) - 1)
@@ -78,6 +83,9 @@ local function publish(player: Player)
 	end
 	if map:GetAttribute("PanLook" .. plot) ~= d.pan.look then
 		map:SetAttribute("PanLook" .. plot, d.pan.look)
+	end
+	if map:GetAttribute("PanTrainer" .. plot) ~= d.pan.trainer then
+		map:SetAttribute("PanTrainer" .. plot, d.pan.trainer)
 	end
 end
 
@@ -112,6 +120,8 @@ local function buy(player: Player, kind: any)
 		if kind == "slots" then
 			x.upgrades.pen = old + 1
 			PenService.fillEmptySlots(x) -- the new slots take the best pets from Storage
+		elseif kind == "trainer" then
+			x.pan.trainer = old + 1 -- TrainingService rebuilds the pan's trainer from PanTrainer<i>
 		else
 			x.pan.look = old + 1
 		end
@@ -145,6 +155,7 @@ function PanService.Start()
 		if plot and map then
 			map:SetAttribute("PanPower" .. plot, nil) -- a free pan looks like a new one
 			map:SetAttribute("PanLook" .. plot, nil)
+			map:SetAttribute("PanTrainer" .. plot, nil)
 		end
 	end)
 end

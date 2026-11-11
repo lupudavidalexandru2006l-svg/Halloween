@@ -78,7 +78,7 @@ local function drawGauges()
 		local gauge = gauges[i]
 		if gauge and not gauge.flashing then
 			local power = powerOf(i)
-			setGauge(gauge, power / Config.nextNeed(power), Theme.rink.power, Config.coinText(power))
+			setGauge(gauge, power / Config.nextNeed(power), Theme.training.power, Config.powerText(power))
 		end
 	end
 end

@@ -28,6 +28,7 @@ local PopupController = {}
 type Open = { name: string, data: any, frame: Frame, body: Frame, first: GuiObject?, update: ((State.View) -> ())?, closed: boolean?, shown: string? }
 local current: Open? = nil
 local queue: { { name: string, data: any } } = {}
+local shopKey: ((State.View) -> string)? = nil -- the Shop's "what it shows" key (set with the Shop below)
 local MENUS = { pets = true, shop = true, index = true, settings = true, tester = true, equipment = true, pan = true, sell = true, rebirth = true, thaw = true, daily = true }
 local TITLES: { [string]: string } = {
 	pets = "Pets", shop = "Shop", index = "Index", settings = "Settings", tester = "Tester", equipment = "Equipment", daily = "Daily Challenges",
@@ -78,6 +79,8 @@ local function shownData(name: string, v: State.View): string?
 		return SellPopup.shownKey(v)
 	elseif name == "rebirth" then
 		return RebirthPopup.shownKey(v)
+	elseif name == "shop" then
+		return if shopKey then shopKey(v) else nil
 	else
 		return nil
 	end
@@ -309,128 +312,358 @@ local function robuxTag(b: Ui.Block)
 end
 
 -- ---------- contents ----------
--- one Robux product as a Chunky Pop block in its kind's colour (Theme.shopCards): the painted icon
--- (stacked 1-3 deep for bigger packs), the name, what it gives, and a green Robux button.
--- featured = the wide banner on top (icon left, words middle, button right); else a tall tile.
-local function robuxCard(o: Open, v: State.View, parent: Instance, item: Config.RobuxItem, featured: boolean): Ui.Block
-	-- a pass you own (the server marks each one on the player; 2x Coins also arrives in the view)
-	local owned = item.kind == "pass"
-		and (game:GetService("Players").LocalPlayer:GetAttribute("Pass_" .. item.id) == true or (item.id == "doubleCoins" and v.doubleCoins == true))
-	-- the whole card buys, not just its button (mobile QA 2026-11-10: a pack's Buy was 68x22 px on a
-	-- phone). Roblox's own purchase prompt still asks to confirm, so a stray tap costs nothing.
-	local c = Ui.block(parent, "Robux_" .. item.id, Theme.shopCards[item.kind] or Theme.info, "", if owned then nil else function()
+-- ---------- the Shop (v2, 2026-11-10): laid out like a hit mobile store, so every product's value reads
+-- at a glance. Tabs on the left rail (Forever / Coins / Power / Boosts), 2-3 big cards per tab, small to big
+-- left to right. Each card's biggest text is what you GET (+3.5M, 2x, x3), a white chip says it in plain
+-- words ("= 8 hours of coins", "120/s -> 240/s") or a bar shows how far it takes you to the next island.
+-- A pink "+45% MORE" sticker = true extra per Robux against the smallest pack in the tab (rounded down);
+-- "BEST VALUE" only on the pack with the most per Robux. No timers, no fake scarcity (CLAUDE.md).
+-- Buttons only ask; the server shows Roblox's own purchase prompt and grants in ProcessReceipt.
+
+type ShopTab = { id: string, label: string, icon: string, colour: string, kinds: { [string]: boolean }, title: string, sub: string }
+type CardInfo = { big: string, name: string, chip: string?, bar: number?, barText: string?, amount: number? }
+
+local function ownsPass(v: State.View, item: Config.RobuxItem): boolean
+	return item.kind == "pass"
+		and (Players.LocalPlayer:GetAttribute("Pass_" .. item.id) == true or (item.id == "doubleCoins" and v.doubleCoins == true))
+end
+
+-- the items a tab sells (an id of 0 = not made yet: hidden in live servers, shown in Studio for testing)
+local function shopItems(tab: ShopTab): { Config.RobuxItem }
+	local out: { Config.RobuxItem } = {}
+	for _, item in Config.monetization.shop do
+		if tab.kinds[item.kind] and (Config.robuxReady(item) or RunService:IsStudio()) then
+			table.insert(out, item)
+		end
+	end
+	return out
+end
+
+local function shopTabs(): { ShopTab }
+	local out: { ShopTab } = {}
+	for _, t in Config.monetization.shopTabs do
+		if #shopItems(t) > 0 then
+			table.insert(out, t)
+		end
+	end
+	return out
+end
+
+local ARROW = " → "
+local function hours(minutes: number): string
+	if minutes >= 60 then
+		local h = math.floor(minutes / 60)
+		return `{h} hour{if h == 1 then "" else "s"}`
+	end
+	return `{minutes} min`
+end
+
+-- what one card shows: the big number, its name, and a white chip (or a bar) saying the value in plain words
+local function cardInfo(v: State.View, item: Config.RobuxItem): CardInfo
+	local name = string.gsub(item.name, "^%d+x ", "") -- "2x Coins" under a big "2x" says "Coins"
+	local good = `<font color="#{Theme.shopBadge.bonus:ToHex()}">%s</font>`
+	if item.kind == "coins" then
+		local n = Config.robuxCoins(item, v.income)
+		return { big = Ui.short(n), name = name, chip = "= " .. string.format(good, hours(item.minutes or 0)) .. " of coins", amount = n }
+	elseif item.kind == "power" then
+		local n = Config.powerPack(item, v.coldPower or 0)
+		local share = item.share or 0
+		return { big = "+" .. Config.powerText(n), name = name, bar = math.min(share, 1), amount = n,
+			barText = if share >= 1 then "Opens the next island!" else `{math.round(share * 100)}% of the way` }
+	elseif item.kind == "pass" then
+		if item.id == "doubleCoins" then
+			local base = if ownsPass(v, item) then v.income / (item.mult or 2) else v.income
+			return { big = `{item.mult or 2}x`, name = name,
+				chip = `{Ui.short(base)}/s{ARROW}` .. string.format(good, `{Ui.short(base * (item.mult or 2))}/s`) }
+		elseif item.id == "autoTrain" then
+			-- the gun's own training shots a second, free -> with the pass (Config.training)
+			local TR = Config.training
+			local function rate(seconds: number): string
+				return (string.format("%.1f", 1 / seconds):gsub("%.0$", ""))
+			end
+			return { big = `{math.round(TR.autoEvery / TR.autoPass)}x`, name = "Auto-Train speed",
+				chip = `{rate(TR.autoEvery)}/s{ARROW}` .. string.format(good, `{rate(TR.autoPass)}/s`) }
+		end
+		return { big = `{item.mult or 2}x`, name = name, chip = `x1{ARROW}` .. string.format(good, `x{item.mult or 2}`) }
+	elseif item.kind == "charges" then
+		return { big = `x{item.charges or 1}`, name = name, chip = item.chip or item.text }
+	end
+	return { big = item.big or "", name = name, chip = item.chip or item.text }
+end
+
+-- each card's true extra per Robux against the first (smallest) pack of the tab, rounded DOWN to a step,
+-- and which one is the best value (only when there's a real difference)
+local function shopBonuses(items: { Config.RobuxItem }, infos: { CardInfo }): ({ number }, number?)
+	local bonus: { number } = {}
+	local base = if infos[1] and infos[1].amount then infos[1].amount / math.max(1, items[1].robux) else nil
+	local best, bestRatio = nil, base or 0
+	local step = Config.ui.shop.bonusStep
+	for k, info in infos do
+		bonus[k] = 0
+		if base and base > 0 and info.amount and items[k].kind == items[1].kind then
+			local ratio = info.amount / math.max(1, items[k].robux)
+			bonus[k] = math.floor((ratio / base - 1) / step + 1e-9) * step
+			if ratio > bestRatio * 1.0001 then
+				best, bestRatio = k, ratio
+			end
+		end
+	end
+	return bonus, best
+end
+
+-- the open tab: reset each time the Shop opens (it starts on Forever while a pass is unowned)
+local shopTab: string? = nil
+local function defaultTab(v: State.View, tabs: { ShopTab }): string
+	for _, t in tabs do
+		if t.kinds.pass then
+			for _, item in shopItems(t) do
+				if not ownsPass(v, item) then
+					return t.id
+				end
+			end
+		end
+	end
+	for _, t in tabs do
+		if not t.kinds.pass then
+			return t.id
+		end
+	end
+	return tabs[1].id
+end
+
+-- the Shop redraws only when something it shows changes (it was redrawn on every coin tick before)
+shopKey = function(v: State.View): string
+	local parts: { string } = { tostring(shopTab) }
+	for _, item in Config.monetization.shop do
+		local info = cardInfo(v, item)
+		table.insert(parts, `{item.id},{info.big},{info.chip or ""},{ownsPass(v, item)}`)
+	end
+	table.insert(parts, Config.powerText(Config.nextNeed(v.coldPower or 0)))
+	return table.concat(parts, ";")
+end
+
+local function box(t: GuiObject, x: number, y: number, w: number, h: number)
+	t.Position = UDim2.fromScale(x, y)
+	t.Size = UDim2.fromScale(w, h)
+end
+
+-- one product card: a Chunky Pop block in its kind's colour, the painted icon (stacked 1-3 deep for bigger
+-- packs), the big number, the name, the chip or bar, and a green Robux button. The whole card buys
+-- (mobile QA 2026-11-10); Roblox's own prompt still confirms, so a stray tap costs nothing.
+local function shopCard(o: Open, v: State.View, parent: Instance, item: Config.RobuxItem, info: CardInfo, bonus: number, best: boolean): (Ui.Block, Ui.Block)
+	local owned = ownsPass(v, item)
+	local colour = Theme.shopCards[if item.kind == "pass" and item.icon == "power" then "power" else item.kind] or Theme.info
+	if owned then
+		colour = colour:Lerp(Theme.slot, 0.6)
+	end
+	local c = Ui.block(parent, "Robux_" .. item.id, colour, "", if owned then nil else function()
 		SoundController.play("click")
 		State.send("BuyRobux", item.id)
 	end)
 	c.text.Visible = false
-	local function box(t: GuiObject, x: number, y: number, w: number, h: number)
-		t.Position = UDim2.fromScale(x, y)
-		t.Size = UDim2.fromScale(w, h)
-	end
 	-- the picture: copies of the icon fanned out behind the front one, the group centred on its box
 	local icon = Config.images.icons[item.icon] or Config.images.icons.coin
 	local stack = item.stack or 1
-	local ix, iy, iw, ih = 0.2, 0.05, 0.6, 0.38
-	if featured then
-		ix, iy, iw, ih = 0.03, 0.1, 0.2, 0.8
-	end
+	local ix, iy, iw, ih = 0.15, 0.05, 0.7, 0.34
 	local step = iw * 0.16
 	for k = stack, 1, -1 do
 		local dx = (k - 1) * step - (stack - 1) * step / 2
 		local img = Ui.image(c.face, icon, UDim2.fromScale(iw, ih), UDim2.fromScale(ix + dx, iy - (k - 1) * ih * 0.06))
 		img.ZIndex = 1 + stack - k
 	end
-	local name = Ui.label(c.face, item.name)
+	local big = Ui.label(c.face, info.big)
+	big.Name = "Big"
+	sized(big, "big")
+	box(big, 0.04, 0.4, 0.92, 0.15)
+	local name = Ui.label(c.face, info.name)
 	name.Name = "Name"
-	sized(name, if featured then "title" else "body")
-	local gives = if item.kind == "coins" then `+{Ui.short(Config.robuxCoins(item, v.income))} coins`
-		elseif item.kind == "power" then `+{Config.coinText(Config.powerPack(item, v.coldPower or 0))} Cold Power`
-		else item.text
-	local what = Ui.label(c.face, gives)
-	what.Name = "Gives"
-	sized(what, "small")
+	sized(name, "small")
+	box(name, 0.04, 0.555, 0.92, 0.08)
+	if info.bar then
+		local b = bar(c.face, 0.08, 0.655, 0.84, 0.085, info.bar, info.barText or "", Theme.training.power)
+		local t = b:FindFirstChild("Count") :: TextLabel
+		sized(t, "tiny")
+	elseif info.chip and info.chip ~= "" then
+		local chip = Instance.new("Frame")
+		chip.Name = "Chip"
+		chip.BackgroundColor3 = Theme.white
+		chip.BorderSizePixel = 0
+		box(chip, 0.06, 0.65, 0.88, 0.095)
+		Ui.corner(chip, 0.5)
+		Ui.stroke(chip, Config.ui.cardStroke)
+		local t = Ui.inkLabel(chip, info.chip, UDim2.fromScale(0.9, 0.8), UDim2.fromScale(0.05, 0.1))
+		t.RichText = true
+		sized(t, "tiny")
+		chip.Parent = c.face
+	end
 	local b = button(c.face, if owned then Theme.info else Theme.go, if owned then "Owned" else tostring(item.robux), 0, 1, function()
 		if not owned then
 			State.send("BuyRobux", item.id)
 		end
 	end)
 	b.root.Name = "Buy"
-	if featured then
-		for _, t in { name, what } do
-			t.TextXAlignment = Enum.TextXAlignment.Left
-		end
-		box(name, 0.26, 0.14, 0.42, 0.4)
-		box(what, 0.26, 0.56, 0.42, 0.3)
-		box(b.root, 0.7, 0.2, 0.27, 0.56)
-	else
-		box(name, 0.04, 0.45, 0.92, 0.16)
-		box(what, 0.04, 0.6, 0.92, 0.12)
-		box(b.root, 0.08, 0.75, 0.84, 0.19)
-	end
+	box(b.root, 0.07, 0.785, 0.86, 0.17)
 	if not owned then
 		robuxTag(b)
 	end
-	if not o.first then
-		o.first = b.face
+	-- the stickers sit on the card's corners, over its outline
+	if bonus > 0 then
+		local s = Instance.new("Frame")
+		s.Name = "More"
+		s.BackgroundColor3 = Theme.shopBadge.more
+		s.BorderSizePixel = 0
+		s.AnchorPoint = Vector2.new(0.5, 0.5)
+		s.Position = UDim2.fromScale(0.9, 0.05)
+		s.Size = UDim2.fromScale(0.36, 0.36)
+		s.Rotation = 12
+		s.ZIndex = 5
+		local a = Instance.new("UIAspectRatioConstraint")
+		a.AspectRatio = 1
+		a.Parent = s
+		Ui.corner(s, 1)
+		Ui.stroke(s)
+		local t = Ui.label(s, `+{math.round(bonus * 100)}%\nMORE`, UDim2.fromScale(0.8, 0.6), UDim2.fromScale(0.1, 0.2))
+		t.ZIndex = 6
+		sized(t, "small")
+		s.Parent = c.root
 	end
-	return c
+	if best then
+		local r = Instance.new("Frame")
+		r.Name = "BestValue"
+		r.BackgroundColor3 = Theme.shopBadge.bestBack
+		r.BorderSizePixel = 0
+		r.Position = UDim2.fromScale(0.06, -0.045)
+		r.Size = UDim2.fromScale(0.62, 0.085)
+		r.ZIndex = 5
+		Ui.corner(r)
+		local st = Instance.new("UIStroke")
+		st.Color = Theme.shopBadge.bestText
+		st.Thickness = Config.ui.cardStroke
+		st.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		st.Parent = r
+		local t = Ui.inkLabel(r, "BEST VALUE", UDim2.fromScale(0.9, 0.76), UDim2.fromScale(0.05, 0.12))
+		t.TextColor3 = Theme.shopBadge.bestText
+		t.ZIndex = 6
+		sized(t, "small")
+		r.Parent = c.root
+	end
+	return c, b
 end
 
--- the Shop is the Robux shop: the 2x Coins pass as a wide banner on top, the packs as a row of tiles
--- under it. Buttons only ask; the server shows Roblox's own purchase prompt and grants in ProcessReceipt.
-local function robuxShop(o: Open, v: State.View, holder: Frame)
-	local pass: Config.RobuxItem? = nil
-	local packs: { Config.RobuxItem } = {}
-	for _, item in Config.monetization.shop do
-		if not Config.robuxReady(item) and not RunService:IsStudio() then
-			continue -- not made in the Creator Dashboard yet
-		end
-		if item.kind == "pass" and not pass then
-			pass = item
-		else
-			table.insert(packs, item)
-		end
-	end
-	if not pass and #packs == 0 then
-		local t = Ui.inkLabel(holder, "Coming soon", UDim2.fromScale(1, 0.2), UDim2.fromScale(0, 0.4))
+local function shop(o: Open, v: State.View)
+	local S = Config.ui.shop
+	local tabs = shopTabs()
+	if #tabs == 0 then
+		local t = Ui.inkLabel(o.body, "Coming soon", UDim2.fromScale(1, 0.2), UDim2.fromScale(0, 0.4))
 		sized(t, "title")
 		return
 	end
-	local top = 0
-	if pass then
-		local banner = robuxCard(o, v, holder, pass, true)
-		banner.root.Size = UDim2.fromScale(1, 0.34)
-		top = 0.39
-	end
-	local tiles = Instance.new("Frame")
-	tiles.Name = "Packs"
-	tiles.BackgroundTransparency = 1
-	tiles.Position = UDim2.fromScale(0, top)
-	tiles.Size = UDim2.fromScale(1, 1 - top)
-	tiles.Parent = holder
-	-- up to Config.ui.shopPerRow tiles to a row (the Cold Power items made a second row, 2026-11-10)
-	local perRow = Config.ui.shopPerRow
-	local rows = math.max(1, math.ceil(#packs / perRow))
-	local gap = 0.025
-	local rowGap = if rows > 1 then 0.05 else 0
-	local rowH = (1 - rowGap * (rows - 1)) / rows
-	for r = 1, rows do
-		local first = (r - 1) * perRow + 1
-		local n = math.min(perRow, #packs - first + 1)
-		local w = math.min(0.3, (1 - gap * (n - 1)) / math.max(1, n))
-		local left = (1 - (w * n + gap * (n - 1))) / 2
-		for k = 1, n do
-			local t = robuxCard(o, v, tiles, packs[first + k - 1], false)
-			t.root.Position = UDim2.fromScale(left + (k - 1) * (w + gap), (r - 1) * (rowH + rowGap))
-			t.root.Size = UDim2.fromScale(w, rowH)
+	local tab: ShopTab = tabs[1]
+	shopTab = shopTab or defaultTab(v, tabs)
+	for _, t in tabs do
+		if t.id == shopTab then
+			tab = t
 		end
 	end
-end
-
--- the Shop is the Robux shop (owner 2026-11-05: the coin Upgrades list is gone; levels already
--- bought still count, and the pan's Slots stay at the Pan Upgrades stand)
-local function shop(o: Open, v: State.View)
-	robuxShop(o, v, o.body)
+	shopTab = tab.id
+	-- the rail: one block per tab in its colour; the open one is full colour, nudged toward the cards
+	local rail = Instance.new("Frame")
+	rail.Name = "Tabs"
+	rail.BackgroundTransparency = 1
+	rail.Size = UDim2.fromScale(S.rail, 1)
+	rail.Parent = o.body
+	local n = #tabs
+	local tabH = math.min(0.22, (1 - S.gap * (n - 1)) / n)
+	local top = (1 - (tabH * n + S.gap * (n - 1))) / 2
+	for i, t in tabs do
+		local on = t.id == tab.id
+		local colour = Theme.shopCards[t.colour] or Theme.info
+		local b = Ui.block(rail, "Tab_" .. t.id, if on then colour else colour:Lerp(Theme.white, 0.4), t.label, function()
+			if shopTab ~= t.id then
+				SoundController.play("click")
+				shopTab = t.id
+				PopupController.refresh()
+			end
+		end)
+		box(b.root, if on then 0.08 else 0, top + (i - 1) * (tabH + S.gap), 0.92, tabH)
+		Ui.image(b.face, Config.images.icons[t.icon] or Config.images.icons.coin, UDim2.fromScale(0.6, 0.6), UDim2.fromScale(0.2, 0.03))
+		box(b.text, 0.05, 0.62, 0.9, 0.34)
+		sized(b.text, "small")
+		if on then
+			local ring = Instance.new("UIStroke") -- the open tab: a white ring inside its outline
+			ring.Color = Theme.white
+			ring.Thickness = Config.ui.cardStroke * 1.5
+			ring.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+			ring.LineJoinMode = Enum.LineJoinMode.Round
+			ring.Parent = b.face
+		end
+	end
+	local content = Instance.new("Frame")
+	content.Name = "Content"
+	content.BackgroundTransparency = 1
+	content.Position = UDim2.fromScale(S.rail + 0.03, 0)
+	content.Size = UDim2.fromScale(1 - S.rail - 0.03, 1)
+	content.Parent = o.body
+	-- the tab's heading: what it is, then one short line (the Power tab names the next island)
+	local sub = tab.sub
+	if tab.kinds.power then
+		local need = Config.nextNeed(v.coldPower or 0)
+		local isle = nil
+		for _, z in Config.world.zones do
+			if z.need == need then
+				isle = z.name
+			end
+		end
+		sub = `{isle or "Your next island"} needs {Config.powerText(need)} Cold Power`
+	end
+	local title = Ui.inkLabel(content, tab.title, UDim2.fromScale(1, S.head * 0.56), UDim2.fromScale(0, 0))
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	sized(title, "title")
+	local line = Ui.inkLabel(content, sub, UDim2.fromScale(1, S.head * 0.38), UDim2.fromScale(0, S.head * 0.58))
+	line.TextXAlignment = Enum.TextXAlignment.Left
+	line.TextColor3 = Theme.infoDeep
+	sized(line, "small")
+	-- the cards: small to big, left to right; owned passes go last
+	local items = shopItems(tab)
+	table.sort(items, function(a, b)
+		local oa, ob = ownsPass(v, a), ownsPass(v, b)
+		if oa ~= ob then
+			return ob
+		end
+		return false
+	end)
+	local infos: { CardInfo } = {}
+	for k, item in items do
+		infos[k] = cardInfo(v, item)
+	end
+	local bonus, best = shopBonuses(items, infos)
+	local row = Instance.new("Frame")
+	row.Name = "Cards"
+	row.BackgroundTransparency = 1
+	row.Position = UDim2.fromScale(0, S.head + 0.06)
+	row.Size = UDim2.fromScale(1, 1 - S.head - 0.06)
+	row.Parent = content
+	local count = #items
+	local gap = 0.04
+	local w = math.min(S.cardMax, (1 - gap * (count - 1)) / (count + (if best then S.bestGrow - 1 else 0)))
+	local total = w * count + gap * (count - 1) + (if best then w * (S.bestGrow - 1) else 0)
+	local x = (1 - total) / 2
+	local focal: Ui.Block? = nil
+	for k, item in items do
+		local isBest = k == best
+		local cw = if isBest then w * S.bestGrow else w
+		local c, buy = shopCard(o, v, row, item, infos[k], bonus[k], isBest)
+		box(c.root, x, if isBest then 0 else 0.05, cw, if isBest then 1 else 0.9)
+		x += cw + gap
+		-- one focal point: the best value, else the first thing you don't own yet
+		if not ownsPass(v, item) and (isBest or (not focal and not best)) then
+			focal = buy
+		end
+	end
+	if focal then
+		pulse(focal.root)
+		o.first = focal.face
+	end
 end
 
 -- a pet's picture, name and its tier / mutation / pose line, on the left of a list card
@@ -976,7 +1209,7 @@ local function tester(o: Open, v: State.View)
 			end
 		end
 		local r = testerReadout
-		readout.Text = `FPS {math.round(fps)}   Parts {Ui.commas(parts)}   Server: {Ui.short(r.coins or 0)} coins, x{r.mult or 1}, rebirths {r.rebirths or 0}, power {Config.coinText(r.power or 0)}`
+		readout.Text = `FPS {math.round(fps)}   Parts {Ui.commas(parts)}   Server: {Ui.short(r.coins or 0)} coins, x{r.mult or 1}, rebirths {r.rebirths or 0}, power {Config.powerText(r.power or 0)}`
 	end)
 
 	heading("Money multiplier")
@@ -1018,7 +1251,7 @@ local function tester(o: Open, v: State.View)
 	heading("Cold Power")
 	r = line()
 	for i, n in D.powerPresets do
-		button(r, Theme.rink.power, Config.coinText(n), 0.02 + (i - 1) * 0.19, 0.17, function()
+		button(r, Theme.training.power, Config.coinText(n), 0.02 + (i - 1) * 0.19, 0.17, function()
 			send("power", n)
 		end)
 	end
@@ -1460,7 +1693,8 @@ function PopupController.open(name: string, data: any?, rebuilt: boolean?)
 	end
 	local T = Config.ui.popupText
 	local ph = frame.AbsoluteSize.Y / (if SMALL[name] then smallK else 1) -- text keeps the big panel's sizes
-	px = { title = ph * T.title, body = ph * T.body, small = ph * T.small, button = ph * T.button, tiny = ph * T.small * 0.72 }
+	px = { title = ph * T.title, body = ph * T.body, small = ph * T.small, button = ph * T.button, tiny = ph * T.small * 0.72,
+		big = ph * T.title * Config.ui.shop.bigText }
 	if Screen.deviceClass() ~= "pc" then
 		-- touch screens: no role's cap under a readable size (a 338 px tall phone capped small text at 10 px).
 		-- Only the cap rises: text whose box is too small still shrinks to fit (sized)
@@ -1535,6 +1769,7 @@ function PopupController.open(name: string, data: any?, rebuilt: boolean?)
 	Screen.setPopupOpen(true)
 	State.send("SetMenuOpen", true)
 	if name == "shop" and not rebuilt then
+		shopTab = nil -- each visit starts on its default tab
 		State.send("ShopOpened")
 	end
 	if name == "tester" then

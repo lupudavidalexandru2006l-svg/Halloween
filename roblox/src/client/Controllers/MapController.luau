@@ -174,7 +174,7 @@ local function gateSign(id: number, v: State.View)
 		Ui.corner(back, 1)
 		local fill = Instance.new("Frame")
 		fill.Name = "Fill"
-		fill.BackgroundColor3 = Theme.rink.power
+		fill.BackgroundColor3 = Theme.training.power
 		fill.Size = UDim2.fromScale(0, 1)
 		Ui.corner(fill, 1)
 		fill.Parent = back
@@ -193,7 +193,7 @@ local function gateSign(id: number, v: State.View)
 	local bar = gateBar :: Frame
 	local frac = if needRebirth then v.rebirths / math.max(1, zone.gateRebirth) else power / math.max(1, need)
 	bar.Size = UDim2.fromScale(if open then 1 else math.clamp(frac, 0, 1), 1)
-	bar.BackgroundColor3 = if ready then Theme.go elseif needRebirth then Theme.booths.rebirth else Theme.rink.power
+	bar.BackgroundColor3 = if ready then Theme.go elseif needRebirth then Theme.booths.rebirth else Theme.training.power
 	local back = bar.Parent :: Frame
 	local showBar = not open and zone.ready
 	back.Visible = showBar

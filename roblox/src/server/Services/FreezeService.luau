@@ -120,7 +120,7 @@ local function canFreeze(player: Player, pet: any, data: any, loud: boolean?): b
 	if data.coldPower < Config.need(pet.zone) then
 		if loud then -- after a rebirth: the island is open, but its pets wait for your Cold Power
 			Remotes.fire(player, "Notify", "tooWarm", { id = pet.id })
-			Remotes.fire(player, "Notify", "needPower", { zone = pet.zone }) -- the client's arrow to the Training Rink
+			Remotes.fire(player, "Notify", "needPower", { zone = pet.zone }) -- the client's arrow to the Frost Training Yard
 			Remotes.notYet(player, "Need more Cold Power", "pet")
 		end
 		return false
@@ -263,7 +263,7 @@ local function clearAim(player: Player)
 	end
 end
 
--- another target's owner ends this player's shot (TrainingService: the gun overheated in the rink)
+-- another target's owner ends this player's shot
 FreezeService.stopAim = clearAim
 
 local function tick(dt: number)

@@ -67,7 +67,7 @@ end
 -- what a stat reads on the card
 function EquipmentPopup.statText(stat: string, g: Config.Gun): string
 	if stat == "training" then
-		return `x{g.training}` -- Cold Power per frozen sprite in the Training Rink
+		return `x{g.training}` -- the Cold Power multiplier of every training shot
 	elseif stat == "heat" then
 		return `1-{g.heat}` -- the islands it works on
 	end

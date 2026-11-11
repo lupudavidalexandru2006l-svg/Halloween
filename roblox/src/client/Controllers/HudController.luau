@@ -62,7 +62,7 @@ local function floatGain(amount: number, power: boolean?)
 	stroke.Thickness = Config.ui.floatingStroke
 	local gold = Instance.new("UIGradient")
 	gold.Rotation = 90
-	gold.Color = ColorSequence.new(Theme.white, if power then Theme.rink.power else Theme.coin)
+	gold.Color = ColorSequence.new(Theme.white, if power then Theme.training.power else Theme.coin)
 	gold.Parent = t
 	local pop = Instance.new("UIScale")
 	pop.Scale = 0.4
@@ -425,7 +425,7 @@ function HudController.Start()
 	powerText.TextXAlignment = Enum.TextXAlignment.Left
 	local cyan = Instance.new("UIGradient")
 	cyan.Rotation = 90
-	cyan.Color = ColorSequence.new(Theme.white, Theme.rink.power)
+	cyan.Color = ColorSequence.new(Theme.white, Theme.training.power)
 	cyan.Parent = powerText
 	local ps = powerText:FindFirstChildOfClass("UIStroke") :: UIStroke
 	ps.Thickness = Config.ui.floatingStroke
@@ -506,7 +506,7 @@ function HudController.Start()
 				HudController.banner(`{data.name}! +{Ui.short(data.coins)} coins`, Theme.coin)
 				floatGain(data.coins)
 			elseif (data.power or 0) > 0 then
-				HudController.banner(`{data.name}! +{Config.powerText(data.power)} Cold Power`, Theme.rink.power)
+				HudController.banner(`{data.name}! +{Config.powerText(data.power)} Cold Power`, Theme.training.power)
 			elseif (data.charges or 0) > 0 then
 				HudController.banner(`+{data.charges} Super Freezes!`, Theme.go)
 			else

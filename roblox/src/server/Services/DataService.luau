@@ -38,7 +38,7 @@ export type Data = {
 	funnel: { [string]: boolean },
 	forestUnlocked: boolean, -- kept in step with reach (reach >= 2) for older code
 	reach: number, -- Round 4 phase 6: islands 1..reach have their gates open (rebirth keeps it)
-	coldPower: number, -- the endless stat trained in the Training Rink (never spent; rebirth resets it)
+	coldPower: number, -- the endless stat trained in the Frost Training Yard (never spent; rebirth resets it)
 	coldRefund: number, -- coins paid back for the removed pan Cold Level, not yet shown to the player (PenService tells them once)
 	superFreezeCharges: number,
 	superCubes: { { key: string, pose: string, mut: string? } }, -- bought Super Freeze cubes not yet banked (back on your back after a rejoin)
@@ -48,7 +48,7 @@ export type Data = {
 	rebirths: number,
 	seenShows: { [string]: boolean }, -- shows watched once (their SKIP button shows after that)
 	guns: { best: number, equipped: number }, -- guns are bought in order, so the best one says which you own (Round 4 phase 4)
-	pan: { look: number }, -- the pan's Look (Round 4 phase 5; Slots is upgrades.pen; Cold Level was removed 2026-11-10). Rebirth keeps it
+	pan: { look: number, trainer: number }, -- the pan's Look (Round 4 phase 5; Slots is upgrades.pen; Cold Level was removed 2026-11-10) and its Cold Power trainer (2026-11-10, Config.training.stations). Rebirth keeps both
 	tester: TesterSettings,
 	gear: { gel: boolean }, -- gear bought at the Equipment Booth's Gear tab (Round 5)
 	codes: { [string]: boolean }, -- codes already redeemed (Round 5)
@@ -104,7 +104,7 @@ local function defaults(): Data
 		rebirths = 0,
 		seenShows = {},
 		guns = { best = 1, equipped = 1 },
-		pan = { look = 1 },
+		pan = { look = 1, trainer = 1 },
 		tester = testerDefaults(),
 		gear = { gel = false },
 		codes = {},
@@ -284,6 +284,7 @@ local function migrate(old: any): Data
 	d.coins = math.min(d.coins + refund, 1e15)
 	d.coldRefund = math.min(num(old.coldRefund, 0, 1e15) + refund, 1e15)
 	d.pan.look = int(pa.look, 1, #Config.pan.looks, 1)
+	d.pan.trainer = int(pa.trainer, 1, #Config.training.stations, 1)
 	local te = tbl(old.tester)
 	d.tester = {
 		mult = num(te.mult, Config.dev.multMin, Config.dev.multMax, 1),

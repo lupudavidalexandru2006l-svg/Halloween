@@ -71,6 +71,10 @@ function PlayerTracker.updateSpeed(player: Player)
 	if not data or not hum or not s then
 		return
 	end
+	if player:GetAttribute("TrainLocked") == true then
+		hum.WalkSpeed = 0 -- locked in at their trainer until STOP (TrainingService)
+		return
+	end
 	if data.tester.walk > 0 then
 		hum.WalkSpeed = data.tester.walk -- tester walk speed slider (DataService keeps it 0 for everyone else)
 		return

@@ -17,7 +17,7 @@ local SettingsController = require(script.Parent.SettingsController)
 
 local GuideController = {}
 -- what the arrow points at this frame (TutorialController walks Ranger Bo there and makes it glow):
--- kind = "pet" | "cube" | "machine" | "pan" | "rink"; inst = the pet or cube part when there is one
+-- kind = "pet" | "cube" | "machine" | "pan" | "train"; inst = the pet or cube part when there is one
 export type Target = { kind: string, pos: Vector3, inst: Instance? }
 GuideController.target = nil :: Target?
 -- the tutorial is teaching the catch: point at pets even if you own plenty (a replay) and before a
@@ -25,15 +25,14 @@ GuideController.target = nil :: Target?
 GuideController.pointPets = false
 local G = Config.guide
 local me = Players.LocalPlayer
--- "Need more Cold Power" (a pet or a gate said so): the arrow points at the Training Rink's door for a while
+-- "Need more Cold Power" (a pet or a gate said so): the arrow points at your pan's trainer for a while
 local needPowerUntil = 0
-local function rinkDoor(): Vector3?
-	for _, b in Config.world.booths do
-		if b.id == "rink" then
-			return b.pos
-		end
+local function trainSpot(): Vector3?
+	local v = State.view
+	if not v or not v.plot then
+		return nil
 	end
-	return nil
+	return (Config.trainerFrame(v.plot) * CFrame.new(0, 0, Config.training.standZ)).Position
 end
 local folder: Folder
 local arrow: Model
@@ -186,8 +185,8 @@ local function step()
 		goal, kind = WorldRules.plotCenter(v.plot), "pan"
 	elseif waiting then
 		goal, kind, inst = waiting, "cube", waitingPart -- go back and pick it up
-	elseif t < needPowerUntil and rinkDoor() and me:GetAttribute("InRink") ~= true then
-		goal, kind = rinkDoor(), "rink" -- train there, then come back
+	elseif t < needPowerUntil and (me:GetAttribute("TrainStation") or 0) == 0 and trainSpot() then
+		goal, kind = trainSpot(), "train" -- train there, then come back
 	elseif machine and not GuideController.pointPets then
 		goal, kind = machine, "machine" -- put your frozen pet in the Thaw Machine
 	elseif #v.pets < G.earlyPets or GuideController.pointPets then
@@ -251,7 +250,7 @@ function GuideController.Start()
 	beacon.Material = Enum.Material.Neon
 	State.Notify:Connect(function(kind: string)
 		if kind == "needPower" then
-			needPowerUntil = os.clock() + Config.rink.arrowSeconds
+			needPowerUntil = os.clock() + Config.training.arrowSeconds
 		end
 	end)
 	RunService.RenderStepped:Connect(step)

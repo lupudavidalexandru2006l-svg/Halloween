@@ -214,7 +214,9 @@ local function processReceipt(receipt: { [string]: any }): Enum.ProductPurchaseD
 	end
 	local purchaseId = tostring(receipt.PurchaseId)
 	if table.find(d.receipts, purchaseId) then
-		return Enum.ProductPurchaseDecision.PurchaseGranted -- already granted (a retry)
+		-- already granted (a retry): only say so once that grant is really saved (review 2026-11-10: the
+		-- first try may have failed to save, and "granted" would then end Roblox's retries with nothing stored)
+		return if DataService.saveNow(player) then Enum.ProductPurchaseDecision.PurchaseGranted else Enum.ProductPurchaseDecision.NotProcessedYet
 	end
 	local item = productItem(receipt.ProductId)
 	if item then
@@ -274,9 +276,25 @@ function MonetizationService.Start()
 		end
 		for _, item in Config.monetization.shop do
 			if item.kind == "pass" and item.passId == passId then
-				setPass(player, item.id)
-				Remotes.fire(player, "Notify", "robuxBought", { name = item.name, coins = 0, charges = 0 })
-				AnalyticsSvc.event(player, "offer_bought", { offer = item.id, robux = item.robux })
+				-- this signal comes from the client, so ask Roblox before giving the pass (review 2026-11-10).
+				-- Roblox's own answer can lag a few seconds behind a purchase: a few tries.
+				task.spawn(function()
+					for _ = 1, Config.monetization.passCheck.tries do
+						local ok, has = pcall(function()
+							return MarketplaceService:UserOwnsGamePassAsync(player.UserId, passId)
+						end)
+						if not player.Parent then
+							return
+						end
+						if ok and has then
+							setPass(player, item.id)
+							Remotes.fire(player, "Notify", "robuxBought", { name = item.name, coins = 0, charges = 0 })
+							AnalyticsSvc.event(player, "offer_bought", { offer = item.id, robux = item.robux })
+							return
+						end
+						task.wait(Config.monetization.passCheck.seconds)
+					end
+				end)
 			end
 		end
 	end)

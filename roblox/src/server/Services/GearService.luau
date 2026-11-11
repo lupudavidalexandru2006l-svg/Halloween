@@ -75,7 +75,7 @@ function GearService.unstowRay(player: Player)
 	end
 end
 
--- TrainingService: the rink is played with the ray, so going in puts it in your hand
+-- TrainingService: training is done with the gun, so stepping onto a station puts it in your hand
 function GearService.equipRay(player: Player)
 	stowed[player] = nil
 	setHeld(player, "ray")

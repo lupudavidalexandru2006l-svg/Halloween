@@ -1,440 +1,845 @@
 --!strict
--- TrainingController (Cold Power remake, 2026-11-10): the Training Rink on this client. The server
--- (TrainingService) decides everything; this only draws and sends intent.
---   Fire sprites: a candy-orange flame with a face on each of MY sprite roots in workspace.RinkSprites
---     (other players' rinks are far away and not drawn). It hops toward the sculpture, ice creeps up it
---     with its Meter, and it ends in a puff: frozen (+N floats up) or run off. Part-built stand-ins
---     until a painted sprite is turned into 3D (like the stand-in guns). Cute, never scary: big eyes,
---     pink cheeks, no teeth.
---   HUD (Figma "Chunky Pop Icons" > Training Rink HUD; Screen places it): the sprites-left bar with the
---     combo, Auto and Exit on the right edge, and the result card ("+45K Cold Power!", AGAIN, EXIT).
---     Read from the player's InRink / RinkLeft / RinkCombo / RinkAuto / RinkState attributes.
--- Shooting is RayController's job: sprites are one more kind of target for the ray.
+-- TrainingController (owner 2026-11-10; replaces the rink's client): Cold Power training on this client.
+-- Every pan has its own trainer in front of it (TrainingService builds it at its owner's level). The
+-- server decides every shot and its Cold Power; this only draws, and sends intent ("Train" "shot" on a
+-- click / tap / R2 / E while you stand on your own trainer). Stations below = pans' trainers.
+--   Signs:  each trainer's "x5 Cold Power" title floats over it in its level's colour (the reference's
+--           "X3 Strength" signs), so you see how far everyone has upgraded.
+--   Bolts:  a frost bolt flies from a player's gun tip to the target on each of their shots: my clicks at
+--           once, my gun's own shots when the server says (Notify "train"), everyone else's from their
+--           TrainShots counter. The gun flashes, the target wobbles and puffs frost where it's hit.
+--   Frost:  on the target I'm training on, frost climbs up it and its warm parts (named Heat) cool toward
+--           ice as my meter fills; at a shatter it bursts, flashes and the frost falls away.
+--   Hint:   "CLICK!" / "TAP!" / "R2!" pulses over my target with the shatter meter under it (the one next action).
+--   Pops:   "+N" shoots off the target to one side on each of my shots (CoinPops' motion); a shatter's
+--           bonus is a big gold one.
+--   Facing: standing still on a station turns you to face its target.
+--   Lock:   while the server holds you at your trainer ("TrainLocked", owner 2026-11-11), you always face
+--           the target, can't jump, the camera swings round behind you once, and a red STOP button
+--           takes the hotbar's place (click / tap, Space, or gamepad B). STOP tells the server to let you go.
+-- One HUD piece, the STOP button; the Cold Power counter (HudController) already bounces as it climbs.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+local TextService = game:GetService("TextService")
 local UserInputService = game:GetService("UserInputService")
+local CollectionService = game:GetService("CollectionService")
+local ContextActionService = game:GetService("ContextActionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Theme = require(ReplicatedStorage.Shared.Theme)
 local Ui = require(script.Parent.Parent.Lib.Ui)
 local State = require(script.Parent.State)
-local Screen = require(script.Parent.Screen)
 local InputController = require(script.Parent.InputController)
 local SettingsController = require(script.Parent.SettingsController)
 local SoundController = require(script.Parent.SoundController)
 local EffectsController = require(script.Parent.EffectsController)
+local CameraController = require(script.Parent.CameraController)
+local RayController = require(script.Parent.RayController)
+local Screen = require(script.Parent.Screen)
 
 local TrainingController = {}
-local R = Config.rink
-local RK = Config.ui.rink
-local T = Theme.rink
+local T = Config.training
+local U = Config.ui.training
+local J = Config.juice -- hit flash, shiver, hit-stop (Animation Rules 8)
+local TT = Theme.training
 local me = Players.LocalPlayer
-
-type Look = { model: Model, ice: Part, shadow: Part, size: number, phase: number, at: CFrame, centre: Vector3 }
-local looks: { [BasePart]: Look } = {}
 local folder: Folder
 
 local function reduced(): boolean
 	return SettingsController.get("reducedMotion") == true
 end
 
--- ---------- fire sprites ----------
-local function piece(shape: Enum.PartType, size: Vector3, color: Color3, parent: Instance, material: Enum.Material?): Part
+local function lowGfx(): boolean
+	return SettingsController.get("lowGraphics") == true
+end
+
+local function anchorPart(name: string, pos: Vector3): Part
 	local p = Instance.new("Part")
-	p.Shape = shape
-	p.Size = size
-	p.Color = color
-	p.Material = material or Enum.Material.SmoothPlastic
+	p.Name = name
 	p.Anchored, p.CanCollide, p.CanQuery, p.CanTouch, p.CastShadow = true, false, false, false, false
-	p.TopSurface = Enum.SurfaceType.Smooth
-	p.BottomSurface = Enum.SurfaceType.Smooth
-	p.Parent = parent
+	p.Transparency = 1
+	p.Size = Vector3.one * 0.2
+	p.CFrame = CFrame.new(pos)
+	p.Parent = folder
 	return p
 end
 
--- a flame built from three stacked balls, a lighter belly, and a face on its front (-Z): big ink
--- eyes with a white glint, pink cheeks, a small round mouth
-local function buildSprite(s: number, golden: boolean): Model
-	local m = Instance.new("Model")
-	m.Name = "FireSprite"
-	local main, belly = if golden then T.golden else T.flame, if golden then T.goldenCore else T.flameCore
-	local function ball(d: number, at: Vector3, color: Color3, material: Enum.Material?): Part
-		local p = piece(Enum.PartType.Ball, Vector3.one * d * s, color, m, material)
-		p.CFrame = CFrame.new(at * s)
-		return p
-	end
-	local body = ball(1, Vector3.zero, main)
-	body.Name = "Body"
-	ball(0.66, Vector3.new(0.03, 0.38, 0), main)
-	ball(0.36, Vector3.new(0.08, 0.72, 0), belly, Enum.Material.Neon)
-	ball(0.64, Vector3.new(0, -0.1, -0.22), belly)
-	for _, x in { -1, 1 } do
-		ball(0.15, Vector3.new(x * 0.17, 0.1, -0.44), T.face)
-		ball(0.055, Vector3.new(x * 0.15, 0.14, -0.5), Theme.white)
-		ball(0.13, Vector3.new(x * 0.3, -0.06, -0.41), T.cheek)
-	end
-	ball(0.07, Vector3.new(0, -0.05, -0.5), T.face)
-	local light = Instance.new("PointLight")
-	light.Color = main
-	light.Range = s * 3.5
-	light.Brightness = 0.9
-	light.Shadows = false
-	light.Parent = body
-	if golden then -- a golden sprite twinkles, so it reads as "worth more" from across the rink
-		local e = Instance.new("ParticleEmitter")
-		e.Color = ColorSequence.new(Theme.white, T.golden)
-		e.LightEmission = 1
-		e.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.4, 0.35), NumberSequenceKeypoint.new(1, 0) })
-		e.Lifetime = NumberRange.new(0.5, 0.9)
-		e.Rate = 10
-		e.Speed = NumberRange.new(1, 2.5)
-		e.SpreadAngle = Vector2.new(180, 180)
-		e.Parent = body
-	end
-	m.PrimaryPart = body
-	m.Parent = folder
-	return m
+-- pan i's trainer level (PanService puts it on the map; a free pan shows level 1)
+local function tierAt(i: number): number
+	local map = workspace:FindFirstChild("Map")
+	local t = map and map:GetAttribute("PanTrainer" .. i)
+	return if typeof(t) == "number" and T.stations[t] then t else 1
 end
 
-local function add(root: Instance)
-	if not root:IsA("BasePart") or looks[root] or root:GetAttribute("OwnerUserId") ~= me.UserId then
+local function stationOf(i: number): Config.TrainStation
+	return T.stations[tierAt(i)]
+end
+
+local function aimAt(i: number): Vector3
+	return Config.trainerTarget(i) + Vector3.new(0, T.padHeight + stationOf(i).aimY, 0)
+end
+
+-- the pan whose trainer I stand on (only ever my own; 0 = none)
+local function myStation(): number
+	local i = me:GetAttribute("TrainStation")
+	return if typeof(i) == "number" and Config.world.plots[i] then i else 0
+end
+
+-- the server holds me at my trainer until I press STOP
+local function locked(): boolean
+	return me:GetAttribute("TrainLocked") == true
+end
+
+-- ---------- the targets (TrainingArt's models, streamed in) ----------
+type HeatPart = { part: BasePart, color: Color3 }
+type Look = {
+	model: Model, base: CFrame, hang: Vector3?, heat: { HeatPart },
+	wobbleAt: number, wobbleAmp: number, wobbleSeconds: number, moved: boolean,
+	holdUntil: number, shake: number, -- a shatter's hit-stop: held still, shaking, until holdUntil
+}
+local looks: { [number]: Look } = {}
+
+local function addTarget(m: Instance)
+	if not m:IsA("Model") then
 		return
 	end
-	local kind = root:GetAttribute("Kind")
-	local k = R.kinds[if typeof(kind) == "string" then kind else "small"] or R.kinds.small
-	local s = k.size
-	local index = me:GetAttribute("RinkIndex")
-	local centre = Config.rinkCentre(if typeof(index) == "number" then index else 1)
-	local ice = piece(Enum.PartType.Block, Vector3.one, Theme.ice, folder)
-	ice.Name = "SpriteIce"
-	ice.Transparency = 1
-	local shadow = piece(Enum.PartType.Cylinder, Vector3.new(0.08, s, s), Theme.ink, folder)
-	shadow.Name = "SpriteShadow"
-	shadow.Transparency = 0.72
-	looks[root] = { model = buildSprite(s, root:GetAttribute("Golden") == true), ice = ice, shadow = shadow, size = s, phase = math.random() * 6, at = root.CFrame, centre = centre }
+	local i = m:GetAttribute("Station")
+	if typeof(i) ~= "number" then
+		return
+	end
+	-- its built pivot lives in an attribute (World Rules: never a weak table keyed by the part)
+	local base = m:GetAttribute("BasePivot")
+	if typeof(base) ~= "CFrame" then
+		base = m:GetPivot()
+		m:SetAttribute("BasePivot", base)
+	end
+	local heat: { HeatPart } = {}
+	for _, d in m:GetDescendants() do
+		if d:IsA("BasePart") and d.Name == "Heat" then
+			local c = d:GetAttribute("BaseColor")
+			if typeof(c) ~= "Color3" then
+				c = d.Color
+				d:SetAttribute("BaseColor", c)
+			end
+			table.insert(heat, { part = d, color = c :: Color3 })
+		end
+	end
+	local hang = m:GetAttribute("HangAt")
+	looks[i] = { model = m, base = base :: CFrame, hang = if typeof(hang) == "Vector3" then hang else nil, heat = heat,
+		wobbleAt = -math.huge, wobbleAmp = 0, wobbleSeconds = 1, moved = false, holdUntil = 0, shake = 0 }
 end
 
-local function remove(root: Instance)
-	local l = looks[root :: BasePart]
+local function removeTarget(m: Instance)
+	for i, l in looks do
+		if l.model == m then
+			looks[i] = nil
+		end
+	end
+end
+
+local function wobble(i: number, big: boolean)
+	local l = looks[i]
+	if not l then
+		return
+	end
+	local W = U.wobble
+	l.wobbleAt = os.clock()
+	l.wobbleSeconds = (if big then W.shatterSeconds else W.seconds) * (if reduced() then 0.5 else 1)
+	l.wobbleAmp = W.squash * (if big then 2.2 else 1) * (if l.hang then 2.5 else 1) * (if reduced() then 0.35 else 1)
+end
+
+-- the hit's lean back (or the bag's swing), a damped spring (Animation Rules 4: overshoot once, rest),
+-- plus `shiver` (a small side rock when the next shots may shatter it) and a shatter's hit-stop shake
+local function stepWobble(l: Look, now: number, shiver: number)
+	if now < l.holdUntil then
+		local s = l.shake
+		l.model:PivotTo(l.base + Vector3.new(math.sin(now * 97) * s, 0, math.cos(now * 83) * s))
+		l.moved = true
+		return
+	end
+	local x = (now - l.wobbleAt) / l.wobbleSeconds
+	local a = if x >= 0 and x < 1 then l.wobbleAmp * math.exp(-4 * x) * math.sin(math.pi * 2.5 * x) else 0
+	if a == 0 and shiver == 0 then
+		if l.moved then
+			l.model:PivotTo(l.base)
+			l.moved = false
+		end
+		return
+	end
+	local cf
+	if l.hang then
+		local pivot = CFrame.new(l.hang)
+		cf = pivot * CFrame.Angles(a, 0, shiver) * pivot:Inverse() * l.base
+	else
+		cf = l.base * CFrame.Angles(a, 0, shiver) -- top leans away from the shooter (+Z)
+	end
+	l.model:PivotTo(cf)
+	l.moved = true
+end
+
+-- ---------- my frost on my target ----------
+local frost = { station = 0, shown = 0, goal = 0, shell = nil :: Part? }
+
+-- the hit flash on my target: `peak` white, held for `hold` seconds, then gone over J.hitFlash
+local flashFx = { at = -math.huge, hold = 0, peak = 0 }
+local function hitFlash(peak: number, hold: number)
+	flashFx.at, flashFx.hold, flashFx.peak = os.clock(), hold, peak
+end
+
+local function flashAmount(now: number): number
+	local t = now - flashFx.at - flashFx.hold
+	if t < 0 then
+		return flashFx.peak
+	end
+	local fade = J.hitFlash * (if reduced() then 0.5 else 1)
+	return if t < fade then flashFx.peak * (1 - t / fade) else 0
+end
+
+local function paintFrost(i: number, m: number)
+	local l = looks[i]
 	if l then
-		l.model:Destroy()
-		l.ice:Destroy()
-		l.shadow:Destroy()
-		looks[root :: BasePart] = nil
+		local fl = flashAmount(os.clock())
+		for _, h in l.heat do
+			if h.part.Parent then
+				h.part.Color = h.color:Lerp(TT.frost, math.clamp(m, 0, 1) * 0.85):Lerp(Theme.white, fl)
+			end
+		end
+	end
+	local shell = frost.shell
+	if not shell then
+		return
+	end
+	if m <= 0.01 then
+		shell.Transparency = 1
+		return
+	end
+	local st = stationOf(i)
+	local h = math.max(0.1, st.shell.height * m)
+	local foot = Config.trainerTarget(i) + Vector3.new(0, T.padHeight + st.shell.bottom, 0)
+	shell.Size = Vector3.new(h, st.shell.width, st.shell.width) -- an upright cylinder: its axis is X
+	shell.CFrame = CFrame.new(foot + Vector3.new(0, h / 2, 0)) * CFrame.Angles(0, 0, math.pi / 2)
+	shell.Transparency = 0.55
+end
+
+local function setFrostStation(i: number)
+	if frost.station == i then
+		return
+	end
+	if frost.station ~= 0 then
+		paintFrost(frost.station, 0) -- the old target warms back up
+	end
+	frost.station = i
+	local m = me:GetAttribute("TrainMeter")
+	frost.goal = if typeof(m) == "number" then m else 0
+	frost.shown = 0
+end
+
+-- ---------- bolts ----------
+type Bolt = { part: BasePart, from: Vector3, to: Vector3, t0: number, seconds: number, land: () -> () }
+local bolts: { Bolt } = {}
+
+local function gunTipPos(c: Model): Vector3?
+	local tip = RayController.tipOf(c)
+	if tip then
+		return tip.WorldPosition
+	end
+	local root = c:FindFirstChild("HumanoidRootPart")
+	if root and root:IsA("BasePart") then
+		return root.Position + root.CFrame.LookVector * 1.5 + Vector3.new(0, 0.6, 0)
+	end
+	return nil
+end
+
+local function launch(from: Vector3, to: Vector3, big: boolean, land: () -> ())
+	local B = U.bolt
+	local s = if big then B.clickSize else B.size
+	local p = Instance.new("Part")
+	p.Name = "FrostBolt"
+	p.Shape = Enum.PartType.Ball
+	p.Size = Vector3.one * s
+	p.Color = TT.frostGlow
+	p.Material = Enum.Material.Neon
+	p.Anchored, p.CanCollide, p.CanQuery, p.CanTouch, p.CastShadow = true, false, false, false, false
+	p.CFrame = CFrame.new(from)
+	if not lowGfx() then
+		local a0, a1 = Instance.new("Attachment"), Instance.new("Attachment")
+		a0.Position, a1.Position = Vector3.new(0, s * 0.45, 0), Vector3.new(0, -s * 0.45, 0)
+		a0.Parent, a1.Parent = p, p
+		local tr = Instance.new("Trail")
+		tr.Attachment0, tr.Attachment1 = a0, a1
+		tr.Lifetime = B.trail
+		tr.LightEmission = 1
+		tr.Color = ColorSequence.new(Theme.white, TT.frostGlow)
+		tr.Transparency = NumberSequence.new(0.1, 1)
+		tr.Parent = p
+	end
+	p.Parent = folder
+	table.insert(bolts, { part = p, from = from, to = to, t0 = os.clock(), seconds = B.seconds, land = land })
+end
+
+local function stepBolts(now: number)
+	for k = #bolts, 1, -1 do
+		local b = bolts[k]
+		local f = (now - b.t0) / b.seconds
+		if f >= 1 then
+			table.remove(bolts, k)
+			b.part.Transparency = 1 -- its trail fades out behind it, then it goes
+			task.delay(U.bolt.trail, function()
+				b.part:Destroy()
+			end)
+			local ok, err = pcall(b.land)
+			if not ok then
+				warn("[TrainingController] bolt:", err)
+			end
+		else
+			local pos = b.from:Lerp(b.to, f) + Vector3.new(0, math.sin(f * math.pi) * 0.6, 0) -- a small arc
+			b.part.CFrame = CFrame.new(pos)
+		end
+	end
+end
+
+-- one shot from a player's gun at station i; land runs when the bolt arrives
+local function drawShot(p: Player, i: number, mine: boolean, big: boolean, land: (() -> ())?)
+	local c = p.Character
+	local from = c and gunTipPos(c)
+	if not c or not from then
+		return
+	end
+	local cam = workspace.CurrentCamera
+	if not mine and cam and (cam.CFrame.Position - from).Magnitude > U.pop.maxDistance * 1.5 then
+		return -- far off: phones don't draw it
+	end
+	RayController.muzzle(c, "flash")
+	if mine and big then
+		RayController.muzzle(c, "mist")
+	end
+	local to = aimAt(i)
+	launch(from, to, big, function()
+		wobble(i, false)
+		if mine then
+			hitFlash(J.flashPeak, 0)
+		end
+		EffectsController.burst(to - Vector3.new(0, 2, 0), TT.frost, if mine then 5 else 2) -- burst() lifts by 2
+		if mine then
+			SoundController.play("tink", 0.9 + 0.6 * frost.goal) -- the pitch climbs with the frost (Game Design 8)
+		end
+		if land then
+			land()
+		end
+	end)
+end
+
+-- ---------- "+N" pops (CoinPops' motion) ----------
+type Pop = { gui: BillboardGui, group: Frame, scale: UIScale, text: TextLabel, stroke: UIStroke, grad: UIGradient,
+	born: number, side: number, dx: number, dy: number, still: boolean }
+local live: { Pop } = {}
+local spare: { Pop } = {}
+local aims: { [number]: Part } = {}
+local popSide = 1
+
+local function backOut(x: number): number
+	return 1 + 2.70158 * (x - 1) ^ 3 + 1.70158 * (x - 1) ^ 2
+end
+
+local function buildPop(): Pop
+	local P = U.pop
+	local g = Instance.new("BillboardGui")
+	g.Name = "TrainPop"
+	g.Size = UDim2.fromOffset(P.boxPx[1], P.boxPx[2])
+	g.LightInfluence = 0
+	g.AlwaysOnTop = true
+	g.MaxDistance = P.maxDistance
+	g.ResetOnSpawn = false
+	g.Enabled = false
+	local group = Instance.new("Frame")
+	group.Name = "Pop"
+	group.BackgroundTransparency = 1
+	group.AnchorPoint = Vector2.new(0.5, 0.5)
+	group.Parent = g
+	local scale = Instance.new("UIScale")
+	scale.Parent = group
+	local text = Ui.label(group, "")
+	text.Name = "Amount"
+	text.TextScaled = false
+	local grad = Instance.new("UIGradient")
+	grad.Rotation = 90
+	grad.Parent = text
+	local stroke = text:FindFirstChildOfClass("UIStroke") :: UIStroke
+	g.Parent = me:WaitForChild("PlayerGui")
+	return { gui = g, group = group, scale = scale, text = text, stroke = stroke, grad = grad, born = 0, side = 1, dx = 0, dy = 0, still = false }
+end
+
+local function placePop(p: Pop, age: number): boolean
+	local P = U.pop
+	local k = if p.still then 0.5 else 1
+	local out, hold, exit = P.out * k, P.hold * k, P.exit * k
+	local x, y, s, a
+	if p.still then
+		x, y, s = p.dx, p.dy, 1
+		a = if age < out then 1 - age / out else math.clamp((age - out - hold) / exit, 0, 1)
+	elseif age < out then
+		local f = backOut(age / out)
+		x, y = p.dx * f, p.dy * f
+		s = P.startScale + (1 - P.startScale) * f
+		a = 0
+	elseif age < out + hold then
+		local f = (age - out) / hold
+		x, y, s, a = p.dx, p.dy - P.drift * (1 - (1 - f) * (1 - f)), 1, 0
+	else
+		local f = math.clamp((age - out - hold) / exit, 0, 1)
+		f *= f
+		x, y = p.dx, p.dy - P.drift * (1 + 0.6 * f)
+		s, a = 1 + (P.exitScale - 1) * f, f
+	end
+	p.group.Position = UDim2.new(0.5, x, 0.5, y)
+	p.group.Rotation = P.tilt * p.side
+	p.scale.Scale = s
+	p.text.TextTransparency = a
+	p.stroke.Transparency = a
+	return age >= out + hold + exit
+end
+
+local function pop(i: number, amount: number, big: boolean)
+	local P = U.pop
+	local anchor = aims[i]
+	if not anchor or amount <= 0 or #live >= P.maxActive then
+		return
+	end
+	local p = table.remove(spare) or buildPop()
+	local label = "+" .. Config.powerText(amount)
+	local px = if big then P.bigPx else P.px
+	p.text.Text = label
+	p.text.TextSize = px
+	p.stroke.Thickness = math.max(2, px * 0.1)
+	p.grad.Color = ColorSequence.new(Theme.white, if big then TT.shatter else TT.power)
+	local w = TextService:GetTextSize(label, px, Theme.font, Vector2.new(2000, 400)).X
+	p.group.Size = UDim2.fromOffset(w + 8, px * 1.3)
+	p.text.Size = UDim2.fromScale(1, 1)
+	p.gui.Adornee = anchor
+	popSide = -popSide
+	p.side = popSide
+	local lo, hi = P.outX[1], P.outX[2]
+	p.dx = (lo + math.random() * (hi - lo)) * p.side * (if big then 0.4 else 1)
+	p.dy = -(P.outY[1] + math.random() * (P.outY[2] - P.outY[1])) * (if big then 1.3 else 1)
+	p.still = reduced()
+	p.born = os.clock()
+	placePop(p, 0)
+	p.gui.Enabled = true
+	table.insert(live, p)
+end
+
+local function stepPops(now: number)
+	for k = #live, 1, -1 do
+		local p = live[k]
+		if placePop(p, now - p.born) then
+			p.gui.Enabled = false
+			table.remove(live, k)
+			table.insert(spare, p)
+		end
+	end
+end
+
+-- ---------- the trainer signs ----------
+-- "x5 Cold Power" over each owned pan's trainer, in its level's colour, lighter at the top (the
+-- reference's chunky titles); retitled when its owner upgrades it
+type Sign = { gui: BillboardGui, title: TextLabel, grad: UIGradient, anchor: Part, tier: number }
+local signs: { [number]: Sign } = {}
+
+local function buildSign(i: number)
+	local anchor = anchorPart("TrainSign" .. i, Config.trainerTarget(i)) -- placed by refreshSigns
+	local g = Instance.new("BillboardGui")
+	g.Name = "TrainSign"
+	g.LightInfluence = 0
+	g.MaxDistance = U.signMaxDistance
+	g.ResetOnSpawn = false
+	g.Adornee = anchor
+	local title = Ui.label(g, "", UDim2.fromScale(1, 1), UDim2.fromScale(0, 0))
+	title.Name = "Title"
+	title.TextScaled = false
+	title.TextSize = U.signPx
+	title.TextColor3 = Theme.white
+	local stroke = title:FindFirstChildOfClass("UIStroke") :: UIStroke
+	stroke.Thickness = math.max(3, U.signPx * 0.1)
+	local grad = Instance.new("UIGradient")
+	grad.Rotation = 90
+	grad.Parent = title
+	g.Parent = me:WaitForChild("PlayerGui")
+	signs[i] = { gui = g, title = title, grad = grad, anchor = anchor, tier = 0 }
+end
+
+-- each frame: a sign shows only over a pan someone owns, with its trainer's current level
+local function refreshSigns()
+	local map = workspace:FindFirstChild("Map")
+	for i, s in signs do
+		local owned = map ~= nil and typeof(map:GetAttribute("PlotOwner" .. i)) == "number"
+		s.gui.Enabled = owned
+		local tier = tierAt(i)
+		if tier ~= s.tier then
+			local upgraded = s.tier ~= 0 and tier > s.tier
+			s.tier = tier
+			local st = T.stations[tier]
+			local col = TT.stations[st.kind] and TT.stations[st.kind].title or TT.power
+			local text = `x{st.mult} Cold Power`
+			s.title.Text = text
+			s.grad.Color = ColorSequence.new(col:Lerp(Theme.white, 0.35), col)
+			local w = TextService:GetTextSize(text, U.signPx, Theme.font, Vector2.new(2000, 400)).X
+			s.gui.Size = UDim2.fromOffset(w + 24, U.signPx * 1.3)
+			local a = aims[i]
+			if a then
+				a.CFrame = CFrame.new(aimAt(i)) -- the bolts aim at the new target's middle
+			end
+			-- the title floats signGap studs over this level's target (clear of the CLICK! hint)
+			s.anchor.CFrame = CFrame.new(Config.trainerTarget(i) + Vector3.new(0, T.padHeight + st.shell.bottom + st.shell.height + U.signGap, 0))
+			if upgraded then -- the new trainer arrives with a burst in its colour
+				EffectsController.burst(aimAt(i) - Vector3.new(0, 2, 0), col, 30)
+				EffectsController.burst(aimAt(i) - Vector3.new(0, 2, 0), Theme.white, 12)
+			end
+		end
+	end
+end
+
+-- ---------- "CLICK!" and the shatter meter over my target ----------
+local hint: { gui: BillboardGui, text: TextLabel, fill: Frame, scale: UIScale }? = nil
+local hintTween: Tween? = nil
+
+local function buildHint()
+	local g = Instance.new("BillboardGui")
+	g.Name = "TrainHint"
+	g.LightInfluence = 0
+	g.AlwaysOnTop = true
+	g.ResetOnSpawn = false
+	g.Enabled = false
+	g.Size = UDim2.fromOffset(U.hintPx * 5, U.hintPx * 2.1)
+	local box = Instance.new("Frame")
+	box.BackgroundTransparency = 1
+	box.Size = UDim2.fromScale(1, 1)
+	box.Parent = g
+	local scale = Instance.new("UIScale")
+	scale.Parent = box
+	local text = Ui.label(box, "CLICK!", UDim2.new(1, 0, 0, U.hintPx * 1.25), UDim2.fromScale(0, 0))
+	text.TextScaled = false
+	text.TextSize = U.hintPx
+	text.TextColor3 = TT.power
+	local track = Instance.new("Frame")
+	track.Name = "Meter"
+	track.AnchorPoint = Vector2.new(0.5, 0)
+	track.Position = UDim2.new(0.5, 0, 0, U.hintPx * 1.35)
+	track.Size = UDim2.new(0.62, 0, 0, U.hintPx * 0.42)
+	track.BackgroundColor3 = Theme.ink:Lerp(Theme.white, Config.ui.barTrackAlpha)
+	track.BorderSizePixel = 0
+	Ui.corner(track, 1)
+	Ui.stroke(track)
+	track.Parent = box
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.BackgroundColor3 = TT.power
+	fill.BorderSizePixel = 0
+	fill.Size = UDim2.fromScale(0, 1)
+	Ui.corner(fill, 1)
+	fill.Parent = track
+	g.Parent = me:WaitForChild("PlayerGui")
+	hint = { gui = g, text = text, fill = fill, scale = scale }
+end
+
+local function showHint(i: number)
+	local h = hint
+	if not h then
+		return
+	end
+	local on = i ~= 0 and me:GetAttribute("TrainReady") == true
+	if on then
+		local d = InputController.device()
+		h.text.Text = if d == "touch" then "TAP!" elseif d == "gamepad" then "R2!" else "CLICK!"
+		local anchor = aims[i]
+		h.gui.Adornee = anchor
+		local st = stationOf(i)
+		h.gui.StudsOffset = Vector3.new(0, st.shell.bottom + st.shell.height - st.aimY + U.hintY, 0) -- just over the target's top
+	end
+	if on ~= h.gui.Enabled then
+		h.gui.Enabled = on
+		if hintTween then
+			hintTween:Cancel()
+			hintTween = nil
+		end
+		h.scale.Scale = 1
+		if on and not reduced() then
+			hintTween = TweenService:Create(h.scale, TweenInfo.new(U.hintPulse.seconds, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Scale = U.hintPulse.scale })
+			hintTween:Play()
+		end
+	end
+end
+
+-- ---------- shots I hear about ----------
+-- the shatter: a hit-stop first (the target holds white and shakes, Sakurai's hit stop), then
+-- everything lands at once: burst, rays, kick, the freeze crunch with a crystal tink an octave up
+local function shatter(i: number, bonus: number)
+	local to = aimAt(i)
+	local hold = J.hitStop.shatter * (if reduced() then 0.5 else 1)
+	local l = looks[i]
+	if l then
+		l.holdUntil = os.clock() + hold
+		l.shake = if reduced() then 0 else J.hitShake
+	end
+	hitFlash(1, hold)
+	task.delay(hold, function()
+		wobble(i, true)
+		EffectsController.burst(to - Vector3.new(0, 2, 0), TT.frost, 26)
+		EffectsController.burst(to - Vector3.new(0, 2, 0), Theme.white, 10)
+		if not lowGfx() then
+			EffectsController.rays(to, TT.frostGlow, 8, 0.45)
+		end
+		CameraController.kick("lock", 0.6)
+		SoundController.play("freeze")
+		SoundController.play("tink", 2)
+		task.delay(0.12, function()
+			pop(i, bonus, true)
+		end)
+		frost.shown, frost.goal = 0, 0 -- the frost falls away with the burst
+	end)
+end
+
+local function onTrain(data: any)
+	if typeof(data) ~= "table" or typeof(data.station) ~= "number" or not Config.world.plots[data.station] then
+		return
+	end
+	local i = data.station :: number
+	local gain = if typeof(data.gain) == "number" then data.gain else 0
+	local bonus = if typeof(data.bonus) == "number" then data.bonus else 0
+	local meter = if typeof(data.meter) == "number" then data.meter else 0
+	local function landed()
+		if frost.station == i then
+			frost.goal = if bonus > 0 then 1 else meter -- a shatter shows the full crust first
+		end
+		pop(i, gain, false)
+		if bonus > 0 then
+			shatter(i, bonus)
+		end
+	end
+	if data.click == true then
+		landed() -- my click's bolt was drawn when I clicked
+	else
+		drawShot(me, i, true, false, landed) -- my gun's own shot
+	end
+end
+
+-- a click / tap / R2 / E on a station I can use: the bolt flies at once, the server counts it
+local clicks: { number } = {}
+local function tryShot(): boolean
+	local i = myStation()
+	if i == 0 or me:GetAttribute("TrainReady") ~= true then
+		return false
+	end
+	local now = os.clock()
+	local kept: { number } = {}
+	for _, t in clicks do
+		if now - t < 1 then
+			table.insert(kept, t)
+		end
+	end
+	clicks = kept
+	if #kept >= T.clickMax then
+		return true -- the same cap as the server: a faster click draws nothing it won't count
+	end
+	table.insert(kept, now)
+	State.send("Train", "shot")
+	drawShot(me, i, true, true, nil)
+	CameraController.kick("fire", 0.5)
+	SoundController.play("ray_clack", 1.05 + 0.15 * math.random())
+	return true
+end
+
+-- ---------- lock mode: the STOP button ----------
+local stopButton: Frame? = nil
+local jumpOff = false -- I switched jumping off for the lock
+
+local function pressStop()
+	if not locked() then
+		return
+	end
+	SoundController.play("click")
+	State.send("Train", "stop")
+end
+
+local function buildStop()
+	local holder = Instance.new("Frame")
+	holder.Name = "TrainStop"
+	holder.BackgroundTransparency = 1
+	holder.Visible = false
+	local b = Ui.block(holder, "Stop", Theme.no, "STOP", pressStop) -- red = stop / no (UI Rules)
+	b.root.Size = UDim2.fromScale(1, 1)
+	stopButton = holder
+	Screen.register("trainStop", holder)
+end
+
+local function applyLock()
+	local on = locked()
+	if stopButton then
+		stopButton.Visible = on
+	end
+	local c = me.Character
+	local hum = c and c:FindFirstChildOfClass("Humanoid")
+	if hum then
+		if on then
+			hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
+			jumpOff = true
+		elseif jumpOff then
+			hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+			jumpOff = false
+		end
+	end
+	if on then
+		-- Space (jumping is off while locked) and gamepad B press STOP; B leaves an open popup to close it
+		ContextActionService:BindActionAtPriority("IceRay_TrainStop", function(_, st: Enum.UserInputState, input: InputObject)
+			if UserInputService:GetFocusedTextBox() or (Screen.popupOpen and input.KeyCode == Enum.KeyCode.ButtonB) then
+				return Enum.ContextActionResult.Pass
+			end
+			if st == Enum.UserInputState.Begin then
+				pressStop()
+			end
+			return Enum.ContextActionResult.Sink
+		end, false, Enum.ContextActionPriority.High.Value, Enum.KeyCode.Space, Enum.KeyCode.ButtonB)
+		-- once the server's snap has landed, the camera swings round behind me toward the target
+		task.delay(0.2, function()
+			local i = myStation()
+			local root = me.Character and me.Character:FindFirstChild("HumanoidRootPart")
+			if locked() and i ~= 0 and root and root:IsA("BasePart") then
+				CameraController.lookPast(root, aimAt(i))
+			end
+		end)
+	else
+		ContextActionService:UnbindAction("IceRay_TrainStop")
+	end
+end
+
+-- ---------- every frame ----------
+local turned = false -- I switched AutoRotate off to face my target
+local function faceTarget(i: number, dt: number)
+	local c = me.Character
+	local hum = c and c:FindFirstChildOfClass("Humanoid")
+	local root = c and c:FindFirstChild("HumanoidRootPart")
+	if not hum or not root or not root:IsA("BasePart") then
+		return
+	end
+	local still = hum.MoveDirection.Magnitude < 0.1 and hum.FloorMaterial ~= Enum.Material.Air
+	if i ~= 0 and (locked() or me:GetAttribute("TrainReady") == true and still) then
+		local goal = Config.trainerTarget(i)
+		local flat = Vector3.new(goal.X, root.Position.Y, goal.Z)
+		if (flat - root.Position).Magnitude > 1 then
+			hum.AutoRotate = false
+			turned = true
+			local want = CFrame.lookAt(root.Position, flat)
+			root.CFrame = root.CFrame:Lerp(want, math.min(1, dt * U.turnSpeed))
+		end
+	elseif turned then
+		hum.AutoRotate = true
+		turned = false
 	end
 end
 
 local function step(dt: number)
-	local t = os.clock()
-	local still = reduced()
-	for root, l in looks do
-		if not root.Parent then
-			remove(root)
-			continue
-		end
-		local meter = (root:GetAttribute("Meter") or 0) :: number
-		local s = l.size
-		-- glide after the server's root; hop along (smaller as the ice climbs; none with reduced motion)
-		l.at = l.at:Lerp(root.CFrame, math.min(1, dt * 12))
-		local pos = l.at.Position
-		local ground = pos.Y - s / 2
-		local hop = if still then 0 else math.abs(math.sin(t * 7 + l.phase)) * 0.42 * s * (1 - meter)
-		local at = Vector3.new(pos.X, pos.Y + hop, pos.Z)
-		local toward = Vector3.new(l.centre.X, at.Y, l.centre.Z)
-		l.model:PivotTo(if (toward - at).Magnitude > 0.05 then CFrame.lookAt(at, toward) else CFrame.new(at))
-		-- a soft shadow on the ice, smaller while it's in the air
-		local sh = s * (0.95 - 0.35 * hop / math.max(0.01, 0.42 * s))
-		l.shadow.Size = Vector3.new(0.08, sh, sh)
-		l.shadow.CFrame = CFrame.new(pos.X, ground + 0.3, pos.Z) * CFrame.Angles(0, 0, math.pi / 2)
-		if meter > 0 then
-			local h = s * 1.5 * meter
-			l.ice.Size = Vector3.new(s * 1.2, math.max(0.05, h), s * 1.2)
-			l.ice.CFrame = CFrame.new(pos.X, ground + h / 2 + hop, pos.Z)
-			l.ice.Transparency = 0.45
-		else
-			l.ice.Transparency = 1
-		end
+	local now = os.clock()
+	refreshSigns()
+	stepBolts(now)
+	stepPops(now)
+	local i = myStation()
+	setFrostStation(i)
+	if frost.station ~= 0 then
+		local goal = frost.goal
+		frost.shown += (goal - frost.shown) * math.min(1, dt * 10)
+		paintFrost(frost.station, frost.shown)
 	end
+	-- almost there: my target shivers once the frost is past tremble.from, more as it nears a shatter
+	local TR = J.tremble
+	local shiver = 0
+	if frost.station ~= 0 and frost.shown > TR.from and not reduced() then
+		local k = math.clamp((frost.shown - TR.from) / (1 - TR.from), 0, 1)
+		shiver = TR.amp * k * math.sin(now * TR.hz * 2 * math.pi)
+	end
+	for si, l in looks do
+		stepWobble(l, now, if si == frost.station then shiver else 0)
+	end
+	local h = hint
+	if h and h.gui.Enabled then
+		h.fill.Size = UDim2.fromScale(math.clamp(frost.shown, 0, 1), 1)
+	end
+	faceTarget(i, dt)
 end
 
--- "+120" floating up from a frozen sprite, in the Cold Power colour (gold for a golden one)
-local function floatGain(at: Vector3, amount: number, golden: boolean)
-	local holder = Instance.new("Part")
-	holder.Anchored, holder.CanCollide, holder.CanQuery, holder.CanTouch = true, false, false, false
-	holder.Transparency = 1
-	holder.Size = Vector3.one * 0.2
-	holder.CFrame = CFrame.new(at)
-	holder.Parent = folder
-	local g = Instance.new("BillboardGui")
-	g.AlwaysOnTop = true
-	g.LightInfluence = 0
-	g.Size = UDim2.fromOffset(RK.gainPx * 6, RK.gainPx * 1.4)
-	g.StudsOffset = Vector3.new(0, 1.5, 0)
-	g.Adornee = holder
-	local text = Ui.label(g, `+{Config.coinText(amount)}`, UDim2.fromScale(1, 1), UDim2.fromScale(0, 0))
-	text.TextColor3 = if golden then Theme.coin else T.power
-	local stroke = text:FindFirstChildOfClass("UIStroke")
-	if stroke then
-		stroke.Thickness = Config.ui.floatingStroke
-	end
-	g.Parent = holder
-	local seconds = EffectsController.time(RK.gainSeconds)
-	local info = TweenInfo.new(seconds, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-	if not reduced() then
-		TweenService:Create(g, info, { StudsOffset = Vector3.new(0, 1.5 + RK.gainRise, 0) }):Play()
-	end
-	local fade = TweenInfo.new(seconds * 0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0, false, seconds * 0.6)
-	TweenService:Create(text, fade, { TextTransparency = 1 }):Play()
-	if stroke then
-		TweenService:Create(stroke, fade, { Transparency = 1 }):Play()
-	end
-	task.delay(seconds + 0.05, function()
-		holder:Destroy()
-	end)
-end
-
--- ---------- the rink HUD ----------
-local bar: Frame
-local barFill: Frame
-local barText: TextLabel
-local comboText: TextLabel
-local buttons: Frame
-local autoBlock: Ui.Block
-local autoSub: TextLabel
-local boostBlock: Ui.Block -- the Full-Speed Auto-Train pass (Robux), only while you don't own it
-local exitBlock: Ui.Block
-local result: Frame? = nil
-local inRink = false
-
-local function recolor(b: Ui.Block, color: Color3)
-	b.face.BackgroundColor3 = color
-	b.root.BackgroundColor3 = Ui.darker(color)
-end
-
-local function hideResult()
-	if result then
-		result:Destroy()
-		result = nil
-	end
-end
-
--- the result card: what the wave gave, a big green AGAIN (the one focal point), a smaller EXIT
-local function showResult(data: any)
-	hideResult()
-	local frame = Screen.popupFrame(false)
-	frame.Name = "RinkResult"
-	-- smaller than a menu popup: a short reward card that stays clear of the hotbar and the bar
-	frame.Size = UDim2.fromScale(frame.Size.X.Scale * RK.resultShare, frame.Size.Y.Scale * RK.resultShare)
-	result = frame
-	local tint = Theme.booths.rink:Lerp(Theme.white, Config.ui.panelTint)
-	local panel = Ui.block(frame, "Panel", tint, "", nil, true)
-	panel.root.Size = UDim2.fromScale(1, 1)
-	panel.text.Visible = false
-	local ribbon = Instance.new("Frame")
-	ribbon.Name = "Ribbon"
-	ribbon.BackgroundColor3 = Theme.booths.rink
-	ribbon.BorderSizePixel = 0
-	ribbon.Size = UDim2.fromScale(1, 0.2)
-	Ui.corner(ribbon)
-	ribbon.Parent = panel.face
-	Ui.label(ribbon, "WAVE DONE", UDim2.fromScale(0.9, 0.62), UDim2.fromScale(0.05, 0.19))
-	local gained = if typeof(data.gained) == "number" then data.gained else 0
-	local gain = Ui.inkLabel(panel.face, `+{Config.coinText(gained)} Cold Power!`, UDim2.fromScale(0.9, 0.2), UDim2.fromScale(0.05, 0.25))
-	gain.Name = "Gain"
-	local detail = Ui.inkLabel(panel.face, `{tostring(data.frozen)} of {tostring(data.total)} frozen`, UDim2.fromScale(0.9, 0.09), UDim2.fromScale(0.05, 0.47))
-	detail.Name = "Detail"
-	detail.TextColor3 = Theme.ink:Lerp(Theme.white, 0.35)
-	local again = Ui.block(panel.face, "Again", Theme.go, "AGAIN", function()
-		SoundController.play("click")
-		State.send("Rink", "again")
-		hideResult()
-	end)
-	again.root.Position = UDim2.fromScale(0.18, 0.6)
-	again.root.Size = UDim2.fromScale(0.44, 0.3)
-	local exit = Ui.block(panel.face, "Exit", Theme.no, "EXIT", function()
-		SoundController.play("click")
-		State.send("Rink", "leave")
-	end)
-	exit.root.Position = UDim2.fromScale(0.67, 0.66)
-	exit.root.Size = UDim2.fromScale(0.2, 0.2)
-	if not reduced() then -- the next action pulses gently
-		local sc = Instance.new("UIScale")
-		sc.Parent = again.root
-		TweenService:Create(sc, TweenInfo.new(RK.againPulse.seconds, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Scale = RK.againPulse.scale }):Play()
-	end
-	InputController.select(again.face) -- gamepad: A plays again (B leaves, below)
-	SoundController.play("challenge")
-end
-
--- the side column: Auto, the pass button while you don't own it, Exit (Screen sizes the column from "Slots")
-local function placeButtons()
-	local item = Config.robuxItem("autoTrain")
-	local canBuy = item ~= nil and me:GetAttribute("Pass_autoTrain") ~= true and (Config.robuxReady(item) or RunService:IsStudio())
-	local n = if canBuy then 3 else 2
-	local total = RK.buttonSize * n + RK.buttonGap * (n - 1)
-	local share, stepY = RK.buttonSize / total, (RK.buttonSize + RK.buttonGap) / total
-	boostBlock.root.Visible = canBuy
-	for i, b in { autoBlock, boostBlock, exitBlock } do
-		b.root.Size = UDim2.fromScale(1, share)
-		b.root.Position = UDim2.fromScale(0, stepY * (if i == 3 then n - 1 else i - 1))
-	end
-	if buttons:GetAttribute("Slots") ~= n then
-		buttons:SetAttribute("Slots", n)
-	end
-end
-
-local function refresh()
-	placeButtons()
-	local now = me:GetAttribute("InRink") == true
-	if now ~= inRink then
-		inRink = now
-		Screen.setRinkMode(now)
-		if not now then
-			hideResult()
-		end
-	end
-	if not now then
+local function watchOther(p: Player)
+	if p == me then
 		return
 	end
-	local left = me:GetAttribute("RinkLeft")
-	local n = if typeof(left) == "number" then left else 0
-	barText.Text = tostring(n)
-	barFill.Size = UDim2.fromScale(math.clamp(n / R.waveSize, 0, 1), 1)
-	barFill.Visible = n > 0
-	local combo = me:GetAttribute("RinkCombo")
-	local c = if typeof(combo) == "number" then combo else 1
-	comboText.Visible = c > 1
-	comboText.Text = `x{string.format("%.1f", c)}`
-	local on = me:GetAttribute("RinkAuto") == true
-	recolor(autoBlock, if on then Theme.go else Theme.info)
-	local rate = if me:GetAttribute("Pass_autoTrain") == true then R.autoPass else R.autoFree
-	autoSub.Text = `{math.round(rate * 100)}%`
-end
-
-local function buildHud()
-	bar = Instance.new("Frame")
-	bar.Name = "RinkBar"
-	bar.BackgroundTransparency = 1
-	bar.Visible = false
-	local track = Instance.new("Frame")
-	track.Name = "Track"
-	track.BackgroundColor3 = Theme.ink:Lerp(Theme.white, Config.ui.barTrackAlpha)
-	track.BorderSizePixel = 0
-	track.Size = UDim2.fromScale(1, 1)
-	Ui.corner(track, 1)
-	Ui.stroke(track)
-	track.Parent = bar
-	barFill = Instance.new("Frame")
-	barFill.Name = "Fill"
-	barFill.BackgroundColor3 = T.flame
-	barFill.BorderSizePixel = 0
-	barFill.Size = UDim2.fromScale(1, 1)
-	Ui.corner(barFill, 1)
-	barFill.Parent = track
-	barText = Ui.label(bar, "", UDim2.fromScale(1, 0.82), UDim2.fromScale(0, 0.09))
-	barText.Name = "Left"
-	barText.ZIndex = 2
-	-- the combo sits just past the bar's right end, in reward yellow, only while it's above x1
-	comboText = Ui.label(bar, "", UDim2.fromScale(RK.comboWidth / RK.barSize[1], 1.5), UDim2.fromScale(1.03, -0.25))
-	comboText.Name = "Combo"
-	comboText.TextXAlignment = Enum.TextXAlignment.Left
-	comboText.TextColor3 = Theme.coin
-	comboText.Visible = false
-	local cs = comboText:FindFirstChildOfClass("UIStroke")
-	if cs then
-		cs.Thickness = Config.ui.floatingStroke
-	end
-	Screen.register("rinkBar", bar)
-
-	buttons = Instance.new("Frame")
-	buttons.Name = "RinkButtons"
-	buttons.BackgroundTransparency = 1
-	buttons.Visible = false
-	autoBlock = Ui.block(buttons, "Auto", Theme.info, "AUTO", function()
-		SoundController.play("click")
-		State.send("Rink", "auto", me:GetAttribute("RinkAuto") ~= true)
-	end)
-	autoBlock.text.Size = UDim2.fromScale(0.9, 0.36)
-	autoBlock.text.Position = UDim2.fromScale(0.05, 0.14)
-	autoSub = Ui.label(autoBlock.face, "", UDim2.fromScale(0.9, 0.3), UDim2.fromScale(0.05, 0.54))
-	autoSub.Name = "Speed"
-	-- the pass: a small side button with Roblox's Robux mark (Child Safety: never a pop-up, never a
-	-- countdown; free Auto keeps working). The server shows Roblox's own purchase prompt.
-	boostBlock = Ui.block(buttons, "Boost", Theme.shopCards.pass, "100%", function()
-		SoundController.play("click")
-		State.send("BuyRobux", "autoTrain")
-	end)
-	boostBlock.text.Size = UDim2.fromScale(0.9, 0.32)
-	boostBlock.text.Position = UDim2.fromScale(0.05, 0.56)
-	Ui.image(boostBlock.face, Config.images.icons.robux, UDim2.fromScale(0.5, 0.42), UDim2.fromScale(0.25, 0.1))
-	exitBlock = Ui.block(buttons, "Exit", Theme.no, "EXIT", function()
-		SoundController.play("click")
-		State.send("Rink", "leave")
-	end)
-	exitBlock.text.Size = UDim2.fromScale(0.9, 0.4)
-	exitBlock.text.Position = UDim2.fromScale(0.05, 0.3)
-	placeButtons()
-	Screen.register("rinkButtons", buttons)
-end
-
-local function onRink(data: any)
-	if typeof(data) ~= "table" then
-		return
-	end
-	local what = data.what
-	if what == "gain" and typeof(data.at) == "Vector3" and typeof(data.gain) == "number" then
-		EffectsController.burst(data.at, if data.golden == true then T.golden else Theme.ice, 8)
-		floatGain(data.at, data.gain, data.golden == true)
-		SoundController.play("tink")
-	elseif what == "escaped" then
-		local index = me:GetAttribute("RinkIndex")
-		local centre = Config.rinkCentre(if typeof(index) == "number" then index else 1)
-		EffectsController.burst(centre + Vector3.new(0, 3, R.sculptureRadius), T.flame, 6) -- a puff where it ran off
-		SoundController.play("bounce")
-	elseif what == "done" then
-		if data.auto ~= true then
-			showResult(data)
+	p:GetAttributeChangedSignal("TrainShots"):Connect(function()
+		local i = p:GetAttribute("TrainStation")
+		if typeof(i) == "number" and Config.world.plots[i] then
+			drawShot(p, i, false, false, nil)
 		end
-	elseif what == "wave" or what == "leave" then
-		hideResult()
-	end
+	end)
 end
 
 function TrainingController.Init()
 	folder = Instance.new("Folder")
-	folder.Name = "RinkVisuals"
+	folder.Name = "TrainingVisuals"
 	folder.Parent = workspace
 end
 
 function TrainingController.Start()
-	buildHud()
-	for _, name in { "InRink", "RinkLeft", "RinkCombo", "RinkAuto", "RinkState", "Pass_autoTrain" } do
-		me:GetAttributeChangedSignal(name):Connect(refresh)
+	local shell = Instance.new("Part")
+	shell.Name = "FrostShell"
+	shell.Shape = Enum.PartType.Cylinder
+	shell.Material = Enum.Material.SmoothPlastic -- see-through panels are never Glass (World Rules 6)
+	shell.Color = TT.frost
+	shell.Transparency = 1
+	shell.Anchored, shell.CanCollide, shell.CanQuery, shell.CanTouch, shell.CastShadow = true, false, false, false, false
+	shell.Parent = folder
+	frost.shell = shell
+	for i in Config.world.plots do
+		aims[i] = anchorPart("TrainAim" .. i, aimAt(i))
+		buildSign(i)
 	end
-	refresh()
+	buildHint()
+	buildStop()
+	me:GetAttributeChangedSignal("TrainLocked"):Connect(applyLock)
+	applyLock()
+	refreshSigns()
+	for _, m in CollectionService:GetTagged(T.targetTag) do
+		addTarget(m)
+	end
+	CollectionService:GetInstanceAddedSignal(T.targetTag):Connect(function(m)
+		task.defer(addTarget, m) -- its children arrive with it; one beat later to be safe
+	end)
+	CollectionService:GetInstanceRemovedSignal(T.targetTag):Connect(removeTarget)
+	local function refreshMine()
+		local i = myStation()
+		local m = me:GetAttribute("TrainMeter")
+		if i ~= 0 and frost.station == i and typeof(m) == "number" and m > frost.goal then
+			frost.goal = m -- coming back to a target you'd half-frosted
+		end
+		showHint(i)
+	end
+	for _, name in { "TrainStation", "TrainReady", "TrainMeter" } do
+		me:GetAttributeChangedSignal(name):Connect(refreshMine)
+	end
+	refreshMine()
+	for _, p in Players:GetPlayers() do
+		watchOther(p)
+	end
+	Players.PlayerAdded:Connect(watchOther)
 	State.Notify:Connect(function(kind: string, data: any)
-		if kind == "rink" then
-			onRink(data)
+		if kind == "train" then
+			onTrain(data)
 		end
 	end)
-	UserInputService.InputBegan:Connect(function(input: InputObject)
-		if result and input.KeyCode == Config.ui.gamepadKeys.close then
-			State.send("Rink", "leave") -- gamepad B on the result card
-		end
-	end)
-	task.spawn(function()
-		local f = workspace:WaitForChild("RinkSprites", 30)
-		if not f then
+	UserInputService.InputBegan:Connect(function(input: InputObject, processed: boolean)
+		if processed or UserInputService:GetFocusedTextBox() then
 			return
 		end
-		f.ChildAdded:Connect(function(c)
-			task.defer(add, c) -- its attributes arrive with it; one beat later to be safe
-		end)
-		f.ChildRemoved:Connect(remove)
-		for _, c in f:GetChildren() do
-			add(c)
+		local t = input.UserInputType
+		if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch
+			or input.KeyCode == Enum.KeyCode.ButtonR2 or input.KeyCode == Enum.KeyCode.E then
+			tryShot()
 		end
 	end)
 	RunService.RenderStepped:Connect(step)

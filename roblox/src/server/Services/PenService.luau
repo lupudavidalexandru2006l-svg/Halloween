@@ -743,7 +743,7 @@ local function openGate(player: Player, id: number)
 	end
 	local need = zone.need
 	if d.coldPower < need then
-		Remotes.fire(player, "Notify", "needPower", { zone = id }) -- the client's arrow to the Training Rink
+		Remotes.fire(player, "Notify", "needPower", { zone = id }) -- the client's arrow to the Frost Training Yard
 		Remotes.notYet(player, `Need {Config.coinText(need - d.coldPower)} more Cold Power`, "gate")
 		return
 	end

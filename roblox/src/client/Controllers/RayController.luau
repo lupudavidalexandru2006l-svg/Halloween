@@ -269,15 +269,6 @@ local function candidates(): { Target }
 			end
 		end
 	end
-	-- the Training Rink's fire sprites: only my own (TrainingService checks it too)
-	local sprites = workspace:FindFirstChild("RinkSprites")
-	if sprites then
-		for _, r in sprites:GetChildren() do
-			if r:IsA("BasePart") and r:GetAttribute("OwnerUserId") == me.UserId then
-				table.insert(out, { kind = "sprite", id = r:GetAttribute("SpriteId") :: string, part = r })
-			end
-		end
-	end
 	for _, p in Players:GetPlayers() do
 		local hrp = p ~= me and p.Character and p.Character:FindFirstChild("HumanoidRootPart")
 		if hrp and hrp:IsA("BasePart") and p:GetAttribute("Taggable") == true and me:GetAttribute("Shielded") ~= true then
@@ -609,6 +600,16 @@ local function muzzle(c: Model, kind: string)
 	end
 end
 
+-- the Frost Training Yard (TrainingController): where this character's gun tip is, and its muzzle
+-- effects ("flash" when a bolt leaves, "mist" for a puff of cold) on a training shot
+function RayController.tipOf(character: Model): Attachment?
+	return (gunTip(character))
+end
+
+function RayController.muzzle(character: Model, kind: string)
+	muzzle(character, kind)
+end
+
 local function playCue(c: Model, s: Shot, cue: Config.RayCue)
 	if cue.sound and s.mine then
 		SoundController.play(cue.sound, 0.95 + 0.1 * math.random()) -- a little variety (Sound Rules 3)
@@ -928,7 +929,7 @@ local function makeReticle(): { gui: BillboardGui, ring: Frame, fill: Frame, hin
 	local as = Instance.new("UIStroke")
 	as.Name = "Stroke"
 	as.Thickness = 5
-	as.Color = Theme.rink.heatCool
+	as.Color = Theme.training.heatCool
 	as.Parent = arc
 	local ag = Instance.new("UIGradient")
 	ag.Name = "Sweep"
@@ -982,7 +983,7 @@ local function drawReticle()
 			sweep.Transparency = NumberSequence.new({
 				NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(h, 0), NumberSequenceKeypoint.new(h + 0.01, 1), NumberSequenceKeypoint.new(1, 1),
 			})
-			local HT = Theme.rink
+			local HT = Theme.training
 			as.Color = if steam or heat > 0.75 then HT.heatHot elseif heat > 0.4 then HT.heatWarm else HT.heatCool
 		end
 	end
@@ -1260,6 +1261,9 @@ end
 -- the gun is full of heat: a puff of steam from its tip and a fizz (it cools by itself)
 local function watchSteam()
 	me:GetAttributeChangedSignal("GunSteam"):Connect(function()
+		-- the server dropped this shot when the gun overheated: forget what was sent, so holding on (or
+		-- aiming again at the same target) is sent afresh once it has cooled (review 2026-11-10)
+		sentKey = "none"
 		local c = me.Character
 		if me:GetAttribute("GunSteam") == true and c then
 			muzzle(c, "vent")

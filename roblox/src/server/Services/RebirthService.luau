@@ -8,7 +8,7 @@
 --           rebirth while carrying (or during a show) loses nothing. An open island's pets still
 --           wait for your Cold Power to reach its need again before they freeze (FreezeService).
 --   gives:  +50% on coin income AND on training (one multiplier, Config.rebirthIncome; PenService and
---           Config.rinkGain read d.rebirths), and the free rebirth gun when it's the next in line
+--           Config.trainGain reads d.rebirths), and the free rebirth gun when it's the next in line
 -- Saved at once, so a quick rejoin can't roll it back or apply it twice. The client plays the show.
 
 local Players = game:GetService("Players")

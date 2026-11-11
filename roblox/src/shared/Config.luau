@@ -57,7 +57,7 @@ Config.player = {
 	rateLimitPerSecond = 12,
 	-- remotes with their own budget, so a burst of one (aiming while you drag, or calls bunched up by a lag
 	-- spike on a phone) can't crowd out the rest (mobile QA 2026-11-10)
-	rateLimits = { Aim = 20 } :: { [string]: number },
+	rateLimits = { Aim = 20, Train = 14 } :: { [string]: number }, -- Train: click shots (TrainingService counts at most clickMax a second)
 	maxSpeedTolerance = 1.6, -- server flags positions that move faster than this x walk speed
 }
 
@@ -278,9 +278,10 @@ Config.monetization = {
 		-- Game Design Rules 10: server-wide events). Everyone gets it; it never moves the free Chill's clock.
 		{ id = "bigChill", kind = "chill", productId = 0, robux = 49, name = "Big Chill", text = "60 s for everyone", icon = "temp", stack = 1, big = "60s", chip = "For everyone" },
 		-- Cold Power (2026-11-10; starting prices, the owner sets the real ones). Never needed to progress:
-		-- free Auto-Train runs at Config.rink.autoFree, and playing by hand is always the best rate.
+		-- standing on a training station shoots by itself for free (Config.training.autoEvery), the pass
+		-- only makes those shots faster, and clicking on top is always the best rate.
 		-- A pack is a share of your next island's need (Config.powerPack), so it's worth the same at every stage.
-		{ id = "autoTrain", kind = "pass", passId = 0, robux = 149, name = "Full-Speed Auto-Train", text = "Auto trains at full speed", icon = "power", stack = 1 },
+		{ id = "autoTrain", kind = "pass", passId = 0, robux = 149, name = "Full-Speed Auto-Train", text = "Your gun trains 4x faster on its own", icon = "power", stack = 1 },
 		{ id = "doublePower", kind = "pass", passId = 0, robux = 199, mult = 2, name = "2x Cold Power", text = "Double Cold Power, forever", icon = "power", stack = 2 },
 		{ id = "powerSmall", kind = "power", productId = 0, robux = 49, share = 0.25, name = "Cold Power Pack", text = "", icon = "power", stack = 1 },
 		{ id = "powerBig", kind = "power", productId = 0, robux = 149, share = 1, name = "Big Cold Power Pack", text = "", icon = "power", stack = 3 },
@@ -371,7 +372,7 @@ Config.analytics = {
 		offer_shown = { value = nil, fields = { "offer", "pet", "tier" } },
 		offer_bought = { value = "robux", fields = { "offer" } },
 		session_end = { value = "sessionSeconds", fields = { "zone", "lastAction", "carryingCube" } },
-		rink_wave = { value = "gain", fields = { "level" } }, -- a Training Rink wave finished
+		train_session = { value = "gain", fields = { "station", "level" } }, -- someone stepped off a training station
 	} :: { [string]: { value: string?, fields: { string } } },
 	lastActions = { "zapping", "carrying", "in_pen", "in_menu", "exploring" },
 }
@@ -437,6 +438,7 @@ Config.sounds = {
 	pitchJitter = 0.05, -- every other one-shot plays at 1 +/- this, so the 500th doesn't grate
 	fadeSeconds = 0.15,
 	maxSame = 3,
+	maxSameFor = { coin = 8 } :: { [string]: number }, -- the bank tally plays a quick run of coin dings (Config.juice.tally)
 	streakReset = 1.5,
 }
 
@@ -458,13 +460,25 @@ Config.ui = {
 	-- Cold Power (2026-11-10): its counter sits under the coins, bottom left (the two lift together over
 	-- the thumbstick). popScale / popSeconds: the number's small bounce when it goes up.
 	powerSize = { 0.3, 0.07 }, powerPop = { scale = 1.18, seconds = 0.22 },
-	-- the Training Rink's HUD (Figma file "Chunky Pop Icons", page "Training Rink HUD"): the sprites-left
-	-- bar top centre with the combo beside it, Auto and Exit on the right edge, the result card in the
-	-- middle. While you're in the rink the menu tiles step aside (5 pieces: coins, Cold Power, hotbar,
-	-- bar, buttons). Sizes: shares of the screen's short side; gain* = the "+120" over a frozen sprite.
-	rink = { barSize = { 0.62, 0.052 }, barTop = 0.025, comboWidth = 0.2, buttonSize = 0.12, buttonGap = 0.02,
-		gainPx = 30, gainRise = 3, gainSeconds = 0.9, againPulse = { scale = 1.06, seconds = 0.6 },
-		resultShare = 0.74 }, -- the result card: this share of a normal popup
+	-- Cold Power trainers (2026-11-10): no HUD pieces, everything floats in the world (pixel-sized
+	-- BillboardGuis, the same size at any distance, like the coin pops).
+	--   sign*  = each owned pan's "x5 Cold Power" title, signGap studs over its trainer's target
+	--   hint*  = "CLICK!" / "TAP!" / "R2!" pulsing over the target you're training on (the one next action)
+	--   pop    = the "+N" that shoots off the target on every shot (CoinPops' motion), big* on a shatter
+	--   bolt   = the frost bolt from the gun's tip to the target (seconds in flight, size in studs)
+	--   wobble = the target's squash when a bolt lands; turnSpeed = how fast you turn to face it
+	training = {
+		signPx = 40, signGap = 4.6, signMaxDistance = 150,
+		hintPx = 30, hintY = 1.4, hintPulse = { scale = 1.14, seconds = 0.45 },
+		pop = { px = 34, bigPx = 56, iconPx = 36, outX = { 40, 95 }, outY = { 36, 78 }, out = 0.22, hold = 0.5, exit = 0.18,
+			drift = 12, tilt = 10, startScale = 0.45, exitScale = 0.8, maxActive = 18, maxDistance = 90, boxPx = { 420, 260 } },
+		bolt = { seconds = 0.13, size = 0.55, clickSize = 0.9, trail = 0.14 },
+		wobble = { squash = 0.12, seconds = 0.28, shatterSeconds = 0.5 },
+		turnSpeed = 10,
+		-- lock mode: the red STOP button takes the hotbar's place (bottom centre) while you're locked in.
+		-- stop = its size (w, h) as shares of the screen's short side
+		stop = { 0.34, 0.1 },
+	},
 	topInset = 0.02, sideInset = 0.03, touchLift = 0.28, -- the coins sit above the thumbstick on touch screens
 	-- the island banner (owner 2026-11-07, from a reference clip): walking onto an island drops a strip
 	-- in from above the top edge, top centre: the island's name in its colour, the thermometer and its
@@ -481,7 +495,7 @@ Config.ui = {
 	-- so the shop is the only thing on screen (owner 2026-11-05); the banner still shows answers
 	hideHudFor = { shop = true, equipment = true, index = true, sell = true, rebirth = true } :: { [string]: boolean },
 	-- the big popups (Equipment, Index, Sell, Rebirth: owner 2026-11-09 "make it bigger"), share of the screen and aspect
-	bigPopups = { equipment = true, index = true, sell = true, rebirth = true } :: { [string]: boolean },
+	bigPopups = { equipment = true, index = true, sell = true, rebirth = true, shop = true } :: { [string]: boolean }, -- shop v2: its cards were 85 px wide in a phone-sized window (2026-11-11); it hides the HUD, so the wide panel is safe
 	popupSizeBig = { 0.9, 0.86 }, popupAspectBig = 1.68,
 	barTrackAlpha = 0.2, -- progress bars: the light track behind the fill
 	-- the Index (2026-11-09): pageAspect = a page card's width / height; shares of the card below
@@ -583,7 +597,7 @@ export type RayCue = { at: number, sound: string?, fx: string?, kick: string? }
 
 Config.world = {
 	maxPlayers = 6, -- one pan per server slot. Owner item: Server Size 6 in Game Settings > Places
-	mapVersion = 19, -- 19 = open plaza: no fountain, no paved boulevard, no spawn pad, 18 = the Sell and Equipment booths no longer run into the village wall, 17 = map pass 2026-11-10 (rink door in front, its beacon, bigger snowman and waterfall), 16 = the Training Rink's door. Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges, 6 = bigger square pans, 7 = pans measured against the real avatar, 8 = open gaps, open ground behind, level pans, 9 = no flush overlapping surfaces, 10 = booth details: sign bulbs, log ends, scalloped awnings, chalk coin, 11 = wide tunnel and big entrance for big pets, a clean road, 12 = booths shaped like what they do: treasure chest, gear workshop, ring portal, 13 = the detailed sci-fi Thaw Machine, 14 = each world's own gate towers, 15 = never-visible buried parts left out (PERF-AUDIT-2026-11-09))
+	mapVersion = 20, -- 20 = Cold Power trainers in every pan (TrainingService builds them; the rink door, its beacon and the right flower box are gone, Equipment back by the tunnel mouth), 19 = open plaza: no fountain, no paved boulevard, no spawn pad, 18 = the Sell and Equipment booths no longer run into the village wall, 17 = map pass 2026-11-10 (rink door in front, its beacon, bigger snowman and waterfall), 16 = the Training Rink's door. Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges, 6 = bigger square pans, 7 = pans measured against the real avatar, 8 = open gaps, open ground behind, level pans, 9 = no flush overlapping surfaces, 10 = booth details: sign bulbs, log ends, scalloped awnings, chalk coin, 11 = wide tunnel and big entrance for big pets, a clean road, 12 = booths shaped like what they do: treasure chest, gear workshop, ring portal, 13 = the detailed sci-fi Thaw Machine, 14 = each world's own gate towers, 15 = never-visible buried parts left out (PERF-AUDIT-2026-11-09))
 	hubZMax = 0, -- the tunnel mouth: the hub is z < 0 (no wild pets, no heat)
 	-- wide enough for the row of six pans plus 10 studs at each end; zMin is worked out below (behind the pans' backSpace)
 	hub = { xMin = -150, xMax = 150, zMin = 0, wallHeight = 16, colliderHeight = 60 },
@@ -596,7 +610,7 @@ Config.world = {
 	-- depth 1.1 x width, door 0.4 x width, gap 0.2 x width, about one width of open ground behind,
 	-- fence about shoulder high (0.8 avatar heights)
 	pans = { width = 40, length = 44, gap = 8, frontZ = -62, soilHeight = 0.2, backSpace = 40, doorWidth = 16, fenceHeight = 4.5,
-		signY = 6.5, gaugeOffset = 10.5, boothOffset = -11 }, -- gauge right of the door, Pan Upgrades stand left of it (x from the lane's middle)
+		signY = 6.5, gaugeOffset = -16.5, boothOffset = -11 }, -- the gauge and the Pan Upgrades stand left of the door (x from the lane's middle); right of it stands the Cold Power trainer (Config.training.spot)
 	-- owner 2026-11-07: bigger pets are coming, so the tunnel is wide (about 34 avatar widths, was 22)
 	-- and the entrance and the island gates are scaled up with it (archScale: their towers, roofs and
 	-- lintels). The road is one plain strip: no lamps or stones on it; the lanterns stand at the foot of
@@ -677,16 +691,14 @@ Config.world = {
 		-- sign = where its sign stands (y up, z toward the plaza, from pos): over the chest's window, over
 		-- the workshop's opening, on the portal's keystone
 		{ id = "sell", label = "Sell", action = "sell", pos = Vector3.new(-80, 0, -8), sign = { y = 8.6, z = -3.55 } },
-		-- Map pass 2026-11-10: the Training Rink (Cold Power opens every island) takes the front-row spot by the
-		-- tunnel mouth, in view from the spawn; Equipment moves one slot out, mirroring Rebirth
-		{ id = "equipment", label = "Equipment", action = "equipment", pos = Vector3.new(103, 0, -8), sign = { y = 9, z = -3.3 } },
+		-- 2026-11-10: the Training Rink door is gone (Cold Power is trained in the Frost Training Yard,
+		-- Config.training), so Equipment is back in the front-row spot by the tunnel mouth
+		{ id = "equipment", label = "Equipment", action = "equipment", pos = Vector3.new(80, 0, -8), sign = { y = 9, z = -3.3 } },
 		{ id = "rebirth", label = "Rebirth", action = "rebirth", pos = Vector3.new(-103, 0, -8), sign = { y = 14.6, z = 3.9 } },
-		-- the Training Rink's door (Cold Power, 2026-11-10): a frosty dome; its prompt takes you to your own rink in the sky
-		{ id = "rink", label = "Training Rink", action = "rink", pos = Vector3.new(80, 0, -8), sign = { y = 10.4, z = -3.6 } },
 	} :: { Booth },
 	boothSign = { y = 8.8, w = 9, h = 2.2, z = -3.2, text = 1.5 }, -- a booth sign's size (text = letter height in studs); y / z are the spot for a booth without its own `sign`
 	panUpgradeAction = "pan", -- the Pan Upgrades popup (Round 4 phase 5)
-	giftBox = Vector3.new(126, 0, -10), -- map pass 2026-11-10: the outer slot (it was 106, now Equipment's)
+	giftBox = Vector3.new(106, 0, -10), -- the outer slot, past Equipment
 	-- leaderboards on the hub's side walls, turned to face the plaza
 	boards = { Vector3.new(-146, 0, -46), Vector3.new(-146, 0, -24), Vector3.new(146, 0, -46) },
 	-- filled in below from the lists above
@@ -1025,11 +1037,6 @@ Config.art = {
 	benches = { { pos = Vector3.new(76, 0, -24), ry = math.pi / 2 }, { pos = Vector3.new(76, 0, -32), ry = math.pi / 2 } },
 	farPeaks = 14,
 	clouds = { cover = 0.55, density = 0.6 },
-	-- Map pass 2026-11-10 (vault: Games/Ice Ray for Pets/Map Report 2026-11-10). false switches it off.
-	-- rinkBeacon: a column of frost light over the Training Rink's door, crowned by a turning snowflake.
-	--   The hub's tallest thing: "where Cold Power comes from" shows from anywhere in the hub and the first islands
-	--   (past ~500 studs the haze, World Rules 10, hides it, like everything far).
-	rinkBeacon = { height = 150, radius = 3.2, clear = 0.45, haloRadius = 7, crownSize = 16, crownSpin = 0.25 } :: any,
 }
 
 Config.camera = { fov = 70, minZoom = 10, maxZoom = 40, carryFov = 74, fovSeconds = 0.4,
@@ -1044,6 +1051,28 @@ Config.camera = { fov = 70, minZoom = 10, maxZoom = 40, carryFov = 74, fovSecond
 	lockKickScale = { 0.6, 1 }, lockKickFullRank = 4,
 	pushFov = -3 } -- while you hold the ray on a target the view tightens this much, with the meter
 Config.effects = { pillarSeconds = 8, pillarHeight = 60, burstParts = 12, beamSeconds = 0.15, snowRate = 60, showRank = 4 } -- showRank: Epic and up get a pillar in your pen
+
+-- Nintendo-style juice on the three most common actions (To Do job 2, 2026-11-11; Animation Rules 8,
+-- Sound Rules 11): a training shot, a cube shutting, banking. Reduced motion halves every time here and
+-- drops the shakes and the shiver.
+--   hitStop  = seconds the hit thing holds still (and shakes) before the burst, so a big hit reads
+--              (Sakurai's hit stop): a training shatter, and a cube shutting (Common .. Epic; Legendary
+--              and up have their own show)
+--   hitShake = how far (studs) the held thing shakes during the hit-stop
+--   hitFlash = a training target flashes white this long when a bolt lands (a bolt = flashPeak, a
+--              shatter = full white through its hit-stop)
+--   tremble  = past `from` of the shatter meter, your training target shivers (radians, cycles per second):
+--              the next shots may break it
+--   tally    = banking: the cubes hop from your hands into the pen one by one, each a note higher up a
+--              major scale (`notes`, semitones), then the bank chime and bursts land (the finale)
+Config.juice = {
+	hitStop = { shatter = 0.09, lock = { 0.04, 0.09 } },
+	hitShake = 0.12,
+	hitFlash = 0.08, flashPeak = 0.55,
+	tremble = { from = 0.7, amp = 0.035, hz = 22 },
+	tally = { stagger = 0.12, fly = 0.3, arc = 2.5, maxCubes = 8, finale = 0.08, startUp = 1.2, startFront = 1.6,
+		notes = { 0, 2, 4, 5, 7, 9, 11, 12 }, landParts = 6 },
+}
 
 -- Freezing that looks great (Round 4 phase 3). Every freeze timing and every show beat lives here
 -- (Animation Rules 1). Reduced motion halves the client's look timings and every show beat.
@@ -1150,8 +1179,8 @@ Config.show.gunBuy = {
 -- player would otherwise wait with nothing to buy; gun 2 (25K) fills the save between island 2 and Rebirth 1. Looks: Theme.guns[i]. A real model goes in ReplicatedStorage.GunModels.<key>
 -- once the painted line-up is approved and turned into 3D (Pet Rules 5); until then each gun is the
 -- part-built stand-in from RayController.
--- Cold Power remake (2026-11-10): training = Cold Power per frozen fire sprite in the Training Rink (a
--- multiplier), heat = the hottest island the gun works on (the old cold values). power and cold go in the cleanup.
+-- Cold Power remake (2026-11-10): training = the Cold Power multiplier of every shot at a training station
+-- (Config.trainGain), heat = the hottest island the gun works on (the old cold values). power and cold go in the cleanup.
 export type Gun = { key: string, name: string, training: number, range: number, heat: number, beams: number, price: number, rebirths: number }
 Config.guns = {
 	list = {
@@ -1169,7 +1198,7 @@ Config.guns = {
 		-- rows and looked odd), so all guns are bought with coins in order; rebirth gates islands, not guns
 	} :: { Gun },
 	-- the card's bars are scaled to the game's 20-island maximum, not to gun 10, so later guns fill them further
-	-- Cold Power remake (2026-11-10): Training = Cold Power per frozen sprite in the rink (x1 to x100, so
+	-- Cold Power remake (2026-11-10): Training = the Cold Power multiplier of each training shot (x1 to x100, so
 	-- its bar is drawn on a log scale: Config.gunStatShare), Heat = the hottest island the gun works on
 	stats = { "training", "heat", "range", "beams" },
 	statLabels = { training = "Training", heat = "Heat", range = "Range", beams = "Beams" } :: { [string]: string },
@@ -1180,11 +1209,10 @@ Config.guns = {
 	buyCooldown = 0.4, -- seconds between two buys (spam is dropped; a double charge can't happen anyway)
 	-- the gun's heat bar (0-1), kept on the server (GunService). Firing at a pet from an island one past the
 	-- gun's heat fills it in overSeconds (under a Mythic's 4.5 s floor, so a gun one step short can't finish
-	-- a Mythic or Secret); on islands it's made for, in okSeconds (it barely moves); in the Training Rink,
-	-- in rinkSeconds of nonstop firing. Full = it steams for steamSeconds and can't fire. Not firing, it
+	-- a Mythic or Secret); on islands it's made for, in okSeconds (it barely moves). Full = it steams for steamSeconds and can't fire. Not firing, it
 	-- cools in coolSeconds. step = how finely clients hear about it (the arc round the aim ring).
 	-- coolAfter = it starts cooling this long after the last shot.
-	heatBar = { overSeconds = 4, okSeconds = 60, coolSeconds = 3, coolAfter = 0.3, steamSeconds = 2, rinkSeconds = 12, step = 0.05 },
+	heatBar = { overSeconds = 4, okSeconds = 60, coolSeconds = 3, coolAfter = 0.3, steamSeconds = 2, step = 0.05 },
 	maxRange = 0, -- the longest range of any gun (filled in below): the pet prompts' own reach on the server
 	-- a pet too warm for your gun gives a small side shake (Animation Rules 2: shake), never a freeze
 	tooWarmShake = { seconds = 0.3, amp = 0.22, speed = 40 },
@@ -1262,10 +1290,10 @@ Config.pan = {
 	-- Cold Power remake (2026-11-10): the Cold Level upgrade is gone (the pan keeps every pet frozen).
 	-- coldRefund = what each level cost (island n's old gate coins); DataService pays it back on load,
 	-- once, for levels above coldStart.
-	order = { "slots", "look" },
+	order = { "slots", "look", "trainer" }, -- trainer: your pan's Cold Power trainer (Config.training.stations)
 	coldStart = 2,
 	coldRefund = { [3] = 7500, [4] = 2e6, [5] = 6e6, [6] = 30e6, [7] = 100e6, [8] = 250e6, [9] = 750e6, [10] = 3e9 } :: { [number]: number },
-	names = { slots = "Slots", look = "Look" } :: { [string]: string },
+	names = { slots = "Slots", look = "Look", trainer = "Trainer" } :: { [string]: string },
 	standRange = 16, -- studs from your own Pan Upgrades stand (the server's position)
 	buyCooldown = 0.4,
 	looks = {
@@ -1285,6 +1313,9 @@ function Config.panMax(kind: string): number
 	if kind == "slots" then
 		return Config.upgrades.pen.maxLevel
 	end
+	if kind == "trainer" then
+		return #Config.training.stations
+	end
 	return #Config.pan.looks
 end
 
@@ -1294,6 +1325,10 @@ function Config.panPrice(kind: string, level: number, rebirths: number?): number
 		return nil
 	elseif kind == "slots" then
 		return Config.slotsCost(level + 1, rebirths or 0)
+	end
+	if kind == "trainer" then
+		local st = Config.training.stations[level + 1]
+		return if st then st.price else nil
 	end
 	local look = Config.pan.looks[level + 1]
 	return if look then look.price else nil
@@ -1639,12 +1674,12 @@ function Config.zone(id: number): Zone?
 end
 
 -- ---------- Cold Power (core loop remake, owner 2026-11-09; prototype/ice-ray-for-pets/COLD-POWER-DESIGN.md) ----------
--- One endless stat, never spent, trained in the Training Rink. It opens islands (each island's `need`),
+-- One endless stat, never spent, trained in the Frost Training Yard (Config.training). It opens islands (each island's `need`),
 -- and the further it is above an island's need the faster that island's pets freeze, up to maxSpeed:
 -- speed = sqrt(power / need), so 4x the need is 2x faster and 25x the need hits the cap. Island 1 has
 -- no need, so its speed is measured against speedFloor. minSeconds = the freeze time no amount of
 -- power can skip, per rarity (real seconds with the ray on the pet). Past the last island the next
--- "need" (rink levels, pack sizes) keeps growing x needGrowth, so the rink never runs out.
+-- "need" (power levels, pack sizes) keeps growing x needGrowth, so training never runs out.
 Config.coldPower = {
 	max = 1e30,
 	maxSpeed = 5,
@@ -1653,43 +1688,80 @@ Config.coldPower = {
 	minSeconds = { Common = 0.5, Uncommon = 1, Rare = 1.5, Epic = 2.5, Legendary = 3.5, Mythic = 4.5, Secret = 6 } :: { [string]: number },
 }
 
--- The Training Rink: a private ice arena in the sky, one per pan slot. A wave of waveSize fire sprites
--- hops in from the edge toward the ice sculpture in the middle; hold the ray on one to freeze it for
--- Cold Power. No clock: the wave ends when every sprite is frozen or has reached the sculpture.
---   kinds: hold = seconds of ray to freeze it, value = its Cold Power before multipliers, size in studs,
---          weight = how often it's picked, fromLevel = the rink level it first shows up at
---   level  = Config.rinkLevel(your Cold Power): each level makes sprites worth x levelValue and a bit faster
---   combo  = sprites frozen in a row: +perHit each, up to x max; one reaching the sculpture resets it
---   auto   = the rink fires for you at autoFree of the hold speed (autoPass with the game pass), never a combo
-export type SpriteKind = { hold: number, value: number, size: number, weight: number, fromLevel: number }
-Config.rink = {
-	origin = Vector3.new(0, 600, -400), spacing = 160, -- rink i stands at origin + ((i - 3.5) * spacing, 0, 0)
-	radius = 30, wallHeight = 14, sculptureRadius = 4,
-	-- sprites come in over an arc (degrees) in front of the sculpture; you start playerAt studs in front
-	-- of it, facing them, so a gun's Range decides how early you can reach one. leaveAt = this far past
-	-- the rim and you've left the rink. firstSpawn = seconds before a wave's first sprite.
-	arc = 120, playerAt = 9, leaveAt = 20, firstSpawn = 0.6,
-	waveSize = 30, spawnEvery = 0.9, maxAlive = 8,
-	speed = 5, speedPerLevel = 0.4, speedMax = 9, -- studs a second toward the sculpture
-	kinds = {
-		small = { hold = 0.35, value = 1, size = 2.2, weight = 60, fromLevel = 0 },
-		medium = { hold = 0.9, value = 3, size = 3.2, weight = 28, fromLevel = 0 },
-		big = { hold = 1.8, value = 7, size = 4.4, weight = 12, fromLevel = 1 },
-	} :: { [string]: SpriteKind },
-	kindOrder = { "small", "medium", "big" },
-	goldenChance = 0.05, goldenValue = 10, -- a golden sprite is a small one worth x10
-	levelValue = 10,
-	combo = { perHit = 0.1, max = 3 },
-	thawPerSecond = 0.5, thawAfter = 0.3, -- a sprite's ice melts back this fast, this long after the ray leaves it
-	autoFree = 0.25, autoPass = 1, autoRestart = 2, -- autoRestart: seconds before Auto starts the next wave
-	boothRange = 30, cooldown = 1, tickSeconds = 0.1,
-	arrowSeconds = 6, -- after "Need more Cold Power" the guide arrow points at the rink's door this long
+-- Cold Power training (owner 2026-11-10, replaces the sky rink; from the owner's references: hit
+-- simulators' training dummies with a big "xN" over them, and a piece of training gear in every base).
+-- Every pan has its own trainer, in front of it right of its door, and only its owner trains there. Stand
+-- on it and your gun shoots the target by itself, one frost bolt every autoEvery seconds (autoPass with
+-- the Full-Speed Auto-Train pass). Every click / tap / R2 / E fires one more (at most clickMax a second
+-- count), so clicking is always the best rate. Each bolt is Cold Power (Config.trainGain); every
+-- shatterHits bolts the target frosts over completely and shatters for shatterBonus bolts more.
+-- Nothing to lose and no clock.
+-- The trainer is a pan upgrade (Config.pan.order "trainer", saved in pan.trainer, rebirth keeps it):
+--   stations = its levels: kind = its look (TrainingArt, Theme.training.stations[kind]), mult = its xN,
+--              price = coins at your Pan Upgrades stand. Each one hotter and grander, like the islands.
+--   aimY / shell: where the bolts land (studs over the pad) and the frost crust that climbs the target
+--              as you shoot it (bottom over the pad, full height, width)
+--   levelValue: every island need you've passed makes each bolt worth x levelValue (Config.powerLevel)
+--   spot     = the pad's middle from the pan's door (x along the front, z out toward the plaza). padSize =
+--              (x, z) studs, a few studs clear of the fence. It faces away from the pan (owner 2026-11-10):
+--              the open side toward the pan, the target targetZ studs out toward the plaza, and you stand
+--              round standZ facing it, your back to your pets.
+export type TrainStation = { id: string, name: string, kind: string, mult: number, price: number, aimY: number,
+	shell: { bottom: number, height: number, width: number } }
+Config.training = {
+	stations = {
+		{ id = "snowman", name = "Snowman Dummy", kind = "snowman", mult = 1, price = 0, aimY = 4.4, shell = { bottom = 0.9, height = 8.4, width = 4.6 } },
+		{ id = "heatbag", name = "Heat Bag", kind = "heatbag", mult = 2, price = 10e3, aimY = 4.6, shell = { bottom = 2, height = 5.4, width = 3.8 } },
+		{ id = "golem", name = "Magma Golem", kind = "golem", mult = 5, price = 750e3, aimY = 5, shell = { bottom = 0.8, height = 8.6, width = 6.2 } },
+		{ id = "sun", name = "Little Sun", kind = "sun", mult = 10, price = 50e6, aimY = 5.6, shell = { bottom = 3.4, height = 4.6, width = 4.6 } },
+	} :: { TrainStation },
+	targetTag = "TrainTarget", -- each trainer's target Model (TrainingArt); the client frosts and wobbles it
+	spot = { x = 14, z = 12 }, padSize = { 11, 12 }, padHeight = 0.8,
+	targetZ = 3.3, standZ = -2.6,
+	baseValue = 1, levelValue = 10,
+	autoEvery = 1.2, autoPass = 0.3,
+	clickMax = 5,
+	shatterHits = 12, shatterBonus = 5,
+	tickSeconds = 0.1,
+	arrowSeconds = 6, -- after "Need more Cold Power" the guide arrow points at your trainer this long
+	-- lock mode (owner 2026-11-11, from a reference clip): stepping on your trainer snaps you to the stand
+	-- spot (standZ) facing the target and holds you there, training, until you press STOP. After STOP you
+	-- walk off; the pad locks you again only once you've stepped off it. breakStuds: pulled further than
+	-- this from the stand spot (a tester teleport, a fling) = the lock lets go.
+	lock = { breakStuds = 8 },
 }
 
--- where rink number `index` (a pan slot) floats
-function Config.rinkCentre(index: number): Vector3
-	local R = Config.rink
-	return R.origin + Vector3.new((index - (Config.world.maxPlayers + 1) / 2) * R.spacing, 0, 0)
+-- pan `plot`'s trainer: its middle on the ground; its local +Z (the target side) faces the plaza
+function Config.trainerFrame(plot: number): CFrame
+	return CFrame.new(Config.trainerCentre(plot))
+end
+
+-- the middle of pan `plot`'s trainer pad, on the ground
+function Config.trainerCentre(plot: number): Vector3
+	local pl = Config.world.plots[plot]
+	local T = Config.training
+	if not pl then
+		return Vector3.zero
+	end
+	return Vector3.new(pl.x + T.spot.x, 0, Config.world.pans.frontZ + T.spot.z)
+end
+
+-- the foot of pan `plot`'s trainer target
+function Config.trainerTarget(plot: number): Vector3
+	return (Config.trainerFrame(plot) * CFrame.new(0, 0, Config.training.targetZ)).Position
+end
+
+-- the pan whose trainer pad this point stands on (nil = none). The server checks it with its own position.
+function Config.trainerAt(pos: Vector3): number?
+	local T = Config.training
+	local hx, hz = T.padSize[1] / 2, T.padSize[2] / 2
+	for i in Config.world.plots do
+		local c = Config.trainerCentre(i)
+		if math.abs(pos.X - c.X) <= hx and math.abs(pos.Z - c.Z) <= hz and pos.Y < c.Y + 12 then
+			return i
+		end
+	end
+	return nil
 end
 
 -- the Cold Power an island's gate needs (0 = none: island 1, or an island that doesn't exist)
@@ -1724,7 +1796,7 @@ function Config.nextNeed(power: number): number
 end
 
 -- how many of those thresholds this Cold Power has passed (0 until island 2's need)
-function Config.rinkLevel(power: number): number
+function Config.powerLevel(power: number): number
 	power = cleanPower(power)
 	local level, last = 0, 0
 	for _, z in Config.world.zones do
@@ -1759,17 +1831,17 @@ function Config.freezeSeconds(tier: string, size: string, power: number, zoneId:
 	return math.max(Config.coldPower.minSeconds[tier] or 0, raw)
 end
 
--- the Cold Power one frozen fire sprite gives: its value x golden x the rink level x the gun's Training
--- x the rebirth multiplier x the combo x the 2x Cold Power pass
-function Config.rinkGain(kind: string, golden: boolean, level: number, gun: number, rebirths: number, combo: number, doubled: boolean): number
-	local R = Config.rink
-	local k = R.kinds[kind]
-	if not k then
+-- the Cold Power one training bolt gives: the base value x the power level x the trainer's xN x the
+-- gun's Training x the rebirth multiplier x the 2x Cold Power pass (a shatter is shatterBonus of these)
+function Config.trainGain(tier: number, level: number, gun: number, rebirths: number, doubled: boolean): number
+	local T = Config.training
+	local s = T.stations[tier] -- the trainer's level (pan.trainer)
+	if not s then
 		return 0
 	end
-	local gain = k.value * (if golden then R.goldenValue else 1) * R.levelValue ^ math.max(0, level)
-		* Config.gun(gun).training * Config.rebirthIncome(rebirths) * math.clamp(combo, 1, R.combo.max) * (if doubled then 2 else 1)
-	-- to the nearest whole number, never 0 (rounding up made a small sprite at x1.1 worth 2)
+	local gain = T.baseValue * T.levelValue ^ math.max(0, level) * s.mult
+		* Config.gun(gun).training * Config.rebirthIncome(rebirths) * (if doubled then 2 else 1)
+	-- to the nearest whole number, never 0
 	return math.min(Config.coldPower.max, math.max(1, math.round(gain)))
 end
 

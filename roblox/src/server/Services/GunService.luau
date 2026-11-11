@@ -120,7 +120,7 @@ local function equip(player: Player, index: any)
 end
 
 -- ---------- the heat bar (Cold Power remake, 2026-11-10; Config.guns.heatBar) ----------
--- One bar per player, 0-1, kept here. FreezeService and TrainingService push it while the ray fires;
+-- One bar per player, 0-1, kept here. FreezeService pushes it while the ray fires at a pet;
 -- full = the gun steams for steamSeconds and can't fire, then the bar is empty again. Left alone it
 -- cools. Clients draw it from the GunHeat / GunSteam attributes (the arc round the aim ring).
 local HB = G.heatBar
@@ -207,7 +207,10 @@ function GunService.Start()
 		while true do
 			task.wait(0.1)
 			local now = os.clock()
-			coolHeat(now - last)
+			local ok, err = pcall(coolHeat, now - last)
+			if not ok then
+				warn("[GunService] heat:", err)
+			end
 			last = now
 		end
 	end)

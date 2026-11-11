@@ -1,6 +1,7 @@
 --!strict
 -- PanPopup (Round 4 phase 5): the contents of the Pan Upgrades popup (your own pan's stand). One card
--- per upgrade in Config.pan.order: Slots, Look (Cold Level was removed 2026-11-10). Redesign 2026-11-03 (owner approved the
+-- per upgrade in Config.pan.order: Slots, Look, Trainer (the Cold Power trainer in front of the pan,
+-- 2026-11-10; Cold Level was removed 2026-11-10). Redesign 2026-11-03 (owner approved the
 -- Figma mock, file "Ice Ray for Pets UI"): a Chunky Pop card on a lip, a painted icon on a coloured
 -- tile, the name with a level badge, one big "now > next" line, and the full price. The button you
 -- can afford is the focal point (it pulses); short of coins it's grey with a bar of how close you are;
@@ -20,14 +21,17 @@ local UpgradeMotion = require(script.Parent.UpgradeMotion)
 local PanPopup = {}
 local P = Config.pan
 local I = Config.images.icons
-local ICONS: { [string]: string } = { slots = I.pen, look = I.paint }
-local TILES: { [string]: Color3 } = { slots = Theme.pen, look = Theme.grassFar }
-local NAMES: { [string]: string } = { slots = "Slots", look = "Look" }
+local ICONS: { [string]: string } = { slots = I.pen, look = I.paint, trainer = I.power }
+local TILES: { [string]: Color3 } = { slots = Theme.pen, look = Theme.grassFar, trainer = Theme.training.power }
+local NAMES: { [string]: string } = { slots = "Slots", look = "Look", trainer = "Trainer" }
 local PROGRESS_STEPS = 20 -- the "how close" bar redraws in 5% steps (the popup only rebuilds on a key change)
 
 function PanPopup.level(v: State.View, kind: string): number
 	if kind == "slots" then
 		return v.upgrades.pen or 1
+	end
+	if kind == "trainer" then
+		return if v.pan and v.pan.trainer then v.pan.trainer else 1
 	end
 	return if v.pan then v.pan.look else 1
 end
@@ -52,6 +56,10 @@ end
 local function values(kind: string, level: number, rebirths: number, canBuy: boolean): (string, string?, string?)
 	if kind == "slots" then
 		return tostring(slotsAt(level, rebirths)), if canBuy then tostring(slotsAt(level + 1, rebirths)) else nil, "pets"
+	end
+	if kind == "trainer" then -- the Cold Power trainer in front of your pan: its xN
+		local cur, nxt = Config.training.stations[level], Config.training.stations[level + 1]
+		return if cur then `x{cur.mult}` else "", if canBuy and nxt then `x{nxt.mult} {nxt.name}` else nil, if canBuy and nxt then nil else "Cold Power"
 	end
 	local cur, nxt = P.looks[level], P.looks[level + 1]
 	return if cur then cur.name else "", if canBuy and nxt then nxt.name else nil, nil

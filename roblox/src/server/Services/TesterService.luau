@@ -104,7 +104,7 @@ ACTIONS.closeGates = function(player)
 	WorldService.setReach(player, 1)
 end
 
--- Cold Power (2026-11-10): set it to any amount, to test gates, freeze speed and the rink's levels
+-- Cold Power (2026-11-10): set it to any amount, to test gates, freeze speed and the training stations
 ACTIONS.power = function(player, n)
 	if finite(n) then
 		change(player, function(d)
@@ -151,11 +151,15 @@ ACTIONS.upgrade = function(player, id, level)
 	PlayerTracker.updateSpeed(player)
 end
 
--- the pan's Look (Round 4 phase 5; Slots is the "pen" upgrade above; Cold Level is gone)
+-- the pan's Look and its trainer (Round 4 phase 5; Slots is the "pen" upgrade above; Cold Level is gone)
 ACTIONS.pan = function(player, kind, level)
 	if kind == "look" and finite(level) then
 		change(player, function(d)
 			d.pan.look = math.clamp(math.floor(level), 1, #Config.pan.looks)
+		end)
+	elseif kind == "trainer" and finite(level) then
+		change(player, function(d)
+			d.pan.trainer = math.clamp(math.floor(level), 1, #Config.training.stations)
 		end)
 	end
 end

@@ -8,6 +8,7 @@
 -- boxes and the Thaw Machine(s) at the back (PanLooks restyles fences per Look, shows machine 2).
 -- Booths are giant versions of what they do: a treasure chest (Sell), a workshop with turning gears
 -- (Equipment), a ring portal (Rebirth); the client turns and bobs their Motion folders.
+-- Each pan's Cold Power trainer (in front of it, right of the door) is TrainingArt's, built by TrainingService.
 -- Leaderboards stand in a wooden frame between stone pillars with glowing crystal caps.
 -- The islands have natural rock cliffs instead of flat walls (snowy or mossy, two rows, trees on top),
 -- stone-edged paths, lanterns, themed props, a big landmark and a castle gatehouse in front of each.
@@ -1215,77 +1216,6 @@ local function rebirthBooth(f: Instance, at: CFrame, color: Color3, outer: numbe
 	local _, _ = outer, rng
 end
 
--- the Training Rink's door (Cold Power, 2026-11-10): an igloo of stacked ice rings under a snow cap,
--- an ice porch with a dark doorway rimmed in glowing runes, a big snowflake turning over it and
--- crystals either side. Its prompt takes you up to your own rink in the sky (TrainingService).
-local function rinkBooth(f: Instance, at: CFrame, color: Color3, outer: number, sign: { y: number, z: number }, rng: () -> number)
-	local T = Theme.rink
-	local ice, deep = T.floor, T.floorSide
-	local y0 = 0.6
-	block(Vector3.new(18, y0, 14), at * CFrame.new(0, y0 / 2, 3), V.stone:Lerp(Theme.white, 0.3), f, true, Enum.Material.Slate)
-	-- the igloo: three rings, each smaller, and a cap of snow
-	cyl(8, 3.2, at * CFrame.new(0, y0 + 1.6, 3.4), ice, f, true, Enum.Material.Ice)
-	cyl(7.1, 2.6, at * CFrame.new(0, y0 + 4.5, 3.4), ice:Lerp(deep, 0.25), f, true, Enum.Material.Ice)
-	cyl(5.6, 2, at * CFrame.new(0, y0 + 6.8, 3.4), ice, f, false, Enum.Material.Ice)
-	ellipsoid(Vector3.new(8.6, 3.6, 8.6), at * CFrame.new(0, y0 + 8.1, 3.4), Theme.snow, f)
-	-- the porch and its doorway, facing the plaza
-	local pw, ph, pz = 7.6, 7.2, -2.6
-	block(Vector3.new(pw, ph, 4.4), at * CFrame.new(0, y0 + ph / 2, pz), ice:Lerp(deep, 0.12), f, true, Enum.Material.Ice)
-	block(Vector3.new(pw + 0.8, 0.7, 5), at * CFrame.new(0, y0 + ph + 0.35, pz), Theme.snow, f)
-	local front = pz - 2.2
-	quiet(block(Vector3.new(5.4, 6, 0.2), at * CFrame.new(0, y0 + 3, front - 0.05), deep:Lerp(Theme.ink, 0.6), f))
-	for _, s in { -1, 1 } do
-		quiet(glow(block(Vector3.new(0.35, 6.2, 0.3), at * CFrame.new(s * 2.9, y0 + 3.1, front - 0.12), T.rune, f), 0.1))
-		-- crystals either side of the door
-		local c = quiet(glow(shape("Octa", Vector3.new(2, 4.6, 2), at * CFrame.new(s * 6.2, y0 + 2.5, front + 0.6), T.crystal, f), 0.15))
-		light(c, T.rune, 10, 0.7)
-		quiet(glow(shape("Octa", Vector3.new(1.2, 2.6, 1.2), at * CFrame.new(s * 7.6, y0 + 1.5, front - 0.6), T.crystal, f), 0.2))
-		-- the posts that carry the sign
-		block(Vector3.new(0.5, sign.y - (y0 + ph) - 0.4, 0.5), at * CFrame.new(s * 3.4, (sign.y + y0 + ph + 0.3) / 2, sign.z + 0.7), deep:Lerp(Theme.ink, 0.4), f)
-	end
-	quiet(glow(block(Vector3.new(6.15, 0.35, 0.3), at * CFrame.new(0, y0 + 6.2, front - 0.12), T.rune, f), 0.1))
-	sparkles(f, Vector3.new(4.6, 0.4, 0.8), at * CFrame.new(0, y0 + 0.6, front - 0.8), T.rune, 6, 1.2, Enum.NormalId.Top, 0.3)
-	signBoard(f, at, sign.y, sign.z, deep:Lerp(Theme.ink, 0.5), color, 0.6)
-	-- the big snowflake over the igloo, turning slowly (MapController moves it)
-	local pivot = at * CFrame.new(0, y0 + 13.4, 3.4)
-	local m = motion(f, "spin", pivot, { Axis = Vector3.new(0, 0, 1), Speed = 0.4 })
-	for k = 0, 2 do
-		local arm = pivot * CFrame.Angles(0, 0, k * math.pi / 3)
-		quiet(glow(block(Vector3.new(6.4, 0.55, 0.45), arm, T.rune, m), 0.1))
-		for _, e in { -1, 1 } do -- the little barbs near each tip
-			quiet(glow(block(Vector3.new(0.4, 1.7, 0.4), arm * CFrame.new(e * 2.3, 0, 0), T.rune, m), 0.1))
-		end
-	end
-	light(quiet(glow(ball(0.7, pivot.Position, Theme.white, m), 0.05)), T.rune, 16, 1)
-	-- the sky beacon (map pass 2026-11-10): a column of frost light from the snowflake up toward the rinks
-	-- in the sky, crowned by a big turning snowflake. The hub's one tall weenie: it says where Cold Power
-	-- comes from, and from the first islands it marks the hub
-	local B = C.rinkBeacon
-	if B then
-		local bm = folder("RinkBeacon", f)
-		local base = pivot.Position.Y + 2
-		local mid = CFrame.new(pivot.Position.X, base + B.height / 2, pivot.Position.Z)
-		far(glow(cyl(B.radius, B.height, mid, Theme.white, bm), B.clear))
-		far(glow(cyl(B.radius * 1.9, B.height, mid, T.rune, bm), 0.82))
-		local top = CFrame.new(pivot.Position.X, base + B.height, pivot.Position.Z)
-		far(glow(shape("Ring", Vector3.new(B.haloRadius * 2, 1.2, B.haloRadius * 2), top * CFrame.new(0, -B.height * 0.35, 0), T.rune, bm), 0.2))
-		-- upright and facing along the tunnel, so it reads from the plaza and from the islands alike
-		local crown = motion(bm, "spin", top, { Axis = Vector3.new(0, 0, 1), Speed = B.crownSpin })
-		local arm = B.crownSize / 2
-		for k = 0, 2 do
-			local a = top * CFrame.Angles(0, 0, k * math.pi / 3)
-			far(glow(block(Vector3.new(B.crownSize, 1.6, 1.6), a, T.rune, crown), 0.05))
-			for _, e in { -1, 1 } do -- the barbs near each tip
-				far(glow(block(Vector3.new(1.2, arm * 0.55, 1.2), a * CFrame.new(e * arm * 0.68, 0, 0), T.rune, crown), 0.05))
-			end
-		end
-		local core = far(glow(ball(2.2, top.Position, Theme.white, crown), 0))
-		light(core, T.rune, 40, 2)
-		sparkles(bm, Vector3.new(B.radius * 2, 2, B.radius * 2), CFrame.new(pivot.Position.X, base + 2, pivot.Position.Z), T.rune, 10, 18, Enum.NormalId.Top, 1.2)
-	end
-	local _, _ = outer, rng
-end
-
 local function booth(parent: Instance, b: Config.Booth, rng: () -> number)
 	local f = folder("Booth_" .. b.id, parent)
 	local at = CFrame.new(b.pos.X, 0, b.pos.Z)
@@ -1298,8 +1228,6 @@ local function booth(parent: Instance, b: Config.Booth, rng: () -> number)
 		equipmentBooth(f, at, color, outer, sign, rng)
 	elseif b.id == "rebirth" then
 		rebirthBooth(f, at, color, outer, sign, rng)
-	elseif b.id == "rink" then
-		rinkBooth(f, at, color, outer, sign, rng)
 	else
 		signBoard(f, at, sign.y, sign.z, A.post, color, 0.5)
 	end
