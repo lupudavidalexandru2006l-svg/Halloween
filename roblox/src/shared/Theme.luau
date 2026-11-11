@@ -189,44 +189,44 @@ local Theme = {
 		heatCool = Color3.fromHex("5ee6ff"), heatWarm = Color3.fromHex("ffb020"), heatHot = Color3.fromHex("ff5a5f"), -- the gun's heat arc
 		shatter = Color3.fromHex("ffd34a"), -- the big "+N" when a target freezes solid and shatters
 		pad = Color3.fromHex("ece6f7"), padSide = Color3.fromHex("9b92b8"), padEdge = Color3.fromHex("6d6390"),
-		-- Winter looks (owner 2026-11-11: every level winter and cold, as detailed as a neon shrine reference):
-		-- snowman = Igloo Camp, heatbag = Frost Dojo, golem = Glacier Fortress, sun = Aurora Wolf Shrine.
+		-- Trainer looks v2 (owner 2026-11-12: "study the reference better... polished, more in theme"). Every
+		-- level is the same kit in its own three colours, like the reference's neon shrine: body / bodyDark (the
+		-- blocks), floor / floorInner (the stage), neon (every edge), accent (lanterns, glyphs, small glows),
+		-- snow (caps), panel (the doorway behind the target). The rest are the target's and the flankers' own.
+		-- snowman = Frost Arch, heatbag = Frost Torii, golem = Crystal Citadel, sun = Aurora Wolf Gate.
 		stations = {
 			snowman = {
-				title = Color3.fromHex("7ee35a"), floor = Color3.fromHex("eef7ff"), tile = Color3.fromHex("d4eafb"),
-				wood = Color3.fromHex("b77b48"), woodDark = Color3.fromHex("8a5530"), snow = Color3.fromHex("f7fbff"),
+				title = Color3.fromHex("7ee35a"),
+				body = Color3.fromHex("2b4a92"), bodyDark = Color3.fromHex("1d336d"), floor = Color3.fromHex("27427f"), floorInner = Color3.fromHex("30508f"),
+				neon = Color3.fromHex("63efff"), accent = Color3.fromHex("eafcff"), snow = Color3.fromHex("f4faff"), panel = Color3.fromHex("172a5a"),
+				ice = Color3.fromHex("bfe6ff"), iceShade = Color3.fromHex("98d2f7"), pine = Color3.fromHex("2c7f8e"), pineDark = Color3.fromHex("216877"),
+				wood = Color3.fromHex("b77b48"), woodDark = Color3.fromHex("8a5530"),
 				hat = Color3.fromHex("ff5a5f"), hatBand = Color3.fromHex("ffd34a"), ring = Color3.fromHex("ff5a5f"), ringLight = Color3.fromHex("fff8ec"),
 				carrot = Color3.fromHex("ff9a3c"), coal = Color3.fromHex("2b2340"), scarf = Color3.fromHex("3aa8ff"),
-				brick = Color3.fromHex("cfe8ff"), brickShade = Color3.fromHex("a6d1f3"), star = Color3.fromHex("ffd34a"), igloo = Color3.fromHex("f4f9ff"), iglooSeam = Color3.fromHex("bcd8f0"),
-				pine = Color3.fromHex("2f9a72"), pineDark = Color3.fromHex("23795a"), lamp = Color3.fromHex("ffbe4a"), iron = Color3.fromHex("2f3a6b"),
-				bulbRed = Color3.fromHex("ff5a5f"), bulbGold = Color3.fromHex("ffd34a"), bulbIce = Color3.fromHex("5ee6ff"), bulbLime = Color3.fromHex("7ee35a"),
-				flake = Color3.fromHex("dff3ff"),
 			},
 			heatbag = {
-				title = Color3.fromHex("ffd23a"), floor = Color3.fromHex("dcefff"), tile = Color3.fromHex("9fc6e6"),
+				title = Color3.fromHex("ffd23a"),
+				body = Color3.fromHex("1f5c7c"), bodyDark = Color3.fromHex("143f58"), floor = Color3.fromHex("1b4f6b"), floorInner = Color3.fromHex("22607f"),
+				neon = Color3.fromHex("5dffc8"), accent = Color3.fromHex("8ff0ff"), snow = Color3.fromHex("f4faff"), panel = Color3.fromHex("0f2e42"),
+				trunk = Color3.fromHex("143f58"), bloom = Color3.fromHex("ffffff"), bloomTint = Color3.fromHex("c6f7ec"),
 				post = Color3.fromHex("2f3a6b"), bag = Color3.fromHex("ff5a4a"), band = Color3.fromHex("fff1e0"),
 				heat = Color3.fromHex("ffb020"), chain = Color3.fromHex("6d6390"),
-				mat = Color3.fromHex("3b6fb6"), matRing = Color3.fromHex("eef8ff"),
-				torii = Color3.fromHex("2b3a85"), toriiDark = Color3.fromHex("1c2560"), neon = Color3.fromHex("5ee6ff"), snow = Color3.fromHex("f7fbff"),
-				plaque = Color3.fromHex("eef8ff"), paper = Color3.fromHex("f4faff"), frame = Color3.fromHex("33427f"),
-				stone = Color3.fromHex("c2cee0"), stoneDark = Color3.fromHex("8e9cb6"), flame = Color3.fromHex("8ff0ff"),
-				trunk = Color3.fromHex("4d3b5e"), bloom = Color3.fromHex("ffffff"), bloomIce = Color3.fromHex("c4e8ff"), bloomPink = Color3.fromHex("ffd9ee"),
 			},
 			golem = {
-				title = Color3.fromHex("c77dff"), floor = Color3.fromHex("c3def2"), tile = Color3.fromHex("9fc4e2"),
-				wall = Color3.fromHex("b9e2ff"), wallDark = Color3.fromHex("6f9fcc"), silver = Color3.fromHex("eef6ff"),
-				carpet = Color3.fromHex("2e5daa"), rock = Color3.fromHex("4a3f5c"), rockLight = Color3.fromHex("66597d"),
-				magma = Color3.fromHex("ff7a1a"), eyes = Color3.fromHex("ffd84a"), flame = Color3.fromHex("5ee6ff"),
-				crystal = Color3.fromHex("a6ecff"), crystalCore = Color3.fromHex("5ee6ff"), cliff = Color3.fromHex("6c7fa6"), cliffSnow = Color3.fromHex("f4f9ff"),
-				fall = Color3.fromHex("8fd2ff"), fallLight = Color3.fromHex("c4eaff"), icicle = Color3.fromHex("e2f6ff"),
+				title = Color3.fromHex("c77dff"),
+				body = Color3.fromHex("343a8f"), bodyDark = Color3.fromHex("23286a"), floor = Color3.fromHex("2c3280"), floorInner = Color3.fromHex("373e98"),
+				neon = Color3.fromHex("ad92ff"), accent = Color3.fromHex("8ff0ff"), snow = Color3.fromHex("f4faff"), panel = Color3.fromHex("cdeeff"),
+				crystal = Color3.fromHex("d2f3ff"),
+				rock = Color3.fromHex("4a3f5c"), rockLight = Color3.fromHex("66597d"), magma = Color3.fromHex("ff7a1a"), eyes = Color3.fromHex("ffd84a"),
 			},
 			sun = {
-				title = Color3.fromHex("ff8a2a"), floor = Color3.fromHex("1f2554"), tile = Color3.fromHex("2a3268"),
-				pylon = Color3.fromHex("2c3572"), trim = Color3.fromHex("e9f6ff"), neon = Color3.fromHex("5ee6ff"), neonAlt = Color3.fromHex("c86bff"),
-				pink = Color3.fromHex("ff6fd8"), core = Color3.fromHex("ffb020"), coreHot = Color3.fromHex("fff3a0"), corona = Color3.fromHex("ff8a2a"), ring = Color3.fromHex("ffd84a"),
-				wolf = Color3.fromHex("2b3576"), wolfLight = Color3.fromHex("43509c"), wolfSnow = Color3.fromHex("e9f6ff"), eye = Color3.fromHex("9ff6ff"),
-				veil = Color3.fromHex("3a2a80"), roof = Color3.fromHex("1b2152"), trunk = Color3.fromHex("2b2340"),
-				bloomBlue = Color3.fromHex("7fd0ff"), aurora = Color3.fromHex("5dffb0"),
+				title = Color3.fromHex("ff8a2a"),
+				body = Color3.fromHex("2e2270"), bodyDark = Color3.fromHex("1e1650"), floor = Color3.fromHex("281d62"), floorInner = Color3.fromHex("33267a"),
+				neon = Color3.fromHex("c46bff"), accent = Color3.fromHex("ff6fe0"), snow = Color3.fromHex("f0f2ff"), panel = Color3.fromHex("3b2a8a"),
+				wolfLight = Color3.fromHex("3e2f8f"), eye = Color3.fromHex("9ff6ff"), trunk = Color3.fromHex("1e1650"),
+				bloom = Color3.fromHex("e4c4ff"), bloomTint = Color3.fromHex("ffb3ee"),
+				pylon = Color3.fromHex("2c3572"), trim = Color3.fromHex("e9f6ff"),
+				core = Color3.fromHex("ffb020"), coreHot = Color3.fromHex("fff3a0"), corona = Color3.fromHex("ff8a2a"), ring = Color3.fromHex("ffd84a"),
 			},
 		} :: { [string]: { [string]: Color3 } },
 	},
