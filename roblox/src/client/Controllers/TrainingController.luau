@@ -15,9 +15,10 @@
 --   Facing: standing still on a station turns you to face its target.
 --   Lock:   while the server holds you at your trainer ("TrainLocked", owner 2026-11-11), you always face
 --           the target and the camera swings round behind you once. Any jump (Space, the touch jump
---           button, gamepad A) or gamepad B tells the server to let you go and hops you off to your right,
---           clear of the pad (the owner's reference clip, 2026-11-11; Config.training.lock.hop). The hop is
---           a drawn arc, so it clears side walls. No STOP button (owner 2026-11-11: like the reference).
+--           button, gamepad A) or gamepad B tells the server to let you go and hops you off the pad the
+--           way you're pushing, or to your right if you aren't (the owner's reference clip, 2026-11-11;
+--           Config.training.lock.hop). The hop is a drawn arc, so it clears the trainer's low walls, but
+--           never a solid wall like a pan fence. No STOP button (owner 2026-11-11: like the reference).
 -- No HUD pieces; the Cold Power counter (HudController) already bounces as it climbs.
 
 local Players = game:GetService("Players")
@@ -615,8 +616,11 @@ local function tryShot(): boolean
 end
 
 -- ---------- lock mode: hopping off (any jump, gamepad B) ----------
+-- The hop goes the way I'm pushing (keys / thumbstick), or to my right if I'm not (the reference clip),
+-- just far enough to clear the pad. It never crosses a solid wall (the pan fences, booths) and never
+-- lands inside something; if that way has no clear landing it tries my right, else I'm just let go.
 local hopped = false -- I've asked to leave this lock (cleared when the next one starts)
-type Hop = { t0: number, from: Vector3, to: Vector3, look: Vector3, right: Vector3 }
+type Hop = { t0: number, seconds: number, from: Vector3, to: Vector3, yaw0: number, yaw1: number }
 local hop: Hop? = nil
 
 -- locked in and not already leaving
@@ -624,13 +628,64 @@ local function holding(): boolean
 	return locked() and not hopped
 end
 
--- the ground's height under a point (my character ignored)
-local function groundY(from: Vector3, ignore: Instance): number?
+local function solidParams(ignore: { Instance }): RaycastParams
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.FilterDescendantsInstances = { ignore }
-	local hit = workspace:Raycast(from, Vector3.new(0, -40, 0), params)
+	params.FilterDescendantsInstances = ignore
+	params.RespectCanCollide = true
+	return params
+end
+
+-- the solid ground's height under a point (my character ignored)
+local function groundY(from: Vector3, ignore: Instance): number?
+	local hit = workspace:Raycast(from, Vector3.new(0, -40, 0), solidParams({ ignore }))
 	return if hit then hit.Position.Y else nil
+end
+
+-- the facing angle of a flat direction (CFrame.Angles(0, yaw, 0) looks along it)
+local function yawOf(v: Vector3): number
+	return math.atan2(-v.X, -v.Z)
+end
+
+-- where a hop from p (standing standH over the pad's top padTop) the way dir lands, or nil if that
+-- way is blocked: past the pad's edge by hop.clear, pushed further out while the spot is taken
+local function landingFor(i: number, p: Vector3, dir: Vector3, standH: number, padTop: number, c: Instance): Vector3?
+	local H = T.lock.hop
+	local centre = Config.trainerCentre(i)
+	local hx, hz = T.padSize[1] / 2 + 0.4, T.padSize[2] / 2 + 0.4 -- the pad and its rim
+	local exit = math.huge
+	if math.abs(dir.X) > 1e-3 then
+		exit = math.min(exit, ((centre.X + math.sign(dir.X) * hx) - p.X) / dir.X)
+	end
+	if math.abs(dir.Z) > 1e-3 then
+		exit = math.min(exit, ((centre.Z + math.sign(dir.Z) * hz) - p.Z) / dir.Z)
+	end
+	if exit == math.huge then
+		return nil
+	end
+	local trainers = workspace:FindFirstChild("Trainers")
+	local pathIgnore: { Instance } = if trainers then { c, trainers } else { c } -- the arc clears the trainer
+	local overlap = OverlapParams.new()
+	overlap.FilterType = Enum.RaycastFilterType.Exclude
+	overlap.FilterDescendantsInstances = { c }
+	overlap.RespectCanCollide = true
+	for k = 0, H.tries - 1 do
+		local d = math.max(0, exit) + H.clear + k * H.step
+		local land = p + dir * d
+		-- a solid wall on the way (fences, booths) = this way is closed
+		local from = p + Vector3.new(0, 1.5, 0)
+		if workspace:Raycast(from, dir * d, solidParams(pathIgnore)) then
+			return nil
+		end
+		local gy = groundY(Vector3.new(land.X, p.Y + 6, land.Z), c)
+		if gy and gy <= padTop + 0.3 and gy >= padTop - 4 then
+			local body = CFrame.new(land.X, gy + 0.3 + standH, land.Z)
+			if #workspace:GetPartBoundsInBox(body, Vector3.new(2.4, standH * 2 - 0.6, 2.4), overlap) == 0 then
+				return Vector3.new(land.X, gy + standH, land.Z)
+			end
+		end
+	end
+	return nil
 end
 
 local function hopOff()
@@ -651,13 +706,24 @@ local function hopOff()
 	local flat = Vector3.new(at.X - p.X, 0, at.Z - p.Z)
 	local look = if flat.Magnitude > 0.1 then flat.Unit else Vector3.zAxis
 	local right = look:Cross(Vector3.yAxis) -- my right as I face the target
-	local land = p + right * T.lock.hop.side
-	local standH = p.Y - (groundY(p, c) or p.Y - hum.HipHeight - root.Size.Y / 2)
-	local gy = groundY(Vector3.new(land.X, p.Y + 6, land.Z), c)
-	local to = Vector3.new(land.X, if gy then gy + standH else p.Y - T.padHeight, land.Z)
+	local move = Vector3.new(hum.MoveDirection.X, 0, hum.MoveDirection.Z)
+	local dir = if move.Magnitude > 0.1 then move.Unit else right
+	local floor = groundY(p, c)
+	local standH = if floor then p.Y - floor else hum.HipHeight + root.Size.Y / 2
+	local padTop = p.Y - standH
+	local to = landingFor(i, p, dir, standH, padTop, c)
+	if not to and dir ~= right then
+		dir = right
+		to = landingFor(i, p, dir, standH, padTop, c)
+	end
+	if not to then
+		return -- nowhere clear to land: just let go here
+	end
+	local H = T.lock.hop
+	local dist = Vector3.new(to.X - p.X, 0, to.Z - p.Z).Magnitude
 	hum:ChangeState(Enum.HumanoidStateType.Jumping) -- the jump animation and sound
 	hum.AutoRotate = false
-	hop = { t0 = os.clock(), from = p, to = to, look = look, right = right }
+	hop = { t0 = os.clock(), seconds = H.seconds + H.perStud * dist, from = p, to = to, yaw0 = yawOf(root.CFrame.LookVector), yaw1 = yawOf(dir) }
 end
 
 -- each frame of the hop: up and over to the landing spot, turning toward where I'm going
@@ -674,15 +740,15 @@ local function stepHop(now: number)
 		return
 	end
 	local H = T.lock.hop
-	local u = math.min(1, (now - h.t0) / H.seconds)
+	local u = math.min(1, (now - h.t0) / h.seconds)
 	local base = h.from:Lerp(h.to, u)
 	local pos = base + Vector3.new(0, 4 * H.height * u * (1 - u), 0)
-	local face = h.look:Lerp(h.right, math.min(1, u * 1.5))
-	root.CFrame = CFrame.lookAt(pos, pos + face)
+	local turn = (h.yaw1 - h.yaw0 + math.pi) % (2 * math.pi) - math.pi -- the short way round
+	root.CFrame = CFrame.new(pos) * CFrame.Angles(0, h.yaw0 + turn * math.min(1, u * 1.5), 0)
 	if u < 1 then
 		-- moving along the arc, so physics carries on the same way between frames
-		local d = (h.to - h.from) / H.seconds
-		root.AssemblyLinearVelocity = Vector3.new(d.X, d.Y + 4 * H.height * (1 - 2 * u) / H.seconds, d.Z)
+		local d = (h.to - h.from) / h.seconds
+		root.AssemblyLinearVelocity = Vector3.new(d.X, d.Y + 4 * H.height * (1 - 2 * u) / h.seconds, d.Z)
 	else
 		root.AssemblyLinearVelocity = Vector3.new(0, -10, 0)
 		hum.AutoRotate = true

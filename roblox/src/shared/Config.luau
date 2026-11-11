@@ -1722,12 +1722,14 @@ Config.training = {
 	arrowSeconds = 6, -- after "Need more Cold Power" the guide arrow points at your trainer this long
 	-- lock mode (owner 2026-11-11, from reference clips): stepping on your trainer snaps you to the stand
 	-- spot (standZ) facing the target and holds you there, training, until you jump (Space, the touch jump
-	-- button, gamepad A or B; no STOP button, owner 2026-11-11). Then you hop off to your right, clear of
-	-- the pad: hop.side studs sideways, an arc hop.height studs high, over hop.seconds (it passes over the
-	-- side walls). The pad
-	-- locks you again only once you've stepped off it. breakStuds: pulled further than this from the stand
-	-- spot (a tester teleport, a fling) = the lock lets go.
-	lock = { breakStuds = 8, hop = { side = 9, height = 4.5, seconds = 0.45 } },
+	-- button, gamepad A or B; no STOP button, owner 2026-11-11). Then you hop off the pad the way you're
+	-- pushing (any direction, owner 2026-11-11), or to your right if you aren't: hop.clear studs past the
+	-- pad's edge (hop.step further, up to hop.tries times, while the spot is taken), in an arc hop.height
+	-- studs high lasting hop.seconds + hop.perStud per stud. It passes over the trainer's low walls but
+	-- never through a solid wall (pan fences). The pad locks you again only once you've stepped off it.
+	-- breakStuds: pulled further than this from the stand spot (a tester teleport, a fling) = the lock
+	-- lets go.
+	lock = { breakStuds = 8, hop = { clear = 2.5, step = 1.5, tries = 4, height = 4.5, seconds = 0.3, perStud = 0.02 } },
 }
 
 -- pan `plot`'s trainer: its middle on the ground; its local +Z (the target side) faces the plaza
