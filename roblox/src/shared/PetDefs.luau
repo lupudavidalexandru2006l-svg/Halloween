@@ -42,7 +42,8 @@ local function pet(key: string, name: string, zone: number, tier: any, rig: any,
 end
 
 local PetDefs: { PetDef } = {
-	-- Snowy Meadow (zone 1): approved concepts; 3D: Frostfox, Snowbun done (Rodin V2, trimmed under 8,000 triangles)
+	-- Snowy Meadow (zone 1): approved concepts; all 8 pets are 3D (Frostfox remade with TRELLIS 2026-11-11, the old
+	-- grey Rodin one is parked in ServerStorage.PetModelsWaiting)
 	pet("snowbun", "Snowbun", 1, "Common", "Quadruped", "S", "e9507f"),
 	pet("waddles", "Waddles", 1, "Common", "Biped", "S", "1d2756"),
 	pet("mittenkit", "Mittenkit", 1, "Uncommon", "Quadruped", "S", "f08a22"),
@@ -51,7 +52,8 @@ local PetDefs: { PetDef } = {
 	pet("blizzard_yeti", "Blizzard Yeti", 1, "Legendary", "Biped", "L", "8d6ad6", { "ShoulderPlates", "IceCrown" }),
 	pet("aurora_owl", "Aurora Owl", 1, "Mythic", "Bird", "M", "178a63", { "WingL", "WingR", "ChestEmblem" }),
 	pet("snowglobe_drake", "Snowglobe Drake", 1, "Secret", "Custom", "M", "c8202f", { "SnowGlobe" }),
-	-- Pine Forest (zone 2): concepts made, waiting for the owner's line-up review
+	-- Pine Forest (zone 2): line-up approved 2026-11-07; 3D + rig done for Conehog, Hopsprout (friend's side) and
+	-- Capmouse, Mossfawn, Lanternbug, Mapleguard Bear (2026-11-11). Still 2D: Bloomhorn Stag, Glowshroom Mammoth
 	pet("conehog", "Conehog", 2, "Common", "Quadruped", "S", "8a4b2a"),
 	pet("hopsprout", "Hopsprout", 2, "Common", "Quadruped", "S", "e7b528"),
 	pet("capmouse", "Capmouse", 2, "Uncommon", "Quadruped", "S", "6b2f8f"),

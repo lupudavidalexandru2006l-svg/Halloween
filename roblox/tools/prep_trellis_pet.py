@@ -38,6 +38,40 @@ bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
 # only=<lo>-<hi> (limit that shift to one hue range in degrees, e.g. Shimmerfrog's teal body
 # without turning its yellow belly green).
 OPTS = dict((a.split("=") + [""])[:2] for a in argv[5:])
+# island=<gap>: delete loose pieces whose nearest point is more than <gap> (fraction of the pet's
+# height) away from every other piece, e.g. a falling leaf TRELLIS copied from the painting's
+# background (Mapleguard Bear, 2026-11-11). Pieces that touch the body (crowns, leaves) stay.
+if "island" in OPTS:
+    import bmesh
+    from mathutils.kdtree import KDTree
+    gap = float(OPTS["island"] or 0.03) * (max(v.co.z for v in obj.data.vertices) - min(v.co.z for v in obj.data.vertices))
+    bm = bmesh.new(); bm.from_mesh(obj.data); bm.verts.ensure_lookup_table()
+    part, n = [-1] * len(bm.verts), 0  # which loose piece each vertex belongs to (flood fill)
+    for v in bm.verts:
+        if part[v.index] >= 0: continue
+        stack = [v]; part[v.index] = n
+        while stack:
+            u = stack.pop()
+            for e in u.link_edges:
+                w = e.other_vert(u)
+                if part[w.index] < 0:
+                    part[w.index] = n; stack.append(w)
+        n += 1
+    sizes = [0] * n
+    for p in part: sizes[p] += 1
+    main = sizes.index(max(sizes))
+    drop = set()
+    for p in range(n):
+        if p == main: continue
+        tree = KDTree(len(bm.verts) - sizes[p])
+        for v in bm.verts:
+            if part[v.index] != p: tree.insert(v.co, v.index)
+        tree.balance()
+        if min(tree.find(v.co)[2] for v in bm.verts if part[v.index] == p) > gap:
+            drop.add(p)
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if part[v.index] in drop], context="VERTS")
+    bm.to_mesh(obj.data); bm.free()
+    print("ISLANDS dropped", len(drop), "of", n, "pieces:", sorted(sizes[p] for p in drop))
 if "fill" in OPTS:
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.mesh.select_all(action="SELECT")
