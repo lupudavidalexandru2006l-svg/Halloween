@@ -139,7 +139,8 @@ local function buildHub()
 	collider("HubWallSE", Vector3.new(sw, hc, 2), CFrame.new(H.xMax - sw / 2, hc / 2, W.hubZMax + 1), map)
 	-- the pans: a thick soil bed per lane. Visiting other pans is fine (owner 2026-11-07; every pan action
 	-- checks your own pan), but the fences are solid (owner 2026-11-11): invisible walls along the sides,
-	-- back and front corners, so everyone comes and goes through the gate. Named PanFence*, not the old
+	-- back and front corners, only as tall as the fence, so you walk in through the gate or jump the
+	-- fence, never walk through it. Named PanFence*, not the old
 	-- PanWall*, which findExisting still strips from saved maps.
 	for i, pl in W.plots do
 		local pan = part("Plot" .. i, Vector3.new(P.width, P.soilHeight, P.length), CFrame.new(pl.x, P.soilHeight / 2, pl.z), HA.soil, map, { Material = Enum.Material.Ground })
