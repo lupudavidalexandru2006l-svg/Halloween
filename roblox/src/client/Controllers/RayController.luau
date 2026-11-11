@@ -1236,27 +1236,6 @@ local function pickAny(screen: Vector2?): Target?
 	return best
 end
 
--- a shot at a pet while the ray is put away (after a freeze, or by hand) did nothing at all, so a kid
--- thought the game broke: say why, at most once every few seconds (QA 2026-11-05, PT-03)
-local lastHint = 0
-local function hintNoRay(target: Target?)
-	if not target or me:GetAttribute("Held") ~= "none" or os.clock() - lastHint < Config.notYetCooldown then
-		return
-	end
-	lastHint = os.clock()
-	local reason = if carryingAny() then "Take your pet home first!" elseif myGroundCube(false) then "Pick up your pet first!" else "Pick the Ice Ray first"
-	State.local_("notYet", { reason = reason, at = "hotbar" })
-end
-
--- a shot that finds nothing in reach did nothing at all (gun 1 reaches 10 studs and pets wander off):
--- say so when a pet is near enough to walk to (QA 2026-11-08)
-local function hintCloser(screen: Vector2?)
-	if os.clock() - lastHint < Config.notYetCooldown or not pickAny(screen) then
-		return
-	end
-	lastHint = os.clock()
-	State.local_("notYet", { reason = "Get closer!", at = "hotbar" })
-end
 
 -- the gun is full of heat: a puff of steam from its tip and a fizz (it cools by itself)
 local function watchSteam()
@@ -1315,12 +1294,8 @@ function RayController.Start()
 			if me:GetAttribute("Held") == "none" and not carryingAny() and not myGroundCube(false) and (screen == nil or meant ~= nil) then
 				State.send("SetGear", "ray")
 			else
-				hintNoRay(meant)
-				return
+				return -- no "Pick the Ice Ray first" / "Get closer!" hints (owner 2026-11-12: useless)
 			end
-		end
-		if not inReach then
-			hintCloser(screen)
 		end
 	end)
 	-- the game lost focus (app in the background, Roblox's menu): a held finger or key can't end here

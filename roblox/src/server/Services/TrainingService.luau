@@ -174,17 +174,11 @@ local function tickPlayer(player: Player, now: number)
 		leave(player, s)
 		s.station = i
 		if i ~= 0 then
-			local why = blocker(player)
-			if why and why ~= "no" then
-				Remotes.notYet(player, why, "train")
-			end
 			s.autoAt = now + T.autoEvery * 0.5 -- the first shot comes quickly
 			s.wantGun = true
 		end
 	end
-	if on ~= 0 and on ~= mine then
-		Remotes.notYet(player, "Train at your own pan", "train") -- someone else's trainer (once in a while)
-	end
+	-- no "Train at your own pan" / "Bring your pets home first" banners on the pads (owner 2026-11-12: useless)
 	local ready = i ~= 0 and blocker(player) == nil
 	if ready and not s.locked and pos then
 		setLocked(player, s, true) -- lock in: snapped to the stand spot, facing the target
