@@ -9,7 +9,7 @@
       "Server": { "$path": "src/server" }
     },
     "StarterPlayer": {
-      "$properties": { "DevCameraOcclusionMode": "Invisicam" },
+      "$properties": { "DevCameraOcclusionMode": "Zoom" },
       "StarterPlayerScripts": {
         "Client": { "$path": "src/client" }
       }

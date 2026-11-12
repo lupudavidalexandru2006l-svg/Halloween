@@ -24,6 +24,7 @@ local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Theme = require(ReplicatedStorage.Shared.Theme)
+local MapArt = require(script.Parent.MapArt)
 
 local TrainingArt = {}
 local T = Config.training
@@ -1466,6 +1467,7 @@ function TrainingArt.build(parent: Instance, plot: number, tier: number): Folder
 	if build then
 		build(f, Config.trainerFrame(plot), plot)
 	end
+	MapArt.solidify(f) -- solid like the rest of the map (owner 2026-11-12)
 	f.Parent = parent
 	return f
 end

@@ -99,8 +99,8 @@ end
 function CameraController.Init()
 	player.CameraMinZoomDistance = Config.camera.minZoom
 	player.CameraMaxZoomDistance = Config.camera.maxZoom
-	-- trees between the camera and you fade to see-through: StarterPlayer.DevCameraOcclusionMode is
-	-- Invisicam, set in default.project.json (scripts may not set it)
+	-- nothing on the map fades to see-through (owner 2026-11-12): StarterPlayer.DevCameraOcclusionMode is
+	-- Zoom (the camera moves in front of a tree instead), set in default.project.json (scripts may not set it)
 end
 
 -- on spawn: the prototype's framing (high and behind, looking ahead); Roblox's follow camera keeps

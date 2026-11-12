@@ -55,7 +55,7 @@ local meshes: Instance? = nil
 local function finish(p: BasePart, color: Color3, parent: Instance, collide: boolean?): BasePart
 	p.Anchored = true
 	p.CanCollide = collide == true
-	p.CanQuery = true -- the camera's Invisicam needs to see it to fade it when it hides the player
+	p.CanQuery = true -- the camera's Zoom occlusion needs to see it to move in front of it
 	p.CanTouch = false
 	p.Color = color
 	p.TopSurface = Enum.SurfaceType.Smooth
@@ -2849,6 +2849,39 @@ local function pruneBuried(art: Instance): number
 	return removed
 end
 
+-- owner 2026-11-12: "everything from the map ... they have to be solid". Every piece of scenery you
+-- can see blocks you. Left walk-through: invisible helpers (prompt spots, particle anchors), see-through
+-- glows and beams, the pans' ForceField door curtains (DoorGlow), the island gates' glows, bars and
+-- "Coming soon" glass (MapController opens those; WorldService's Gate<id> wall does the blocking),
+-- and the far scenery nobody can reach.
+local function walkThrough(p: BasePart): boolean
+	if p.Transparency >= 0.95 or p.Material == Enum.Material.ForceField then
+		return true
+	end
+	if p.Material == Enum.Material.Neon and p.Transparency > 0 then
+		return true
+	end
+	if p.Name == "DoorGlow" or p.Name == "GateGlow" or string.match(p.Name, "^SoonPanel") then
+		return true
+	end
+	local a = p.Parent
+	while a and not a:IsA("Workspace") do
+		if string.match(a.Name, "^GateBars") or (a.Name == "Far" and a:IsA("Folder")) then
+			return true
+		end
+		a = a.Parent
+	end
+	return false
+end
+
+function MapArt.solidify(root: Instance)
+	for _, d in root:GetDescendants() do
+		if d:IsA("BasePart") and not d.CanCollide and not walkThrough(d) then
+			d.CanCollide = true
+		end
+	end
+end
+
 function MapArt.build(map: Instance)
 	meshes = ReplicatedStorage:FindFirstChild("SceneryMeshes")
 	if not meshes then
@@ -2882,6 +2915,7 @@ function MapArt.build(map: Instance)
 	end
 	local pruned = pruneBuried(art)
 	art:SetAttribute("PrunedHidden", pruned) -- how many never-visible parts were left out (QA reads it)
+	MapArt.solidify(art)
 	local terrain = workspace.Terrain
 	if not terrain:FindFirstChildOfClass("Clouds") then
 		local clouds = Instance.new("Clouds")
