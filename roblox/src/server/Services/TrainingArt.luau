@@ -11,14 +11,14 @@
 --   pairs of lanterns, a doorway panel behind the target, snow caps on top surfaces, a pair of flankers
 --   behind the gate's shoulders, and the gate itself, which is the level's identity (round -> pointy):
 --   1 Frost Arch (snowman): ice-block arch on two pillars, snowflake keystone, snowy pines
---   2 Frost Torii (heat bag): the bag hangs from the torii's lower beam, frost-blossom trees
---   3 Crystal Citadel (golem): crystal-tipped obelisks, a snowy pediment, a pale ice doorway, crystal clusters
---   4 Aurora Wolf Gate (sun): a neon wolf head on the lintel, aurora trees, floating crystals
+-- Trainers v3 (owner 2026-11-12: "I like the first one most... make 9 more in exactly this style"): levels 2-10
+-- are themed Peppermint, Gingerbread, Workshop, Ice, Reindeer, Crystal, Aurora, Citadel and North Star, each
+-- with its own gate top and a target the snowman's size (the list is above the level-2 builder below).
 -- Same stage, stand spot and target spot on every level, so the lock and the bolts never change.
 -- TrainingService builds each pan's trainer at its owner's level and rebuilds it on an upgrade.
 -- Contract (TrainingController): each target is a Model named Target, tagged Config.training.targetTag,
 -- with the attributes Station (its pan) and Tier (its level) and its WorldPivot at the target's foot. Parts the client cools
--- toward frost are named Heat. A heat bag's model also has HangAt (the chain's top: it swings from there).
+-- toward frost are named Heat. A hanging target's model would also have HangAt (the chain's top: it swings from there).
 
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -510,146 +510,657 @@ local function frostArch(f: Instance, at: CFrame, i: number)
 	targetBlock(f, foot * CFrame.new(0, 4, 0), Vector3.new(3.6, 8, 3.6))
 end
 
--- ---------- 2. Frost Torii: the heat bag hangs from the torii's lower beam, frost-blossom trees ----------
-local function frostTorii(f: Instance, at: CFrame, i: number)
-	local P = TT.stations.heatbag
-	local tz = T.targetZ
-	stage(f, at, P)
-	runway(f, at, P, tz - 2.6)
-	targetRing(f, at, P, 2.6)
-	lanterns(f, at, P)
-	snowfall(f, at)
-	local nukiY = H + 8.2 -- the lower beam's middle: the bag hangs from its underside
-	local top = H + 9.6 -- the pillars' top, under the top beam
-	for _, s in { -1, 1 } do
-		pillar(f, at, s * GX, top, P, false)
-	end
-	doorway(f, at, nukiY - 0.3, P.panel)
-	-- the lower beam, neon edged
-	local nuki = at * CFrame.new(0, nukiY, GZ)
-	local nukiSize = Vector3.new(2 * GX + 2, 0.6, 0.8)
-	block(nukiSize, nuki, P.body, f)
-	edgeFrame(f, nuki, nukiSize, P.accent, true)
-	-- the plaque between the beams, a snowflake on each face
-	local plaque = at * CFrame.new(0, (nukiY + 0.3 + top) / 2, GZ)
-	local plaqueSize = Vector3.new(1.3, top - nukiY - 0.3, 0.5)
-	block(plaqueSize, plaque, P.bodyDark, f)
-	edgeFrame(f, plaque, plaqueSize, P.neon, true)
-	flake(f, plaque * CFrame.new(0, 0, -0.29), 0.8, P.accent)
-	flake(f, plaque * CFrame.new(0, 0, 0.29) * CFrame.Angles(0, math.pi, 0), 0.8, P.accent)
-	-- the top beam: a neon-edged beam, a wider dark cap with upswept ends, snow along it
-	local kas = at * CFrame.new(0, top + 0.35, GZ)
-	local kasSize = Vector3.new(2 * GX + 2.4, 0.7, 1.1)
-	block(kasSize, kas, P.body, f)
-	edgeFrame(f, kas, kasSize, P.neon, true)
-	local capY = top + 0.85
-	local capW = 2 * GX + 2.4
-	block(Vector3.new(capW, 0.3, 1.4), at * CFrame.new(0, capY, GZ), P.bodyDark, f)
-	for _, s in { -1, 1 } do
-		local tilt = 0.3
-		local x = s * (capW / 2 + 0.6 * math.cos(tilt))
-		block(Vector3.new(1.2, 0.3, 1.4), at * CFrame.new(x, capY + 0.6 * math.sin(tilt), GZ) * CFrame.Angles(0, 0, s * tilt), P.bodyDark, f)
-	end
-	snowCap(f, at * CFrame.new(0, capY + 0.15, GZ), capW - 0.4, 1.2, P.snow)
-	-- frost-blossom trees behind the gate's shoulders
-	for _, s in { -1, 1 } do
-		blossom(f, at * CFrame.new(s * FLANK.x, 0, FLANK.z + 0.3), 9.2, P.trunk, P.bloom, P.bloomTint, false)
-	end
+-- ========== Trainers v3 (owner 2026-11-12): nine more levels on the Frost Arch's kit ==========
+-- Same stage, runway, ring, lanterns and snowfall; a gate on the same two pillar spots; a matching pair of
+-- flankers; a target the snowman's size. Each gate's skyline top is its own (World Rules 12, the Swap Test):
+--   2 Peppermint   candy-cane arch, a wrapped peppermint keystone     lollipops        Peppermint Pal
+--   3 Gingerbread  stepped icing roof, a gumdrop on top               gumdrop trees    Gingerbread Man
+--   4 Workshop     timber gate, three turning gears                   present stacks   Nutcracker
+--   5 Ice          ice spires, a pointed snowflake crest              ice obelisks     Penguin
+--   6 Reindeer     snowy red beam, golden antlers, a wreath           decorated trees  Reindeer
+--   7 Crystal      chamfered gate, a crystal crown                    crystal clusters Amethyst Golem
+--   8 Aurora       aurora ribbons, a turning sparkle, a curtain       aurora trees     Snow Owl
+--   9 Citadel      castle towers and crenels, a shield crest          turrets          Knight
+--  10 North Star   starry arch, a turning compass star                garland trees    Star Spirit
 
-	-- the chain, link by link, from the lower beam to the bag's top
-	local bagY, bagH = 4.6, 4.6
-	local hangY = nukiY - 0.3 - H
-	local hang = at * CFrame.new(0, H + hangY, tz)
-	local links = 3
-	local drop = hangY - (bagY + bagH / 2)
-	for k = 0, links - 1 do
-		quiet(shape("Ring", Vector3.new(0.55, 0.14, 0.75), hang * CFrame.new(0, -(k + 0.5) * drop / links, 0) * CFrame.Angles(0, k * math.pi / 2, math.pi / 2), P.chain, f))
-	end
-	-- the Heat Bag: a warm red bag with cream bands, a navy top and bottom, a cream X, heat rising off it
-	local foot = at * CFrame.new(0, H, tz)
-	local m = target(f, i)
-	local mid = foot * CFrame.new(0, bagY, 0)
-	named(cyl(1.55, bagH, mid, P.bag, m), "Heat")
-	cyl(1.35, 0.35, mid * CFrame.new(0, bagH / 2 + 0.15, 0), P.post, m)
-	cyl(1.35, 0.35, mid * CFrame.new(0, -bagH / 2 - 0.15, 0), P.post, m)
-	for _, y in { -1.4, 1.4 } do
-		quiet(cyl(1.6, 0.38, mid * CFrame.new(0, y, 0), P.band, m))
-	end
-	for _, a in { -0.62, 0.62 } do
-		quiet(block(Vector3.new(0.38, 2.2, 0.12), mid * CFrame.new(0, 0, -1.5) * CFrame.Angles(0, 0, a), P.band, m))
-	end
-	local warm = quiet(glow(block(Vector3.new(0.2, 0.2, 0.2), mid, P.heat, m), 1))
-	warm.Name = "Warmth"
-	light(warm, P.heat, 10, 0.8)
-	sparkles(m, Vector3.new(2.6, 0.4, 2.6), mid * CFrame.new(0, bagH / 2, 0), P.heat, 5, 1.6, 0.35)
-	m:SetAttribute("HangAt", hang.Position)
-	sealTarget(m, foot)
-	targetBlock(f, foot * CFrame.new(0, 2, 0), Vector3.new(3, 4, 3))
+local tz = T.targetZ -- every target stands here (local +Z from the stage's middle)
+local FACE = CFrame.Angles(0, math.pi / 2, 0) -- turns rod() to face along Z (a disc you see from the front)
+local TRI_POS = CFrame.fromMatrix(Vector3.zero, Vector3.new(0, 0, 1), Vector3.new(0, 1, 0))
+local TRI_NEG = CFrame.fromMatrix(Vector3.zero, Vector3.new(0, 0, -1), Vector3.new(0, 1, 0))
+
+local function pt(cf: CFrame, x: number, y: number, z: number): Vector3
+	return (cf * CFrame.new(x, y, z)).Position
 end
 
--- ---------- 3. Crystal Citadel: crystal-tipped obelisks, a snowy pediment, a pale ice doorway ----------
-local function crystalCitadel(f: Instance, at: CFrame, i: number)
-	local P = TT.stations.golem
-	local tz = T.targetZ
+local function heat(parts: { BasePart }): { BasePart }
+	for _, p in parts do
+		p.Name = "Heat"
+	end
+	return parts
+end
+
+-- a right triangle in cf's XY plane, t thick: the right angle at cf, one leg a studs along s * X, one b up Y
+local function tri(f: Instance, cf: CFrame, s: number, a: number, b: number, t: number, color: Color3): BasePart
+	local p = Instance.new("WedgePart")
+	p.Size = Vector3.new(t, b, a)
+	p.CFrame = cf * CFrame.new(s * a / 2, b / 2, 0) * (if s > 0 then TRI_POS else TRI_NEG)
+	p.Material = Enum.Material.SmoothPlastic
+	return finish(p, color, f)
+end
+
+-- an upright isosceles triangle: base 2 * halfW wide on cf, apex h up
+local function isoTri(f: Instance, cf: CFrame, halfW: number, h: number, t: number, color: Color3): { BasePart }
+	return { tri(f, cf, 1, halfW, h, t, color), tri(f, cf, -1, halfW, h, t, color) }
+end
+
+-- an n-pointed star facing Z: a disc in the middle, a triangle per point
+local function star(f: Instance, cf: CFrame, rOut: number, rIn: number, t: number, color: Color3, n: number): { BasePart }
+	local parts = { rod(t, rIn, cf * FACE, color, f) }
+	local half = math.pi / n
+	for k = 0, n - 1 do
+		local base = cf * CFrame.Angles(0, 0, k * 2 * half) * CFrame.new(0, rIn * math.cos(half), 0)
+		for _, p in isoTri(f, base, rIn * math.sin(half) + 0.02, rOut - rIn * math.cos(half), t, color) do
+			table.insert(parts, p)
+		end
+	end
+	return parts
+end
+
+local function glowAll(parts: { BasePart }, transparency: number?): { BasePart }
+	for _, p in parts do
+		quiet(glow(p, transparency))
+	end
+	return parts
+end
+
+-- a beam between two points in a plane facing Z: w across, depth along Z
+local function bar(f: Instance, a: Vector3, b: Vector3, w: number, depth: number, color: Color3): BasePart
+	return block(Vector3.new(w, depth, (b - a).Magnitude + w * 0.5), CFrame.lookAt((a + b) / 2, b, Vector3.zAxis), color, f)
+end
+
+-- an upright candy-cane cylinder: a base colour with tilted stripes wound round it
+local function candy(f: Instance, cf: CFrame, r: number, h: number, a: Color3, b: Color3, collide: boolean?): { BasePart }
+	local parts = { cyl(r, h, cf, a, f, collide) }
+	local tilt = 0.38
+	local R = (r + 0.03) / math.cos(tilt)
+	local margin = R * math.sin(tilt) + 0.12
+	local y = -h / 2 + margin
+	while y <= h / 2 - margin do
+		table.insert(parts, quiet(cyl(R, 0.3, cf * CFrame.new(0, y, 0) * CFrame.Angles(0, 0, tilt), b, f)))
+		y += 0.75
+	end
+	return parts
+end
+
+-- a peppermint swirl facing -Z (and +Z when `back`): a disc, six twisted stripes, a plain middle
+local function swirl(f: Instance, cf: CFrame, r: number, thick: number, base: Color3, stripe: Color3, back: boolean, capR: number?): { BasePart }
+	local parts = { rod(thick, r, cf * FACE, base, f) }
+	for _, side in (if back then { -1, 1 } else { -1 }) do
+		for k = 0, 5 do
+			table.insert(parts, quiet(block(Vector3.new(r * 0.4, r * 0.84, 0.06),
+				cf * CFrame.Angles(0, 0, k * math.pi / 3) * CFrame.new(0, r * 0.5, side * (thick / 2 + 0.03)) * CFrame.Angles(0, 0, 0.3), stripe, f)))
+		end
+		table.insert(parts, quiet(rod(0.08, capR or r * 0.26, cf * CFrame.new(0, 0, side * (thick / 2 + 0.05)) * FACE, base, f)))
+	end
+	return parts
+end
+
+-- a gear facing Z: a rim with teeth, a dark ring crossed by spokes, a hub
+local function gear(f: Instance, cf: CFrame, r: number, teeth: number, color: Color3, dark: Color3, hub: Color3)
+	rod(0.5, r, cf * FACE, color, f)
+	quiet(rod(0.58, r * 0.62, cf * FACE, dark, f))
+	for k = 0, 2 do
+		quiet(block(Vector3.new(r * 0.16, r * 1.3, 0.64), cf * CFrame.Angles(0, 0, k * math.pi / 3), color, f))
+	end
+	rod(0.72, r * 0.3, cf * FACE, hub, f)
+	for k = 0, teeth - 1 do
+		block(Vector3.new(r * 0.34, r * 0.3, 0.5), cf * CFrame.Angles(0, 0, k * 2 * math.pi / teeth) * CFrame.new(0, r * 1.1, 0), color, f)
+	end
+end
+
+-- a wrapped present from its bottom middle: a box, a lid, a ribbon cross and a bow; returns its top
+local function gift(f: Instance, cf: CFrame, size: Vector3, box: Color3, ribbon: Color3, bow: boolean): CFrame
+	block(size, cf * CFrame.new(0, size.Y / 2, 0), box, f, true)
+	block(Vector3.new(size.X + 0.2, 0.35, size.Z + 0.2), cf * CFrame.new(0, size.Y - 0.1, 0), box, f)
+	quiet(block(Vector3.new(size.X + 0.24, size.Y + 0.1, 0.32), cf * CFrame.new(0, size.Y / 2 + 0.03, 0), ribbon, f))
+	quiet(block(Vector3.new(0.32, size.Y + 0.1, size.Z + 0.24), cf * CFrame.new(0, size.Y / 2 + 0.03, 0), ribbon, f))
+	local top = cf * CFrame.new(0, size.Y + 0.08, 0)
+	if bow then
+		for _, s in { -1, 1 } do
+			quiet(ellipsoid(Vector3.new(0.8, 0.5, 0.35), top * CFrame.new(s * 0.36, 0.2, 0) * CFrame.Angles(0, 0, -s * 0.5), ribbon, f))
+		end
+		quiet(ball(0.16, pt(top, 0, 0.12, 0), ribbon, f))
+	end
+	return top
+end
+
+-- the arch of the Frost Arch's shape: n blocks round a half circle on the pillars, two colours in turn,
+-- neon on both curves front and back
+local function archOf(f: Instance, c: CFrame, n: number, a: Color3, b: Color3, neon: Color3)
+	local chord = 2 * (GX + 0.6) * math.sin(math.pi / (2 * n)) + 0.05
+	for k = 0, n - 1 do
+		local ang = (k + 0.5) * math.pi / n
+		block(Vector3.new(chord, 1.2, if k % 2 == 0 then 1.3 else 1.18), c * CFrame.new(GX * math.cos(ang), GX * math.sin(ang), 0) * CFrame.Angles(0, 0, ang + math.pi / 2),
+			if k % 2 == 0 then a else b, f, true)
+	end
+	for _, side in { -1, 1 } do
+		arcLine(f, c * CFrame.new(0, 0, side * 0.66), GX + 0.62, 12, neon)
+		arcLine(f, c * CFrame.new(0, 0, side * 0.66), GX - 0.62, 10, neon)
+	end
+end
+
+-- the shared stage, runway, ring, lanterns and snowfall
+local function kit(f: Instance, at: CFrame, P: Palette, ringR: number)
 	stage(f, at, P)
-	runway(f, at, P, tz - 2.4)
-	targetRing(f, at, P, 2.4)
+	runway(f, at, P, T.targetZ - ringR)
+	targetRing(f, at, P, ringR)
 	lanterns(f, at, P)
 	snowfall(f, at)
-	local top = H + 9.4
+end
+
+-- a cartoon face on a surface facing -Z at cf: two eyes with glints, a smile, rosy cheeks
+local function face(m: Instance, cf: CFrame, eyeGap: number, eyeR: number, P: Palette)
 	for _, s in { -1, 1 } do
-		pillar(f, at, s * GX, top, P, true)
-		-- a glowing crystal on each obelisk
-		quiet(glow(shape("Octa", Vector3.new(1.1, 2.6, 1.1), at * CFrame.new(s * GX, top + 0.4 + 1.1, GZ), P.neon, f), 0.05))
+		ball(eyeR, pt(cf, s * eyeGap, 0.15, 0), P.coal, m)
+		quiet(ball(eyeR * 0.35, pt(cf, s * eyeGap - eyeR * 0.3, 0.15 + eyeR * 0.35, -eyeR * 0.8), Theme.white, m))
+		quiet(ellipsoid(Vector3.new(eyeR * 2, eyeR * 1.3, 0.1), cf * CFrame.new(s * (eyeGap + eyeR * 1.6), -eyeR * 1.6, 0.02), P.cheek, m))
 	end
-	-- the lintel between the obelisks, and the pediment on it
-	local lintelY = top - 0.5
-	local lintel = at * CFrame.new(0, lintelY, GZ)
-	local lintelSize = Vector3.new(2 * (GX - 0.6), 1, 1.2)
+	for k = -2, 2 do
+		quiet(ball(eyeR * 0.32, pt(cf, k * eyeR * 0.7, -eyeR * 2.1 + math.abs(k) * eyeR * 0.25, 0), P.coal, m))
+	end
+end
+
+-- ---------- 2. Peppermint: a candy-cane arch, a wrapped peppermint keystone, giant lollipops ----------
+local function peppermint(f: Instance, at: CFrame, i: number)
+	local P = TT.stations.peppermint
+	kit(f, at, P, 2.6)
+	local spring = 6.8
+	for _, s in { -1, 1 } do
+		block(Vector3.new(1.7, 1.1, 1.7), at * CFrame.new(s * GX, 0.55, GZ), P.bodyDark, f, true)
+		edgeFrame(f, at * CFrame.new(s * GX, 0.55, GZ), Vector3.new(1.7, 1.1, 1.7), P.neon, true)
+		candy(f, at * CFrame.new(s * GX, 1.1 + (spring - 1.1) / 2, GZ), 0.62, spring - 1.1, P.stripeA, P.stripeB, true)
+		quiet(glow(cyl(0.7, 0.14, at * CFrame.new(s * GX, spring - 0.3, GZ), P.neon, f)))
+	end
+	doorway(f, at, spring, P.panel)
+	rod(0.12, GX - 0.6, at * CFrame.new(0, spring, PANEL_Z + 0.03) * FACE, P.panel, f)
+	local c = at * CFrame.new(0, spring, GZ)
+	archOf(f, c, 9, P.stripeA, P.stripeB, P.neon)
+	-- the keystone: a big wrapped peppermint through the arch, a glowing rim, twisted wrapper ends
+	local key = c * CFrame.new(0, GX + 0.3, 0)
+	quiet(glow(rod(1.3, 1.68, key * FACE, P.neon, f)))
+	swirl(f, key, 1.55, 1.6, P.stripeA, P.stripeB, true)
+	for _, s in { -1, 1 } do
+		local w = quiet(shape("Cone", Vector3.new(1.2, 1.3, 1.2), key * CFrame.new(s * 2.15, 0, 0) * CFrame.Angles(0, 0, s * math.pi / 2), P.wrap, f))
+		w.Transparency = 0.2
+		quiet(ball(0.3, pt(key, s * 1.55, 0, 0), P.wrap, f))
+	end
+	-- giant lollipops behind the gate's shoulders
+	for _, s in { -1, 1 } do
+		local b = at * CFrame.new(s * FLANK.x, 0, FLANK.z + 0.3)
+		cyl(0.75, 0.4, b * CFrame.new(0, 0.2, 0), P.mintDark, f, true)
+		cyl(0.17, 6.4, b * CFrame.new(0, 3.4, 0), P.stick, f, true)
+		local pop = b * CFrame.new(0, 7.5, 0)
+		quiet(glow(rod(0.36, 1.78, pop * FACE, P.stripeB, f), 0.1))
+		swirl(f, pop, 1.65, 0.5, P.stripeA, P.mint, true)
+		for _, t in { -1, 1 } do
+			quiet(ellipsoid(Vector3.new(0.9, 0.5, 0.3), b * CFrame.new(t * 0.4, 5.6, 0) * CFrame.Angles(0, 0, -t * 0.5), P.stripeB, f))
+		end
+		quiet(ball(0.18, pt(b, 0, 5.55, 0), P.stripeB, f))
+	end
+
+	-- Peppermint Pal: a wrapped peppermint on candy-cane legs, a face in its middle, mint leaves on top
+	local foot = at * CFrame.new(0, H, tz)
+	local m = target(f, i)
+	cyl(1.7, 0.35, foot * CFrame.new(0, 0.175, 0), P.mintDark, m)
+	quiet(glow(cyl(1.78, 0.08, foot * CFrame.new(0, 0.3, 0), P.neon, m)))
+	for _, s in { -1, 1 } do
+		heat(candy(m, foot * CFrame.new(s * 0.85, 1.4, 0), 0.32, 2.1, P.stripeA, P.stripeB))
+		ellipsoid(Vector3.new(0.95, 0.6, 1.35), foot * CFrame.new(s * 0.85, 0.62, -0.18), P.mint, m)
+	end
+	local body = foot * CFrame.new(0, 4.9, 0)
+	heat(swirl(m, body, 2.5, 1.8, P.stripeA, P.stripeB, true, 1.15))
+	for _, s in { -1, 1 } do
+		local w = shape("Cone", Vector3.new(1.4, 1.5, 1.4), body * CFrame.new(s * 3.15, 0, 0) * CFrame.Angles(0, 0, s * math.pi / 2), P.wrap, m)
+		w.Transparency = 0.2
+		ball(0.34, pt(body, s * 2.5, 0, 0), P.wrap, m)
+		quiet(ellipsoid(Vector3.new(1.1, 0.35, 0.6), body * CFrame.new(s * 0.45, 2.62, 0) * CFrame.Angles(0, 0, -s * 0.5), P.mint, m))
+	end
+	quiet(ball(0.3, pt(body, 0, 2.6, 0), P.stripeB, m))
+	face(m, body * CFrame.new(0, 0.05, -1.0), 0.45, 0.2, P)
+	sealTarget(m, foot)
+	targetBlock(f, foot * CFrame.new(0, 4, 0), Vector3.new(4.4, 8, 3))
+end
+
+-- ---------- 3. Gingerbread: cookie pillars, a stepped roof dripping icing, a gumdrop on top ----------
+local GUMS = { "gumRed", "gumGreen", "gumYellow", "gumPurple" }
+local function gumdrop(f: Instance, cf: CFrame, r: number, color: Color3)
+	cyl(r, r * 0.6, cf * CFrame.new(0, r * 0.3, 0), color, f)
+	ellipsoid(Vector3.new(r * 2, r * 1.8, r * 2), cf * CFrame.new(0, r * 0.6, 0), color, f)
+end
+
+local function gingerbread(f: Instance, at: CFrame, i: number)
+	local P = TT.stations.gingerbread
+	kit(f, at, P, 2.4)
+	local top = 7.0
+	for _, s in { -1, 1 } do
+		pillar(f, at, s * GX, top, P, true, true)
+		gumdrop(f, at * CFrame.new(s * GX, top + 0.7, GZ), 0.45, P[GUMS[if s < 0 then 1 else 2]])
+	end
+	doorway(f, at, top, P.panel)
+	local ly = top + 1.2
+	local lintel = at * CFrame.new(0, ly, GZ)
+	block(Vector3.new(2 * GX + 2.2, 1.2, 1.5), lintel, P.body, f)
+	edgeFrame(f, lintel, Vector3.new(2 * GX + 2.2, 1.2, 1.5), P.neon, true)
+	-- the stepped roof: four cookie slabs, icing on each step and a row of drips under it, gumdrops on the ends
+	local y = ly + 0.6
+	for k, w in { 9.8, 7.6, 5.4, 3.2 } do
+		block(Vector3.new(w, 0.7, 1.3), at * CFrame.new(0, y + 0.35, GZ), if k % 2 == 1 then P.cookie else P.body, f)
+		snowCap(f, at * CFrame.new(0, y + 0.7, GZ), w, 1.3, P.snow)
+		local n = math.floor(w / 0.8)
+		for d = 0, n - 1 do
+			local x = -w / 2 + 0.4 + d * (w - 0.8) / math.max(1, n - 1)
+			for _, side in { -1, 1 } do
+				quiet(ball(if d % 2 == 0 then 0.17 else 0.12, pt(at, x, y + 0.66, GZ + side * 0.76), P.snow, f))
+			end
+		end
+		for _, s in { -1, 1 } do
+			gumdrop(f, at * CFrame.new(s * (w / 2 - 0.35), y + 1.0, GZ), 0.26, P[GUMS[(k + (if s < 0 then 0 else 2)) % 4 + 1]])
+		end
+		y += 0.7
+	end
+	gumdrop(f, at * CFrame.new(0, y + 0.3, GZ), 0.75, P.gumRed)
+	quiet(glow(ball(0.2, pt(at, -0.3, y + 1.55, GZ - 0.4), P.accent, f), 0.2))
+	-- a cookie badge on the lintel, front and back: icing dots round a snowflake
+	for _, side in { -1, 1 } do
+		local badge = at * CFrame.new(0, ly + 1.15, GZ + side * 0.8) * (if side > 0 then CFrame.Angles(0, math.pi, 0) else CFrame.identity)
+		rod(0.3, 1.05, badge * FACE, P.cookie, f)
+		for k = 0, 11 do
+			local a = k * math.pi / 6
+			quiet(ball(0.08, pt(badge, 0.85 * math.cos(a), 0.85 * math.sin(a), -0.16), P.snow, f))
+		end
+		flake(f, badge * CFrame.new(0, 0, -0.18), 1.1, P.snow)
+	end
+	-- gumdrop trees behind the gate's shoulders
+	for _, s in { -1, 1 } do
+		local b = at * CFrame.new(s * FLANK.x, 0, FLANK.z + 0.3)
+		cyl(0.28, 1.8, b * CFrame.new(0, 0.9, 0), P.bodyDark, f, true)
+		for k = 0, 3 do
+			local w = 3.4 - k * 0.75
+			local ty = 1.9 + k * 1.3
+			ellipsoid(Vector3.new(w, 1.5, w), b * CFrame.new(0, ty, 0), if k % 2 == 0 then P.tree else P.treeDark, f)
+			quiet(cyl(w / 2 - 0.05, 0.16, b * CFrame.new(0, ty - 0.25, 0), P.snow, f))
+			for d = 0, 4 do
+				local a = d * math.pi * 2 / 5 + k
+				quiet(ball(0.16, pt(b, (w / 2 - 0.1) * math.cos(a), ty + 0.1, (w / 2 - 0.1) * math.sin(a)), P[GUMS[(d + k) % 4 + 1]], f))
+			end
+		end
+		gumdrop(f, b * CFrame.new(0, 6.6, 0), 0.5, P.gumYellow)
+	end
+
+	-- the Gingerbread Man: a thick cookie with icing trim, gumdrop buttons, a candy bow tie
+	local foot = at * CFrame.new(0, H, tz)
+	local m = target(f, i)
+	quiet(cyl(1.9, 0.18, foot * CFrame.new(0, 0.09, 0), P.gumRed, m))
+	cyl(1.8, 0.3, foot * CFrame.new(0, 0.2, 0), P.plate, m)
+	local cookie = P.cookie
+	for _, s in { -1, 1 } do
+		local leg = foot * CFrame.new(s * 0.8, 1.65, 0) * CFrame.Angles(0, 0, s * 0.18)
+		named(block(Vector3.new(1.15, 2.4, 1.2), leg, cookie, m), "Heat")
+		named(rod(1.2, 0.6, leg * CFrame.new(0, -1.1, 0) * FACE, cookie, m), "Heat")
+		for _, dy in { -0.6, -0.85 } do
+			quiet(block(Vector3.new(1.0, 0.1, 0.06), leg * CFrame.new(0, dy, -0.63), P.snow, m))
+		end
+		local arm = foot * CFrame.new(s * 1.9, 4.9, 0) * CFrame.Angles(0, 0, -s * 1.0)
+		named(block(Vector3.new(1.05, 2.3, 1.2), arm, cookie, m), "Heat")
+		named(rod(1.2, 0.55, arm * CFrame.new(0, 1.1, 0) * FACE, cookie, m), "Heat")
+		for _, dy in { 0.55, 0.8 } do
+			quiet(block(Vector3.new(0.9, 0.1, 0.06), arm * CFrame.new(0, dy, -0.63), P.snow, m))
+		end
+	end
+	named(block(Vector3.new(2.7, 3.0, 1.2), foot * CFrame.new(0, 4.1, 0), cookie, m), "Heat")
+	local headAt = foot * CFrame.new(0, 6.55, 0)
+	named(rod(1.2, 1.35, headAt * FACE, cookie, m), "Heat")
+	for k = 0, 17 do
+		local a = k * math.pi / 9
+		quiet(ball(0.07, pt(headAt, 1.17 * math.cos(a), 1.17 * math.sin(a), -0.62), P.snow, m))
+	end
+	face(m, headAt * CFrame.new(0, 0.1, -0.68), 0.45, 0.18, P)
+	for k, gy in { 4.9, 4.1, 3.3 } do
+		gumdrop(m, foot * CFrame.new(0, gy - 0.25, -0.62) * CFrame.Angles(-math.pi / 2, 0, 0), 0.24, P[GUMS[k]])
+	end
+	for _, s in { -1, 1 } do
+		quiet(ellipsoid(Vector3.new(0.6, 0.45, 0.2), foot * CFrame.new(s * 0.32, 5.45, -0.66) * CFrame.Angles(0, 0, s * 0.3), P.gumRed, m))
+	end
+	quiet(ball(0.14, pt(foot, 0, 5.45, -0.72), P.gumRed, m))
+	sealTarget(m, foot)
+	targetBlock(f, foot * CFrame.new(0, 4, 0), Vector3.new(3.6, 8, 2.4))
+end
+
+-- ---------- 4. Workshop: a timber gate with knee braces, three turning gears, stacks of presents ----------
+local function workshop(f: Instance, at: CFrame, i: number)
+	local P = TT.stations.workshop
+	kit(f, at, P, 2.4)
+	local top = 7.4
+	for _, s in { -1, 1 } do
+		pillar(f, at, s * GX, top, P, true, true)
+		block(Vector3.new(0.45, 2.3, 0.5), at * CFrame.new(s * (GX - 1.25), top - 0.55, GZ) * CFrame.Angles(0, 0, s * 0.785), P.wood, f)
+	end
+	doorway(f, at, top + 0.4, P.panel)
+	local ly = top + 1.1
+	local lintel = at * CFrame.new(0, ly, GZ)
+	local lintelSize = Vector3.new(2 * GX + 2.6, 1.4, 1.6)
+	block(lintelSize, lintel, P.red, f)
+	edgeFrame(f, lintel, lintelSize, P.neon, true)
+	for _, s in { -1, 1 } do
+		snowCap(f, at * CFrame.new(s * (GX + 0.2), ly + 0.7, GZ), 2.6, 1.6, P.snow)
+		for _, side in { -1, 1 } do
+			for _, dx in { -0.9, 0.9 } do
+				quiet(ball(0.12, pt(lintel, s * (GX - 1.6) + dx, 0, side * 0.82), P.gold, f))
+			end
+		end
+	end
+	-- the big gear on top with a snowflake hub, a small gear meshing on each side (MapController turns them)
+	local gAt = at * CFrame.new(0, ly + 0.7 + 1.85, GZ)
+	local big = spinner(f, gAt, Vector3.new(0, 0, 1), 0.45)
+	gear(big, gAt, 1.8, 12, P.gold, P.goldDark, P.red)
+	flake(big, gAt * CFrame.new(0, 0, -0.38), 1.0, P.snow)
+	flake(big, gAt * CFrame.new(0, 0, 0.38) * CFrame.Angles(0, math.pi, 0), 1.0, P.snow)
+	for _, s in { -1, 1 } do
+		local sAt = at * CFrame.new(s * 3.05, ly + 0.7 + 1.15, GZ - 0.05)
+		gear(spinner(f, sAt, Vector3.new(0, 0, 1), -0.45 * 1.8 / 0.95), sAt, 0.95, 8, P.red, P.redDark, P.gold)
+	end
+	-- presents piled behind the gate's shoulders
+	for k, s in { -1, 1 } do
+		local b = at * CFrame.new(s * FLANK.x, 0, FLANK.z + 0.2)
+		local t1 = gift(f, b, Vector3.new(2.6, 2.0, 2.6), P[if k == 1 then "giftA" else "giftB"], P.gold, false)
+		local t2 = gift(f, t1 * CFrame.Angles(0, s * 0.35, 0), Vector3.new(2.0, 1.7, 2.0), P[if k == 1 then "giftC" else "giftD"], P.snow, false)
+		gift(f, t2 * CFrame.Angles(0, -s * 0.5, 0), Vector3.new(1.4, 1.3, 1.4), P[if k == 1 then "giftB" else "giftA"], P.gold, true)
+	end
+
+	-- the Nutcracker: a red coat with gold buttons and epaulettes, white trousers, black boots, a tall hat
+	local foot = at * CFrame.new(0, H, tz)
+	local m = target(f, i)
+	cyl(1.6, 0.5, foot * CFrame.new(0, 0.25, 0), P.red, m)
+	quiet(cyl(1.68, 0.14, foot * CFrame.new(0, 0.45, 0), P.gold, m))
+	for _, s in { -1, 1 } do
+		block(Vector3.new(0.85, 1.0, 1.25), foot * CFrame.new(s * 0.55, 1.0, -0.1), P.black, m)
+		named(cyl(0.42, 1.6, foot * CFrame.new(s * 0.55, 2.3, 0), P.white, m), "Heat")
+		named(block(Vector3.new(0.7, 2.2, 0.8), foot * CFrame.new(s * 1.62, 4.55, 0), P.red, m), "Heat")
+		quiet(block(Vector3.new(0.8, 0.3, 0.9), foot * CFrame.new(s * 1.62, 3.55, 0), P.white, m))
+		ball(0.4, pt(foot, s * 1.62, 3.15, 0), P.white, m)
+		cyl(0.55, 0.25, foot * CFrame.new(s * 1.35, 5.8, 0), P.gold, m)
+		for k = -1, 1 do
+			quiet(block(Vector3.new(0.1, 0.4, 0.1), foot * CFrame.new(s * 1.35 + k * 0.3, 5.5, -0.5), P.gold, m))
+		end
+		for _, y in { 4.35, 4.9, 5.45 } do
+			quiet(ball(0.12, pt(foot, s * 0.45, y, -0.92), P.gold, m))
+		end
+	end
+	named(block(Vector3.new(2.5, 2.7, 1.8), foot * CFrame.new(0, 4.45, 0), P.red, m), "Heat")
+	named(block(Vector3.new(2.8, 0.6, 2.0), foot * CFrame.new(0, 3.25, 0), P.redDark, m), "Heat")
+	block(Vector3.new(2.6, 0.4, 1.9), foot * CFrame.new(0, 3.75, 0), P.white, m)
+	quiet(block(Vector3.new(0.5, 0.36, 0.1), foot * CFrame.new(0, 3.75, -0.97), P.gold, m))
+	quiet(block(Vector3.new(0.22, 2.0, 0.06), foot * CFrame.new(0, 4.85, -0.92), P.gold, m))
+	local head = foot * CFrame.new(0, 6.75, 0)
+	block(Vector3.new(1.8, 1.9, 1.6), head, P.skin, m)
+	block(Vector3.new(2.0, 1.5, 0.6), head * CFrame.new(0, 0.05, 0.6), P.white, m)
+	quiet(block(Vector3.new(1.2, 0.34, 0.1), head * CFrame.new(0, -0.55, -0.82), P.white, m))
+	quiet(block(Vector3.new(1.3, 0.12, 0.1), head * CFrame.new(0, -0.35, -0.83), P.black, m))
+	block(Vector3.new(0.32, 0.45, 0.3), head * CFrame.new(0, 0.0, -0.92), P.skin, m)
+	face(m, head * CFrame.new(0, 0.15, -0.82), 0.42, 0.15, P)
+	named(cyl(0.95, 1.4, foot * CFrame.new(0, 8.4, 0), P.black, m), "Heat")
+	quiet(cyl(0.98, 0.3, foot * CFrame.new(0, 7.95, 0), P.gold, m))
+	star(m, foot * CFrame.new(0, 8.55, -0.98), 0.38, 0.16, 0.08, P.gold, 5)
+	sealTarget(m, foot)
+	targetBlock(f, foot * CFrame.new(0, 4.5, 0), Vector3.new(3.8, 9, 2.6))
+end
+
+-- ---------- 5. Ice: ice spires on the pillars, a pointed crest with a big snowflake, ice obelisks ----------
+local function iceGate(f: Instance, at: CFrame, i: number)
+	local P = TT.stations.ice
+	kit(f, at, P, 2.4)
+	local top = 7.6
+	for _, s in { -1, 1 } do
+		pillar(f, at, s * GX, top, P, true, true)
+		local spire = shape("Octa", Vector3.new(1.3, 3.6, 1.3), at * CFrame.new(s * GX, top + 0.4 + 1.65, GZ), P.ice, f)
+		spire.Transparency = 0.15
+		quiet(glow(shape("Octa", Vector3.new(0.5, 2.4, 0.5), at * CFrame.new(s * GX, top + 0.4 + 1.65, GZ), P.neon, f), 0.2))
+		for _, side in { -1, 1 } do
+			shape("Octa", Vector3.new(0.75, 2.0, 0.75), at * CFrame.new(s * GX + side * 0.62, top + 0.4 + 0.75, GZ) * CFrame.Angles(0, 0, -side * 0.42), P.iceDeep, f)
+		end
+	end
+	local ly = top - 0.3
+	local lintel = at * CFrame.new(0, ly, GZ)
+	local lintelSize = Vector3.new(2 * (GX - 0.6), 1.0, 1.1)
 	block(lintelSize, lintel, P.body, f)
 	edgeFrame(f, lintel, lintelSize, P.neon, true)
-	doorway(f, at, lintelY - 0.5, P.panel, 0.15)
-	local half, rise = GX - 0.6, 2.6
-	local baseY = lintelY + 0.5
-	for _, s in { -1, 1 } do
-		-- each half of the triangle is a ramp rising toward the middle
-		wedge(Vector3.new(1.2, rise, half), at * CFrame.new(s * half / 2, baseY + rise / 2, GZ) * CFrame.Angles(0, -s * math.pi / 2, 0), P.body, f)
-		local slope = math.atan2(rise, half)
-		for _, side in { -1, 1 } do
-			line(f, (at * CFrame.new(s * half, baseY, GZ + side * 0.62)).Position, (at * CFrame.new(0, baseY + rise, GZ + side * 0.62)).Position, P.neon)
+	doorway(f, at, ly - 0.5, P.panel, 0.15)
+	-- the crest: a panel with a pointed top, a big glowing snowflake front and back, a crystal on the point
+	local cy = ly + 0.5 + 1.3
+	local crest = at * CFrame.new(0, cy, GZ)
+	local crestSize = Vector3.new(5.4, 2.6, 0.8)
+	block(crestSize, crest, P.crest, f)
+	edgeFrame(f, crest, crestSize, P.neon, true)
+	isoTri(f, crest * CFrame.new(0, 1.3, 0), 2.7, 1.6, 0.8, P.crest)
+	for _, side in { -1, 1 } do
+		for _, s in { -1, 1 } do
+			line(f, pt(crest, s * 2.7, 1.3, side * 0.42), pt(crest, 0, 2.9, side * 0.42), P.neon)
 		end
-		-- snow along the slope
-		local midCf = at * CFrame.new(s * half / 2, baseY + rise / 2, GZ) * CFrame.Angles(0, 0, -s * slope)
-		quiet(block(Vector3.new(math.sqrt(half * half + rise * rise) + 0.2, 0.28, 1.4), midCf * CFrame.new(0, 0.16, 0), P.snow, f))
+		flake(f, crest * CFrame.new(0, 0.35, side * 0.44) * (if side > 0 then CFrame.Angles(0, math.pi, 0) else CFrame.identity), 2.3, P.flake)
 	end
-	quiet(glow(shape("Octa", Vector3.new(1.0, 2.2, 1.0), at * CFrame.new(0, baseY + rise + 1.0, GZ), P.accent, f), 0.05))
-	medallion(f, at * CFrame.new(0, baseY + 1.0, GZ - 0.72), 0.75, P)
-	medallion(f, at * CFrame.new(0, baseY + 1.0, GZ + 0.72) * CFrame.Angles(0, math.pi, 0), 0.75, P)
-	-- crystal clusters behind the gate's shoulders, and crystals floating over them
+	quiet(glow(shape("Octa", Vector3.new(0.9, 1.8, 0.9), crest * CFrame.new(0, 3.5, 0), P.neon, f), 0.05))
+	for _, s in { -1, 1 } do
+		shape("Octa", Vector3.new(0.6, 1.3, 0.6), crest * CFrame.new(s * 2.7, 1.8, 0), P.ice, f)
+	end
+	-- ice obelisks with a glowing snowflake bobbing over each
+	for k, s in { -1, 1 } do
+		local b = at * CFrame.new(s * FLANK.x, 0, FLANK.z + 0.2)
+		cyl(1.0, 0.5, b * CFrame.new(0, 0.25, 0), P.bodyDark, f, true)
+		local ob = b * CFrame.new(0, 0.5 + 2.6, 0)
+		local o = block(Vector3.new(1.1, 5.2, 1.1), ob, P.ice, f, true)
+		o.Transparency = 0.15
+		edgeFrame(f, ob, Vector3.new(1.1, 5.2, 1.1), P.neon, true)
+		shape("Octa", Vector3.new(1.15, 1.8, 1.15), b * CFrame.new(0, 6.0, 0), P.iceDeep, f)
+		local fl = b * CFrame.new(0, 7.9, 0)
+		local bob = bobber(f, fl, 0.35, 0.35, k / 2)
+		flake(bob, fl, 1.6, P.flake)
+		flake(bob, fl * CFrame.Angles(0, math.pi / 2, 0), 1.6, P.flake)
+	end
+
+	-- the Penguin: a round navy body and white belly, flippers, an orange beak and feet, a pink scarf and beanie
+	local foot = at * CFrame.new(0, H, tz)
+	local m = target(f, i)
+	quiet(cyl(2.0, 0.15, foot * CFrame.new(0, 0.08, 0), P.iceDeep, m))
+	cyl(1.9, 0.4, foot * CFrame.new(0, 0.25, 0), P.snow, m)
+	for _, s in { -1, 1 } do
+		ellipsoid(Vector3.new(1.0, 0.4, 1.5), foot * CFrame.new(s * 0.7, 0.6, -0.55), P.beak, m)
+		named(ellipsoid(Vector3.new(0.6, 2.6, 1.3), foot * CFrame.new(s * 1.85, 3.3, 0) * CFrame.Angles(0, 0, s * 0.35), P.coat, m), "Heat")
+	end
+	named(ellipsoid(Vector3.new(3.6, 5.0, 3.2), foot * CFrame.new(0, 3.0, 0), P.coat, m), "Heat")
+	named(ellipsoid(Vector3.new(2.7, 3.9, 1.4), foot * CFrame.new(0, 2.8, -1.0), P.belly, m), "Heat")
+	named(ball(1.45, pt(foot, 0, 6.1, 0), P.coat, m), "Heat")
+	named(ellipsoid(Vector3.new(2.2, 1.8, 0.8), foot * CFrame.new(0, 5.95, -1.1), P.belly, m), "Heat")
+	face(m, foot * CFrame.new(0, 6.0, -1.5), 0.45, 0.19, P)
+	shape("Cone", Vector3.new(0.5, 0.8, 0.42), foot * CFrame.new(0, 5.82, -1.85) * CFrame.Angles(-math.pi / 2, 0, 0), P.beak, m)
+	cyl(1.35, 0.45, foot * CFrame.new(0, 4.85, 0), P.scarf, m)
+	quiet(block(Vector3.new(0.45, 1.3, 0.15), foot * CFrame.new(0.55, 4.25, -1.3) * CFrame.Angles(0.15, 0, 0.15), P.scarf, m))
+	ellipsoid(Vector3.new(2.5, 1.5, 2.5), foot * CFrame.new(0, 7.15, 0), P.scarf, m)
+	cyl(1.34, 0.32, foot * CFrame.new(0, 6.78, 0), P.snow, m)
+	ball(0.4, pt(foot, 0, 7.95, 0), P.snow, m)
+	sealTarget(m, foot)
+	targetBlock(f, foot * CFrame.new(0, 4, 0), Vector3.new(3.8, 8, 3.4))
+end
+
+-- ---------- 6. Reindeer: a snowy red beam, golden antlers, a wreath, decorated trees ----------
+-- an antler in the plane facing Z at base: a main beam out and up, three tines (s = which side)
+local ANTLER = { { 0, 0, 0.8, 1.5 }, { 0.8, 1.5, 1.7, 2.5 }, { 1.7, 2.5, 2.1, 3.6 }, { 0.8, 1.5, 0.3, 2.6 }, { 1.7, 2.5, 1.4, 3.5 }, { 1.7, 2.5, 2.8, 2.8 } }
+local function antler(f: Instance, base: CFrame, s: number, k: number, w: number, color: Color3)
+	for _, seg in ANTLER do
+		local a, b = pt(base, s * seg[1] * k, seg[2] * k, 0), pt(base, s * seg[3] * k, seg[4] * k, 0)
+		bar(f, a, b, w, w, color)
+		ball(w * 0.55, b, color, f)
+	end
+end
+
+local function reindeer(f: Instance, at: CFrame, i: number)
+	local P = TT.stations.reindeer
+	kit(f, at, P, 2.4)
+	local top = 7.4
+	for _, s in { -1, 1 } do
+		pillar(f, at, s * GX, top, P, false)
+		ball(0.36, pt(at, s * GX, top - 0.7, GZ - 0.86), P.gold, f)
+		quiet(ellipsoid(Vector3.new(0.7, 0.4, 0.2), at * CFrame.new(s * GX, top - 0.15, GZ - 0.86), P.berry, f))
+	end
+	doorway(f, at, top, P.panel)
+	local ly = top + 0.7
+	local beam = at * CFrame.new(0, ly, GZ)
+	local beamSize = Vector3.new(2 * GX + 2.4, 1.4, 1.6)
+	block(beamSize, beam, P.body, f)
+	edgeFrame(f, beam, beamSize, P.neon, true)
+	for _, s in { -1, 1 } do
+		rod(1.6, 0.7, beam * CFrame.new(s * beamSize.X / 2, 0, 0) * FACE, P.body, f)
+		quiet(glow(rod(1.4, 0.78, beam * CFrame.new(s * beamSize.X / 2, 0, 0) * FACE, P.neon, f)))
+	end
+	-- fluffy snow along the beam
+	block(Vector3.new(beamSize.X + 0.4, 0.4, 1.8), beam * CFrame.new(0, 0.9, 0), P.snow, f)
+	local x = -beamSize.X / 2 - 0.2
+	while x <= beamSize.X / 2 + 0.2 do
+		quiet(ball(0.45, pt(beam, x, 1.12, 0), P.snow, f))
+		x += 1.2
+	end
+	-- the golden antlers
+	for _, s in { -1, 1 } do
+		antler(f, beam * CFrame.new(s * 0.9, 1.0, 0), s, 1.05, 0.5, P.antler)
+	end
+	-- a wreath with berries and a bow, front and back
+	for _, side in { -1, 1 } do
+		local w = beam * CFrame.new(0, -0.2, side * 0.95)
+		shape("Ring", Vector3.new(2.3, 0.45, 2.3), w * CFrame.Angles(math.pi / 2, 0, 0), P.wreath, f)
+		for k = 0, 13 do
+			local a = k * math.pi / 7
+			quiet(ball(0.3, pt(w, 1.0 * math.cos(a), 1.0 * math.sin(a), side * 0.05), if k % 2 == 0 then P.wreath else P.wreathDark, f))
+			if k % 3 == 0 then
+				quiet(ball(0.13, pt(w, 1.0 * math.cos(a + 0.2), 1.0 * math.sin(a + 0.2), side * 0.3), P.berry, f))
+			end
+		end
+		for _, s in { -1, 1 } do
+			quiet(ellipsoid(Vector3.new(0.8, 0.5, 0.25), w * CFrame.new(s * 0.38, -1.0, side * 0.3) * CFrame.Angles(0, 0, -s * 0.45), P.berry, f))
+			quiet(block(Vector3.new(0.22, 0.75, 0.08), w * CFrame.new(s * 0.22, -1.45, side * 0.3) * CFrame.Angles(0, 0, s * 0.3), P.berry, f))
+		end
+		quiet(ball(0.18, pt(w, 0, -1.0, side * 0.35), P.gold, f))
+	end
+	-- decorated trees behind the gate's shoulders: baubles on every tier, a star on top
+	for _, s in { -1, 1 } do
+		local b = at * CFrame.new(s * FLANK.x, 0, FLANK.z + 0.3)
+		local h = 8.4
+		pine(f, b, h, P)
+		for k = 0, 2 do
+			local w = h * (0.44 - k * 0.1)
+			local y = h * (0.18 + k * 0.22) + 0.35
+			for d = 0, 4 do
+				local a = d * math.pi * 2 / 5 + k * 0.6
+				quiet(ball(0.2, pt(b, (w / 2 - 0.25) * math.cos(a), y, (w / 2 - 0.25) * math.sin(a)), if (d + k) % 2 == 0 then P.berry else P.gold, f))
+			end
+		end
+		glowAll(star(f, b * CFrame.new(0, h * 0.9 + 0.45, 0), 0.7, 0.3, 0.25, P.neon, 5))
+	end
+
+	-- the Reindeer: brown and cream, a red collar with a bell, a glowing red nose, little gold antlers
+	local foot = at * CFrame.new(0, H, tz)
+	local m = target(f, i)
+	quiet(cyl(1.78, 0.15, foot * CFrame.new(0, 0.08, 0), P.body, m))
+	cyl(1.7, 0.35, foot * CFrame.new(0, 0.2, 0), P.snow, m)
+	for _, s in { -1, 1 } do
+		cyl(0.5, 0.45, foot * CFrame.new(s * 0.65, 0.6, 0), P.hoof, m)
+		named(cyl(0.45, 1.8, foot * CFrame.new(s * 0.65, 1.7, 0), P.fur, m), "Heat")
+		local arm = foot * CFrame.new(s * 1.6, 3.9, 0) * CFrame.Angles(0, 0, s * 0.3)
+		named(ellipsoid(Vector3.new(0.8, 2.2, 0.9), arm, P.fur, m), "Heat")
+		ball(0.38, (arm * CFrame.new(0, -1.1, 0)).Position, P.hoof, m)
+		local ear = foot * CFrame.new(s * 1.25, 6.9, 0) * CFrame.Angles(0, 0, -s * 1.0)
+		ellipsoid(Vector3.new(0.5, 1.1, 0.3), ear, P.fur, m)
+		quiet(ellipsoid(Vector3.new(0.3, 0.7, 0.1), ear * CFrame.new(0, 0, -0.14), P.cheek, m))
+		antler(m, foot * CFrame.new(s * 0.55, 7.15, 0.1), s, 0.45, 0.24, P.antler)
+	end
+	named(ellipsoid(Vector3.new(3.0, 3.4, 2.6), foot * CFrame.new(0, 3.7, 0), P.fur, m), "Heat")
+	named(ellipsoid(Vector3.new(2.0, 2.4, 0.8), foot * CFrame.new(0, 3.5, -1.0), P.furLight, m), "Heat")
+	cyl(1.05, 0.35, foot * CFrame.new(0, 5.2, 0), P.body, m)
+	ball(0.32, pt(foot, 0, 4.92, -1.05), P.gold, m)
+	named(ellipsoid(Vector3.new(2.3, 2.1, 2.2), foot * CFrame.new(0, 6.3, 0), P.fur, m), "Heat")
+	named(ellipsoid(Vector3.new(1.4, 0.95, 1.0), foot * CFrame.new(0, 5.85, -0.95), P.furLight, m), "Heat")
+	local nose = quiet(glow(ball(0.33, pt(foot, 0, 6.08, -1.45), P.nose, m)))
+	light(nose, P.nose, 8, 0.8)
+	for _, s in { -1, 1 } do
+		ball(0.17, pt(foot, s * 0.48, 6.62, -0.98), P.coal, m)
+		quiet(ball(0.06, pt(foot, s * 0.43, 6.7, -1.13), Theme.white, m))
+		quiet(ellipsoid(Vector3.new(0.4, 0.28, 0.1), foot * CFrame.new(s * 0.85, 6.2, -0.92), P.cheek, m))
+	end
+	sealTarget(m, foot)
+	targetBlock(f, foot * CFrame.new(0, 4, 0), Vector3.new(3.6, 8, 3))
+end
+
+-- ---------- 7. Crystal: a chamfered gate, a crystal crown, crystal clusters, an Amethyst Golem ----------
+local function crystalGate(f: Instance, at: CFrame, i: number)
+	local P = TT.stations.crystal
+	kit(f, at, P, 2.6)
+	local top = 6.8
+	local c = 1.6 -- the chamfer
+	for _, s in { -1, 1 } do
+		pillar(f, at, s * GX, top, P, false)
+		local a, b = pt(at, s * GX, top, GZ), pt(at, s * (GX - c), top + c, GZ)
+		bar(f, a, b, 1.2, 1.2, P.body)
+		local dir = (b - a).Unit
+		local n = Vector3.new(s * dir.Y, -s * dir.X, 0)
+		for _, side in { -1, 1 } do
+			local z = Vector3.new(0, 0, side * 0.62)
+			line(f, a + n * 0.6 + z, b + n * 0.6 + z, P.neon)
+			line(f, a - n * 0.6 + z, b - n * 0.6 + z, P.neon)
+		end
+		quiet(glow(shape("Octa", Vector3.new(0.7, 1.3, 0.7), CFrame.new((a + b) / 2 + n * 0.95) * CFrame.Angles(0, 0, -s * 0.785), P.accent, f), 0.05))
+		-- small crystals at the pillar's foot
+		shape("Octa", Vector3.new(0.7, 1.7, 0.7), at * CFrame.new(s * (GX + 0.95), 0.7, GZ - 0.5) * CFrame.Angles(0.2, 0, -s * 0.4), P.crystal, f)
+		shape("Octa", Vector3.new(0.5, 1.1, 0.5), at * CFrame.new(s * (GX + 0.9), 0.5, GZ + 0.4) * CFrame.Angles(-0.3, 0, -s * 0.6), P.crystalLight, f)
+	end
+	local lintel = at * CFrame.new(0, top + c, GZ)
+	local lintelSize = Vector3.new(2 * (GX - c) + 1.2, 1.2, 1.2)
+	block(lintelSize, lintel, P.body, f)
+	edgeFrame(f, lintel, lintelSize, P.neon, true)
+	doorway(f, at, top + 1.0, P.panel, 0.1)
+	quiet(glow(shape("Octa", Vector3.new(0.9, 0.9, 0.4), lintel * CFrame.new(0, 0, -0.62), P.accent, f), 0.05))
+	-- the crown: a fan of crystals round a glowing core
+	local crownY = top + c + 0.6
+	local main = shape("Octa", Vector3.new(1.5, 4.0, 1.5), at * CFrame.new(0, crownY + 1.8, GZ), P.crystal, f)
+	main.Transparency = 0.3
+	quiet(glow(shape("Octa", Vector3.new(0.6, 2.8, 0.6), at * CFrame.new(0, crownY + 1.8, GZ), P.accent, f), 0.1))
+	for _, s in { -1, 1 } do
+		shape("Octa", Vector3.new(1.0, 2.8, 1.0), at * CFrame.new(s * 0.95, crownY + 1.1, GZ) * CFrame.Angles(0, 0, -s * 0.42), P.crystal, f)
+		shape("Octa", Vector3.new(0.8, 1.9, 0.8), at * CFrame.new(s * 1.75, crownY + 0.6, GZ) * CFrame.Angles(0, 0, -s * 0.85), P.crystalLight, f)
+	end
 	for _, s in { -1, 1 } do
 		crystals(f, at * CFrame.new(s * FLANK.x, 0, FLANK.z), 6, s, P)
 	end
 	floaters(f, at, H + 8.6, P.accent)
 
-	-- the Magma Golem: chunky rock with glowing magma cracks, a magma heart and bright eyes
+	-- the Amethyst Golem: purple rock, glowing violet cracks and heart, crystals growing from its shoulders
 	local foot = at * CFrame.new(0, H, tz)
 	local m = target(f, i)
 	for _, s in { -1, 1 } do
 		block(Vector3.new(1.5, 2.4, 1.7), foot * CFrame.new(s * 1, 1.2, 0), P.rock, m, false, Enum.Material.Slate)
-		named(quiet(glow(block(Vector3.new(0.16, 1.1, 0.1), foot * CFrame.new(s * 1.1, 1.3, -0.86) * CFrame.Angles(0, 0, s * 0.35), P.magma, m))), "Heat")
+		named(quiet(glow(block(Vector3.new(0.16, 1.1, 0.1), foot * CFrame.new(s * 1.1, 1.3, -0.86) * CFrame.Angles(0, 0, s * 0.35), P.core, m))), "Heat")
 	end
 	block(Vector3.new(3.6, 1.2, 2.2), foot * CFrame.new(0, 2.95, 0), P.rock, m, false, Enum.Material.Slate)
 	local torso = foot * CFrame.new(0, 5.05, 0) * CFrame.Angles(0.06, 0, 0)
 	block(Vector3.new(4.4, 3.2, 2.8), torso, P.rockLight, m, false, Enum.Material.Slate)
-	local heart = named(glow(shape("Octa", Vector3.new(1.2, 1.6, 1.2), torso * CFrame.new(0, 0.1, -1.38), P.magma, m)), "Heat")
-	light(heart, P.magma, 12, 1.1)
-	for _, c in { { -1.3, 0.7, 0.5 }, { -1.1, -0.6, -0.4 }, { 1.2, 0.6, -0.55 }, { 1.4, -0.7, 0.35 } } do
-		named(quiet(glow(block(Vector3.new(0.16, 1.2, 0.1), torso * CFrame.new(c[1], c[2], -1.42) * CFrame.Angles(0, 0, c[3]), P.magma, m))), "Heat")
+	local heart = named(glow(shape("Octa", Vector3.new(1.2, 1.6, 1.2), torso * CFrame.new(0, 0.1, -1.38), P.core, m)), "Heat")
+	light(heart, P.core, 12, 1.1)
+	for _, cr in { { -1.3, 0.7, 0.5 }, { -1.1, -0.6, -0.4 }, { 1.2, 0.6, -0.55 }, { 1.4, -0.7, 0.35 } } do
+		named(quiet(glow(block(Vector3.new(0.16, 1.2, 0.1), torso * CFrame.new(cr[1], cr[2], -1.42) * CFrame.Angles(0, 0, cr[3]), P.core, m))), "Heat")
 	end
 	for _, s in { -1, 1 } do
 		shape("Rock", Vector3.new(2.3, 2, 2.3), foot * CFrame.new(s * 2.9, 6.3, 0), P.rock, m)
 		block(Vector3.new(1.3, 2.4, 1.4), foot * CFrame.new(s * 3.1, 4.6, 0), P.rock, m, false, Enum.Material.Slate)
 		shape("Rock", Vector3.new(1.9, 1.7, 1.9), foot * CFrame.new(s * 3.2, 3.05, -0.2), P.rockLight, m)
+		named(quiet(glow(shape("Octa", Vector3.new(0.85, 2.3, 0.85), foot * CFrame.new(s * 2.9, 7.7, 0.2) * CFrame.Angles(0, 0, -s * 0.4), P.crystal, m), 0.15)), "Heat")
+		named(shape("Octa", Vector3.new(0.65, 1.6, 0.65), foot * CFrame.new(s * 2.3, 7.35, 0.6) * CFrame.Angles(0.3, 0, -s * 0.15), P.crystalLight, m), "Heat")
 	end
 	local head = foot * CFrame.new(0, 7.55, -0.15)
 	block(Vector3.new(2.2, 1.8, 2), head, P.rock, m, false, Enum.Material.Slate)
@@ -657,109 +1168,290 @@ local function crystalCitadel(f: Instance, at: CFrame, i: number)
 	for _, s in { -1, 1 } do
 		named(quiet(glow(block(Vector3.new(0.5, 0.32, 0.1), head * CFrame.new(s * 0.48, 0.05, -1.02), P.eyes, m))), "Eye")
 	end
-	sparkles(m, Vector3.new(4.4, 0.4, 2.4), foot * CFrame.new(0, 7.2, 0), P.magma, 6, 1.8, 0.3)
+	sparkles(m, Vector3.new(4.4, 0.4, 2.4), foot * CFrame.new(0, 7.2, 0), P.core, 6, 1.8, 0.3)
 	sealTarget(m, foot)
 	targetBlock(f, foot * CFrame.new(0, 4, 0), Vector3.new(5, 8, 3))
 end
 
--- ---------- 4. Aurora Wolf Gate: a neon wolf head on the lintel, aurora trees, floating crystals ----------
-local function auroraWolf(f: Instance, at: CFrame, i: number)
-	local P = TT.stations.sun
-	local tz = T.targetZ
-	stage(f, at, P)
-	runway(f, at, P, tz - 3.2)
-	lanterns(f, at, P)
-	snowfall(f, at)
-	local top = H + 8.6
+-- ---------- 8. Aurora: aurora ribbons over the lintel, a turning sparkle, an aurora curtain in the door ----------
+local function aurora(f: Instance, at: CFrame, i: number)
+	local P = TT.stations.aurora
+	kit(f, at, P, 2.4)
+	local top = 7.6
 	for _, s in { -1, 1 } do
-		pillar(f, at, s * GX, top, P, true)
+		pillar(f, at, s * GX, top, P, true, true)
 	end
-	-- the lintel on the pillar caps, and the violet veil under it
-	local lintel = at * CFrame.new(0, top + 0.9, GZ)
-	local lintelSize = Vector3.new(2 * GX + 2, 1, 1.5)
+	doorway(f, at, top, P.panel)
+	-- the curtain: glowing strips of aurora hanging in the doorway
+	local waves = { P.wave1, P.wave2, P.wave3 }
+	for k = 0, 9 do
+		local x = -3.15 + k * 0.7
+		local h = 3.2 + 1.4 * math.sin(k * 0.9)
+		quiet(glow(block(Vector3.new(0.5, h, 0.06), at * CFrame.new(x, top - 0.3 - h / 2, PANEL_Z - 0.1), waves[k % 3 + 1], f), 0.45))
+	end
+	local ly = top + 0.9
+	local lintel = at * CFrame.new(0, ly, GZ)
+	local lintelSize = Vector3.new(2 * GX + 2, 1.0, 1.4)
 	block(lintelSize, lintel, P.body, f)
 	edgeFrame(f, lintel, lintelSize, P.neon, true)
-	doorway(f, at, top + 0.4, P.panel, 0.2)
-	-- the wolf's head: a neon-edged head, a brow, triangle ears with glowing insides, fur ruffs, a snout,
-	-- glowing ice eyes and a snowflake on the forehead (and a big one on the back, for the plaza)
-	local hy = top + 1.4 -- the head's bottom
-	local headSize = Vector3.new(7.2, 3.4, 2.2)
-	local head = at * CFrame.new(0, hy + headSize.Y / 2, GZ)
-	block(headSize, head, P.body, f)
-	edgeFrame(f, head, headSize, P.neon, true)
-	local browY = hy + headSize.Y + 0.4
-	local brow = at * CFrame.new(0, browY, GZ)
-	local browSize = Vector3.new(5.4, 0.8, 2.0)
-	block(browSize, brow, P.wolfLight, f)
-	edgeFrame(f, brow, browSize, P.neon)
-	snowCap(f, at * CFrame.new(0, browY + 0.4, GZ), 5.4, 2.0, P.snow)
-	local front = GZ - headSize.Z / 2
-	local earBase, earH, earW = hy + headSize.Y, 3.4, 2.3
-	for _, s in { -1, 1 } do
-		-- the ear: a right triangle, its upright edge toward the middle
-		local inner = s * 1.3
-		wedge(Vector3.new(1.4, earH, earW), at * CFrame.new(inner + s * earW / 2, earBase + earH / 2, GZ) * CFrame.Angles(0, -s * math.pi / 2, 0), P.body, f)
-		line(f, (at * CFrame.new(inner + s * earW, earBase, front + 0.25)).Position, (at * CFrame.new(inner, earBase + earH, front + 0.25)).Position, P.neon)
-		quiet(glow(wedge(Vector3.new(0.12, 1.9, 1.3), at * CFrame.new(inner + s * (0.2 + 0.65), earBase + 0.8 + 0.95, front + 0.28) * CFrame.Angles(0, -s * math.pi / 2, 0), P.accent, f)))
-		-- the fur ruff at the head's lower corner
-		wedge(Vector3.new(1.4, 2.0, 1.3), at * CFrame.new(s * (headSize.X / 2 + 0.65), hy + 1.0, GZ) * CFrame.Angles(0, -s * math.pi / 2, 0), P.wolfLight, f)
-		line(f, (at * CFrame.new(s * headSize.X / 2, hy + 2.0, front + 0.3)).Position, (at * CFrame.new(s * (headSize.X / 2 + 1.3), hy, front + 0.3)).Position, P.neon)
-		-- the eye, slanted up toward the outside
-		quiet(glow(block(Vector3.new(1.3, 0.45, 0.15), at * CFrame.new(s * 1.8, hy + 2.1, front - 0.05) * CFrame.Angles(0, 0, s * 0.2), P.eye, f)))
+	snowCap(f, lintel * CFrame.new(0, 0.5, 0), lintelSize.X, lintelSize.Z, P.snow)
+	-- three ribbons waving over it
+	for j = 0, 2 do
+		local prev: Vector3? = nil
+		for k = 0, 16 do
+			local x = -5.6 + k * 0.7
+			local p = pt(at, x, ly + 1.55 + j * 0.6 + 0.65 * math.sin(x * 0.8 + j * 0.7), GZ + (j - 1) * 0.25)
+			if prev then
+				quiet(glow(bar(f, prev, p, 0.34, 0.45, waves[j + 1]), 0.12))
+			end
+			prev = p
+		end
 	end
-	-- the snout, the bridge up to the brow, the nose
-	local snout = at * CFrame.new(0, hy + 0.85, front - 0.75)
-	local snoutSize = Vector3.new(2.4, 1.4, 1.5)
-	block(snoutSize, snout, P.wolfLight, f)
-	edgeFrame(f, snout, snoutSize, P.neon)
-	wedge(Vector3.new(2.4, 1.0, 1.5), at * CFrame.new(0, hy + 2.05, front - 0.75), P.body, f)
-	quiet(block(Vector3.new(0.9, 0.5, 0.35), at * CFrame.new(0, hy + 1.35, front - 1.55), P.bodyDark, f))
-	medallion(f, at * CFrame.new(0, browY, GZ - 1.1), 0.5, P)
-	flake(f, at * CFrame.new(0, hy + headSize.Y / 2, GZ + headSize.Z / 2 + 0.05) * CFrame.Angles(0, math.pi, 0), 2.4, P.accent)
-	local eyeLight = quiet(block(Vector3.new(0.2, 0.2, 0.2), at * CFrame.new(0, hy + 2.1, front - 0.6), P.eye, f))
-	eyeLight.Transparency = 1
-	light(eyeLight, P.eye, 14, 0.9)
+	-- a four-pointed sparkle turning over it all
+	local sAt = at * CFrame.new(0, ly + 4.6, GZ)
+	local spin = spinner(f, sAt, Vector3.new(0, 1, 0), 0.8)
+	local sp = glowAll(star(spin, sAt, 1.4, 0.35, 0.35, P.star, 4))
+	light(sp[1], P.star, 12, 0.8)
+	glowAll(star(spin, sAt * CFrame.Angles(0, 0, math.pi / 4), 0.8, 0.25, 0.3, P.accent, 4))
 	-- aurora trees behind the gate's shoulders, crystals floating over them
 	for _, s in { -1, 1 } do
 		blossom(f, at * CFrame.new(s * FLANK.x, 0, FLANK.z + 0.3), 9.2, P.trunk, P.bloom, P.bloomTint, true)
 	end
-	floaters(f, at, H + 9, P.accent)
-	-- the emitter the sun floats over
-	local base = at * CFrame.new(0, H, tz)
-	cyl(2.6, 0.7, base * CFrame.new(0, 0.35, 0), P.bodyDark, f, true)
-	quiet(cyl(1.9, 0.22, base * CFrame.new(0, 0.8, 0), P.body, f))
-	quiet(glow(cyl(2.75, 0.1, base * CFrame.new(0, 0.66, 0), P.neon, f)))
-	for k = 0, 2 do
-		local a = k * math.pi * 2 / 3
-		local arm = base * CFrame.Angles(0, a, 0) * CFrame.new(0, 0, 2.2)
-		block(Vector3.new(0.45, 2.6, 0.45), arm * CFrame.new(0, 1.9, 0) * CFrame.Angles(-0.35, 0, 0), P.body, f)
-		quiet(glow(block(Vector3.new(0.5, 0.5, 0.5), arm * CFrame.new(0, 3.2, -0.45), P.accent, f)))
-	end
-	-- two gyro rings turning round the sun (MapController spins them)
-	local sunAt = base * CFrame.new(0, 5.6, 0)
-	local gyro = spinner(f, sunAt, Vector3.new(0, 1, 0), 0.7)
-	quiet(glow(shape("Ring", Vector3.new(6.4, 0.3, 6.4), sunAt * CFrame.Angles(math.pi / 2, 0, 0), P.ring, gyro), 0.1))
-	quiet(glow(shape("Ring", Vector3.new(5.6, 0.26, 5.6), sunAt * CFrame.Angles(math.pi / 2, math.pi / 2, 0.5), P.neon, gyro), 0.1))
-	-- the Little Sun: a glowing core in a soft corona, with rays round it (it cools to ice as you shoot it)
-	local foot = base
+	floaters(f, at, H + 9.2, P.accent)
+
+	-- the Snow Owl: a fluffy white body with speckles, big golden eyes, aurora-tipped wings, ear tufts
+	local foot = at * CFrame.new(0, H, tz)
 	local m = target(f, i)
-	local core = named(glow(ball(1.8, sunAt.Position, P.core, m)), "Heat")
-	named(glow(ball(2.35, sunAt.Position, P.corona, m), 0.7), "Heat")
-	for k = 0, 7 do
-		local a = k * math.pi / 4
-		named(quiet(glow(shape("Octa", Vector3.new(0.5, 1.1, 0.5), sunAt * CFrame.Angles(0, 0, a) * CFrame.new(0, 2.75, 0), P.ring, m))), "Heat")
+	cyl(1.7, 0.35, foot * CFrame.new(0, 0.175, 0), P.bodyDark, m)
+	quiet(glow(cyl(1.78, 0.08, foot * CFrame.new(0, 0.3, 0), P.neon, m)))
+	cyl(0.9, 1.0, foot * CFrame.new(0, 0.85, 0), P.perch, m)
+	for _, s in { -1, 1 } do
+		for k = -1, 1 do
+			quiet(block(Vector3.new(0.16, 0.2, 0.55), foot * CFrame.new(s * 0.6 + k * 0.2, 1.42, -0.75), P.beak, m))
+		end
 	end
-	light(core, P.core, 18, 1.4)
-	sparkles(m, Vector3.new(3, 3, 3), sunAt, P.ring, 8, 1.4, 0.35)
+	named(ellipsoid(Vector3.new(3.6, 4.4, 3.2), foot * CFrame.new(0, 3.5, 0), P.owl, m), "Heat")
+	for _, sp in { { -0.6, 3.0 }, { 0, 3.3 }, { 0.6, 3.0 }, { -0.35, 2.3 }, { 0.35, 2.3 }, { -0.7, 3.9 }, { 0, 4.2 }, { 0.7, 3.9 } } do
+		local dx, dy = sp[1] / 1.8, (sp[2] - 3.5) / 2.2
+		local z = -1.6 * math.sqrt(math.max(0, 1 - dx * dx - dy * dy)) - 0.02
+		for _, t in { -1, 1 } do
+			quiet(block(Vector3.new(0.28, 0.08, 0.05), foot * CFrame.new(sp[1] + t * 0.11, sp[2], z) * CFrame.Angles(0, 0, -t * 0.5), P.speck, m))
+		end
+	end
+	for _, s in { -1, 1 } do
+		local wing = foot * CFrame.new(s * 1.75, 3.6, 0.2) * CFrame.Angles(0, 0, s * 0.18)
+		named(ellipsoid(Vector3.new(0.9, 3.4, 2.4), wing, P.owlShade, m), "Heat")
+		for k = 0, 2 do
+			quiet(glow(ellipsoid(Vector3.new(0.5, 1.0, 0.7), wing * CFrame.new(s * 0.1, -1.5, -0.6 + k * 0.6), waves[k + 1], m), 0.2))
+		end
+		shape("Cone", Vector3.new(0.6, 1.2, 0.5), foot * CFrame.new(s * 1.1, 8.0, -0.2) * CFrame.Angles(0, 0, -s * 0.35), P.owlShade, m)
+		local eye = foot * CFrame.new(s * 0.65, 6.65, 0)
+		local zf = -1.5 * math.sqrt(1 - (0.65 / 1.7) ^ 2)
+		quiet(rod(0.2, 0.75, eye * CFrame.new(0, 0, zf + 0.05) * FACE, P.owlShade, m))
+		quiet(rod(0.12, 0.5, eye * CFrame.new(0, 0, zf - 0.08) * FACE, P.eye, m))
+		quiet(rod(0.1, 0.26, eye * CFrame.new(0, 0, zf - 0.15) * FACE, P.pupil, m))
+		quiet(ball(0.08, pt(eye, -0.1, 0.12, zf - 0.22), Theme.white, m))
+	end
+	named(ellipsoid(Vector3.new(3.4, 2.6, 3.0), foot * CFrame.new(0, 6.6, 0), P.owl, m), "Heat")
+	shape("Cone", Vector3.new(0.45, 0.75, 0.4), foot * CFrame.new(0, 6.1, -1.55) * CFrame.Angles(-2.1, 0, 0), P.beak, m)
 	sealTarget(m, foot)
-	targetBlock(f, foot * CFrame.new(0, 2.5, 0), Vector3.new(4.6, 5, 4.6))
+	targetBlock(f, foot * CFrame.new(0, 4.2, 0), Vector3.new(3.8, 8.4, 3.2))
+end
+
+-- ---------- 9. Citadel: two castle towers, crenels over the gate, a shield crest, turrets ----------
+local function citadel(f: Instance, at: CFrame, i: number)
+	local P = TT.stations.citadel
+	kit(f, at, P, 2.4)
+	local tw = 1.8
+	for _, s in { -1, 1 } do
+		local tower = at * CFrame.new(s * GX, 4.3, GZ)
+		block(Vector3.new(tw, 8.6, tw), tower, P.body, f, true)
+		edgeFrame(f, tower, Vector3.new(tw, 8.6, tw), P.neon, true)
+		block(Vector3.new(2.2, 1.0, 2.2), at * CFrame.new(s * GX, 0.5, GZ), P.bodyDark, f, true)
+		block(Vector3.new(2.3, 0.4, 2.3), at * CFrame.new(s * GX, 8.8, GZ), P.bodyDark, f)
+		for _, cx in { -1, 1 } do
+			for _, cz in { -1, 1 } do
+				block(Vector3.new(0.6, 0.8, 0.6), at * CFrame.new(s * GX + cx * 0.85, 9.4, GZ + cz * 0.85), P.body, f)
+				snowCap(f, at * CFrame.new(s * GX + cx * 0.85, 9.8, GZ + cz * 0.85), 0.6, 0.6, P.snow)
+			end
+		end
+		for _, side in { -1, 1 } do
+			quiet(glow(block(Vector3.new(0.26, 1.1, 0.06), at * CFrame.new(s * GX, 6.6, GZ + side * (tw / 2 + 0.02)), P.accent, f), 0.1))
+		end
+	end
+	doorway(f, at, 6.9, P.panel)
+	local wall = at * CFrame.new(0, 8.0, GZ)
+	local wallSize = Vector3.new(2 * (GX - tw / 2), 2.2, 1.4)
+	block(wallSize, wall, P.body, f)
+	edgeFrame(f, wall, wallSize, P.neon, true)
+	for _, x in { -2.8, -1.4, 1.4, 2.8 } do
+		block(Vector3.new(0.8, 0.8, 1.4), wall * CFrame.new(x, 1.5, 0), P.body, f)
+		snowCap(f, wall * CFrame.new(x, 1.9, 0), 0.8, 1.4, P.snow)
+	end
+	-- the portcullis's teeth under the wall
+	for k = 0, 7 do
+		local x = -2.8 + k * 0.8
+		quiet(block(Vector3.new(0.14, 1.0, 0.14), at * CFrame.new(x, 6.4, GZ + 0.3), P.gold, f))
+		quiet(shape("Cone", Vector3.new(0.24, 0.35, 0.24), at * CFrame.new(x, 5.75, GZ + 0.3) * CFrame.Angles(math.pi, 0, 0), P.gold, f))
+	end
+	-- banners on the wall, front and back
+	for _, side in { -1, 1 } do
+		for _, s in { -1, 1 } do
+			local bn = at * CFrame.new(s * 2.1, 8.0, GZ + side * 0.74)
+			quiet(block(Vector3.new(0.9, 1.6, 0.06), bn, P.banner, f))
+			quiet(tri(f, bn * CFrame.new(0, -0.8, 0) * CFrame.Angles(0, 0, math.pi), 1, 0.45, 0.5, 0.06, P.banner))
+			quiet(tri(f, bn * CFrame.new(0, -0.8, 0) * CFrame.Angles(0, 0, math.pi), -1, 0.45, 0.5, 0.06, P.banner))
+			quiet(glow(block(Vector3.new(0.3, 0.3, 0.08), bn * CFrame.new(0, 0.2, 0) * CFrame.Angles(0, 0, math.pi / 4), P.body, f)))
+		end
+	end
+	-- the shield crest with a crown on top
+	local sh = at * CFrame.new(0, 10.5, GZ)
+	block(Vector3.new(2.2, 1.8, 0.5), sh, P.gold, f)
+	isoTri(f, sh * CFrame.new(0, -0.9, 0) * CFrame.Angles(0, 0, math.pi), 1.1, 1.3, 0.5, P.gold)
+	block(Vector3.new(1.8, 1.5, 0.56), sh * CFrame.new(0, 0.05, 0), P.body, f)
+	isoTri(f, sh * CFrame.new(0, -0.7, 0) * CFrame.Angles(0, 0, math.pi), 0.9, 1.05, 0.56, P.body)
+	for _, side in { -1, 1 } do
+		flake(f, sh * CFrame.new(0, -0.15, side * 0.31) * (if side > 0 then CFrame.Angles(0, math.pi, 0) else CFrame.identity), 1.3, P.accent)
+	end
+	block(Vector3.new(1.6, 0.35, 0.5), sh * CFrame.new(0, 1.05, 0), P.gold, f)
+	for _, x in { -0.6, 0, 0.6 } do
+		isoTri(f, sh * CFrame.new(x, 1.2, 0), 0.22, if x == 0 then 0.7 else 0.5, 0.4, P.gold)
+	end
+	quiet(glow(ball(0.12, pt(sh, 0, 1.95, 0), P.accent, f)))
+	-- turrets with cone roofs and gold pennants behind the gate's shoulders
+	for _, s in { -1, 1 } do
+		local b = at * CFrame.new(s * 5.6, 0, 7.6)
+		cyl(0.85, 6.0, b * CFrame.new(0, 3.0, 0), P.body, f, true)
+		quiet(glow(cyl(0.9, 0.12, b * CFrame.new(0, 5.9, 0), P.neon, f)))
+		cyl(1.05, 0.3, b * CFrame.new(0, 6.1, 0), P.bodyDark, f)
+		shape("Cone", Vector3.new(2.3, 2.4, 2.3), b * CFrame.new(0, 7.45, 0), P.roof, f)
+		quiet(shape("Cone", Vector3.new(1.2, 1.25, 1.2), b * CFrame.new(0, 8.05, 0), P.snow, f))
+		cyl(0.07, 1.4, b * CFrame.new(0, 9.2, 0), P.gold, f)
+		tri(f, b * CFrame.new(0, 9.35, 0), s, 1.2, 0.6, 0.06, P.banner)
+		quiet(glow(block(Vector3.new(0.22, 0.9, 0.06), b * CFrame.new(0, 4.0, -0.86), P.accent, f), 0.1))
+	end
+
+	-- the Knight: polished armour, a crimson tabard with a snowflake, a shield and a sword, a plumed helm
+	local foot = at * CFrame.new(0, H, tz)
+	local m = target(f, i)
+	cyl(1.7, 0.35, foot * CFrame.new(0, 0.175, 0), P.bodyDark, m)
+	quiet(glow(cyl(1.78, 0.08, foot * CFrame.new(0, 0.3, 0), P.neon, m)))
+	for _, s in { -1, 1 } do
+		named(block(Vector3.new(0.8, 2.3, 0.9), foot * CFrame.new(s * 0.55, 1.6, 0), P.armor, m), "Heat")
+		block(Vector3.new(0.9, 0.45, 1.3), foot * CFrame.new(s * 0.55, 0.58, -0.15), P.armorDark, m)
+		ball(0.32, pt(foot, s * 0.55, 1.9, -0.45), P.armorDark, m)
+		named(ellipsoid(Vector3.new(1.3, 0.9, 1.6), foot * CFrame.new(s * 1.45, 5.45, 0), P.armor, m), "Heat")
+		named(block(Vector3.new(0.7, 2.2, 0.8), foot * CFrame.new(s * 1.55, 4.2, 0), P.armorDark, m), "Heat")
+		ball(0.42, pt(foot, s * 1.55, 3.0, 0), P.armorDark, m)
+	end
+	named(block(Vector3.new(2.6, 2.8, 1.7), foot * CFrame.new(0, 4.1, 0), P.armor, m), "Heat")
+	named(block(Vector3.new(1.9, 3.2, 0.12), foot * CFrame.new(0, 3.65, -0.9), P.body, m), "Heat")
+	for _, s in { -1, 1 } do
+		quiet(block(Vector3.new(0.12, 3.2, 0.14), foot * CFrame.new(s * 0.95, 3.65, -0.9), P.gold, m))
+	end
+	quiet(block(Vector3.new(1.9, 0.12, 0.14), foot * CFrame.new(0, 2.05, -0.9), P.gold, m))
+	flake(m, foot * CFrame.new(0, 4.25, -0.98), 1.0, P.neon)
+	block(Vector3.new(2.7, 0.35, 1.8), foot * CFrame.new(0, 2.95, 0), P.leather, m)
+	-- the shield on the left arm
+	local shield = foot * CFrame.new(-2.05, 4.2, -0.55) * CFrame.Angles(0, 0.3, 0)
+	block(Vector3.new(1.6, 1.4, 0.25), shield, P.gold, m)
+	isoTri(m, shield * CFrame.new(0, -0.7, 0) * CFrame.Angles(0, 0, math.pi), 0.8, 1.0, 0.25, P.gold)
+	heat({ block(Vector3.new(1.3, 1.15, 0.3), shield * CFrame.new(0, 0.05, 0), P.body, m) })
+	heat(isoTri(m, shield * CFrame.new(0, -0.55, 0) * CFrame.Angles(0, 0, math.pi), 0.65, 0.8, 0.3, P.body))
+	flake(m, shield * CFrame.new(0, -0.1, -0.17), 0.8, P.neon)
+	-- the sword in the right hand
+	local sword = foot * CFrame.new(1.55, 0, -0.7)
+	block(Vector3.new(0.28, 2.8, 0.1), sword * CFrame.new(0, 4.95, 0), P.blade, m)
+	block(Vector3.new(0.95, 0.2, 0.22), sword * CFrame.new(0, 3.5, 0), P.gold, m)
+	block(Vector3.new(0.2, 0.6, 0.2), sword * CFrame.new(0, 3.1, 0), P.leather, m)
+	ball(0.16, pt(sword, 0, 2.75, 0), P.gold, m)
+	-- the helm: a great helm with a glowing visor slit, a gold band, a red plume
+	named(cyl(0.95, 1.7, foot * CFrame.new(0, 6.5, 0), P.armor, m), "Heat")
+	ellipsoid(Vector3.new(1.9, 1.0, 1.9), foot * CFrame.new(0, 7.35, 0), P.armor, m)
+	quiet(cyl(0.98, 0.18, foot * CFrame.new(0, 7.1, 0), P.gold, m))
+	quiet(glow(block(Vector3.new(1.2, 0.18, 0.1), foot * CFrame.new(0, 6.65, -0.94), P.eye, m)))
+	quiet(block(Vector3.new(0.18, 0.9, 0.1), foot * CFrame.new(0, 6.3, -0.96), P.armorDark, m))
+	ellipsoid(Vector3.new(0.5, 1.2, 1.6), foot * CFrame.new(0, 8.05, 0.3) * CFrame.Angles(0.35, 0, 0), P.plume, m)
+	sealTarget(m, foot)
+	targetBlock(f, foot * CFrame.new(0, 4.3, 0), Vector3.new(4.6, 8.6, 3))
+end
+
+-- ---------- 10. North Star: a starry arch, a turning compass star, garland trees, the Star Spirit ----------
+local NIGHT = { { -2.6, 2.2 }, { -1.4, 4.6 }, { -3.0, 5.6 }, { 1.2, 1.6 }, { 2.7, 3.4 }, { 0.3, 6.4 }, { -0.6, 3.0 }, { 2.0, 5.9 }, { -2.0, 7.4 }, { 1.6, 7.6 }, { 3.1, 1.2 }, { -3.2, 1.1 } }
+local function northStar(f: Instance, at: CFrame, i: number)
+	local P = TT.stations.northstar
+	kit(f, at, P, 2.6)
+	local top = 6.6
+	local spring = top + 0.4
+	for _, s in { -1, 1 } do
+		pillar(f, at, s * GX, top, P, true)
+		glowAll(star(f, at * CFrame.new(s * GX, top + 1.2, GZ), 0.6, 0.18, 0.2, P.neon, 4))
+	end
+	doorway(f, at, spring, P.panel)
+	rod(0.12, GX - 0.6, at * CFrame.new(0, spring, PANEL_Z + 0.03) * FACE, P.panel, f)
+	for _, n in NIGHT do
+		quiet(glow(block(Vector3.new(0.16, 0.16, 0.05), at * CFrame.new(n[1], n[2], PANEL_Z - 0.08) * CFrame.Angles(0, 0, math.pi / 4), P.accent, f)))
+	end
+	local c = at * CFrame.new(0, spring, GZ)
+	archOf(f, c, 7, P.body, P.bodyLight, P.neon)
+	for _, a in { 0.4, 0.85, math.pi - 0.85, math.pi - 0.4 } do
+		for _, side in { -1, 1 } do
+			glowAll(star(f, c * CFrame.new(GX * math.cos(a), GX * math.sin(a), side * 0.68), 0.36, 0.14, 0.08, P.neon, 5))
+		end
+	end
+	-- the compass star: a gold ring, a navy disc, a turning eight-pointed star (MapController turns it)
+	local cAt = c * CFrame.new(0, GX + 0.45, 0)
+	shape("Ring", Vector3.new(3.4, 0.35, 3.4), cAt * CFrame.Angles(math.pi / 2, 0, 0), P.gold, f)
+	rod(0.3, 1.55, cAt * FACE, P.bodyDark, f)
+	local spin = spinner(f, cAt, Vector3.new(0, 0, 1), 0.35)
+	star(spin, cAt, 2.1, 0.42, 0.5, P.gold, 4)
+	star(spin, cAt * CFrame.Angles(0, 0, math.pi / 4), 1.35, 0.32, 0.56, P.goldLight, 4)
+	local core = quiet(glow(ball(0.32, cAt.Position, P.accent, spin)))
+	light(core, P.gold, 14, 0.9)
+	-- garland trees behind the gate's shoulders: a gold garland wound round, a star on top
+	for _, s in { -1, 1 } do
+		local b = at * CFrame.new(s * FLANK.x, 0, FLANK.z + 0.3)
+		cyl(0.3, 1.3, b * CFrame.new(0, 0.65, 0), P.bodyDark, f, true)
+		shape("Cone", Vector3.new(3.4, 6.4, 3.4), b * CFrame.new(0, 1.2 + 3.2, 0), P.tree, f)
+		quiet(shape("Cone", Vector3.new(1.4, 2.4, 1.4), b * CFrame.new(0, 6.4, 0), P.snow, f))
+		for k = 0, 26 do
+			local t = k / 26
+			local y = 1.5 + t * 5.2
+			local r = 1.7 * (1 - (y - 1.2) / 6.4) + 0.1
+			local a = t * math.pi * 6 + (if s > 0 then 0 else math.pi)
+			quiet(glow(ball(0.13, pt(b, r * math.cos(a), y, r * math.sin(a)), P.neon, f)))
+		end
+		glowAll(star(f, b * CFrame.new(0, 8.0, 0), 0.75, 0.3, 0.25, P.neon, 5))
+	end
+
+	-- the Star Spirit: a big golden star with a happy face, a glowing halo, standing on a cloud
+	local foot = at * CFrame.new(0, H, tz)
+	local m = target(f, i)
+	cyl(1.7, 0.35, foot * CFrame.new(0, 0.175, 0), P.bodyDark, m)
+	for _, p in { { -0.9, 1.0, 0, 0.85 }, { 0.9, 1.0, 0, 0.85 }, { 0, 1.25, 0.3, 0.95 }, { 0, 0.95, -0.6, 0.75 }, { -0.6, 0.8, 0.7, 0.7 }, { 0.6, 0.8, 0.7, 0.7 } } do
+		ball(p[4], pt(foot, p[1], p[2], p[3]), P.cloud, m)
+	end
+	local sc = foot * CFrame.new(0, 4.9, 0)
+	heat(glowAll(star(m, sc * CFrame.new(0, 0, 0.2), 3.3, 1.5, 0.9, P.neon, 5), 0.45))
+	local body = heat(star(m, sc, 3.0, 1.35, 1.1, P.gold, 5))
+	light(body[1], P.gold, 14, 1)
+	face(m, sc * CFrame.new(0, 0.1, -0.6), 0.55, 0.26, P)
+	sparkles(m, Vector3.new(4.5, 4.5, 1), sc, P.neon, 6, 1.2, 0.3)
+	sealTarget(m, foot)
+	targetBlock(f, foot * CFrame.new(0, 3.9, 0), Vector3.new(4.4, 7.8, 2.2))
 end
 
 local BUILDERS: { [string]: (Instance, CFrame, number) -> () } = {
 	snowman = frostArch,
-	heatbag = frostTorii,
-	golem = crystalCitadel,
-	sun = auroraWolf,
+	peppermint = peppermint,
+	gingerbread = gingerbread,
+	workshop = workshop,
+	ice = iceGate,
+	reindeer = reindeer,
+	crystal = crystalGate,
+	aurora = aurora,
+	citadel = citadel,
+	northstar = northStar,
 }
 
 -- pan `plot`'s trainer at level `tier` (Config.training.stations), as one folder in `parent`

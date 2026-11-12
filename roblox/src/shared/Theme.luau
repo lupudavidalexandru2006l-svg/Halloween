@@ -193,7 +193,7 @@ local Theme = {
 		-- level is the same kit in its own three colours, like the reference's neon shrine: body / bodyDark (the
 		-- blocks), floor / floorInner (the stage), neon (every edge), accent (lanterns, glyphs, small glows),
 		-- snow (caps), panel (the doorway behind the target). The rest are the target's and the flankers' own.
-		-- snowman = Frost Arch, heatbag = Frost Torii, golem = Crystal Citadel, sun = Aurora Wolf Gate.
+		-- snowman = Frost Arch; levels 2-10 are named by their theme (TrainingArt).
 		stations = {
 			snowman = {
 				title = Color3.fromHex("7ee35a"),
@@ -204,29 +204,78 @@ local Theme = {
 				hat = Color3.fromHex("ff5a5f"), hatBand = Color3.fromHex("ffd34a"), ring = Color3.fromHex("ff5a5f"), ringLight = Color3.fromHex("fff8ec"),
 				carrot = Color3.fromHex("ff9a3c"), coal = Color3.fromHex("2b2340"), scarf = Color3.fromHex("3aa8ff"),
 			},
-			heatbag = {
+			-- v3 (owner 2026-11-12): levels 2-10, themed on the owner's photo. coal / cheek = the targets' faces.
+			peppermint = {
+				title = Color3.fromHex("ff6fae"),
+				body = Color3.fromHex("c7213a"), bodyDark = Color3.fromHex("8e1028"), floor = Color3.fromHex("a8182f"), floorInner = Color3.fromHex("bd2440"),
+				neon = Color3.fromHex("ff9ec4"), accent = Color3.fromHex("fff4f7"), snow = Color3.fromHex("fffafa"), panel = Color3.fromHex("6e0c20"),
+				stripeA = Color3.fromHex("fff8f4"), stripeB = Color3.fromHex("e8283e"), mint = Color3.fromHex("5fe3b0"), mintDark = Color3.fromHex("2fb58a"),
+				stick = Color3.fromHex("fff6ee"), wrap = Color3.fromHex("ffb3d1"), coal = Color3.fromHex("2b2340"), cheek = Color3.fromHex("ff8fb0"),
+			},
+			gingerbread = {
+				title = Color3.fromHex("ffb347"),
+				body = Color3.fromHex("a65a28"), bodyDark = Color3.fromHex("6e3a17"), floor = Color3.fromHex("8a4820"), floorInner = Color3.fromHex("9c5426"),
+				neon = Color3.fromHex("fff0d8"), accent = Color3.fromHex("ff7ab8"), snow = Color3.fromHex("fffaf2"), panel = Color3.fromHex("4e2610"),
+				cookie = Color3.fromHex("c87a3c"), plate = Color3.fromHex("fff8ec"), tree = Color3.fromHex("4fd67a"), treeDark = Color3.fromHex("2fb05a"),
+				gumRed = Color3.fromHex("ff4d6d"), gumGreen = Color3.fromHex("4fd67a"), gumYellow = Color3.fromHex("ffd34a"), gumPurple = Color3.fromHex("b46bff"),
+				coal = Color3.fromHex("3a1f10"), cheek = Color3.fromHex("ff8fb0"),
+			},
+			workshop = {
+				title = Color3.fromHex("7ee35a"),
+				body = Color3.fromHex("1f7a4c"), bodyDark = Color3.fromHex("135536"), floor = Color3.fromHex("186343"), floorInner = Color3.fromHex("1e7550"),
+				neon = Color3.fromHex("ffd34a"), accent = Color3.fromHex("ff5a5f"), snow = Color3.fromHex("f4faff"), panel = Color3.fromHex("0e3d27"),
+				wood = Color3.fromHex("a8693a"), red = Color3.fromHex("d9323f"), redDark = Color3.fromHex("a3202e"), gold = Color3.fromHex("ffcc33"), goldDark = Color3.fromHex("c9921c"),
+				giftA = Color3.fromHex("ff5a8a"), giftB = Color3.fromHex("3aa8ff"), giftC = Color3.fromHex("ffd34a"), giftD = Color3.fromHex("b46bff"),
+				white = Color3.fromHex("fff8ec"), black = Color3.fromHex("1d1b2b"), skin = Color3.fromHex("f6c9a0"),
+				coal = Color3.fromHex("1d1b2b"), cheek = Color3.fromHex("ff7a8a"),
+			},
+			ice = {
+				title = Color3.fromHex("5ee6ff"),
+				body = Color3.fromHex("4fb8f0"), bodyDark = Color3.fromHex("2b86c4"), floor = Color3.fromHex("3a9fdb"), floorInner = Color3.fromHex("48aee6"),
+				neon = Color3.fromHex("e8fdff"), accent = Color3.fromHex("ffffff"), snow = Color3.fromHex("ffffff"), panel = Color3.fromHex("1d5f96"),
+				ice = Color3.fromHex("bdeeff"), iceDeep = Color3.fromHex("7fd3fa"), crest = Color3.fromHex("8fdcff"), flake = Color3.fromHex("ffffff"),
+				coat = Color3.fromHex("24305e"), belly = Color3.fromHex("fff8f0"), beak = Color3.fromHex("ff9a3c"), scarf = Color3.fromHex("ff5a8a"),
+				coal = Color3.fromHex("141a33"), cheek = Color3.fromHex("ff9ab8"),
+			},
+			reindeer = {
 				title = Color3.fromHex("ffd23a"),
-				body = Color3.fromHex("1f5c7c"), bodyDark = Color3.fromHex("143f58"), floor = Color3.fromHex("1b4f6b"), floorInner = Color3.fromHex("22607f"),
-				neon = Color3.fromHex("5dffc8"), accent = Color3.fromHex("8ff0ff"), snow = Color3.fromHex("f4faff"), panel = Color3.fromHex("0f2e42"),
-				trunk = Color3.fromHex("143f58"), bloom = Color3.fromHex("ffffff"), bloomTint = Color3.fromHex("c6f7ec"),
-				post = Color3.fromHex("2f3a6b"), bag = Color3.fromHex("ff5a4a"), band = Color3.fromHex("fff1e0"),
-				heat = Color3.fromHex("ffb020"), chain = Color3.fromHex("6d6390"),
+				body = Color3.fromHex("b8222f"), bodyDark = Color3.fromHex("7e1420"), floor = Color3.fromHex("9a1a27"), floorInner = Color3.fromHex("ad2030"),
+				neon = Color3.fromHex("ffd34a"), accent = Color3.fromHex("fff1c9"), snow = Color3.fromHex("f8fbff"), panel = Color3.fromHex("5c0e18"),
+				antler = Color3.fromHex("e8b84a"), gold = Color3.fromHex("ffcc33"), wreath = Color3.fromHex("2f9a52"), wreathDark = Color3.fromHex("1f7a3e"), berry = Color3.fromHex("ff3b4e"),
+				pine = Color3.fromHex("2c8a56"), pineDark = Color3.fromHex("1f6e44"),
+				fur = Color3.fromHex("9a5a32"), furLight = Color3.fromHex("ecd0a8"), hoof = Color3.fromHex("3a2416"), nose = Color3.fromHex("ff2a3a"),
+				coal = Color3.fromHex("2b1a10"), cheek = Color3.fromHex("ff9ab0"),
 			},
-			golem = {
+			crystal = {
 				title = Color3.fromHex("c77dff"),
-				body = Color3.fromHex("343a8f"), bodyDark = Color3.fromHex("23286a"), floor = Color3.fromHex("2c3280"), floorInner = Color3.fromHex("373e98"),
-				neon = Color3.fromHex("ad92ff"), accent = Color3.fromHex("8ff0ff"), snow = Color3.fromHex("f4faff"), panel = Color3.fromHex("cdeeff"),
-				crystal = Color3.fromHex("d2f3ff"),
-				rock = Color3.fromHex("4a3f5c"), rockLight = Color3.fromHex("66597d"), magma = Color3.fromHex("ff7a1a"), eyes = Color3.fromHex("ffd84a"),
+				body = Color3.fromHex("5b37c4"), bodyDark = Color3.fromHex("3f2494"), floor = Color3.fromHex("4c2cae"), floorInner = Color3.fromHex("5a36c2"),
+				neon = Color3.fromHex("7ff3ff"), accent = Color3.fromHex("ff8af0"), snow = Color3.fromHex("f6f2ff"), panel = Color3.fromHex("26135e"),
+				crystal = Color3.fromHex("d5b0ff"), crystalLight = Color3.fromHex("f0e2ff"),
+				rock = Color3.fromHex("a996dc"), rockLight = Color3.fromHex("cbbdf2"), core = Color3.fromHex("ff3fd8"), eyes = Color3.fromHex("8ff8ff"),
 			},
-			sun = {
+			aurora = {
+				title = Color3.fromHex("5dffc8"),
+				body = Color3.fromHex("2b2470"), bodyDark = Color3.fromHex("1a1650"), floor = Color3.fromHex("241d62"), floorInner = Color3.fromHex("2e2678"),
+				neon = Color3.fromHex("46f0c8"), accent = Color3.fromHex("c46bff"), snow = Color3.fromHex("f0f2ff"), panel = Color3.fromHex("140f3d"),
+				wave1 = Color3.fromHex("46f0c8"), wave2 = Color3.fromHex("3ab0ff"), wave3 = Color3.fromHex("c46bff"), star = Color3.fromHex("ffe36b"),
+				trunk = Color3.fromHex("1a1650"), bloom = Color3.fromHex("b8fff0"), bloomTint = Color3.fromHex("d4b8ff"),
+				owl = Color3.fromHex("f7f6ff"), owlShade = Color3.fromHex("d6dbf3"), speck = Color3.fromHex("8f97c4"), perch = Color3.fromHex("6e4a2e"),
+				beak = Color3.fromHex("ffb020"), eye = Color3.fromHex("ffd84a"), pupil = Color3.fromHex("1a1650"),
+			},
+			citadel = {
 				title = Color3.fromHex("ff8a2a"),
-				body = Color3.fromHex("2e2270"), bodyDark = Color3.fromHex("1e1650"), floor = Color3.fromHex("281d62"), floorInner = Color3.fromHex("33267a"),
-				neon = Color3.fromHex("c46bff"), accent = Color3.fromHex("ff6fe0"), snow = Color3.fromHex("f0f2ff"), panel = Color3.fromHex("3b2a8a"),
-				wolfLight = Color3.fromHex("3e2f8f"), eye = Color3.fromHex("9ff6ff"), trunk = Color3.fromHex("1e1650"),
-				bloom = Color3.fromHex("e4c4ff"), bloomTint = Color3.fromHex("ffb3ee"),
-				pylon = Color3.fromHex("2c3572"), trim = Color3.fromHex("e9f6ff"),
-				core = Color3.fromHex("ffb020"), coreHot = Color3.fromHex("fff3a0"), corona = Color3.fromHex("ff8a2a"), ring = Color3.fromHex("ffd84a"),
+				body = Color3.fromHex("c4234a"), bodyDark = Color3.fromHex("8a1535"), floor = Color3.fromHex("a81c40"), floorInner = Color3.fromHex("bd2550"),
+				neon = Color3.fromHex("ffd34a"), accent = Color3.fromHex("ffffff"), snow = Color3.fromHex("fff8fb"), panel = Color3.fromHex("5a0c22"),
+				gold = Color3.fromHex("ffcc33"), banner = Color3.fromHex("ffcc33"), roof = Color3.fromHex("6e1030"),
+				armor = Color3.fromHex("d3dcec"), armorDark = Color3.fromHex("8d9ab3"), leather = Color3.fromHex("6e4a2e"), blade = Color3.fromHex("eef4ff"),
+				plume = Color3.fromHex("ff5a5f"), eye = Color3.fromHex("7ff3ff"),
+			},
+			northstar = {
+				title = Color3.fromHex("ffe36b"),
+				body = Color3.fromHex("2348c9"), bodyDark = Color3.fromHex("172f8a"), bodyLight = Color3.fromHex("2f58dc"), floor = Color3.fromHex("1f3fae"), floorInner = Color3.fromHex("2a4cc0"),
+				neon = Color3.fromHex("ffd34a"), accent = Color3.fromHex("fff3c4"), snow = Color3.fromHex("f6f8ff"), panel = Color3.fromHex("0f1f5c"),
+				gold = Color3.fromHex("ffc933"), goldLight = Color3.fromHex("fff0a0"), tree = Color3.fromHex("1d3a9e"), cloud = Color3.fromHex("ffffff"),
+				coal = Color3.fromHex("1b1433"), cheek = Color3.fromHex("ff8fb0"),
 			},
 		} :: { [string]: { [string]: Color3 } },
 	},

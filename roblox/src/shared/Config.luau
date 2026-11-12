@@ -1707,9 +1707,16 @@ export type TrainStation = { id: string, name: string, kind: string, mult: numbe
 Config.training = {
 	stations = {
 		{ id = "snowman", name = "Snowman Dummy", kind = "snowman", mult = 1, price = 0, aimY = 4.4, shell = { bottom = 0.9, height = 8.4, width = 4.6 } },
-		{ id = "heatbag", name = "Heat Bag", kind = "heatbag", mult = 2, price = 10e3, aimY = 4.6, shell = { bottom = 2, height = 5.4, width = 3.8 } },
-		{ id = "golem", name = "Magma Golem", kind = "golem", mult = 5, price = 750e3, aimY = 5, shell = { bottom = 0.8, height = 8.6, width = 6.2 } },
-		{ id = "sun", name = "Little Sun", kind = "sun", mult = 10, price = 50e6, aimY = 5.6, shell = { bottom = 3.4, height = 4.6, width = 4.6 } },
+		-- v3 (owner 2026-11-12): nine themed levels after the snowman, each its own gate and target (TrainingArt)
+		{ id = "peppermint", name = "Peppermint Pal", kind = "peppermint", mult = 2, price = 10e3, aimY = 4.9, shell = { bottom = 0.3, height = 7.8, width = 5.4 } },
+		{ id = "gingerbread", name = "Gingerbread Man", kind = "gingerbread", mult = 3, price = 120e3, aimY = 4.4, shell = { bottom = 0.3, height = 7.8, width = 4.6 } },
+		{ id = "workshop", name = "Nutcracker", kind = "workshop", mult = 5, price = 750e3, aimY = 4.8, shell = { bottom = 0.5, height = 8.6, width = 4.4 } },
+		{ id = "ice", name = "Penguin", kind = "ice", mult = 8, price = 4e6, aimY = 4.2, shell = { bottom = 0.4, height = 7.8, width = 4.6 } },
+		{ id = "reindeer", name = "Reindeer", kind = "reindeer", mult = 12, price = 20e6, aimY = 4.6, shell = { bottom = 0.3, height = 8.4, width = 4.4 } },
+		{ id = "crystal", name = "Amethyst Golem", kind = "crystal", mult = 20, price = 80e6, aimY = 5, shell = { bottom = 0.8, height = 8.6, width = 6.2 } },
+		{ id = "aurora", name = "Snow Owl", kind = "aurora", mult = 30, price = 300e6, aimY = 4.6, shell = { bottom = 1.2, height = 7.4, width = 4.6 } },
+		{ id = "citadel", name = "Knight", kind = "citadel", mult = 50, price = 1.2e9, aimY = 4.6, shell = { bottom = 0.3, height = 8.4, width = 5.0 } },
+		{ id = "northstar", name = "Star Spirit", kind = "northstar", mult = 100, price = 5e9, aimY = 4.9, shell = { bottom = 0.4, height = 7.6, width = 5.6 } },
 	} :: { TrainStation },
 	targetTag = "TrainTarget", -- each trainer's target Model (TrainingArt); the client frosts and wobbles it
 	spot = { x = 14, z = 12 }, padSize = { 11, 12 }, padHeight = 0.8,

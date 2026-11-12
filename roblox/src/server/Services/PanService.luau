@@ -2,7 +2,7 @@
 -- PanService (Round 4 phase 5): owns the pan upgrades, bought at your own pan's Pan Upgrades stand.
 --   Slots      = upgrades.pen (how many pets the pan holds; rebirth resets it)
 --   Look       = pan.look (straw -> wood -> stone -> crystal ice -> aurora; rebirth keeps it)
---   Trainer    = pan.trainer (snowman -> heat bag -> magma golem -> little sun: x1 -> x10 Cold Power;
+--   Trainer    = pan.trainer (snowman -> peppermint ... -> north star: x1 -> x100 Cold Power;
 --                rebirth keeps it; TrainingService builds it)
 -- (Cold Level was removed with the Cold Power remake, 2026-11-10: the pan keeps every pet frozen.)
 -- Prices and levels: Config.pan / Config.panPrice / Config.panMax. Buying follows GunService: decided
