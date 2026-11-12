@@ -2665,24 +2665,41 @@ local function peak(parent: Instance, x: number, z: number, r: number, h: number
 	end
 end
 
+-- Owner 2026-11-12: the outside was far bigger than anyone sees (ground 1,400 studs wide and 700-900
+-- studs past both ends, peaks up to 178 studs tall). Now it is only as big as the camera (max zoom 40)
+-- needs: a low ring of peaks just past the village pines, the hills and the end cap frames the view,
+-- and the ground reaches just far enough that, from the highest camera that still sees the horizon
+-- (about 30 studs up), no view 4 degrees or more below the horizon runs off its edge (ray-checked in
+-- play from every edge of the walkable area; shallower views end in the haze).
+local FAR = { reach = 600, back = 450, past = 450, row = 95, sideHub = 85, side = 170, sideStep = 20, r = 56 }
+
+-- a row of 9 peaks across the map at z, stepping back (dir) by 20 every other one
+local function peakRow(parent: Instance, z: number, dir: number, snowLine: number, color: Color3)
+	for i = 0, 8 do
+		peak(parent, -240 + i * 60, z + dir * (i % 3) * 20, 34 + (i % 4) * 6, 58 + (i % 5) * 12, snowLine, color)
+	end
+end
+
 local function farScenery(parent: Instance, rng: () -> number)
 	local H = W.hub
-	-- the ground everywhere outside: snow round the hub and the meadow, grass from the forest on
+	local backZ, endZ = H.zMin - FAR.back, W.tunnelEnd + FAR.past
+	-- the ground outside: snow round the hub and the meadow, grass from the forest on
 	local forestZ = if W.zones[2] then W.zones[2].zMin else W.tunnelEnd
-	far(block(Vector3.new(1400, 1, forestZ + 700), CFrame.new(0, -0.65, (forestZ - 700) / 2), A.snowA, parent, false, Enum.Material.Snow))
+	far(block(Vector3.new(FAR.reach * 2, 1, forestZ - backZ), CFrame.new(0, -0.65, (forestZ + backZ) / 2), A.snowA, parent, false, Enum.Material.Snow))
 	-- Round 4 phase 6: from the forest on, each island's own ground (sea by the beach, lava past the lake)
 	for _, zone in W.zones do
 		if zone.id >= 2 then
 			local look = Theme.islands[zone.theme]
-			local z1 = if zone.id == #W.zones then zone.zMax + 900 else zone.zMax
+			local z1 = if zone.id == #W.zones then endZ else zone.zMax
 			local mats = Theme.islandMats[zone.theme]
-			far(block(Vector3.new(1400, 1, z1 - zone.zMin), CFrame.new(0, -0.65, (zone.zMin + z1) / 2), (look and look.far) or A.grassA, parent, false,
+			far(block(Vector3.new(FAR.reach * 2, 1, z1 - zone.zMin), CFrame.new(0, -0.65, (zone.zMin + z1) / 2), (look and look.far) or A.grassA, parent, false,
 				if mats and zone.theme ~= "lavalake" and zone.theme ~= "magma" and zone.theme ~= "beach" then mats.floor else Enum.Material.Grass))
 		end
 	end
-	for i = 0, 8 do
-		peak(parent, -240 + i * 60, H.zMin - 140 - (i % 3) * 40, 46 + (i % 4) * 10, 90 + (i % 5) * 22, 0.5, A.peakLow)
-	end
+	-- snowy peaks behind the village pines, and the last island's peaks past the end cap
+	peakRow(parent, H.zMin - FAR.row, -1, 0.5, A.peakLow)
+	local lastLook = if #W.zones > 0 then Theme.islands[W.zones[#W.zones].theme] else nil
+	peakRow(parent, W.tunnelEnd + FAR.row, 1, 1.1, if lastLook and lastLook.peak then lastLook.peak else A.peakGreen)
 	local len = W.tunnelEnd - H.zMin
 	for i = 0, C.farPeaks - 1 do
 		local z = H.zMin + (i + 0.5) * len / C.farPeaks
@@ -2692,8 +2709,10 @@ local function farScenery(parent: Instance, rng: () -> number)
 		local hill = if snowy then A.snowB elseif zlook and zlook.peak then zlook.peak else A.forestHill
 		local isl = W.islands[zid]
 		local farKind = if snowy then "snowpine" elseif isl and isl.trees then isl.trees.kind else "pine"
+		-- beside the hub the peaks stand past the cottages and pines; along the islands, past the hills
+		local px = if z < W.hubZMax then H.xMax + FAR.sideHub else FAR.side + (i % 3) * FAR.sideStep
 		for _, side in { -1, 1 } do
-			peak(parent, side * (200 + (i % 3) * 30), z, 60, 70 + ((i + (side + 1) / 2) % 3) * 20, if snowy then 0.55 else 1.1, if snowy then A.peakLow elseif zlook and zlook.peak then zlook.peak else A.peakGreen)
+			peak(parent, side * px, z, FAR.r, 52 + ((i + (side + 1) / 2) % 3) * 14, if snowy then 0.55 else 1.1, if snowy then A.peakLow elseif zlook and zlook.peak then zlook.peak else A.peakGreen)
 			-- rolling hills between the cliffs and the peaks (along the islands only: round the hub the village is there)
 			local hz = z + (rng() - 0.5) * 30
 			if hz < W.hubZMax + 30 then
