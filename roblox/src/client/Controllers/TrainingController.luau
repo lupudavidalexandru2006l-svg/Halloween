@@ -498,7 +498,10 @@ local function refreshTrainers()
 			if a then
 				a.CFrame = CFrame.new(aimAt(i))
 			end
-			if was and tier > was then
+			local mine = State.view and State.view.plot == i
+			local M = Config.motion.upgrade
+			-- your own trainer's upgrade bursts in Show.trainerTrip, when the camera is there to see it
+			if was and tier > was and not (mine and M.fastPan and M.trainerView) then
 				local st = T.stations[tier]
 				local col = TT.stations[st.kind] and TT.stations[st.kind].title or TT.power
 				EffectsController.burst(aimAt(i) - Vector3.new(0, 2, 0), col, 30)

@@ -910,7 +910,7 @@ Config.ui.shopPerRow = 5 -- the Robux shop's product tiles to a row
 -- section; markLine = how far down the view a title must come for its tab to light (share of the view)
 Config.ui.shop = { rail = 0.19, gap = 0.035, cardMax = 0.3, bestGrow = 1.07, bonusStep = 0.05, bigText = 1.5,
 	-- round 2: full width without the rail, so rows got wider shapes (banners 4.6 -> 6.2, card rows 1.9 -> 2.4, titles 7 -> 9)
-	headAspect = 9, bannerAspect = 6.2, cardsAspect = 2.4, jumpSeconds = 0.25, markLine = 0.35,
+	bannerAspect = 6.2, cardsAspect = 2.4, jumpSeconds = 0.25, markLine = 0.35,
 	-- the frame (2026-11-12): snowflakes drifting in the well (fewer on Low graphics, none with Reduced
 	-- motion), snow caps along the title bar, a sunburst behind every product picture
 	-- snowCaps: where the drifts sit along the title bar (shares of its width), clear of the title and the X
@@ -923,7 +923,25 @@ Config.ui.shop = { rail = 0.19, gap = 0.035, cardMax = 0.3, bestGrow = 1.07, bon
 	titleIcon = 1.75, titleIconTilt = -12, coinPill = { x = 0.6, w = 0.25, h = 0.62 },
 	-- mascots sit mostly outside the frame's bottom corners, so they never cover a Buy button
 	mascots = {} :: { { pet: string, x: number, y: number, size: number, tilt: number } }, -- owner 2026-11-12: penguin and bunny removed
-	headIcon = 0.62 }
+	-- round 3 (owner 2026-11-13: "the shop still needs improvements", the reference clips): slim section
+	-- titles (headAspect) with their line in a thin row of its own (subAspect); everything but coin packs
+	-- as landscape tiles two a row (tileRowAspect = the row's width / height, tileGap between them,
+	-- tileTop = room above for the stickers); an odd product out leads as a full-width banner.
+	headIcon = 0.9, headAspect = 16, subAspect = 34, tileRowAspect = 4.4, tileGap = 0.025, tileTop = 0.1, stickerRoom = 0.16,
+	-- where things sit on a tile, { x, y, w, h } shares of it: title across the top, picture bottom-left,
+	-- chip (or bar) and the buy button bottom-right
+	tile = { title = { 0.04, 0.06, 0.92, 0.25 }, icon = { 0.03, 0.33, 0.31, 0.62 }, chip = { 0.37, 0.35, 0.59, 0.17 }, buy = { 0.37, 0.56, 0.59, 0.37 } },
+	wideTile = { title = { 0.2, 0.1, 0.52, 0.42 }, icon = { 0.03, 0.08, 0.14, 0.84 }, chip = { 0.25, 0.56, 0.42, 0.32 }, buy = { 0.745, 0.2, 0.235, 0.6 } },
+	-- each card's little world: a pale moon (x, y, size as a share of the card's short side), dark hills far
+	-- off and snowy ground in front, both mixed from the card's colour (toward ink or white by `amount`;
+	-- dark-on-dark hills vanished into the card's own bottom shade); at = { x, width, height }
+	cardStripeAlpha = 0.9,
+	scene = { moonAlpha = 0.72, moon = { x = 0.84, y = 0.16, size = 0.5 },
+		hills = {
+			{ to = "ink", amount = 0.3, at = { { 0.12, 0.42, 0.3 }, { 0.5, 0.5, 0.36 }, { 0.9, 0.44, 0.28 } } },
+			{ to = "white", amount = 0.6, at = { { -0.02, 0.4, 0.14 }, { 0.32, 0.46, 0.17 }, { 0.7, 0.42, 0.13 }, { 1.04, 0.4, 0.16 } } },
+		} },
+}
 -- the Daily Challenges popup (2026-11-12): row heights (shares of the body), where a card's words and bar
 -- sit, and its right-hand side (the coin tag, Claim, Done)
 Config.ui.daily = { timerHeight = 0.09, rowHeight = 0.2, inviteHeight = 0.17, textX = 0.145, textW = 0.52, sideX = 0.69, sideW = 0.29 }
@@ -1598,7 +1616,7 @@ end
 -- the fast pan upgrade (owner 2026-11-05: a reference clip, then prototype/ice-ray-for-pets/upgrade-demo.html).
 -- 0.9 s in the popup, which stays open: a build-up on the press (it also hides the server's answer
 -- time), the impact when the answer lands, a spring settle and a shimmer. Buying again works from
--- 0.45 s. The pan answers in the world with a floor flash. Times in seconds from the impact unless
+-- 0.45 s. A new Look answers at the pan, a new Trainer at the trainer (below). Times in seconds from the impact unless
 -- said; reduced motion halves them. fastPan = false brings back the long camera show below.
 Config.motion = {
 	-- a compact world prompt (Pick up on a frozen pet) pops up off the cube (Animation Rules: pop, Back Out)
@@ -1623,9 +1641,25 @@ Config.motion = {
 		-- hide, the camera glides to the front of your pan, the pan upgrades there, the camera glides
 		-- back and the popup returns, where the card then pops. Seconds; reduced motion halves them.
 		-- frontView = false keeps the camera on you and the popup open (the 0.9 s version).
+		-- owner 2026-11-13: the front view and the pan's floor flash are the Look upgrade's only; Slots,
+		-- Thaw Speed and Speed just pop their card, and the Trainer has its own view (trainerTrip).
 		frontView = true,
 		trip = { go = 0.45, watch = 0.9, back = 0.4, -- glide there, watch the pan, glide home
 			camBack = 24, camUp = 13, lookUp = 1, lookIn = 0.42 }, -- studs in front of the pan's front edge, height; looks this far into the pan
+		-- the Trainer's transformation (owner 2026-11-13: "for the trainers make separate animation, the camera
+		-- should show their transformation with a clean transition", Show.trainerTrip): the popup and HUD hide,
+		-- the camera glides to where you stand at your trainer (go), the old trainer glows white and shivers
+		-- (charge), shrinks into a flash and a burst (swap), the new one grows in with a spring as the glow
+		-- leaves it and its name pops up (grow), you look at it (watch), the camera glides home (back).
+		-- Seconds; reduced motion halves them and drops the shiver. trainerView = false: the card pop only.
+		trainerView = true,
+		trainerTrip = { go = 0.5, charge = 0.7, swap = 0.16, grow = 0.5, watch = 1.1, back = 0.45,
+			-- studs from the trainer's middle, on the side you stand. Up high over the pan's fence: at 6.5 high its
+			-- posts filled the bottom of the shot; at 10 back the name covered the trainer's top. arc = how far
+			-- the glides there and back rise in the middle, so they pass over the fence instead of through it.
+			camBack = 15, camUp = 11, camSide = -2, lookUp = 5, arc = 6,
+			glow = 0.85, shiverDeg = 2.5, shiverHz = 18, shrinkTo = 0.3, growFrom = 0.3, burst = 36,
+			waitNew = 1.5 }, -- longest wait for the server's new trainer after the swap
 	},
 }
 

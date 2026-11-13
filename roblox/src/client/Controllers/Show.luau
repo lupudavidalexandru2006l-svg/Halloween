@@ -932,6 +932,275 @@ function Show.panTrip(data: any, rm: number, onArrive: () -> ())
 	end
 end
 
+-- ---------- the Trainer's transformation (Config.motion.upgrade.trainerTrip, owner 2026-11-13) ----------
+-- UpgradeMotion calls this when a Trainer upgrade lands. The popup and HUD hide, the camera glides to
+-- where you stand at your trainer, the old trainer glows white and shivers, shrinks into a flash and a
+-- burst, the new one grows in with a spring as the glow leaves it, its name and "xN Cold Power" pop up,
+-- and the camera glides home. Both trainers in the show are still copies; while it plays, the server's
+-- real trainer folders for that pan are kept out of the world on this client only, so the server's
+-- rebuild never pops in early, and the new one goes back at the end. Fixed length, so UpgradeMotion
+-- can time the card's pop for when the popup returns.
+
+local function trainerFolder(plot: number): Instance?
+	local f = workspace:FindFirstChild("Trainers")
+	return if f then f:FindFirstChild("Trainer" .. plot) else nil
+end
+
+-- a still copy of a trainer: no prompts, no tags (nothing else takes it for a trainer or animates it),
+-- nothing solid
+local function stillCopy(src: Instance): Instance
+	local c = src:Clone()
+	for _, d in c:GetDescendants() do
+		for _, tag in d:GetTags() do
+			d:RemoveTag(tag)
+		end
+		if d:IsA("ProximityPrompt") then
+			d:Destroy()
+		elseif d:IsA("BasePart") then
+			d.Anchored, d.CanCollide, d.CanQuery, d.CanTouch = true, false, false, false
+		end
+	end
+	for _, tag in c:GetTags() do
+		c:RemoveTag(tag)
+	end
+	return c
+end
+
+-- UpgradeMotion takes this on the Trainer card's press, before the server swaps the trainer
+function Show.trainerSnapshot(plot: number): Instance?
+	local f = trainerFolder(plot)
+	return if f then stillCopy(f) else nil
+end
+
+-- calls fn(u) every frame, u from 0 to 1 over `seconds` (ends on fn(1) unless the show was cut)
+local function animate(ctx: Ctx, seconds: number, fn: (number) -> ())
+	local t0 = os.clock()
+	while not ctx.finished do
+		local u = if seconds > 0 then math.min(1, (os.clock() - t0) / seconds) else 1
+		fn(u)
+		if u >= 1 then
+			return
+		end
+		RunService.RenderStepped:Wait()
+	end
+end
+
+function Show.trainerTrip(data: any, rm: number, old: Instance?)
+	local T = Config.motion.upgrade.trainerTrip
+	local plot = if typeof(data) == "table" then data.plot else nil
+	local level = if typeof(data) == "table" then data.level else nil
+	if typeof(plot) ~= "number" or not Config.world.plots[plot] or typeof(level) ~= "number" then
+		if old then
+			old:Destroy()
+		end
+		return
+	end
+	if running then
+		finish(running) -- one show at a time
+	end
+	local ctx: Ctx = {
+		name = "trainerTrip", cfg = T, data = {}, def = nil, reduced = rm < 1,
+		skipped = false, finished = false, model = nil, cube = nil, real = nil, at = CFrame.new(), size = 0,
+		color = Theme.coin, gui = nil, cam = nil, frost = nil, controls = nil, conn = nil,
+	}
+	running = ctx
+	local stations = Config.training.stations
+	local st = stations[level] or stations[1]
+	local look = Theme.training.stations[st.kind]
+	local neon = if look then look.neon else Theme.training.power
+	local centre = Config.trainerCentre(plot)
+	local pivot = CFrame.new(centre)
+	local name = "Trainer" .. plot
+	local trainers = workspace:FindFirstChild("Trainers")
+	local hidden: { Instance } = {}
+	local fresh: Instance? = nil -- the server's new trainer, once it has arrived
+	-- keep the real trainer(s) of this pan out of the world (this client only) while the show runs
+	local function sweep()
+		if not trainers then
+			return
+		end
+		for _, ch in trainers:GetChildren() do
+			if ch.Name == name then
+				if ch:GetAttribute("Tier") == level then
+					fresh = ch
+				end
+				table.insert(hidden, ch)
+				ch.Parent = nil
+			end
+		end
+	end
+	local ok, err = pcall(function()
+		local standing = trainerFolder(plot)
+		if not old and standing and standing:GetAttribute("Tier") == data.old then
+			old = stillCopy(standing) -- bought without a press here: the old one is still standing
+		end
+		sweep()
+		ctx.conn = RunService.RenderStepped:Connect(function()
+			sweep()
+		end)
+		local stage = Instance.new("Model")
+		stage.Name = "TrainerShow"
+		stage.Parent = workspace
+		ctx.model = stage
+		-- a copy stood in the trainer's place, with a highlight for its glow
+		local function place(src: Instance): (Model, Highlight)
+			local m = Instance.new("Model")
+			src.Parent = m
+			m.WorldPivot = pivot
+			m.Parent = stage
+			local h = Instance.new("Highlight")
+			h.Adornee = m
+			h.FillColor = Color3.new(1, 1, 1)
+			h.OutlineColor = neon
+			h.FillTransparency = 1
+			h.OutlineTransparency = 1
+			h.DepthMode = Enum.HighlightDepthMode.Occluded
+			h.Parent = m
+			return m, h
+		end
+		local oldM: Model?, oldH: Highlight? = nil, nil
+		if old then
+			oldM, oldH = place(old)
+			old = nil
+		end
+		local gui = Instance.new("ScreenGui")
+		gui.Name = "Show"
+		gui.ResetOnSpawn = false
+		gui.IgnoreGuiInset = true
+		gui.Parent = me:WaitForChild("PlayerGui")
+		ctx.gui = gui
+		Screen.setHidden(true) -- the popup stays open underneath and comes back as it was
+		local hum = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
+		if hum then
+			ctx.controls = { hum = hum, walk = hum.WalkSpeed, jump = hum.JumpPower, jumpH = hum.JumpHeight, rotate = hum.AutoRotate }
+			hum.WalkSpeed, hum.JumpPower, hum.JumpHeight, hum.AutoRotate = 0, 0, 0, false
+		end
+		ctx.cam = CameraController.borrow()
+		-- a smooth glide that rises in the middle (over the pan's fence, never through it); never a spin
+		local function glide(to: CFrame, seconds: number)
+			local cam = ctx.cam
+			if not cam then
+				hold(ctx, seconds, true)
+				return
+			end
+			local a = cam.CFrame
+			animate(ctx, seconds, function(u)
+				local k = if u < 0.5 then 2 * u * u else 1 - (-2 * u + 2) ^ 2 / 2 -- Quad InOut
+				local c = a:Lerp(to, k)
+				cam.CFrame = c + Vector3.new(0, T.arc * math.sin(math.pi * u), 0)
+			end)
+		end
+		-- from where you stand at the trainer (its open side), looking at the target and the arch behind it
+		local lookAt = centre + Vector3.new(0, T.lookUp, Config.training.targetZ * 0.5)
+		local from = centre + Vector3.new(T.camSide, T.camUp, -T.camBack)
+		glide(CFrame.lookAt(from, lookAt), T.go * rm)
+
+		-- charge: the old trainer glows white and shivers, harder toward the end
+		SoundController.play("upgrade_charge")
+		local shiver = if ctx.reduced then 0 else T.shiverDeg
+		local t0 = os.clock()
+		animate(ctx, T.charge * rm, function(u)
+			if oldM and oldH then
+				local k = u * u
+				oldH.FillTransparency = 1 - T.glow * k
+				oldH.OutlineTransparency = 1 - k
+				local a = math.sin((os.clock() - t0) * math.pi * 2 * T.shiverHz) * shiver * k
+				oldM:PivotTo(pivot * CFrame.Angles(0, 0, math.rad(a)))
+			end
+		end)
+
+		-- swap: it shrinks into a flash and a burst
+		SoundController.play("upgrade_hit")
+		animate(ctx, T.swap * rm, function(u)
+			if oldM and oldH then
+				oldH.FillTransparency = 0
+				oldM:PivotTo(pivot)
+				oldM:ScaleTo(1 + (T.shrinkTo - 1) * u * u)
+			end
+		end)
+		if oldM then
+			oldM:Destroy()
+		end
+		EffectsController.flash()
+		local burstAt = centre + Vector3.new(0, 2, Config.training.targetZ)
+		EffectsController.burst(burstAt, neon, T.burst)
+		EffectsController.burst(burstAt, Theme.white, math.floor(T.burst / 3))
+
+		-- grow: the new trainer springs up from small as the glow leaves it
+		local waited = os.clock()
+		while not fresh and not ctx.finished and os.clock() - waited < T.waitNew do
+			RunService.RenderStepped:Wait()
+		end
+		local src = fresh
+		if src then
+			local newM, newH = place(stillCopy(src))
+			newH.FillTransparency = 0
+			newH.OutlineTransparency = 0
+			newM:ScaleTo(T.growFrom)
+			SoundController.play("pan_up")
+			animate(ctx, T.grow * rm, function(u)
+				local c1 = 1.70158
+				local k = 1 + (c1 + 1) * (u - 1) ^ 3 + c1 * (u - 1) ^ 2 -- Back Out
+				newM:ScaleTo(math.max(0.05, T.growFrom + (1 - T.growFrom) * k))
+				newH.FillTransparency = u
+				newH.OutlineTransparency = u
+			end)
+			newM:ScaleTo(1)
+			newH:Destroy()
+		else
+			hold(ctx, T.grow * rm, true)
+		end
+		-- its name and what it's worth
+		local title = Ui.label(gui, st.name, UDim2.fromScale(U.titleSize[1], U.titleSize[2] * 0.7), UDim2.fromScale((1 - U.titleSize[1]) / 2, 0.06))
+		title.Name = "TrainerTitle"
+		title.TextColor3 = if look then look.title else Theme.white
+		local sub = Ui.label(gui, "x" .. st.mult .. " Cold Power", UDim2.fromScale(U.nameSize[1], U.nameSize[2] * 0.8), UDim2.fromScale((1 - U.nameSize[1]) / 2, 0.06 + U.titleSize[2] * 0.7))
+		sub.Name = "TrainerText"
+		for _, t in { title, sub } do
+			local s = Instance.new("UIScale")
+			s.Scale = U.slamFrom
+			s.Parent = t
+			TweenService:Create(s, TweenInfo.new(0.3 * rm, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+		end
+		hold(ctx, T.watch * rm, true)
+
+		-- back: the words go, the camera glides home
+		for _, t in { title, sub } do
+			TweenService:Create(t, TweenInfo.new(0.2 * rm), { TextTransparency = 1 }):Play()
+			local s = t:FindFirstChildOfClass("UIStroke")
+			if s then
+				TweenService:Create(s, TweenInfo.new(0.2 * rm), { Transparency = 1 }):Play()
+			end
+		end
+		local home = CameraController.homeCFrame()
+		if home then
+			glide(home, T.back * rm)
+		else
+			hold(ctx, T.back * rm, true)
+		end
+	end)
+	finish(ctx) -- stops the sweep, removes the copies, gives back camera, HUD and controls
+	if old then
+		old:Destroy()
+	end
+	-- the trainer the map says this pan has goes back into the world (an older one the server replaced is gone)
+	local map = workspace:FindFirstChild("Map")
+	local want = map and map:GetAttribute("PanTrainer" .. plot)
+	local tier = if typeof(want) == "number" and stations[want] then want else 1
+	for i = #hidden, 1, -1 do
+		local h = hidden[i]
+		if h:GetAttribute("Tier") == tier then
+			pcall(function()
+				h.Parent = trainers
+			end)
+			break
+		end
+	end
+	if not ok then
+		warn("[Show] trainer view failed:", err)
+	end
+end
+
 -- ---------- the rebirth show (Config.show.rebirth) ----------
 -- Remade 2026-11-12 (owner: "it needs to be very good, sfx vfx all the things"; references in the vault:
 -- Research/Reference Clips 2026-11-12, the supernova crown aura and the rare-roll star flare). At the booth:

@@ -10,6 +10,9 @@
 -- Front view (owner 2026-11-07, Config.motion.upgrade.frontView): when the answer lands, Show.panTrip hides
 -- the popup and HUD and glides the camera to the front of your pan; the pan's upgrade plays there, the
 -- camera glides back, the popup returns and only then does the card pop (its impact waits out the trip).
+-- owner 2026-11-13: that trip and the pan's floor flash are the Look's only. Slots, Thaw Speed and Speed
+-- just pop their card; a Trainer plays Show.trainerTrip (the camera watches the old trainer turn into
+-- the new one), from a still copy of the old trainer taken on the press, before the server swaps it.
 -- Prototype and timeline: prototype/ice-ray-for-pets/upgrade-demo.html. Numbers: Config.motion.upgrade.
 -- Cards are rebuilt whenever a level changes, so the motion is kept per upgrade kind and drawn on
 -- whichever card PanPopup has bound for that kind (UpgradeMotion.bind).
@@ -43,7 +46,8 @@ type Anim = {
 	strength: number,
 	big: boolean,
 	streak: number,
-	trip: boolean, -- the front view played: the pan had the hit sound, the card only chimes
+	trip: boolean, -- a camera trip played (Look or Trainer): it had the hit sound, the card only chimes
+	old: Instance?, -- Trainer: a still copy of the trainer as it was on the press (Show.trainerSnapshot)
 }
 type Fx = { kind: string, t0: number, life: number, gui: GuiObject, [string]: any }
 type PanFx = { t0: number, rm: number, strength: number, glow: Color3, disk: Part, slab: Part, light: PointLight, maxD: number }
@@ -83,6 +87,13 @@ end
 local function glowOf(kind: string, level: number): Color3
 	if kind == "look" then
 		return PanLooks.style(level).glow
+	end
+	if kind == "trainer" then -- the new trainer's own neon
+		local st = Config.training.stations[level]
+		local ts = st and Theme.training.stations[st.kind]
+		if ts then
+			return ts.neon
+		end
 	end
 	return Theme.upgradeGlow[kind] or Theme.coin
 end
@@ -482,9 +493,13 @@ local function land(kind: string, a: Anim, data: any?)
 	end
 	local now = os.clock()
 	local landed = math.max(C.build, (now - a.t0) / a.rm)
-	a.trip = C.frontView == true
-	-- with the front view the card pops when the popup comes back
-	a.impact = if a.trip then landed + C.trip.go + C.trip.watch + C.trip.back else landed
+	-- after a camera trip the card pops when the popup comes back
+	local TT = C.trainerTrip
+	local trip = if kind == "look" and C.frontView then C.trip.go + C.trip.watch + C.trip.back
+		elseif kind == "trainer" and C.trainerView then TT.go + TT.charge + TT.swap + TT.grow + TT.watch + TT.back
+		else nil
+	a.trip = trip ~= nil
+	a.impact = landed + (trip or 0)
 	local level = if data and typeof(data.level) == "number" then data.level else a.from + 1
 	a.glow = glowOf(kind, level)
 	a.big = level % 5 == 0 or (Config.panMax(kind) == level)
@@ -508,6 +523,10 @@ local function step()
 		end
 		if not a.impact and e > C.maxWait then -- no answer: let go quietly (the server said why, if anything)
 			anims[kind] = nil
+			if a.old then
+				a.old:Destroy()
+				a.old = nil
+			end
 			apply(kind, nil)
 			continue
 		end
@@ -569,7 +588,14 @@ function UpgradeMotion.press(kind: string, level: number, canAfford: boolean, se
 		startTile = tileNow, startCard = cardNow, buffered = nil, fired = {}, glow = glowOf(kind, level + 1),
 		strength = 1, big = false, streak = 0, trip = false,
 	}
+	if a and a.old then
+		a.old:Destroy()
+	end
 	anims[kind] = na
+	local v = State.view
+	if kind == "trainer" and C.trainerView and v and typeof(v.plot) == "number" then
+		na.old = Show.trainerSnapshot(v.plot) -- the trainer as it is, before the server swaps it
+	end
 	SoundController.play("upgrade_charge")
 	if p then
 		motes(p, na.glow)
@@ -598,13 +624,17 @@ function UpgradeMotion.Start()
 			anims[k] = a
 		end
 		land(k, a, data)
-		if a.trip then
+		if a.trip and k == "trainer" then
+			local old = a.old
+			a.old = nil
+			task.spawn(Show.trainerTrip, data, a.rm, old)
+		elseif a.trip then
 			local anim = a
 			task.spawn(Show.panTrip, data, a.rm, function()
 				SoundController.play("upgrade_hit")
 				panEcho(k, data, anim)
 			end)
-		else
+		elseif k == "look" then -- only a new Look lights the pan up
 			panEcho(k, data, a)
 		end
 	end)
