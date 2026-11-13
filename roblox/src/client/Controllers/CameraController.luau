@@ -101,6 +101,7 @@ function CameraController.Init()
 	player.CameraMaxZoomDistance = Config.camera.maxZoom
 	-- nothing on the map fades to see-through (owner 2026-11-12): StarterPlayer.DevCameraOcclusionMode is
 	-- Zoom (the camera moves in front of a tree instead), set in default.project.json (scripts may not set it)
+	-- no shift lock (owner 2026-11-13): StarterPlayer.EnableMouseLockOption is false, also in default.project.json
 end
 
 -- on spawn: the prototype's framing (high and behind, looking ahead); Roblox's follow camera keeps
