@@ -95,6 +95,25 @@ local PetEyes: { [string]: Spec } = {
 	mapleguard_bear = { part = "Head", lid = Color3.fromRGB(200, 22, 32), eyes = {
 		eye(0.1172, 0.1619, -0.2792, 0.269, -0.109, -0.957, 0.0637),
 		eye(-0.1187, 0.1616, -0.2632, 0.220, 0.351, -0.910, 0.0646) } },
+	-- 2026-11-13: the rest of Sunny Beach. Found in Blender from the cleaned GLB instead of a Studio capture:
+	-- a flat-colour orthographic front render, the two biggest round near-black blobs, a ray onto the mesh
+	-- (Roblox x = -Blender x, y = Blender z, z = Blender y). Glowfin's eyes are tall ovals: radius covers
+	-- their height. The orca's eyes touch its black body, so their pixels were picked by eye.
+	glowfin = { part = "Body", lid = Color3.fromRGB(5, 105, 88), eyes = {
+		eye(0.1866, 0.2495, -0.2920, 0.763, 0.154, -0.628, 0.0580),
+		eye(-0.1857, 0.2486, -0.2921, -0.729, 0.062, -0.681, 0.0580) } },
+	pearlsnail = { part = "Head", lid = Color3.fromRGB(196, 172, 20), eyes = {
+		eye(0.1682, 0.1288, -0.4764, 0.708, 0.353, -0.612, 0.0729),
+		eye(-0.1669, 0.1293, -0.4802, -0.595, 0.417, -0.686, 0.0734) } },
+	reefback_turtle = { part = "Head", lid = Color3.fromRGB(188, 80, 62), eyes = {
+		eye(0.1455, 0.0194, -0.4606, 0.554, -0.066, -0.830, 0.0484),
+		eye(-0.1552, 0.0293, -0.4672, -0.548, 0.124, -0.827, 0.0554) } },
+	prismapus = { part = "Head", lid = Color3.fromRGB(118, 46, 156), eyes = {
+		eye(0.1603, 0.0643, -0.2211, 0.241, -0.197, -0.950, 0.0542),
+		eye(-0.1246, 0.1050, -0.2204, -0.181, 0.052, -0.982, 0.0543) } },
+	beacon_orca = { part = "Body", lid = Color3.fromRGB(196, 188, 168), eyes = {
+		eye(0.2448, 0.0101, -0.3391, 0.300, 0.148, -0.943, 0.0484),
+		eye(-0.0449, 0.0101, -0.3111, -0.231, 0.241, -0.943, 0.0484) } },
 }
 
 return PetEyes

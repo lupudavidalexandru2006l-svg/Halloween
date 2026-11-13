@@ -77,8 +77,10 @@ local PetDefs: { PetDef } = {
 	-- desert 4 -> 6, volcano 5 -> 8). Owner 2026-11-10: "implement every pet in the game" for now, so every
 	-- island is ready and all 80 pets spawn. A pet with no model shows its painting, or with no painting a
 	-- ball in its colour with its name. Islands 5, 7, 9 and 10 come from the roster cards (vault Pet Roster).
-	-- Sunny Beach (zone 4): line-up approved 2026-11-10; 3D + rig done for Puffsy, Starbit, Flopseal (island still
-	-- closed: Pearlsnail's 3D and full concepts for the other four come first)
+	-- Sunny Beach (zone 4): line-up approved 2026-11-10; all 8 pets are 3D + rigged (Pearlsnail, Glowfin, Reefback
+	-- Turtle, Prismapus, Beacon Orca on 2026-11-13). Glow: Glowfin's Pearl is a part (Neon + a light); Prismapus'
+	-- gem and Beacon Orca's lamp are lights inside Head / Lighthouse (no "Gem", "TentacleTips" or "Lamp" part:
+	-- the rainbow tips would lose their colours as Neon)
 	pet("puffsy", "Puffsy", 4, "Common", "Swimmer", "S", "f07a1e"),
 	pet("starbit", "Starbit", 4, "Common", "Blob", "S", "e0157a"),
 	pet("flopseal", "Flopseal", 4, "Uncommon", "Swimmer", "M", "1f3fd6"),
