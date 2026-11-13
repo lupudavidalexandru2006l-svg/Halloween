@@ -1,15 +1,20 @@
-# trellis_run.py <painting.png> <out_raw.glb>: one TRELLIS run (default settings) on the owner's Hugging Face login,
-# no browser and no drag: HF_TOKEN from the environment, the Space's Gradio queue API, the same steps the page
-# does (start_session, preprocess_image, generate_and_extract_glb). Run it with Blender's Python (no other Python here):
-#   "C:/Program Files/Blender Foundation/Blender 5.2/5.2/python/bin/python.exe" -I trellis_run.py <png> <raw.glb>
+# trellis_run.py <out_raw.glb> <view.png> [<view.png> ...]: one TRELLIS run (default settings) on the owner's
+# Hugging Face login, no browser and no drag: HF_TOKEN from the environment, the Space's Gradio queue API, the
+# same steps the page does, in one session. One image: start_session, preprocess_image, generate_and_extract_glb.
+# Several views of one pet (e.g. split_turnaround.ps1's front/left/back/right): the "Multiple Images" tab
+# (multi_tab sets the session's is_multiimage state), preprocess_images, then generate from all of them.
+# Run it with Blender's Python (there is no other Python on David's PC):
+#   "C:/Program Files/Blender Foundation/Blender 5.2/5.2/python/bin/python.exe" -I trellis_run.py <raw.glb> <png> ...
 # fn_index / trigger ids come from the Space's /config (dependencies); re-check them if the Space changes.
 import json, os, sys, uuid, urllib.request
 
 S = "https://trellis-community-trellis.hf.space/gradio_api"
-AUTH = {"Authorization": "Bearer " + os.environ["HF_TOKEN"]}
+# GUEST=1 runs without the login (its own small daily quota, by IP)
+AUTH = {} if os.environ.get("GUEST") else {"Authorization": "Bearer " + os.environ["HF_TOKEN"]}
 SESSION = uuid.uuid4().hex[:11]
-FN = {"start_session": 4, "preprocess_image": 8, "generate_and_extract_glb": 11}
-TRIG = {"start_session": 0, "preprocess_image": 6, "generate_and_extract_glb": 30}
+FN = {"start_session": 4, "multi_tab": 7, "preprocess_image": 8, "preprocess_images": 9, "generate_and_extract_glb": 11}
+TRIG = {"start_session": 0, "multi_tab": 7, "preprocess_image": 6, "preprocess_images": 8, "generate_and_extract_glb": 30}
+CRLF = b"\r\n"
 
 
 def req(url, data=None, headers=None):
@@ -37,17 +42,27 @@ def run(name, data):
                 return m["output"]["data"]
 
 
-img, out = sys.argv[1], sys.argv[2]
-bnd = uuid.uuid4().hex
-raw = open(img, "rb").read()
-body = (b"--" + bnd.encode() + b'\r\nContent-Disposition: form-data; name="files"; filename="'
-        + os.path.basename(img).encode() + b'"\r\nContent-Type: image/png\r\n\r\n' + raw
-        + b"\r\n--" + bnd.encode() + b"--\r\n")
-path = json.load(req(S + "/upload", body, {"Content-Type": "multipart/form-data; boundary=" + bnd}))[0]
+def upload(img):
+    bnd = uuid.uuid4().hex.encode()
+    name = os.path.basename(img).encode()
+    body = (b"--" + bnd + CRLF + b'Content-Disposition: form-data; name="files"; filename="' + name + b'"' + CRLF
+            + b"Content-Type: image/png" + CRLF + CRLF + open(img, "rb").read() + CRLF + b"--" + bnd + b"--" + CRLF)
+    path = json.load(req(S + "/upload", body, {"Content-Type": "multipart/form-data; boundary=" + bnd.decode()}))[0]
+    return {"path": path, "meta": {"_type": "gradio.FileData"}, "orig_name": os.path.basename(img)}
+
+
+out, imgs = sys.argv[1], sys.argv[2:]
+if out.lower().endswith(".png"):  # the old order: <painting.png> <out_raw.glb>
+    imgs, out = [out], imgs[0]
+fds = [upload(i) for i in imgs]
 run("start_session", [])
-fd = {"path": path, "meta": {"_type": "gradio.FileData"}, "orig_name": os.path.basename(img)}
-pre = run("preprocess_image", [fd])[0]
-res = run("generate_and_extract_glb", [pre, [], None, 0, 7.5, 12, 3.0, 12, "stochastic", 0.95, 1024])
+if len(fds) == 1:
+    pre = run("preprocess_image", [fds[0]])[0]
+    res = run("generate_and_extract_glb", [pre, [], None, 0, 7.5, 12, 3.0, 12, "stochastic", 0.95, 1024])
+else:
+    run("multi_tab", [])
+    gal = run("preprocess_images", [[{"image": f, "caption": None} for f in fds]])[0]
+    res = run("generate_and_extract_glb", [None, gal, None, 0, 7.5, 12, 3.0, 12, "stochastic", 0.95, 1024])
 glb = next(x["url"] for x in res[1:] if isinstance(x, dict) and str(x.get("url", "")).endswith(".glb"))
 with req(glb) as r, open(out, "wb") as f:
     f.write(r.read())

@@ -236,7 +236,18 @@ if any(k in OPTS for k in ("hue", "sat", "val")):
             h0 = (h - dh) % 1.0
             # lo > hi wraps past red, e.g. only=300-20 (Starbit's red-to-magenta)
             inside = ((h0 >= lo) & (h0 <= hi)) if lo <= hi else ((h0 >= lo) | (h0 <= hi))
-            rgb2 = np.where(inside[:, None], rgb2, rgb)
+            # soft=<deg>: fade the change out over that many degrees past the range instead of a hard cut
+            # (Fenny 2026-11-13: fur spans the cut, so a hard edge left camouflage patches)
+            soft = float(OPTS.get("soft", 0)) / 360.0
+            w = inside.astype(np.float32)
+            if soft > 0:
+                dist = np.minimum((lo - h0) % 1.0, (h0 - hi) % 1.0)  # how far outside the range
+                w = np.maximum(w, np.clip(1 - dist / soft, 0, 1) * ~inside)
+            # minsat=<x>: leave pale colours (cream bellies, white) alone, fading in over 0.1 above it
+            if "minsat" in OPTS:
+                s0 = np.where(mx > 1e-6, d / np.maximum(mx, 1e-6), 0)
+                w = w * np.clip((s0 - float(OPTS["minsat"])) / 0.1, 0, 1)
+            rgb2 = rgb2 * w[:, None] + rgb * (1 - w[:, None])
         px[:, :3] = rgb2
         img.pixels[:] = px.ravel()
         img.pack()
