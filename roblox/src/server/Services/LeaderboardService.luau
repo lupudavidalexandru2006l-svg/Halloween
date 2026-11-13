@@ -26,6 +26,7 @@ local LB = Config.leaderboards
 local names: { [number]: string } = {}
 local lastWrite: { [Player]: number } = {}
 local suffix = ""
+local cached: { [string]: { Row } } = {} -- each board's last read (up to rankScanSize rows), for the top-100 popup
 
 local function withRetries<T>(fn: () -> T): (boolean, T?)
 	local wait = Config.data.retryBase
@@ -114,16 +115,17 @@ local function fetchNames(ids: { number })
 			table.insert(missing, id)
 		end
 	end
-	if #missing == 0 then
-		return
-	end
-	local ok, infos = withRetries(function()
-		return UserService:GetUserInfosByUserIdsAsync(missing)
-	end)
-	if ok and infos then
-		for _, info in infos :: { any } do
-			if typeof(info.Id) == "number" and typeof(info.DisplayName) == "string" then
-				names[info.Id] = info.DisplayName
+	-- asked for in batches (the top-100 popup needs every row's name, not only the ten on the wall)
+	for from = 1, #missing, LB.nameBatch do
+		local batch = table.move(missing, from, math.min(#missing, from + LB.nameBatch - 1), 1, {})
+		local ok, infos = withRetries(function()
+			return UserService:GetUserInfosByUserIdsAsync(batch)
+		end)
+		if ok and infos then
+			for _, info in infos :: { any } do
+				if typeof(info.Id) == "number" and typeof(info.DisplayName) == "string" then
+					names[info.Id] = info.DisplayName
+				end
 			end
 		end
 	end
@@ -271,6 +273,22 @@ local function build(part: BasePart, board: Board): Frame
 	local list = frame(bg, "Rows", Theme.board, UDim2.fromScale(w, 1), UDim2.fromScale(BS.padX, BS.padY + BS.header + BS.note))
 	list.BackgroundTransparency = 1
 	sg.Parent = part
+	-- press E in front of the board to scroll its top 100 (the client opens the popup and asks for the rows)
+	if not part:FindFirstChild("BoardPrompt") then
+		local a = Instance.new("Attachment")
+		a.Name = "BoardPrompt"
+		a.Position = LB.prompt.offset
+		a.Parent = part
+		local pp = Instance.new("ProximityPrompt")
+		pp.ActionText = "View"
+		pp.ObjectText = `Top {LB.rankScanSize}`
+		pp.HoldDuration = Config.player.openHold
+		pp.MaxActivationDistance = LB.prompt.range
+		pp.RequiresLineOfSight = false
+		pp.Style = Enum.ProximityPromptStyle.Custom -- drawn by the client's PromptController
+		pp:SetAttribute("Leaderboard", board.id)
+		pp.Parent = a
+	end
 	return list
 end
 
@@ -352,6 +370,9 @@ function LeaderboardService.preview(count: number?)
 		return
 	end
 	local ids = { 1, 156, 261, 2032622, 21557, 4416634, 7210880, 9876543, 3333, 98765 }
+	for i = #ids + 1, count or LB.size do
+		ids[i] = 5000 + i * 37 -- more sample players, to check the top-100 popup
+	end
 	for index, board in LB.boards :: { Board } do
 		local rows: { Row } = {}
 		for i = 1, math.min(count or LB.size, #ids) do
@@ -362,6 +383,7 @@ function LeaderboardService.preview(count: number?)
 			table.insert(rows, { userId = ids[i], score = score })
 		end
 		fetchNames(ids)
+		cached[board.id] = rows
 		draw(index, board, rows)
 	end
 end
@@ -390,11 +412,12 @@ local function refresh()
 				end
 			end
 		end
-		local top = {}
-		for i = 1, math.min(LB.size, #rows) do
-			table.insert(top, rows[i].userId)
+		local ids = {}
+		for _, r in rows do
+			table.insert(ids, r.userId)
 		end
-		fetchNames(top)
+		fetchNames(ids)
+		cached[board.id] = rows
 		draw(index, board, rows)
 		for i, r in rows do
 			local p = Players:GetPlayerByUserId(r.userId)
@@ -456,6 +479,28 @@ function LeaderboardService.Start()
 		lastWrite[player] = os.clock()
 	end)
 	DataService.Changed:Connect(updateLeaderstats)
+	-- the top-100 popup: the server's last read of that board, names and score text made here, and the
+	-- asker's own place (nil = not in the top 100). Read-only; its own rate limit (Config.player.rateLimits)
+	Remotes.on("GetBoard", function(player: Player, id: any)
+		if typeof(id) ~= "string" then
+			return
+		end
+		for _, board in LB.boards :: { Board } do
+			if board.id == id then
+				local rows = cached[id] or {}
+				local out = table.create(#rows)
+				local place: number? = nil
+				for i, r in rows do
+					out[i] = { u = r.userId, n = displayName(r.userId), s = scoreText(board, r.score) }
+					if r.userId == player.UserId then
+						place = i
+					end
+				end
+				Remotes.fire(player, "BoardRows", id, out, place)
+				return
+			end
+		end
+	end)
 	Players.PlayerRemoving:Connect(function(player)
 		writeScores(player) -- DataService saves after this (deferred), so the data is still there
 		lastWrite[player] = nil

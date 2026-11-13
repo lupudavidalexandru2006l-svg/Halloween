@@ -50,7 +50,7 @@ end
 
 function SoundController.play(name: string, speed: number?)
 	local id = S.ids[name]
-	if not sfxOn or not id or id == 0 or (playing[name] or 0) >= S.maxSame then
+	if not sfxOn or not id or id == 0 or (playing[name] or 0) >= (S.maxSameFor[name] or S.maxSame) then
 		return
 	end
 	local pitch = speed
@@ -145,7 +145,7 @@ function SoundController.setEnabled(musicEnabled: boolean, soundEnabled: boolean
 end
 
 local NOTIFY_SOUNDS: { [string]: string } = {
-	frozen = "freeze", banked = "bank", melted = "melt", notYet = "no", upgraded = "buy",
+	frozen = "freeze", melted = "melt", -- banked: EffectsController's tally plays "bank" at its finale notYet = "no", upgraded = "buy",
 	giftClaimed = "gift", welcomeCollected = "coin", zoneUnlocked = "unlock", bridge = "bridge",
 	chillStart = "chill", bigWin = "reveal_rare", pageDone = "reveal_rare", gunBought = "buy", gunEquipped = "click",
 	friendJoined = "friend", challengeDone = "challenge", challengeClaimed = "coin",
@@ -154,7 +154,10 @@ local NOTIFY_SOUNDS: { [string]: string } = {
 function SoundController.Init() end
 
 function SoundController.Start()
-	State.Notify:Connect(function(kind: string)
+	State.Notify:Connect(function(kind: string, data: any)
+		if kind == "frozen" and typeof(data) == "table" and data.show == nil then
+			return -- a plain snap: EffectsController plays the freeze after its hit-stop (Sound Rules 11)
+		end
 		local name = NOTIFY_SOUNDS[kind]
 		if name then
 			SoundController.play(name)

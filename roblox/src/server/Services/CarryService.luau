@@ -22,6 +22,7 @@ local PlayerTracker = require(script.Parent.PlayerTracker)
 local WorldService = require(script.Parent.WorldService)
 local WildPetSpawner = require(script.Parent.WildPetSpawner)
 local EventService = require(script.Parent.EventService)
+local GearService = require(script.Parent.GearService)
 
 export type CubeInfo = { key: string, zone: number, pose: string, mut: string?, superFrozen: boolean, superUsed: boolean, offered: boolean }
 export type Cube = CubeInfo & { uid: string, life: number, lifeMax: number, since: number, part: Part? , shownFrac: number,
@@ -144,9 +145,8 @@ local function makePart(player: Player, c: Cube): Part
 end
 
 local function newCube(def: PetDefs.PetDef, data: any, info: CubeInfo, graceSeconds: number?): Cube
-	local home = Config.zone(def.zone)
-	local lifeMax = Config.tier(def.tier).cubeLife * (1 + Config.upgrades.ray.lifeBonus * (data.upgrades.ray - 1))
-		* (if home then home.iceLife else 1) -- a hotter island's pets were frozen by a colder gun: their ice lasts longer (Round 4 phase 6)
+	-- worked out from the trip home (Config.cubeLife, owner 2026-11-12), so every island is a fair run
+	local lifeMax = Config.cubeLife(def.tier, def.zone) * (1 + Config.upgrades.ray.lifeBonus * (data.upgrades.ray - 1))
 	local c: Cube = {
 		key = info.key, zone = info.zone, pose = info.pose, mut = info.mut, superFrozen = info.superFrozen, superUsed = info.superUsed, offered = info.offered,
 		uid = "c" .. nextUid, life = lifeMax, lifeMax = lifeMax, since = os.clock(), part = nil, shownFrac = 1,
@@ -158,6 +158,7 @@ end
 
 local function changed(player: Player)
 	PlayerTracker.setCarrying(player, CarryService.count(player))
+	GearService.setLocked(player, CarryService.count(player) > 0) -- hands full: no ray, no gel, no hotbar
 	layout(player)
 end
 
@@ -207,7 +208,7 @@ function CarryService.dropCube(player: Player, info: CubeInfo, petAt: Vector3, g
 	pp.ObjectText = def.name
 	pp.HoldDuration = 0
 	pp.KeyboardKeyCode = Enum.KeyCode.E
-	pp.MaxActivationDistance = Config.carry.pickUpRange
+	pp.MaxActivationDistance = Config.carry.pickUpRange * Config.gearValue(player, "magnet_gloves", "rangeMult", 1) -- Magnet Gloves
 	pp.RequiresLineOfSight = false
 	pp.Style = Enum.ProximityPromptStyle.Custom -- drawn by PromptController; other players' clients hide it (PetVisuals)
 	pp.Parent = a
@@ -233,7 +234,7 @@ function CarryService.pickUp(player: Player, uid: string, auto: boolean?)
 	local c: Cube? = nil
 	for i, g in list or {} do
 		local at = g.part and g.part.Position
-		local near = auto == true or (p ~= nil and at ~= nil and (Vector3.new(p.X, 0, p.Z) - Vector3.new(at.X, 0, at.Z)).Magnitude <= Config.carry.pickUpRange + 2)
+		local near = auto == true or (p ~= nil and at ~= nil and (Vector3.new(p.X, 0, p.Z) - Vector3.new(at.X, 0, at.Z)).Magnitude <= Config.carry.pickUpRange * Config.gearValue(player, "magnet_gloves", "rangeMult", 1) + 2)
 		if g.uid == uid and near then
 			c = table.remove(list :: { Cube }, i)
 			break
@@ -257,7 +258,8 @@ function CarryService.pickUp(player: Player, uid: string, auto: boolean?)
 	TutorialService.did(player, "pickup")
 end
 
--- left on the ground too long: the pet wakes up dazed where it stood (only you can zap it back)
+-- left on the ground too long: the cube poofs away (Config.carry.groundVanish, owner 2026-11-13: gone after
+-- 60 s if nobody picks it up), or the pet wakes up dazed where it stood (only you can zap it back)
 local function thawOnGround(player: Player, c: Cube)
 	local list = ground[player]
 	local i = list and table.find(list, c)
@@ -267,6 +269,11 @@ local function thawOnGround(player: Player, c: Cube)
 	local at = if c.part then c.part.Position else PlayerTracker.position(player) or Vector3.zero
 	if c.part then
 		c.part:Destroy()
+	end
+	if Config.carry.groundVanish then
+		Remotes.fire(player, "Notify", "cubeGone", { key = c.key, at = at })
+		changed(player)
+		return
 	end
 	WildPetSpawner.spawnDazed({ key = c.key, zone = c.zone, pose = c.pose, mut = c.mut, superUsed = c.superUsed, offered = c.offered },
 		Vector3.new(at.X, 0, at.Z), player, false)
@@ -381,6 +388,16 @@ function CarryService.knockOff(player: Player, open: boolean): string?
 	local at = Vector3.new(math.clamp(pos.X + math.cos(angle) * 4, -half, half), 0, z)
 	WildPetSpawner.spawnDazed({ key = cube.key, zone = cube.zone, pose = cube.pose, mut = cube.mut, superUsed = cube.superUsed, offered = true }, at, player, false, open)
 	return cube.key
+end
+
+-- Tester: every cube in your hands melts on the next tick (to test melting and zapping it back)
+function CarryService.devMeltAll(player: Player)
+	for _, c in carrying[player] or {} do
+		if not c.superFrozen then
+			c.life = 0
+			c.graceUntil = 0
+		end
+	end
 end
 
 -- called from ProcessReceipt: turn this player's dazed offer pet into a never-melting cube

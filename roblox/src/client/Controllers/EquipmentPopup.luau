@@ -19,6 +19,7 @@ local State = require(script.Parent.State)
 local SoundController = require(script.Parent.SoundController)
 local SettingsController = require(script.Parent.SettingsController)
 local RayController = require(script.Parent.RayController)
+local Screen = require(script.Parent.Screen)
 
 local EquipmentPopup = {}
 local me = Players.LocalPlayer
@@ -79,7 +80,11 @@ function EquipmentPopup.shownKey(v: State.View): string
 	local nextGun = G.list[best() + 1]
 	local afford = nextGun ~= nil and v.coins >= nextGun.price
 	local gel = me:GetAttribute("GearGel") == true
-	return `{best()},{held()},{v.rebirths},{afford},{gel},{v.coins >= Config.gel.price}`
+	local gear = ""
+	for _, g in Config.gear do -- each gear card: owned, affordable
+		gear ..= `{me:GetAttribute("Gear_" .. g.key) == true}{v.coins >= g.price}`
+	end
+	return `{best()},{held()},{v.rebirths},{afford},{gel},{v.coins >= Config.gel.price},{gear}`
 end
 
 local function textRole(h: Helpers, t: TextLabel, role: string)
@@ -140,6 +145,8 @@ local function chip(h: Helpers, parent: Instance, s: string, color: Color3, x: n
 	c.Parent = parent
 end
 
+local gunView: (Instance, number, boolean, boolean, number?) -> ViewportFrame -- the gun in a window (below)
+
 -- one gun as a Chunky Pop tile in its own glow colour: number, picture, name, Owned / Holding, price.
 -- Guns you can't buy yet are greyed. The whole tile picks the gun for the card on the right.
 local function gunTile(h: Helpers, parent: Instance, i: number, v: State.View, o: any)
@@ -174,7 +181,21 @@ local function gunTile(h: Helpers, parent: Instance, i: number, v: State.View, o
 			s.Enabled = false
 		end
 	end
-	Ui.image(b.face, Config.images.icons.ray, UDim2.fromScale(0.2, 0.8), UDim2.fromScale(0.14, 0.1))
+	-- the gun itself (owner 2026-11-12: not one picture for all ten); plain black with a lock until it's yours
+	local T = G.tile
+	local window = Instance.new("Frame")
+	window.Name = "Picture"
+	window.BackgroundTransparency = 1
+	window.Position = UDim2.fromScale(T.viewX, 0.03)
+	window.Size = UDim2.fromScale(T.viewW, 0.94)
+	window.Parent = b.face
+	local unowned = i > best()
+	gunView(window, i, unowned, false)
+	if unowned then
+		local lock = Ui.image(window, Config.images.icons.lock, UDim2.fromScale(T.lock, T.lock), UDim2.fromScale(1 - T.lock, 1 - T.lock))
+		lock.Name = "Lock"
+		lock.ZIndex = 3
+	end
 	local name = Ui.label(b.face, g.name, UDim2.fromScale(0.6, 0.46), UDim2.fromScale(0.36, 0.06))
 	name.TextXAlignment = Enum.TextXAlignment.Left
 	textRole(h, name, "body")
@@ -186,51 +207,89 @@ local function gunTile(h: Helpers, parent: Instance, i: number, v: State.View, o
 	pricePill(h, b.face, g.price, 0.65, 0.56, 0.32, 0.32)
 end
 
--- one stat: its name, a bar for the picked gun, a mark where your current gun is, and the number
-local function statBar(h: Helpers, l: GuiObject, order: number, stat: string, g: Config.Gun, cur: Config.Gun, color: Color3)
-	local r = h.row(l, order, 0.085)
-	local label = h.text(r, G.statLabels[stat], 0, 0.26)
+-- one stat on the card's white panel (owner 2026-11-12: "the stat bars look too simple"): its name, a
+-- chunky bar and the number on a pill. The bar compares the picked gun with the one you hold: blue is
+-- what both have, green is what you'd gain, pale red what you'd lose (colour meanings, UI Rules).
+local function statBar(h: Helpers, parent: Instance, n: number, count: number, stat: string, g: Config.Gun, cur: Config.Gun)
+	local S = G.statCard
+	local rh = (1 - S.pad * 2) / count
+	local r = Instance.new("Frame")
+	r.Name = "Stat_" .. stat
+	r.BackgroundTransparency = 1
+	r.Position = UDim2.fromScale(0.04, S.pad + (n - 1) * rh)
+	r.Size = UDim2.fromScale(0.92, rh)
+	r.Parent = parent
+	local label = h.text(r, G.statLabels[stat], 0, S.labelW)
 	textRole(h, label, "small")
 	local track = Instance.new("Frame")
 	track.Name = "Track_" .. stat
-	track.BackgroundColor3 = Theme.snowFar
-	track.Position = UDim2.fromScale(0.27, 0.25)
-	track.Size = UDim2.fromScale(0.5, 0.5)
+	track.BackgroundColor3 = Theme.slot
+	track.BorderSizePixel = 0
+	track.AnchorPoint = Vector2.new(0, 0.5)
+	track.Position = UDim2.fromScale(S.trackX, 0.5)
+	track.Size = UDim2.fromScale(S.trackW, S.trackH)
 	Ui.corner(track, 0.5)
 	Ui.stroke(track)
 	track.Parent = r
-	local share = Config.gunStatShare(stat, (g :: any)[stat] :: number)
-	local fill = Instance.new("Frame")
-	fill.Name = "Fill"
-	fill.BackgroundColor3 = color
-	fill.Size = UDim2.fromScale(share, 1)
-	Ui.corner(fill, 0.5)
-	fill.Parent = track
-	local mark = Instance.new("Frame") -- your current gun's value, to compare
-	mark.Name = "Current"
-	mark.BackgroundColor3 = Theme.ink
-	mark.AnchorPoint = Vector2.new(0.5, 0.5)
-	mark.Position = UDim2.fromScale(Config.gunStatShare(stat, (cur :: any)[stat] :: number), 0.5)
-	mark.Size = UDim2.fromScale(0.012, 1.5)
-	mark.Parent = track
-	local value = h.text(r, EquipmentPopup.statText(stat, g), 0.8, 0.2)
-	value.TextXAlignment = Enum.TextXAlignment.Right
-	textRole(h, value, "small")
+	local value, held_ = (g :: any)[stat] :: number, (cur :: any)[stat] :: number
+	local share, heldShare = Config.gunStatShare(stat, value), Config.gunStatShare(stat, held_)
+	-- every piece is a pill that starts at the left edge, so each keeps its round end
+	local function piece(name: string, s: number, color: Color3, z: number)
+		local f = Instance.new("Frame")
+		f.Name = name
+		f.BackgroundColor3 = Theme.white
+		f.BorderSizePixel = 0
+		f.Size = UDim2.fromScale(math.clamp(s, S.minFill, 1), 1)
+		f.ZIndex = z
+		Ui.corner(f, 0.5)
+		local shade = Instance.new("UIGradient") -- a lighter top, like the blocks
+		shade.Rotation = 90
+		shade.Color = ColorSequence.new(color:Lerp(Theme.white, S.topLight), color)
+		shade.Parent = f
+		f.Parent = track
+	end
+	if share > heldShare then
+		piece("Gain", share, Theme.go, 1)
+	elseif share < heldShare then
+		piece("Loss", heldShare, Theme.no:Lerp(Theme.white, 0.5), 1)
+	end
+	piece("Fill", math.min(share, heldShare), Theme.info, 2)
+	local shine = Instance.new("Frame") -- a thin gloss line along the top of the bar
+	shine.Name = "Shine"
+	shine.BackgroundColor3 = Theme.white
+	shine.BackgroundTransparency = S.shine
+	shine.BorderSizePixel = 0
+	shine.Position = UDim2.fromScale(0.03, 0.14)
+	shine.Size = UDim2.fromScale(0.94, 0.2)
+	shine.ZIndex = 3
+	Ui.corner(shine, 0.5)
+	shine.Parent = track
+	local pill = Instance.new("Frame")
+	pill.Name = "Value"
+	pill.BackgroundColor3 = Theme.white
+	pill.BorderSizePixel = 0
+	pill.AnchorPoint = Vector2.new(0, 0.5)
+	pill.Position = UDim2.fromScale(S.valueX, 0.5)
+	pill.Size = UDim2.fromScale(1 - S.valueX, S.trackH * 1.15)
+	Ui.corner(pill, 0.5)
+	Ui.stroke(pill, Config.ui.cardStroke)
+	pill.Parent = r
+	local t = Ui.inkLabel(pill, EquipmentPopup.statText(stat, g), UDim2.fromScale(0.86, 0.8), UDim2.fromScale(0.07, 0.1))
+	if value > held_ then
+		t.TextColor3 = Theme.shopBadge.bonus
+	elseif value < held_ then
+		t.TextColor3 = Theme.no
+	end
+	textRole(h, t, "small")
 end
 
--- the picked gun turning slowly in a window (owner 2026-11-05: a 360 preview), the same model the hand
--- holds (RayController.buildGun). The angle comes from the clock, so a refresh of the card doesn't
--- jump it back to the start; the spin stops itself once the window is gone.
-local function preview(parent: Instance, i: number): Frame
+-- a gun in a window: the same model the hand holds (RayController.buildGun), still (a tile) or turning
+-- (the card). dark = a gun you don't own yet: only its shape in solid black (the window's ImageColor3
+-- multiplies every colour to black), `fade` see-through on the card (owner 2026-11-12).
+-- A turning gun's angle comes from the clock, so a refresh of the card doesn't jump it back to the
+-- start; the spin stops itself once the window is gone.
+function gunView(parent: Instance, i: number, dark: boolean, spin: boolean, fade: number?): ViewportFrame
 	local P = G.preview
-	local glow = (Theme.guns[i] or Theme.guns[1]).glow
-	local box = Instance.new("Frame")
-	box.Name = "Preview"
-	box.BackgroundColor3 = glow:Lerp(Theme.white, P.tint)
-	box.BorderSizePixel = 0
-	box.Size = UDim2.fromScale(0.58, 1)
-	Ui.corner(box)
-	Ui.stroke(box, Config.ui.cardStroke)
 	local vp = Instance.new("ViewportFrame")
 	vp.Name = "Gun"
 	vp.BackgroundTransparency = 1
@@ -238,7 +297,11 @@ local function preview(parent: Instance, i: number): Frame
 	vp.Ambient = Color3.fromRGB(190, 190, 205)
 	vp.LightColor = Theme.white
 	vp.LightDirection = Vector3.new(-1, -1.5, -1) -- lit from the top left, like the icons
-	vp.Parent = box
+	if dark then
+		vp.ImageColor3 = Theme.silhouette
+		vp.ImageTransparency = fade or 0
+	end
+	vp.Parent = parent
 	local cam = Instance.new("Camera")
 	cam.FieldOfView = P.fov
 	cam.Parent = vp
@@ -249,22 +312,56 @@ local function preview(parent: Instance, i: number): Frame
 	local rest = m:GetPivot() - bb.Position
 	m:PivotTo(rest)
 	m.Parent = vp
-	local across = math.sqrt(size.X ^ 2 + size.Z ^ 2) / 2 -- widest it gets while turning
 	local pitch = math.rad(P.pitch)
-	local tall = (size.Y * math.cos(pitch) + across * 2 * math.sin(pitch)) / 2
-	local conn: RBXScriptConnection
-	conn = RunService.RenderStepped:Connect(function()
-		if not vp:IsDescendantOf(game) then
-			conn:Disconnect()
-			return
-		end
-		local spin = if SettingsController.get("reducedMotion") == true then P.spinSecondsReduced else P.spinSeconds
-		m:PivotTo(CFrame.Angles(0, (os.clock() / spin) % 1 * math.pi * 2, 0) * rest)
+	local t = math.tan(math.rad(P.fov / 2))
+	-- across = half its width as the camera sees it, depth = how far its near end comes toward the camera
+	local function frame(yaw: number, across: number, depth: number)
+		m:PivotTo(CFrame.Angles(0, yaw, 0) * rest)
+		local tall = (size.Y * math.cos(pitch) + across * 2 * math.sin(pitch)) / 2
 		local aspect = vp.AbsoluteSize.X / math.max(1, vp.AbsoluteSize.Y)
-		local t = math.tan(math.rad(P.fov / 2))
-		local dist = math.max(tall / t, across / (aspect * t)) * P.margin + across * 0.5 -- the near end swings toward the camera
+		local dist = math.max(tall / t, across / (aspect * t)) * P.margin + depth
 		cam.CFrame = CFrame.lookAt(Vector3.new(0, math.sin(pitch), math.cos(pitch)) * dist, Vector3.zero)
-	end)
+	end
+	if spin then
+		local across = math.sqrt(size.X ^ 2 + size.Z ^ 2) / 2 -- widest it gets while turning
+		local conn: RBXScriptConnection
+		conn = RunService.RenderStepped:Connect(function()
+			if not vp:IsDescendantOf(game) then
+				conn:Disconnect()
+				return
+			end
+			local seconds = if SettingsController.get("reducedMotion") == true then P.spinSecondsReduced else P.spinSeconds
+			frame((os.clock() / seconds) % 1 * math.pi * 2, across, across * 0.5)
+		end)
+	else
+		local yaw = math.rad(G.tileYaw)
+		local c, s = math.abs(math.cos(yaw)), math.abs(math.sin(yaw))
+		local function still()
+			frame(yaw, (size.X * c + size.Z * s) / 2, (size.X * s + size.Z * c) / 2)
+		end
+		vp:GetPropertyChangedSignal("AbsoluteSize"):Connect(still)
+		still()
+	end
+	return vp
+end
+
+-- the picked gun turning slowly in a big window in its glow colour (owner 2026-11-05: a 360 preview).
+-- A gun you don't own turns as a see-through black figurine with a lock in the corner.
+local function preview(parent: Instance, i: number, dark: boolean): Frame
+	local P = G.preview
+	local glow = (Theme.guns[i] or Theme.guns[1]).glow
+	local box = Instance.new("Frame")
+	box.Name = "Preview"
+	box.BackgroundColor3 = glow:Lerp(Theme.white, P.tint)
+	box.BorderSizePixel = 0
+	box.Size = UDim2.fromScale(0.58, 1)
+	Ui.corner(box)
+	Ui.stroke(box, Config.ui.cardStroke)
+	gunView(box, i, dark, true, P.lockedFade)
+	if dark then
+		local lock = Ui.image(box, Config.images.icons.lock, UDim2.fromScale(0.2, 0.3), UDim2.fromScale(0.79, 0.03))
+		lock.Name = "Lock"
+	end
 	box.Parent = parent
 	return box
 end
@@ -276,7 +373,7 @@ local function gunCard(h: Helpers, holder: Frame, i: number, v: State.View, o: a
 	local l = h.list(holder, false)
 	-- the gun turning in a big window in its glow colour, its number in the corner, the name under it
 	local top = h.row(l, 1, 0.33)
-	local box = preview(top, i)
+	local box = preview(top, i, i > best())
 	box.Size = UDim2.fromScale(1, 1)
 	local badge = swatch(box, i, 0.02, 0.24)
 	badge.AnchorPoint = Vector2.new(0, 0)
@@ -292,8 +389,11 @@ local function gunCard(h: Helpers, holder: Frame, i: number, v: State.View, o: a
 	end
 	local name = Ui.label(h.row(l, 2, 0.09), g.name, UDim2.fromScale(1, 0.9), UDim2.fromScale(0, 0.05))
 	textRole(h, name, "title")
+	local sr = h.row(l, 3, G.statCard.height)
+	sr.Name = "Stats"
+	local panel: Instance = if h.card then h.card(sr) else sr
 	for n, stat in G.stats do
-		statBar(h, l, n + 1, stat, g, cur, (Theme.guns[i] or Theme.guns[1]).glow)
+		statBar(h, panel, n, #G.stats, stat, g, cur)
 	end
 	local r = h.row(l, 10, 0.16)
 	local label, color = Ui.price(g.price), Theme.tiers.Common
@@ -327,14 +427,17 @@ local SHAPES: { [string]: { { number } } } = { -- x, y, w, h (shares of the slot
 	hat = { { 0.12, 0.56, 0.76, 0.14, 0.5 }, { 0.3, 0.28, 0.4, 0.34, 0.35 } },
 	vest = { { 0.26, 0.2, 0.48, 0.62, 0.2 } },
 	boots = { { 0.16, 0.26, 0.24, 0.42, 0.25 }, { 0.16, 0.58, 0.34, 0.16, 0.5 }, { 0.54, 0.26, 0.24, 0.42, 0.25 }, { 0.54, 0.58, 0.34, 0.16, 0.5 } },
+	gloves = { { 0.14, 0.3, 0.3, 0.44, 0.4 }, { 0.08, 0.42, 0.1, 0.18, 0.5 }, { 0.56, 0.3, 0.3, 0.44, 0.4 }, { 0.82, 0.42, 0.1, 0.18, 0.5 } },
+	skates = { { 0.14, 0.2, 0.26, 0.4, 0.25 }, { 0.14, 0.56, 0.32, 0.12, 0.5 }, { 0.1, 0.74, 0.38, 0.05, 0.5 }, { 0.56, 0.2, 0.26, 0.4, 0.25 }, { 0.56, 0.56, 0.32, 0.12, 0.5 }, { 0.52, 0.74, 0.38, 0.05, 0.5 } },
 	suit = { { 0.34, 0.12, 0.32, 0.22, 0.5 }, { 0.28, 0.32, 0.44, 0.38, 0.2 }, { 0.3, 0.66, 0.16, 0.24, 0.3 }, { 0.54, 0.66, 0.16, 0.24, 0.3 } },
 }
 
 local function gear(h: Helpers, body: Frame, v: State.View, o: any)
-	local l = h.list(body, false)
+	local l = h.list(body, true) -- Slow Gel + five gear cards scroll (2026-11-13)
 	-- Slow Gel (Round 5): a card with its picture, what it does, and Buy / Owned
 	local owned = me:GetAttribute("GearGel") == true
-	local gr = h.row(l, 0, 0.3)
+	-- a scrolling list sizes rows by shape (width / height), never a share of its own height
+	local gr = h.row(l, 0, 0, Config.ui.gearCardAspect)
 	gr.Name = "SlowGel"
 	local face: Instance = if h.card then h.card(gr) else gr
 	Ui.image(face, Config.images.icons.motion, UDim2.fromScale(0.2, 0.84), UDim2.fromScale(0.01, 0.08))
@@ -358,15 +461,20 @@ local function gear(h: Helpers, body: Frame, v: State.View, o: any)
 		h.priceTag(b)
 	end
 	o.first = b.face
-	local r = h.row(l, 1, 0.34)
-	local n = #Config.gear
+	-- the always-on gear (Config.gear, 2026-11-13): one card each like Slow Gel's, the first one you can
+	-- afford is the focal point (it gets the selection)
+	local focus = owned
 	for i, item in Config.gear do
+		local mine = me:GetAttribute("Gear_" .. item.key) == true
+		local row = h.row(l, i, 0, Config.ui.gearCardAspect)
+		row.Name = "Gear_" .. item.key
+		local f: Instance = if h.card then h.card(row) else row
+		-- its silhouette (UI shapes) until the painted icons exist
 		local slot = Instance.new("Frame")
-		slot.Name = "Gear_" .. item.key
-		slot.BackgroundColor3 = Theme.snowFar
-		slot.AnchorPoint = Vector2.new(0.5, 0.5)
-		slot.Position = UDim2.fromScale((i - 0.5) / n, 0.5)
-		slot.Size = UDim2.fromScale(0.9 / n, 0.9)
+		slot.Name = "Picture"
+		slot.BackgroundColor3 = if mine then Theme.go else Theme.snowFar
+		slot.Position = UDim2.fromScale(0.03, 0.1)
+		slot.Size = UDim2.fromScale(0.16, 0.8)
 		local a = Instance.new("UIAspectRatioConstraint")
 		a.AspectRatio = 1
 		a.Parent = slot
@@ -374,18 +482,38 @@ local function gear(h: Helpers, body: Frame, v: State.View, o: any)
 		Ui.stroke(slot)
 		for _, s in SHAPES[item.shape] or {} do
 			local p = Instance.new("Frame")
-			p.BackgroundColor3 = Theme.ink
+			p.BackgroundColor3 = if mine then Theme.white else Theme.ink
 			p.BackgroundTransparency = 0.15
 			p.Position = UDim2.fromScale(s[1], s[2])
 			p.Size = UDim2.fromScale(s[3], s[4])
 			Ui.corner(p, s[5])
 			p.Parent = slot
 		end
-		slot.Parent = r
+		slot.Parent = f
+		local nm = h.text(f, item.name, 0.2, 0.5)
+		textRole(h, nm, "body")
+		nm.Size = UDim2.fromScale(0.5, 0.45)
+		nm.Position = UDim2.fromScale(0.2, 0.06)
+		local wt = h.text(f, item.text, 0.2, 0.5, Theme.infoDeep)
+		textRole(h, wt, "small")
+		wt.Size = UDim2.fromScale(0.5, 0.38)
+		wt.Position = UDim2.fromScale(0.2, 0.52)
+		local afford = v.coins >= item.price
+		local gb = h.button(f, if mine then Theme.go elseif afford then Theme.coin else Theme.tiers.Common,
+			if mine then "Owned" else Ui.price(item.price), 0.72, 0.26, function()
+				if not mine then
+					State.send("BuyGear", item.key) -- the server checks the coins and the booth
+				end
+			end)
+		gb.root.Name = "Buy_" .. item.key
+		if not mine and h.priceTag then
+			h.priceTag(gb)
+		end
+		if not mine and afford and focus then
+			focus = false
+			o.first = gb.face
+		end
 	end
-	local t = h.text(h.row(l, 2, 0.16), "Coming soon", 0.02, 0.96)
-	t.TextXAlignment = Enum.TextXAlignment.Center
-	textRole(h, t, "title")
 end
 
 function EquipmentPopup.fill(o: any, v: State.View, h: Helpers)
@@ -395,7 +523,9 @@ function EquipmentPopup.fill(o: any, v: State.View, h: Helpers)
 	local tabs = Instance.new("Frame")
 	tabs.Name = "Tabs"
 	tabs.BackgroundTransparency = 1
-	tabs.Size = UDim2.fromScale(1, 0.12)
+	-- device QA 2026-11-13: 0.12 made 20 px tall tabs on a phone; a phone gets 0.2
+	local tabsH = if Screen.deviceClass() == "phone" then 0.2 else 0.15
+	tabs.Size = UDim2.fromScale(1, tabsH)
 	tabs.Parent = body
 	for k, tab in { { id = "guns", label = "Guns" }, { id = "gear", label = "Gear" } } do
 		local on = o.data.tab == tab.id
@@ -408,26 +538,55 @@ function EquipmentPopup.fill(o: any, v: State.View, h: Helpers)
 	local content = Instance.new("Frame")
 	content.Name = "Content"
 	content.BackgroundTransparency = 1
-	content.Position = UDim2.fromScale(0, 0.14)
-	content.Size = UDim2.fromScale(1, 0.86)
+	content.Position = UDim2.fromScale(0, tabsH + 0.02)
+	content.Size = UDim2.fromScale(1, 0.98 - tabsH)
 	content.Parent = body
 	if o.data.tab == "gear" then
 		gear(h, content, v, o)
 		return
 	end
 	o.data.pick = o.data.pick or math.min(best() + 1, #G.list)
-	local left = Instance.new("Frame")
+	-- every gun at once as tiles, two to a row (no scrolling to find the next one). On a phone that made
+	-- 32 px tiles with 8 px words (device QA 2026-11-13): there the grid scrolls and each tile keeps a
+	-- readable shape (G.phoneTileAspect, width / height)
+	local phone = Screen.deviceClass() == "phone"
+	local left: GuiObject
+	if phone then
+		local sf = Instance.new("ScrollingFrame")
+		sf.BackgroundTransparency = 1
+		sf.BorderSizePixel = 0
+		sf.ScrollBarThickness = 6
+		sf.ScrollBarImageColor3 = Theme.ink
+		sf.CanvasSize = UDim2.fromScale(0, 0)
+		sf.AutomaticCanvasSize = Enum.AutomaticSize.Y
+		sf.ScrollingDirection = Enum.ScrollingDirection.Y
+		left = sf
+	else
+		left = Instance.new("Frame")
+		left.BackgroundTransparency = 1
+	end
 	left.Name = "Guns"
-	left.BackgroundTransparency = 1
 	left.Size = UDim2.fromScale(0.56, 1)
 	left.Parent = content
-	-- every gun at once as tiles, two to a row (no scrolling to find the next one)
 	local cols = G.gridColumns
 	local rows = math.ceil(#G.list / cols)
 	local grid = Instance.new("UIGridLayout")
 	local gap = G.gridGap
-	grid.CellSize = UDim2.fromScale((1 - gap * (cols - 1)) / cols, (1 - gap * (rows - 1)) / rows)
-	grid.CellPadding = UDim2.fromScale(gap, gap)
+	if phone then
+		-- pixel cells from the window's width (a scrolling canvas can't size cells by its own height)
+		local function fit()
+			local w = left.AbsoluteSize.X - 10
+			local gpx = math.floor(w * gap)
+			local cw = math.floor((w - gpx * (cols - 1)) / cols)
+			grid.CellSize = UDim2.fromOffset(cw, math.floor(cw / G.phoneTileAspect))
+			grid.CellPadding = UDim2.fromOffset(gpx, gpx)
+		end
+		left:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
+		fit()
+	else
+		grid.CellSize = UDim2.fromScale((1 - gap * (cols - 1)) / cols, (1 - gap * (rows - 1)) / rows)
+		grid.CellPadding = UDim2.fromScale(gap, gap)
+	end
 	grid.SortOrder = Enum.SortOrder.LayoutOrder
 	grid.Parent = left
 	for i = 1, #G.list do
@@ -441,5 +600,8 @@ function EquipmentPopup.fill(o: any, v: State.View, h: Helpers)
 	right.Parent = content
 	gunCard(h, right, o.data.pick, v, o)
 end
+
+-- the gun in a window, for the "you can now buy" card (UnlockAlert)
+EquipmentPopup.gunView = gunView
 
 return EquipmentPopup

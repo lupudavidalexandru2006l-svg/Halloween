@@ -228,6 +228,23 @@ function Ui.block(parent: Instance, name: string, color: Color3, text: string, o
 	return { root = root, face = face, text = label }
 end
 
+-- give a whole block one corner shape (0.5 = pill ends). Every UICorner in it changes, the face's
+-- dressing too: rounding only the root and face left the white top light square-cornered, a faint
+-- white rectangle round the SAFE pill (owner 2026-11-12)
+function Ui.roundBlock(b: Block, scale: number)
+	for _, c in b.root:GetDescendants() do
+		if c:IsA("UICorner") then
+			sharedCorners[c] = nil
+			c.CornerRadius = UDim.new(scale, 0)
+		end
+	end
+	local own = b.root:FindFirstChildOfClass("UICorner")
+	if own then
+		sharedCorners[own] = nil
+		own.CornerRadius = UDim.new(scale, 0)
+	end
+end
+
 -- a world label as a Chunky Pop pill: a BillboardGui sized in pixels (the same size on screen at
 -- any distance, unlike stud sizes that shrank far-off names to smudges), fitted to its text.
 -- spec = Config.worldText.tag / .gift. Returns the gui and the block (to recolour or retext it).
@@ -243,10 +260,7 @@ function Ui.pill(text: string, color: Color3, spec: { textPx: number, heightPx: 
 	b.text.TextSize = spec.textPx
 	local s = b.text:FindFirstChildOfClass("UIStroke") :: UIStroke
 	s.Thickness = math.max(1, spec.textPx * Config.worldText.outlineRatio)
-	for _, part in { b.root, b.face } do
-		local c = part:FindFirstChildOfClass("UICorner") :: UICorner
-		c.CornerRadius = UDim.new(0.5, 0) -- fully round ends
-	end
+	Ui.roundBlock(b, 0.5) -- fully round ends
 	Ui.fitPill(g, b, text, spec)
 	return g, b
 end

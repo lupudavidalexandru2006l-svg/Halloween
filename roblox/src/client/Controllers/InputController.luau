@@ -31,7 +31,12 @@ local function setDevice(d: Device)
 	end
 end
 
+local forced = false -- Studio-only device QA: DevDevice pins the device (the phone emulator still reports a keyboard)
+
 local function fromInputType(t: Enum.UserInputType)
+	if forced then
+		return
+	end
 	if t == Enum.UserInputType.Touch then
 		setDevice("touch")
 	elseif t.Name:find("Gamepad") then
@@ -61,6 +66,18 @@ end
 
 function InputController.Start()
 	UserInputService.LastInputTypeChanged:Connect(fromInputType)
+	-- Studio-only test hook (device QA 2026-11-13): the player attribute DevDevice = "touch" | "gamepad" |
+	-- "keyboard" pins the device, "" lets input decide again. Off in live servers.
+	if game:GetService("RunService"):IsStudio() then
+		local lp = game:GetService("Players").LocalPlayer
+		lp:GetAttributeChangedSignal("DevDevice"):Connect(function()
+			local v = lp:GetAttribute("DevDevice")
+			forced = v == "touch" or v == "gamepad" or v == "keyboard"
+			if forced then
+				setDevice(v :: Device)
+			end
+		end)
+	end
 	local K, G = Config.ui.keys, Config.ui.gamepadKeys
 	local binds: { [string]: { Enum.KeyCode } } = {
 		pets = { K.pets },

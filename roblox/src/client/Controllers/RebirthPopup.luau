@@ -6,12 +6,25 @@
 -- PopupController owns the popup and lends its builders; the show plays from Show.rebirth.
 
 local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Theme = require(ReplicatedStorage.Shared.Theme)
 local Ui = require(script.Parent.Parent.Lib.Ui)
 local State = require(script.Parent.State)
+local SettingsController = require(script.Parent.SettingsController)
 local EquipmentPopup = require(script.Parent.EquipmentPopup)
+local Screen = require(script.Parent.Screen)
+
+-- the layout shares; on a phone the foot (coin bar + Rebirth button) is taller (device QA 2026-11-13:
+-- the button was 28 px) and the columns give up the room
+local function ui(): any
+	local base = Config.rebirth.ui
+	if Screen.deviceClass() ~= "phone" then
+		return base
+	end
+	return setmetatable({ footTop = base.phone.footTop, colsHeight = base.phone.colsHeight }, { __index = base })
+end
 
 local RebirthPopup = {}
 local me = Players.LocalPlayer
@@ -48,56 +61,26 @@ local function opens(rebirths: number): string?
 	return nil
 end
 
--- a little castle gate from UI shapes (there is no painted gate icon; no emojis in UI)
-local function gateShape(parent: Instance, color: Color3)
-	local box = Instance.new("Frame")
-	box.Name = "GateIcon"
-	box.BackgroundTransparency = 1
-	box.Size = UDim2.fromScale(0.22, 0.9)
-	box.Position = UDim2.fromScale(0.03, 0.05)
-	box.Parent = parent
-	local a = Instance.new("UIAspectRatioConstraint")
-	a.Parent = box
-	local function part(x: number, y: number, w: number, h: number): Frame
-		local f = Instance.new("Frame")
-		f.BackgroundColor3 = color
-		f.BorderSizePixel = 0
-		f.Position = UDim2.fromScale(x, y)
-		f.Size = UDim2.fromScale(w, h)
-		f.Parent = box
-		Ui.corner(f, 0.2)
-		return f
-	end
-	part(0.08, 0.2, 0.22, 0.75) -- left tower
-	part(0.7, 0.2, 0.22, 0.75) -- right tower
-	part(0.08, 0.12, 0.84, 0.2) -- the arch
-	for i = 0, 2 do
-		local bar = part(0.36 + i * 0.1, 0.32, 0.06, 0.6) -- bars, lighter so the gate reads as a gate
-		bar.BackgroundColor3 = Theme.info
-	end
-end
-
--- one icon row: a painted icon (or the gate shape) and a short word
-local function item(h: EquipmentPopup.Helpers, l: GuiObject, order: number, icon: string?, word: string, color: Color3?)
+-- one icon row: a painted icon and a short word (gates wear the painted gate, owner 2026-11-12)
+local function item(h: EquipmentPopup.Helpers, l: GuiObject, order: number, icon: string, word: string, color: Color3?)
 	local r = h.row(l, order, Config.rebirth.ui.itemHeight)
 	r.Name = "Item" .. order
-	if icon then
-		local img = Ui.image(r, icon, UDim2.fromScale(0.22, 0.9), UDim2.fromScale(0.03, 0.05))
-		local a = Instance.new("UIAspectRatioConstraint")
-		a.Parent = img
-	else
-		gateShape(r, color or Theme.ink)
-	end
-	local t = h.text(r, word, 0.3, 0.68, color)
+	local img = Ui.image(r, icon, UDim2.fromScale(0.22, 1), UDim2.fromScale(0.02, 0))
+	local a = Instance.new("UIAspectRatioConstraint")
+	a.Parent = img
+	local t = h.text(r, word, 0.27, 0.71, color)
+	-- owner 2026-11-12: "make this text bigger": the title role, in a box as tall as the row
+	t.Position = UDim2.fromScale(0.27, 0.02)
+	t.Size = UDim2.fromScale(0.71, 0.96)
 	if h.sized then
-		h.sized(t, "body")
+		h.sized(t, "title")
 	end
 end
 
 -- one white card with a header strip in its colour (KEEP green, RESETS red, YOU GET gold), owner
 -- 2026-11-09: "improve the rebirth UI"
 local function column(h: EquipmentPopup.Helpers, body: Frame, x: number, title: string, color: Color3): GuiObject
-	local R = Config.rebirth.ui
+	local R = ui()
 	local c = Instance.new("Frame")
 	c.Name = title
 	c.BackgroundColor3 = Theme.white
@@ -122,9 +105,9 @@ local function column(h: EquipmentPopup.Helpers, body: Frame, x: number, title: 
 	square.ZIndex = 0
 	square.Parent = head
 	head.Parent = c
-	local t = Ui.label(head, title, UDim2.fromScale(0.9, 0.76), UDim2.fromScale(0.05, 0.12))
+	local t = Ui.label(head, title, UDim2.fromScale(0.9, 0.84), UDim2.fromScale(0.05, 0.08))
 	if h.sized then
-		h.sized(t, "body")
+		h.sized(t, "title")
 	end
 	local holder = Instance.new("Frame")
 	holder.Name = "Items"
@@ -140,60 +123,89 @@ local function column(h: EquipmentPopup.Helpers, body: Frame, x: number, title: 
 	return l
 end
 
--- the top banner: "Rebirth N" and what your coins become, x1.5 -> x2 (the reason to do it, biggest)
+-- the top banner: "Rebirth N" and what your coins become, x1 -> x1.5 (the reason to do it, biggest).
+-- Owner 2026-11-12: bigger words and a better arrow. The words use the popup's big role; the arrow is the
+-- drawn chunky go-green one (icons/arrow.png) and nudges right now and then (still with Reduced motion).
 local function hero(h: EquipmentPopup.Helpers, body: Frame, n: number)
-	local R = Config.rebirth.ui
+	local R = ui()
 	local b = Ui.block(body, "Hero", Theme.booths.rebirth, "", nil)
 	b.root.Size = UDim2.fromScale(1, R.heroHeight)
 	b.text.Visible = false
-	local title = Ui.label(b.face, `Rebirth {n}`, UDim2.fromScale(0.36, 0.6), UDim2.fromScale(0.03, 0.2))
+	local ty = (1 - R.heroText) / 2
+	local title = Ui.label(b.face, `Rebirth {n}`, UDim2.fromScale(0.34, R.heroText), UDim2.fromScale(0.025, ty))
+	title.Name = "Title"
 	if h.sized then
-		h.sized(title, "title")
+		h.sized(title, "big")
 	end
-	local function mult(x: number, value: number)
-		Ui.image(b.face, I.coin, UDim2.fromScale(0.09, 0.7), UDim2.fromScale(x, 0.15))
-		local t = Ui.label(b.face, `x{value}`, UDim2.fromScale(0.14, 0.6), UDim2.fromScale(x + 0.09, 0.2))
+	local parts: { GuiObject } = {}
+	local function mult(value: number, gold: boolean)
+		local icon = Ui.image(b.face, I.coin, UDim2.fromScale(0.1, R.heroText), UDim2.fromScale(0, ty))
+		local t = Ui.label(b.face, `x{value}`, UDim2.fromScale(0.16, R.heroText), UDim2.fromScale(0, ty))
+		t.Name = if gold then "New" else "Now"
 		t.TextXAlignment = Enum.TextXAlignment.Left
-		if h.sized then
-			h.sized(t, "title")
+		if gold then
+			t.TextColor3 = Theme.coin -- what you'll have shines gold
 		end
+		if h.sized then
+			h.sized(t, "big")
+		end
+		table.insert(parts, icon)
+		table.insert(parts, t)
 	end
-	mult(0.42, Config.rebirthIncome(n - 1))
-	-- an arrow drawn from shapes (no emoji or glyph arrows in UI)
-	local arrow = Instance.new("Frame")
+	mult(Config.rebirthIncome(n - 1), false)
+	local arrow = Ui.image(b.face, I.arrow, UDim2.fromScale(R.arrowWidth, R.heroText * 0.8), UDim2.fromScale(0, 0))
 	arrow.Name = "Arrow"
-	arrow.BackgroundColor3 = Theme.white
-	arrow.BorderSizePixel = 0
-	arrow.AnchorPoint = Vector2.new(0.5, 0.5)
-	arrow.Position = UDim2.fromScale(0.68, 0.5)
-	arrow.Size = UDim2.fromScale(0.04, 0.12)
-	Ui.stroke(arrow)
-	arrow.Parent = b.face
-	for _, s in { 1, -1 } do
-		local head = Instance.new("Frame")
-		head.BackgroundColor3 = Theme.white
-		head.BorderSizePixel = 0
-		head.AnchorPoint = Vector2.new(1, 0.5)
-		head.Position = UDim2.fromScale(0.715, 0.5 + s * 0.09)
-		head.Size = UDim2.fromScale(0.035, 0.1)
-		head.Rotation = -s * 45 -- the two strokes meet at the right end: an arrow pointing right
-		Ui.stroke(head)
-		head.Parent = b.face
+	local aa = arrow:FindFirstChildOfClass("UIAspectRatioConstraint")
+	if aa then
+		aa.AspectRatio = 512 / 384 -- the drawing's shape (Ui.image keeps pictures square)
 	end
-	mult(0.75, Config.rebirthIncome(n))
+	table.insert(parts, arrow)
+	mult(Config.rebirthIncome(n), true)
+	-- lay the right-hand group out by its visible widths: coin x1 [arrow] coin x1.5, centred in the space
+	-- right of the title
+	task.defer(function()
+		local w = math.max(1, b.face.AbsoluteSize.X)
+		local gap = 0.012
+		local widths: { number } = {}
+		local total = 0
+		for _, p in parts do
+			local pw = if p:IsA("TextLabel") then p.TextBounds.X / w else p.AbsoluteSize.X / w
+			table.insert(widths, pw)
+			total += pw
+		end
+		total += gap * (#parts - 1) + gap * 2 -- a wider gap either side of the arrow
+		local x = 0.38 + (0.6 - total) / 2
+		for i, p in parts do
+			if p == arrow then
+				x += gap
+			end
+			p.AnchorPoint = Vector2.new(0, 0.5)
+			p.Position = UDim2.fromScale(x, 0.5)
+			x += widths[i] + gap
+			if p == arrow then
+				x += gap
+			end
+		end
+		-- a little nudge to the right now and then: "this becomes that"
+		if SettingsController.get("reducedMotion") ~= true and arrow.Parent then
+			local from = arrow.Position
+			local to = from + UDim2.fromScale(R.arrowNudgeBy, 0)
+			TweenService:Create(arrow, TweenInfo.new(R.arrowNudge / 2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Position = to }):Play()
+		end
+	end)
 end
 
 function RebirthPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
 	o.data = if typeof(o.data) == "table" then o.data else {}
 	local n = v.rebirths + 1
 	local cost = Config.rebirthCost(n)
-	local R = Config.rebirth.ui
+	local R = ui()
 	hero(h, o.body, n)
 	local keep = column(h, o.body, 0, "KEEP", Theme.go)
 	item(h, keep, 1, Config.ui.tileIcons.pets, "Pets")
 	item(h, keep, 2, I.book, "Index")
 	item(h, keep, 3, I.ray, "Guns")
-	item(h, keep, 4, nil, "Gates", Theme.ink)
+	item(h, keep, 4, I.gate, "Gates")
 	item(h, keep, 5, I.pen, "Look")
 	local resets = column(h, o.body, R.colWidth + R.colGap, "RESETS", Theme.no)
 	item(h, resets, 1, I.coin, "Coins")
@@ -214,7 +226,7 @@ function RebirthPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
 	end
 	local island = opens(n)
 	if island then
-		item(h, get, order, nil, island, Theme.booths.rebirth)
+		item(h, get, order, I.gate, island, Theme.booths.rebirth)
 	end
 	-- the price and the button along the bottom
 	local foot = Instance.new("Frame")

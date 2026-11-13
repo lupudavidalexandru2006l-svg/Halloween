@@ -21,8 +21,13 @@ local NAMES = {
 	"ClaimChallenge", -- claim a finished daily challenge (ChallengeService, 2026-11-09)
 	"Tutorial", -- Ranger Bo's tutorial: "next" on a talk step, "skip", "replay" (TutorialService, 2026-11-10)
 	"Train", -- one click shot at the training station you stand on (TrainingService, 2026-11-10)
+	"GetBoard", -- ask for a leaderboard's top 100 (LeaderboardService answers with "BoardRows", 2026-11-12)
+	"ClaimGift", -- the one-time Free Gift's Claim (PenService checks the community join, 2026-11-12)
+	"SkipThaw", -- skip a Thaw Machine's wait with Robux (MonetizationService, 2026-11-12)
+	"ClaimThaw", -- take a thawed pet out of its machine (PenService, owner 2026-11-13)
+	"Teleport", -- the top buttons: to the Equipment Booth or your pan (TravelService, 2026-11-12)
 	-- server -> client (what happened)
-	"Data", "Notify", "BoardRank",
+	"Data", "Notify", "BoardRank", "BoardRows",
 }
 local events: { [string]: RemoteEvent } = {}
 local calls: { [Player]: { [string]: { number } } } = {} -- per player: bucket ("*" or a remote's name) -> call times

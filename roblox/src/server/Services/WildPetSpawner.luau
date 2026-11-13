@@ -45,6 +45,11 @@ export type WildPet = {
 	fleeFrom: Vector3?, -- where the last shot came from (it runs the other way while scared)
 	shownMeter: number, -- the meter as last published (in Config.aim.step steps)
 	owner: Player?, -- a personal rare: only this player sees it and can freeze it
+	-- restless tiers (Config.spawner.motion): when it next darts somewhere new, and its swerve while fleeing
+	dartAt: number,
+	swerve: number,
+	swerveAt: number,
+	bornAt: number, -- os.clock() at spawn (untouched pets wander off after Config.spawner.lifeSeconds)
 }
 
 local WildPetSpawner = {}
@@ -73,6 +78,7 @@ end
 function WildPetSpawner.shownOdds(player: Player, zone: number): { [string]: number }
 	local p = pityFor(player, zone)
 	local pc = Config.spawner.pity
+	local early = Config.spawner.earlyIslands
 	local weights: { [string]: number } = {}
 	local total = 0
 	for _, t in Config.tiers do
@@ -81,7 +87,8 @@ function WildPetSpawner.shownOdds(player: Player, zone: number): { [string]: num
 			local grace = (100 / t.odds) * pc.graceFactor
 			boost = math.min(pc.maxBoost, 1 + math.max(0, (p[t.name] or 0) - grace) * pc.perMiss * (100 / t.odds) / 100)
 		end
-		weights[t.name] = t.odds * boost
+		local islandBoost = if zone <= early.upTo then early.mult[t.name] or 1 else 1
+		weights[t.name] = t.odds * boost * islandBoost
 		total += weights[t.name]
 	end
 	for k, v in weights do
@@ -211,6 +218,7 @@ function WildPetSpawner.spawn(zone: number, at: Vector3?, forcedKey: string?, ne
 		loopIdx = rng:NextInteger(1, #Config.poseLoop), action = "idle", actionEnd = 0,
 		wanderTo = nil, dazedUntil = 0, pose = nil, mut = mut, offerFor = nil, dazedOwner = nil, superUsed = false,
 		offered = false, meter = 0, fleeFrom = nil, shownMeter = 0, owner = owner,
+		dartAt = 0, swerve = 0, swerveAt = 0, bornAt = os.clock(),
 	}
 	setAction(pet, Config.poseLoop[pet.loopIdx])
 	pet.actionEnd = os.clock() + rng:NextNumber() * Config.poses[pet.action].seconds
@@ -266,6 +274,7 @@ function WildPetSpawner.setMeter(pet: WildPet, meter: number, style: string?, fr
 	pet.meter = meter
 	if from then
 		pet.fleeFrom = from
+		pet.fleeBy = by -- Frost Boots: the shooter's gear slows its run
 	end
 	local step = Config.aim.step
 	local shown = if meter <= 0 then 0 else math.max(step, math.floor(meter / step) * step)
@@ -285,7 +294,13 @@ function WildPetSpawner.setMeter(pet: WildPet, meter: number, style: string?, fr
 	end
 end
 
--- one step away from the shooter, turning along the walls when the straight way out is blocked
+-- a restless tier's motion (Config.spawner.motion), nil for everyone else
+local function motionOf(pet: WildPet)
+	return Config.spawner.motion[pet.def.tier]
+end
+
+-- one step away from the shooter, turning along the walls when the straight way out is blocked.
+-- A restless pet zig-zags: it swerves a random amount every few tenths of a second
 local function flee(pet: WildPet, dt: number, speed: number)
 	local from = pet.root.Position
 	local away = Vector3.new(from.X - (pet.fleeFrom :: Vector3).X, 0, from.Z - (pet.fleeFrom :: Vector3).Z)
@@ -293,6 +308,16 @@ local function flee(pet: WildPet, dt: number, speed: number)
 		away = pet.root.CFrame.LookVector * Vector3.new(1, 0, 1)
 	end
 	away = away.Unit
+	-- every scared pet dodges (Config.aim.dodge; Mythic and Secret wilder, Config.spawner.motion)
+	local m = motionOf(pet)
+	local zig = if m then m.zigzag else Config.aim.dodge.zigzag
+	local every = if m then m.swerveEvery else Config.aim.dodge.swerveEvery
+	local now = os.clock()
+	if now >= (pet.swerveAt or 0) then
+		pet.swerveAt = now + every
+		pet.swerve = (rng:NextNumber() * 2 - 1) * zig
+	end
+	away = (CFrame.Angles(0, pet.swerve or 0, 0) * CFrame.new(away)).Position
 	local step = speed * dt
 	for _, turn in { 0, 0.7, -0.7, 1.4, -1.4, 2.1, -2.1 } do
 		local dir = (CFrame.Angles(0, turn, 0) * CFrame.new(away)).Position
@@ -327,8 +352,10 @@ local function tick(dt: number)
 	local night = EventService.isNight()
 	for _, pet in pets do
 		-- night: wild pets curl up and sleep (easy to freeze); morning: back to their pose loop
-		if pet.state == "wild" and night ~= (pet.action == "sleep") and pet.meter < Config.aim.stuckAt then
-			setAction(pet, if night then "sleep" else Config.poseLoop[pet.loopIdx])
+		local m = motionOf(pet)
+		local sleeps = m == nil or m.sleeps
+		if pet.state == "wild" and (night and sleeps) ~= (pet.action == "sleep") and pet.meter < Config.aim.stuckAt then
+			setAction(pet, if night and sleeps then "sleep" else Config.poseLoop[pet.loopIdx])
 			pet.wanderTo = nil
 		end
 		if pet.state == "wild" and pet.action == "sleep" then
@@ -342,7 +369,8 @@ local function tick(dt: number)
 		end
 		-- scared: it runs away from the ray, fast, its pose keeps going
 		if pet.meter > 0 and pet.fleeFrom and pet.state == "wild" then
-			flee(pet, dt, Config.aim.fleeSpeed * slow)
+			local boots = if pet.fleeBy then Config.gearValue(pet.fleeBy, "frost_boots", "fleeMult", 1) else 1
+			flee(pet, dt, Config.aim.fleeSpeed * slow * boots * (if m then m.flee else Config.aim.fleeTier[pet.def.tier] or 1))
 			pet.wanderTo = nil
 			continue
 		end
@@ -382,11 +410,21 @@ local function tick(dt: number)
 				end
 			end
 		end
-		if pet.wanderTo and pet.action == "idle" then
+		-- restless: darts to a new random spot every so often, whatever its pose
+		if m and now >= pet.dartAt then
+			pet.dartAt = now + m.dart[1] + rng:NextNumber() * (m.dart[2] - m.dart[1])
+			local a = rng:NextNumber() * math.pi * 2
+			local r = m.dartRadius * (0.4 + 0.6 * rng:NextNumber())
+			local t = pet.root.Position + Vector3.new(math.cos(a) * r, 0, math.sin(a) * r)
+			if WorldRules.zoneAt(t) == pet.zone and WorldRules.inTunnel(t, Config.spawner.wallMargin) then
+				pet.wanderTo = t
+			end
+		end
+		if pet.wanderTo and (pet.action == "idle" or m ~= nil) then
 			local from = pet.root.Position
 			local to = Vector3.new(pet.wanderTo.X, from.Y, pet.wanderTo.Z)
 			local d = (to - from).Magnitude
-			local step = Config.spawner.wanderSpeed * dt * slow
+			local step = Config.spawner.wanderSpeed * dt * slow * (if m then m.speed else 1)
 			if d < step then
 				pet.wanderTo = nil
 			else
@@ -395,6 +433,29 @@ local function tick(dt: number)
 		end
 	end
 	local sp = Config.spawner
+	-- pets nobody is after wander off, so the zone has room and keeps rolling (it never clogs with Commons)
+	local roots: { Vector3 } = {}
+	for _, player in Players:GetPlayers() do
+		local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+		if hrp and hrp:IsA("BasePart") then
+			table.insert(roots, hrp.Position)
+		end
+	end
+	for id, pet in pets do
+		local life = sp.lifeSeconds[pet.def.tier]
+		if life and pet.state == "wild" and pet.meter <= 0 and now - pet.bornAt > life then
+			local seen = false
+			for _, at in roots do
+				if (at - pet.root.Position).Magnitude < sp.despawnClearStuds then
+					seen = true
+					break
+				end
+			end
+			if not seen then
+				WildPetSpawner.remove(id)
+			end
+		end
+	end
 	for _, z in Config.world.zones do
 		if not z.ready then
 			continue -- "Coming soon": no pets until the island's pets are approved (Round 4 phase 6)

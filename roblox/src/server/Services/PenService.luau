@@ -212,7 +212,9 @@ end
 function PenService.incomeMult(d: Data): number
 	local pass = if doubled[d] and DOUBLE then DOUBLE.mult or 2 else 1
 	local friendBonus = 1 + (friends[d] or 0) * Config.friends.perFriend
-	return IndexService.multiplier(d.indexClaimed) * Config.rebirthIncome(d.rebirths) * d.tester.mult * pass * friendBonus
+	local hat = Config.gearItem("cozy_hat")
+	local cozy = if hat and d.gear.cozy_hat then hat.coinMult else 1 -- Cozy Hat (Config.gear)
+	return IndexService.multiplier(d.indexClaimed) * Config.rebirthIncome(d.rebirths) * d.tester.mult * pass * friendBonus * cozy
 end
 
 -- FriendService: how many of this player's Roblox friends are in the server (already capped)
@@ -344,22 +346,28 @@ function PenService.removePets(d: Data, ids: { [string]: boolean }): { PetEntry 
 	return taken
 end
 
--- ---------- daily gift ----------
-export type GiftState = { ready: boolean, locked: boolean, streak: number, nextStreak: number, coins: number }
+-- ---------- the Free Gift (one time, owner 2026-11-12) ----------
+export type GiftState = { ready: boolean, claimed: boolean, coins: number, power: number, groupId: number }
 
 function PenService.giftState(d: Data): GiftState
-	local G = Config.dailyGift
-	local today = WorldRules.dayId(os.time())
-	local locked = G.afterFirstBank and d.stats.banked == 0
-	local nextStreak = math.min(G.streakMax, d.gift.streak + 1)
-	local base = math.max(G.baseCoins, PenService.incomePerSecond(d) * 60 * G.incomeMinutes)
-	return {
-		ready = not locked and d.gift.lastDay < today,
-		locked = locked,
-		streak = d.gift.streak,
-		nextStreak = nextStreak,
-		coins = math.round(base * (1 + G.streakBonus * (nextStreak - 1))),
-	}
+	local G = Config.freeGift
+	return { ready = not d.gift.claimed, claimed = d.gift.claimed, coins = G.coins, power = G.power, groupId = G.groupId }
+end
+
+-- in the community? Asked fresh each claim (IsInGroup caches, so a join made a moment ago would be missed).
+-- No community made yet (groupId 0): nothing to check.
+local function inCommunity(player: Player): boolean
+	local id = Config.freeGift.groupId
+	if id == 0 then
+		return true
+	end
+	local ok, yes = pcall(function()
+		return (player :: any):IsInGroupAsync(id)
+	end)
+	if not ok then
+		ok, yes = pcall(player.IsInGroup, player, id)
+	end
+	return ok and yes == true
 end
 
 local function nearPart(player: Player, prompt: ProximityPrompt?, extra: number): boolean
@@ -369,22 +377,48 @@ local function nearPart(player: Player, prompt: ProximityPrompt?, extra: number)
 	return pos ~= nil and at ~= nil and (pos - at).Magnitude <= Config.player.freezeRange + extra
 end
 
-local function claimGift(player: Player)
+-- the box's prompt opens the Free Gift board (the steps and the Claim button) on the client
+local function openGift(player: Player)
 	local d = DataService.get(player)
 	if not d or not nearPart(player, WorldService.giftPrompt, 4) then
 		return
 	end
-	local g = PenService.giftState(d)
-	if not g.ready then
-		Remotes.notYet(player, if g.locked then "Bank a pet first" else "Next gift tomorrow", "gift")
+	if d.gift.claimed then
+		Remotes.notYet(player, "Already claimed", "gift")
 		return
 	end
+	Remotes.fire(player, "Notify", "freeGift", PenService.giftState(d))
+end
+
+-- Claim on the board: decided here, once per player ever, granted and stamped in the same save
+local claiming: { [Player]: boolean } = {}
+local function claimGift(player: Player)
+	local d = DataService.get(player)
+	if not d or d.gift.claimed or claiming[player] then
+		return
+	end
+	if not nearPart(player, WorldService.giftPrompt, Config.freeGift.claimRange) then
+		return
+	end
+	claiming[player] = true -- IsInGroupAsync yields: a second Claim can't slip in meanwhile
+	local member = inCommunity(player)
+	claiming[player] = nil
+	if not member then
+		Remotes.notYet(player, "Join the group first", "gift")
+		return
+	end
+	d = DataService.get(player)
+	if not d or d.gift.claimed then
+		return
+	end
+	local G = Config.freeGift
 	DataService.mutate(player, function(x)
-		x.gift = { lastDay = WorldRules.dayId(os.time()), streak = g.nextStreak }
-		PenService.addCoins(x, g.coins)
+		x.gift = { claimed = true }
+		PenService.addCoins(x, G.coins)
+		x.coldPower = math.min(x.coldPower + G.power, Config.coldPower.max)
 	end)
-	DataService.saveNow(player) -- grant and claim stamp in the same save
-	Remotes.fire(player, "Notify", "giftClaimed", { coins = g.coins, streak = g.nextStreak })
+	DataService.saveNow(player)
+	Remotes.fire(player, "Notify", "giftClaimed", { coins = G.coins, power = G.power })
 end
 
 -- ---------- welcome back ----------
@@ -480,11 +514,11 @@ local function bank(player: Player)
 			AnalyticsSvc.funnel(player, "first_rare_pet")
 		end
 		if rank >= Config.bigWinRank then
-			-- others' wins, seen by everyone: a banner and a light pillar over this player's pen
-			Remotes.fireAll("Notify", "bigWin", { name = player.DisplayName, key = c.key, tier = def.tier, plot = WorldService.plotOf(player) })
+			-- others' wins: a banner for everyone else (owner 2026-11-13: no alert for your own, no light pillar)
+			Remotes.fireAll("Notify", "bigWin", { name = player.DisplayName, userId = player.UserId, key = c.key, tier = def.tier, plot = WorldService.plotOf(player) })
 		end
 		table.insert(banked, { key = c.key, pose = c.pose, mut = c.mut, income = PetDefs.income(def, c.pose, c.mut), firstTime = firstTime, frozen = true,
-			thawSeconds = Config.thawSeconds(def.tier, def.size, def.zone, c.mut, d.upgrades.pen) })
+			thawSeconds = Config.thawSeconds(def.tier, def.size, def.zone, c.mut, d.upgrades.pen, d.pan.thaw) })
 	end
 	for _, c in handBack do
 		-- nothing is lost: cubes that don't fit go back on your back (paid ones back into the save)
@@ -569,7 +603,7 @@ local function thawPet(player: Player, id: any, m: any)
 			if p.id == id and p.frozen and not p.thawM then
 				local def = PetDefs.get(p.key)
 				if def then
-					local secs = Config.thawSeconds(def.tier, def.size, def.zone, p.mut, x.upgrades.pen)
+					local secs = Config.thawSeconds(def.tier, def.size, def.zone, p.mut, x.upgrades.pen, x.pan.thaw)
 					p.thawM, p.thawEnd, p.thawTotal = m, os.time() + secs, secs
 					started = p
 				end
@@ -600,11 +634,12 @@ end
 -- a pet whose time is up hops out: into the pen when there's a free slot. With the pan full it takes
 -- the weakest pan pet's place when it earns more (Config.thaw.swapWeakest; that pet goes to Storage,
 -- nothing is lost), else it goes to Storage. Before 2026-11-10 a full pan sent even a Legendary to Storage.
-local function releaseThawed(player: Player, d: Data)
+-- onlyM: just that machine's pet (Config.thaw.claimByHand: you press Claim at the machine)
+local function releaseThawed(player: Player, d: Data, onlyM: number?)
 	local now = os.time()
 	local out: { { p: PetEntry, m: number, replaced: string? } } = {}
 	for _, p in d.pets do
-		if p.thawM and (p.thawEnd or 0) <= now then
+		if p.thawM and (p.thawEnd or 0) <= now and (onlyM == nil or p.thawM == onlyM) then
 			table.insert(out, { p = p, m = p.thawM :: number })
 		end
 	end
@@ -627,9 +662,41 @@ local function releaseThawed(player: Player, d: Data)
 		end
 	end)
 	for _, o in out do
-		Remotes.fire(player, "Notify", "thawed", { key = o.p.key, income = earn(o.p), plot = WorldService.plotOf(player), machine = o.m, stored = not o.p.eq, replaced = o.replaced })
+		local def = PetDefs.get(o.p.key)
+		Remotes.fire(player, "Notify", "thawed", { key = o.p.key, income = earn(o.p), plot = WorldService.plotOf(player), machine = o.m, stored = not o.p.eq, replaced = o.replaced,
+			tier = if def then def.tier else nil, mut = o.p.mut, at = PenService.machineSpot(WorldService.plotOf(player) or 1, o.m) })
 		TutorialService.did(player, "thawed")
 	end
+end
+
+-- Claim at the machine (owner 2026-11-13: "you actually need to press the button when a pet finished
+-- thaw"): your own pan, standing at that machine, its pet's time up. Then it hops out (releaseThawed).
+local claimAt: { [Player]: number } = {}
+local function claimThaw(player: Player, m: any)
+	local d = DataService.get(player)
+	if not d or typeof(m) ~= "number" or m ~= math.floor(m) or m < 1 or m > 2 then
+		return
+	end
+	local now = os.clock()
+	if now - (claimAt[player] or 0) < Config.thaw.claimCooldown then
+		return
+	end
+	claimAt[player] = now
+	local plot = WorldService.plotOf(player)
+	local pos = PlayerTracker.position(player)
+	if not plot or not pos then
+		return
+	end
+	local at = PenService.machineSpot(plot, m)
+	if (Vector3.new(pos.X, 0, pos.Z) - Vector3.new(at.X, 0, at.Z)).Magnitude > Config.thaw.useRange then
+		Remotes.notYet(player, "Walk to your Thaw Machine", "pets")
+		return
+	end
+	local p = inMachine(d, m)
+	if not p or (p.thawEnd or 0) > os.time() then
+		return -- still thawing (or empty): nothing to claim yet
+	end
+	releaseThawed(player, d, m)
 end
 
 -- each pan's Thaw Machine gets an E prompt (made here, so the saved map never needs a rebuild);
@@ -725,7 +792,7 @@ local gateCooldown: { [Player]: number } = {}
 local function openGate(player: Player, id: number)
 	local d = DataService.get(player)
 	local zone = Config.zone(id)
-	if not d or not zone or id ~= d.reach + 1 or not nearPart(player, WorldService.gatePrompts[id], 4) then
+	if not d or not zone or id ~= d.reach + 1 or not nearPart(player, WorldService.gatePrompts[id], Config.gatePrompt.range - Config.player.freezeRange + 4) then
 		return
 	end
 	local now = os.clock()
@@ -791,6 +858,7 @@ local function view(player: Player, d: Data): { [string]: any }
 		welcome = d.welcome,
 		settings = d.settings,
 		superFreezeCharges = d.superFreezeCharges,
+		thawSkips = d.thawSkips, -- paid Thaw Machine skips kept for later (MonetizationService)
 		doubleCoins = doubled[d] == true,
 		stats = d.stats,
 		plot = WorldService.plotOf(player),
@@ -846,10 +914,16 @@ function PenService.Start()
 	Remotes.on("EquipPet", equipPet)
 	Remotes.on("EquipBest", equipBest)
 	Remotes.on("ThawPet", thawPet)
+	Remotes.on("ClaimThaw", claimThaw)
 	local gift = WorldService.giftPrompt
 	if gift then
-		gift.Triggered:Connect(claimGift)
+		gift.Triggered:Connect(openGift)
 	end
+	Remotes.on("ClaimGift", claimGift)
+	Players.PlayerRemoving:Connect(function(p)
+		claiming[p] = nil
+		claimAt[p] = nil
+	end)
 	for id, gate in WorldService.gatePrompts do
 		gate.Triggered:Connect(function(player: Player)
 			openGate(player, id)
@@ -862,7 +936,13 @@ function PenService.Start()
 			for _, player in Players:GetPlayers() do
 				local d = DataService.get(player)
 				if d then
-					local ok, err = pcall(releaseThawed, player, d)
+					-- claimByHand: a finished pet waits in its machine for Claim (claimThaw); only one left in a
+					-- second machine you no longer have (Slots reset by a rebirth) still comes out by itself
+					local onlyM = if Config.thaw.claimByHand then (if machines(d) < 2 and inMachine(d, 2) then 2 else nil) else nil
+					if Config.thaw.claimByHand and not onlyM then
+						continue
+					end
+					local ok, err = pcall(releaseThawed, player, d, onlyM)
 					if not ok then
 						warn("[PenService] thaw release:", err)
 					end

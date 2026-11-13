@@ -27,6 +27,7 @@ local Config = require(ReplicatedStorage.Shared.Config)
 local Theme = require(ReplicatedStorage.Shared.Theme)
 local Scenery = require(ReplicatedStorage.Shared.Scenery)
 local WorldRules = require(ReplicatedStorage.Shared.WorldRules)
+local MapSpectacle = require(script.Parent.MapSpectacle)
 
 local MapArt = {}
 local A = Theme.art
@@ -637,6 +638,101 @@ local function sparkles(parent: Instance, size: Vector3, cf: CFrame, color: Colo
 	e.Parent = p
 end
 
+-- an ice cube like the ones pets are frozen in: a see-through block (never Glass, World Rules 6) and its
+-- twelve edges in frosty white, centred on the edges so they stand proud of the faces (flush faces
+-- flicker). cf = its middle. Every part goes straight into parent (GiftArt's parts are bobbed one by one)
+local function iceCube(parent: Instance, cf: CFrame, s: number): BasePart
+	local F = Theme.fx
+	local cube = quiet(block(Vector3.one * s, cf, F.giftIce, parent))
+	cube.Transparency = C.gift.ice
+	local e, h = C.gift.frost * s / 4, s / 2
+	for _, a in { -1, 1 } do
+		for _, b in { -1, 1 } do
+			block(Vector3.new(s + e, e, e), cf * CFrame.new(0, a * h, b * h), F.giftFrost, parent)
+			block(Vector3.new(e, s + e, e), cf * CFrame.new(a * h, 0, b * h), F.giftFrost, parent)
+			block(Vector3.new(e, e, s + e), cf * CFrame.new(a * h, b * h, 0), F.giftFrost, parent)
+		end
+	end
+	return cube
+end
+
+-- a lying coin (a flat gold disc), or one standing on its edge facing -Z of cf
+local function coin(parent: Instance, cf: CFrame, r: number, standing: boolean): BasePart
+	local tilt = if standing then CFrame.Angles(math.pi / 2, 0, 0) else CFrame.identity
+	return cyl(r, r * 0.3, cf * tilt, V.gold, parent)
+end
+
+-- a treasure chest from its bottom middle, facing -Z of cf: a pink body, a round lid, gold bands, a lock
+local function chest(parent: Instance, cf: CFrame, s: number): BasePart
+	local F = Theme.fx
+	local w, h, d = 2.2 * s, 1.3 * s, 1.5 * s
+	local body = block(Vector3.new(w, h, d), cf * CFrame.new(0, h / 2, 0), F.giftBody, parent)
+	local function along(size: Vector3, at: CFrame, color: Color3) -- a cylinder lying along X
+		local p = Instance.new("Part")
+		p.Shape = Enum.PartType.Cylinder
+		p.Size = size
+		p.CFrame = at
+		p.Material = Enum.Material.SmoothPlastic
+		finish(p, color, parent)
+	end
+	along(Vector3.new(w - 0.06, d * 0.98, d * 0.98), cf * CFrame.new(0, h, 0), F.giftLid)
+	for _, x in { -0.3 * w, 0.3 * w } do
+		block(Vector3.new(0.22 * s, h + 0.04, d + 0.08), cf * CFrame.new(x, h / 2, 0), V.gold, parent)
+		along(Vector3.new(0.22 * s, d + 0.08, d + 0.08), cf * CFrame.new(x, h, 0), V.gold)
+	end
+	block(Vector3.new(0.5 * s, 0.6 * s, 0.14), cf * CFrame.new(0, h * 0.95, -d / 2 - 0.06), V.gold, parent)
+	block(Vector3.new(0.1 * s, 0.22 * s, 0.04), cf * CFrame.new(0, h * 0.9, -d / 2 - 0.15), Theme.ink, parent) -- the keyhole
+	return body
+end
+
+-- the Free Gift (owner 2026-11-13: the pink present wasn't "relevant to our game"): a treasure chest
+-- frozen in an ice cube like a caught pet's, a snow cap and icicles on it, gold glints rising inside.
+-- GiftArt = the cube and everything in it (MapController bobs its parts and hides them once you've
+-- claimed it); GiftBase = the deep blue pedestal it stands on, a glowing ring round its foot and ice
+-- shards; GiftDecor = small ice cubes with a coin frozen in each (both stay). It faces the spawn.
+local function giftCorner(art: Instance)
+	local F, G = Theme.fx, C.gift
+	local gb = W.giftBox
+	local at = CFrame.lookAt(Vector3.new(gb.X, 0, gb.Z), Vector3.new(W.spawn.X, 0, W.spawn.Z))
+	local S, ph = G.cube, G.pedestal
+	local base = folder("GiftBase", art)
+	-- a strong blue under it, so the pale ice stands out from the pale plaza
+	cyl(S * 0.8, ph, at * CFrame.new(0, ph / 2, 0), Theme.iceDeep, base, true)
+	quiet(cyl(S * 0.84, 0.24, at * CFrame.new(0, ph - 0.04, 0), F.giftFrost, base)) -- a snowy rim, 0.08 over the top
+	glow(shape("Ring", Vector3.new(S * 2.2, 0.2, S * 2.2), at * CFrame.new(0, 0.1, 0), F.giftShard, base), 0.1)
+	for k = 0, 5 do
+		local a = k / 6 * math.pi * 2 + 0.3
+		local r = S * 1.0
+		local tall = 1.4 + (k % 3) * 0.45
+		local shard = shape("Octa", Vector3.new(0.7, tall, 0.7), at * CFrame.new(math.cos(a) * r, tall * 0.35, math.sin(a) * r) * CFrame.Angles(0, -a, 0) * CFrame.Angles(0, 0, -0.35), F.giftShard, base)
+		glow(shard, 0.1)
+	end
+	local giftArt = folder("GiftArt", art)
+	local floor = ph + 0.22
+	local mid = at * CFrame.new(0, ph + 0.1 + S / 2, 0)
+	local body = chest(giftArt, at * CFrame.new(0, floor, -0.1), 1.15)
+	light(body, V.gold, 10, 1)
+	for k, c in { { -1.3, -1.2, false }, { 1.25, -1.1, true }, { 1.0, 1.1, false }, { -1.1, 1.0, false } } do
+		coin(giftArt, at * CFrame.new(c[1], floor + 0.1, c[2]) * CFrame.Angles(0, k, 0), 0.32, c[3] :: boolean)
+	end
+	iceCube(giftArt, mid, S)
+	quiet(ellipsoid(Vector3.new(S * 0.92, 0.7, S * 0.92), mid * CFrame.new(0, S / 2 + 0.12, 0), A.snowCap, giftArt))
+	for _, x in { -1.1, -0.2, 0.9 } do
+		local len = 0.8 + math.abs(x) * 0.3
+		shape("Cone", Vector3.new(0.38, len, 0.38), mid * CFrame.new(x, S / 2 - len / 2 + 0.05, -S / 2 - 0.02) * CFrame.Angles(math.pi, 0, 0), F.giftShard, giftArt)
+	end
+	sparkles(giftArt, Vector3.new(S - 1, S - 1, S - 1), mid, V.gold, 6, 0.6, Enum.NormalId.Top, 0.35)
+	local decor = folder("GiftDecor", art)
+	for k = 0, 3 do
+		local a = (k - 1.5) * 0.8 -- a fan on the spawn side, clear of the ring
+		local s = 1.3 + (k % 3) * 0.3
+		-- the coin faces the spawn, so it reads as a coin and not a post
+		local cm = at * CFrame.new(math.sin(a) * 6.4, s / 2, -math.cos(a) * 6.4) * CFrame.Angles(0, (k - 1.5) * 0.15, 0)
+		coin(decor, cm, s * 0.36, true)
+		iceCube(decor, cm, s)
+	end
+end
+
 -- the board behind a booth's sign, with a trim round its edge and marquee bulbs between the two
 -- (UI Rules: a framed, bulb-lit sign). sy / sz = the sign's middle; the board reaches `depth` back
 local function signBoard(f: Instance, at: CFrame, sy: number, sz: number, board: Color3, trim: Color3, depth: number, mat: Enum.Material?)
@@ -646,7 +742,7 @@ local function signBoard(f: Instance, at: CFrame, sy: number, sz: number, board:
 	block(Vector3.new(w, h, depth), at * CFrame.new(0, sy, front + depth / 2), board, f, false, mat or Enum.Material.Wood)
 	for _, s in { -1, 1 } do
 		quiet(block(Vector3.new(w + 0.2, 0.22, 0.2), at * CFrame.new(0, sy + s * (h / 2 - 0.05), front - 0.04), trim, f))
-		quiet(block(Vector3.new(0.22, h, 0.2), at * CFrame.new(s * (w / 2 - 0.05), sy, front - 0.04), trim, f))
+		quiet(block(Vector3.new(0.22, h + 0.1, 0.2), at * CFrame.new(s * (w / 2 - 0.05), sy, front - 0.04), trim, f)) -- 0.1 taller than the board: flush, their ends flickered
 	end
 	local function bulb(x: number, y: number)
 		quiet(glow(ball(0.13, (at * CFrame.new(x, sy + y, front - 0.1)).Position, A.lanternGlow, f), 0.05))
@@ -748,17 +844,19 @@ local function sellBooth(f: Instance, at: CFrame, color: Color3, outer: number, 
 		end
 		if y > winLo and y < winHi then
 			for _, s in { -1, 1 } do
-				block(Vector3.new(Wd / 2 - winX + 0.15, bh, 0.3), at * CFrame.new(s * (Wd / 2 + winX + 0.15) / 2, y, fz - 0.12), c, f, false, Enum.Material.WoodPlanks)
+				-- stops 0.05 short of the window's edge: flush with the wall slab there, it flickered
+				block(Vector3.new(Wd / 2 - winX + 0.1, bh, 0.3), at * CFrame.new(s * (Wd / 2 + winX + 0.2) / 2, y, fz - 0.12), c, f, false, Enum.Material.WoodPlanks)
 			end
 		else
 			block(Vector3.new(Wd + 0.3, bh, 0.3), at * CFrame.new(0, y, fz - 0.12), c, f, false, Enum.Material.WoodPlanks)
 		end
 	end
 	-- gold: a band round the foot and the rim, straps beside the window, brackets round the corners,
-	-- all studded with rivets (every gold face stands 0.15 clear of the next: no flicker)
-	for _, y in { y0 + 0.35, top - 0.35 } do
-		block(Vector3.new(Wd + 0.9, 0.7, D + 0.9), at * CFrame.new(0, y, mz), gold, f, true)
-	end
+	-- all studded with rivets (every gold face stands 0.15 clear of the next: no flicker). The rim band
+	-- rises 0.15 over the walls' tops: flush with them, the chest's top flickered gold and brown (owner
+	-- 2026-11-13: "the sell booth's roof still tweaks")
+	block(Vector3.new(Wd + 0.9, 0.7, D + 0.9), at * CFrame.new(0, y0 + 0.35, mz), gold, f, true)
+	block(Vector3.new(Wd + 0.9, 0.85, D + 0.9), at * CFrame.new(0, top - 0.275, mz), gold, f, true)
 	for _, s in { -1, 1 } do
 		block(Vector3.new(0.9, H, 0.3), at * CFrame.new(s * (winX + 0.55), y0 + H / 2, fz - 0.45), gold, f)
 		for _, z in { fz, bz } do
@@ -1354,11 +1452,7 @@ local function hub(parent: Instance, rng: () -> number)
 	for i, pos in W.boards do
 		boardFrame(parent, pos, i)
 	end
-	-- presents round the gift box, barrels and sleds round the plaza
-	local gb = W.giftBox
-	for k = 0, 3 do
-		present(parent, Vector3.new(gb.X - 3.5 + (k % 2) * 7, 0, gb.Z + 3 - math.floor(k / 2) * 6), 1.2 + (k % 3) * 0.3, V.flowers[k + 1], k * 0.7)
-	end
+	-- (the frozen-coin cubes round the gift are giftCorner's since 2026-11-13; the presents were here)
 	-- the tunnel mouth: two stone towers with pointed roofs, a lintel with crystals, a welcome glow
 	-- (everything but the span scaled by archScale, so the entrance stays in proportion to the tunnel)
 	local first_look = Theme.islands[W.islands[1].theme] or Theme.islands.meadow
@@ -2671,7 +2765,8 @@ end
 -- and the ground reaches just far enough that, from the highest camera that still sees the horizon
 -- (about 30 studs up), no view 4 degrees or more below the horizon runs off its edge (ray-checked in
 -- play from every edge of the walkable area; shallower views end in the haze).
-local FAR = { reach = 600, back = 450, past = 450, row = 95, sideHub = 85, side = 170, sideStep = 20, r = 56 }
+-- side 170 -> 290 (owner 2026-11-13): the island peaks stand behind MapSpectacle's two layers of giant decor
+local FAR = { reach = 600, back = 450, past = 450, row = 95, sideHub = 85, side = 290, sideStep = 20, r = 56 }
 
 -- a row of 9 peaks across the map at z, stepping back (dir) by 20 every other one
 local function peakRow(parent: Instance, z: number, dir: number, snowLine: number, color: Color3)
@@ -2882,6 +2977,41 @@ function MapArt.solidify(root: Instance)
 	end
 end
 
+-- Studio: WorldService keeps a saved map as it is, so art fixes only show once it's redrawn. This
+-- redraws the gift corner and the named booths ("sell", ...) of a saved map from this code; the rest of
+-- the map stays as saved. (Run from the command bar / MCP in Edit mode, then save the place.)
+function MapArt.redraw(map: Instance, booths: { string })
+	meshes = ReplicatedStorage:FindFirstChild("SceneryMeshes")
+	local art = map:FindFirstChild("Art")
+	local hubF = art and art:FindFirstChild("Hub")
+	if not art or not hubF then
+		return
+	end
+	for _, n in { "GiftArt", "GiftBase", "GiftDecor" } do
+		local old = art:FindFirstChild(n)
+		if old then
+			old:Destroy()
+		end
+	end
+	giftCorner(art)
+	for _, n in { "GiftArt", "GiftBase", "GiftDecor" } do
+		local f = art:FindFirstChild(n)
+		if f then
+			MapArt.solidify(f)
+		end
+	end
+	for _, b in W.booths do
+		if table.find(booths, b.id) then
+			local old = hubF:FindFirstChild("Booth_" .. b.id)
+			if old then
+				old:Destroy()
+			end
+			booth(hubF, b, Scenery.rng(C.seed))
+			MapArt.solidify(hubF:FindFirstChild("Booth_" .. b.id) :: Instance)
+		end
+	end
+end
+
 function MapArt.build(map: Instance)
 	meshes = ReplicatedStorage:FindFirstChild("SceneryMeshes")
 	if not meshes then
@@ -2900,22 +3030,17 @@ function MapArt.build(map: Instance)
 		end
 	end
 	endCap(tunnel)
-	farScenery(folder("Far", art), rng)
-	-- the gift box (prototype): body, lid, gold ribbons and a bow; the client bobs it while a gift waits
-	local giftArt = folder("GiftArt", art)
-	local gb = W.giftBox
-	local at = CFrame.new(gb.X, 0, gb.Z)
-	local F = Theme.fx
-	block(Vector3.new(3, 2.4, 3), at * CFrame.new(0, 1.2, 0), F.giftBody, giftArt)
-	block(Vector3.new(3.4, 0.8, 3.4), at * CFrame.new(0, 2.7, 0), F.giftLid, giftArt)
-	block(Vector3.new(0.6, 3.25, 3.5), at * CFrame.new(0, 1.6, 0), F.giftRibbon, giftArt)
-	block(Vector3.new(3.5, 3.25, 0.6), at * CFrame.new(0, 1.6, 0), F.giftRibbon, giftArt)
-	for _, x in { -0.55, 0.55 } do
-		shape("Ring", Vector3.new(1.6, 0.4, 1.6), at * CFrame.new(x, 3.4, 0) * CFrame.Angles(0, 0, math.pi / 2), F.giftRibbon, giftArt)
-	end
+	local farF = folder("Far", art)
+	farScenery(farF, rng)
+	-- owner 2026-11-13: giant decor outside the walls, bigger island by island (its own random stream,
+	-- so the rest of the map's layout is unchanged)
+	MapSpectacle.build(farF)
+	-- the Free Gift's frozen treasure; the client bobs it while a gift waits
+	giftCorner(art)
 	local pruned = pruneBuried(art)
 	art:SetAttribute("PrunedHidden", pruned) -- how many never-visible parts were left out (QA reads it)
 	MapArt.solidify(art)
+	MapSpectacle.vivid(map) -- brighter, more saturated colours everywhere (owner 2026-11-13)
 	local terrain = workspace.Terrain
 	if not terrain:FindFirstChildOfClass("Clouds") then
 		local clouds = Instance.new("Clouds")

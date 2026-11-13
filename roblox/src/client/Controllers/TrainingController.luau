@@ -349,7 +349,11 @@ local function buildPop(): Pop
 	g.Name = "TrainPop"
 	g.Size = UDim2.fromOffset(P.boxPx[1], P.boxPx[2])
 	g.LightInfluence = 0
-	g.AlwaysOnTop = true
+	-- not AlwaysOnTop (in this place it never draws, Lessons 2026-11-12): pulled toward the camera instead,
+	-- in front of the target it shoots off
+	g.AlwaysOnTop = false
+	g.StudsOffset = Vector3.new(0, 0, P.front)
+	g.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	g.MaxDistance = P.maxDistance
 	g.ResetOnSpawn = false
 	g.Enabled = false

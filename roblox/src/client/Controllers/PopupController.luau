@@ -7,6 +7,8 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local SocialService = game:GetService("SocialService")
+local AvatarEditorService = game:GetService("AvatarEditorService")
+local GroupService = game:GetService("GroupService")
 local TweenService = game:GetService("TweenService")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Theme = require(ReplicatedStorage.Shared.Theme)
@@ -29,11 +31,13 @@ type Open = { name: string, data: any, frame: Frame, body: Frame, first: GuiObje
 local current: Open? = nil
 local queue: { { name: string, data: any } } = {}
 local shopKey: ((State.View) -> string)? = nil -- the Shop's "what it shows" key (set with the Shop below)
-local MENUS = { pets = true, shop = true, index = true, settings = true, tester = true, equipment = true, pan = true, sell = true, rebirth = true, thaw = true, daily = true }
+local boardStamp = 0 -- goes up each time a leaderboard's rows arrive, so its open popup is drawn again
+local MENUS = { board = true, pets = true, shop = true, index = true, settings = true, tester = true, equipment = true, pan = true, sell = true, rebirth = true, thaw = true, daily = true, freeGift = true }
+local giftJoined: boolean? = nil -- this session's answer to "in the group?" for the Free Gift board (nil = not asked yet)
 local TITLES: { [string]: string } = {
 	pets = "Pets", shop = "Shop", index = "Index", settings = "Settings", tester = "Tester", equipment = "Equipment", daily = "Daily Challenges",
 	pan = "Pan Upgrades", sell = "Sell Booth", rebirth = "Rebirth Booth", thaw = "Thaw Machine",
-	welcome = "Welcome back!", gift = "Daily gift", pageDone = "Page complete!",
+	welcome = "Welcome back!", gift = "Free gift!", freeGift = "Free gift!", pageDone = "Page complete!",
 }
 
 -- what a scrolling menu shows; it's only rebuilt when this changes, so a coin tick doesn't throw
@@ -49,6 +53,7 @@ local function shownData(name: string, v: State.View): string?
 		end
 	elseif name == "thaw" then
 		table.insert(parts, tostring(v.machines))
+		table.insert(parts, tostring(v.thawSkips or 0))
 		for _, p in v.pets do
 			if p.frozen then
 				table.insert(parts, `{p.id},{p.thawM}`)
@@ -81,6 +86,10 @@ local function shownData(name: string, v: State.View): string?
 		return RebirthPopup.shownKey(v)
 	elseif name == "shop" then
 		return if shopKey then shopKey(v) else nil
+	elseif name == "board" then
+		return tostring(boardStamp)
+	elseif name == "freeGift" then
+		return `{v.gift.ready},{giftJoined}`
 	else
 		return nil
 	end
@@ -93,13 +102,13 @@ end
 
 -- the title ribbon's colour: a menu wears its tile's colour, rewards wear the reward colours
 local HEADER: { [string]: Color3 } = {
-	welcome = Theme.coin, gift = Theme.gift, pageDone = Theme.go, tester = Theme.info, equipment = Theme.booths.equipment,
+	welcome = Theme.coin, gift = Theme.gift, freeGift = Theme.gift, pageDone = Theme.go, tester = Theme.info, equipment = Theme.booths.equipment,
 	pan = Theme.booths.pan, sell = Theme.booths.sell, rebirth = Theme.booths.rebirth, thaw = Theme.info,
 }
 local SMALL = { welcome = true, gift = true, pageDone = true } -- short messages get a smaller panel
 local HEADER_ICONS: { [string]: string } = {
 	pets = Config.ui.tileIcons.pets, shop = Config.ui.tileIcons.shop, index = Config.ui.tileIcons.index,
-	settings = Config.ui.tileIcons.settings, welcome = Config.images.icons.coin, gift = Config.images.icons.gift,
+	settings = Config.ui.tileIcons.settings, welcome = Config.images.icons.coin, gift = Config.images.icons.gift, freeGift = Config.images.icons.gift,
 	daily = Config.ui.tileIcons.daily,
 }
 
@@ -433,7 +442,7 @@ end
 
 -- the Shop redraws only when something it shows changes (it was redrawn on every coin tick before)
 shopKey = function(v: State.View): string
-	local parts: { string } = { tostring(shopTab) }
+	local parts: { string } = {}
 	for _, item in Config.monetization.shop do
 		local info = cardInfo(v, item)
 		table.insert(parts, `{item.id},{info.big},{info.chip or ""},{ownsPass(v, item)}`)
@@ -445,6 +454,212 @@ end
 local function box(t: GuiObject, x: number, y: number, w: number, h: number)
 	t.Position = UDim2.fromScale(x, y)
 	t.Size = UDim2.fromScale(w, h)
+end
+
+-- a soft white sunburst behind a product's picture (the reference shops' rays), under everything else
+local function shopSun(parent: Instance, x: number, y: number, size: number): ImageLabel
+	local s = Instance.new("ImageLabel")
+	s.Name = "Sun"
+	s.BackgroundTransparency = 1
+	s.Image = Config.images.icons.sunburst
+	s.ImageColor3 = Theme.white
+	s.ImageTransparency = Config.ui.shop.sunAlpha
+	s.AnchorPoint = Vector2.new(0.5, 0.5)
+	s.Position = UDim2.fromScale(x, y)
+	s.Size = UDim2.fromScale(size, size)
+	s.SizeConstraint = Enum.SizeConstraint.RelativeYY
+	s.ZIndex = 0
+	s.Parent = parent
+	return s
+end
+
+-- the Shop's own frame (owner 2026-11-12: "the colour scheme isn't good", from the reference shop clips):
+-- the panel turns a saturated royal-blue-to-violet, the title bar an ice-cyan gradient with snow caps on
+-- it, and the content sits in a deep indigo well with a soft sunburst and snowflakes drifting down.
+-- Only colours and dressing change; the layout (rail + scrolling sections) stays.
+-- faint diagonal stripes over a block's face, under everything on it (the reference shops' texture)
+local function stripes(g: GuiObject, alpha: number)
+	if g:FindFirstChild("Stripes") then
+		return
+	end
+	local S = Config.ui.shop
+	local s = Instance.new("ImageLabel")
+	s.Name = "Stripes"
+	s.BackgroundTransparency = 1
+	s.Image = S.stripes
+	s.ImageTransparency = alpha
+	s.ScaleType = Enum.ScaleType.Tile
+	s.TileSize = UDim2.fromOffset(S.stripePx, S.stripePx)
+	s.Size = UDim2.fromScale(1, 1)
+	s.ZIndex = 0
+	Ui.corner(s)
+	s.Parent = g
+end
+
+local function shopFrame(o: Open, v: State.View)
+	local F = Theme.shopFrame
+	local S = Config.ui.shop
+	local face = o.body.Parent :: GuiObject
+	local root = face.Parent :: GuiObject
+	stripes(face, S.stripeAlpha)
+	local function gradient(g: GuiObject, top: Color3, bottom: Color3)
+		g.BackgroundColor3 = Theme.white
+		local old = g:FindFirstChildOfClass("UIGradient")
+		if old then
+			old:Destroy()
+		end
+		local gr = Instance.new("UIGradient")
+		gr.Rotation = 90
+		gr.Color = ColorSequence.new(top, bottom)
+		gr.Parent = g
+	end
+	gradient(face, F.top, F.bottom)
+	root.BackgroundColor3 = Ui.darker(F.bottom)
+	local header = face:FindFirstChild("Header") :: Frame?
+	local hface = header and header:FindFirstChild("Face") :: GuiObject?
+	if header and hface and not hface:FindFirstChild("CoinPill") then -- a redraw keeps the frame it has
+		gradient(hface, F.titleTop, F.titleBottom)
+		header.BackgroundColor3 = Ui.darker(F.titleBottom)
+		stripes(hface, S.titleStripeAlpha)
+		-- the title on the left, its icon big and tilted over the panel's corner (after open() centred them)
+		local title = hface:FindFirstChildOfClass("TextLabel")
+		local icon = hface:FindFirstChild("Icon") :: ImageLabel?
+		task.defer(function()
+			if icon then
+				icon.Size = UDim2.fromScale(0.2, S.titleIcon)
+				icon.Position = UDim2.fromScale(0.035, 0.42)
+				icon.Rotation = S.titleIconTilt
+				icon.ZIndex = 4
+			end
+			if title then
+				title.TextXAlignment = Enum.TextXAlignment.Left
+				title.Position = UDim2.fromScale(0.105, title.Position.Y.Scale)
+				title.Size = UDim2.fromScale(0.45, title.Size.Y.Scale)
+			end
+		end)
+		-- your coins in a dark pill on the right of the title bar (kept current while the Shop is open)
+		local P = S.coinPill
+		local pill = Instance.new("Frame")
+		pill.Name = "CoinPill"
+		pill.BackgroundColor3 = Theme.ink
+		pill.BackgroundTransparency = 0.45
+		pill.BorderSizePixel = 0
+		pill.AnchorPoint = Vector2.new(0, 0.5)
+		pill.Position = UDim2.fromScale(P.x, 0.5)
+		pill.Size = UDim2.fromScale(P.w, P.h)
+		pill.ZIndex = 2
+		Ui.corner(pill, 0.5)
+		pill.Parent = hface
+		local coin = Ui.image(pill, Config.images.icons.coin, UDim2.fromScale(0.3, 1.2), UDim2.fromScale(-0.04, -0.1))
+		coin.ZIndex = 3
+		local amount = Ui.label(pill, Ui.short(v.coins), UDim2.fromScale(0.66, 0.8), UDim2.fromScale(0.27, 0.1))
+		amount.Name = "Coins"
+		amount.ZIndex = 3
+		amount.TextColor3 = Theme.coin
+		sized(amount, "body")
+		local conn: RBXScriptConnection
+		conn = State.Changed:Connect(function(nv: State.View)
+			if not amount.Parent or o.closed then
+				conn:Disconnect()
+				return
+			end
+			amount.Text = Ui.short(nv.coins)
+		end)
+		-- island pets peeking over the bottom corners (the reference shops' pumpkins and ghosts)
+		for _, m in S.mascots do
+			local img = Config.images.pets[m.pet]
+			if img then
+				local pic = Instance.new("ImageLabel")
+				pic.Name = "Mascot_" .. m.pet
+				pic.BackgroundTransparency = 1
+				pic.Image = img
+				pic.ScaleType = Enum.ScaleType.Fit
+				pic.AnchorPoint = Vector2.new(0.5, 0.5)
+				pic.Position = UDim2.fromScale(m.x, m.y)
+				pic.Size = UDim2.fromScale(m.size, m.size)
+				pic.SizeConstraint = Enum.SizeConstraint.RelativeYY
+				pic.Rotation = m.tilt
+				pic.ZIndex = 6
+				pic.Parent = root
+			end
+		end
+		-- snow resting on the title bar: soft white lumps along its top edge
+		local rng = Random.new(7) -- the same lumps every time the Shop opens
+		for k, at in S.snowCaps do
+			local cap = Instance.new("Frame")
+			cap.Name = "Snow" .. k
+			cap.BackgroundColor3 = F.snow
+			cap.BorderSizePixel = 0
+			cap.AnchorPoint = Vector2.new(0.5, 0.5)
+			-- a drift: a wide soft lump with a smaller one on top, hugging the bar's top edge
+			local w = 0.09 + rng:NextNumber() * 0.08
+			local x = at + (rng:NextNumber() - 0.5) * 0.02
+			cap.Position = UDim2.fromScale(x, 0.1)
+			cap.Size = UDim2.fromScale(w, 0.3)
+			cap.ZIndex = 3
+			Ui.corner(cap, 0.5)
+			cap.Parent = header
+			local bump = Instance.new("Frame")
+			bump.Name = "Bump"
+			bump.BackgroundColor3 = F.snow
+			bump.BorderSizePixel = 0
+			bump.AnchorPoint = Vector2.new(0.5, 1)
+			bump.Position = UDim2.fromScale(0.35 + rng:NextNumber() * 0.3, 0.55)
+			bump.Size = UDim2.fromScale(0.5, 1)
+			bump.ZIndex = 3
+			Ui.corner(bump, 0.5)
+			bump.Parent = cap
+		end
+	end
+	-- the well behind the rail and the sections
+	local well = Instance.new("Frame")
+	well.Name = "Well"
+	well.BackgroundColor3 = Theme.white
+	well.BorderSizePixel = 0
+	well.Position = UDim2.fromScale(-0.015, -0.02)
+	well.Size = UDim2.fromScale(1.03, 1.04)
+	well.ZIndex = 0
+	well.ClipsDescendants = true
+	Ui.corner(well)
+	Ui.stroke(well, Config.ui.cardStroke)
+	gradient(well, F.wellTop, F.wellBottom)
+	well.Parent = o.body
+	local sun = shopSun(well, 0.6, 0.0, 1.6)
+	sun.ImageColor3 = F.glow
+	sun.ImageTransparency = 0.72
+	-- snowflakes drifting down (none with Reduced motion: the well stays still)
+	if SettingsController.get("reducedMotion") ~= true then
+		local n = if SettingsController.get("lowGraphics") == true then math.floor(S.flakes / 2) else S.flakes
+		local rng = Random.new()
+		for k = 1, n do
+			local f = Instance.new("Frame")
+			f.Name = "Flake"
+			f.BackgroundColor3 = Theme.white
+			f.BackgroundTransparency = 0.25 + rng:NextNumber() * 0.45
+			f.BorderSizePixel = 0
+			f.SizeConstraint = Enum.SizeConstraint.RelativeYY
+			local size = 0.008 + rng:NextNumber() * 0.012
+			f.Size = UDim2.fromScale(size, size)
+			f.ZIndex = 0
+			Ui.corner(f, 1)
+			f.Parent = well
+			local x = rng:NextNumber()
+			local secs = rng:NextNumber(S.flakeSeconds[1], S.flakeSeconds[2])
+			f.Position = UDim2.fromScale(x, rng:NextNumber()) -- spread over the well at the start
+			task.spawn(function()
+				local first = true
+				while f.Parent and not o.closed do
+					local fromY = if first then f.Position.Y.Scale else -0.03
+					first = false
+					f.Position = UDim2.fromScale(x, fromY)
+					local t = secs * (1.03 - fromY)
+					local tw = TweenService:Create(f, TweenInfo.new(t, Enum.EasingStyle.Linear), { Position = UDim2.fromScale(x + (rng:NextNumber() - 0.5) * 0.08, 1.03) })
+					tw:Play()
+					tw.Completed:Wait()
+				end
+			end)
+		end
+	end
 end
 
 -- one product card: a Chunky Pop block in its kind's colour, the painted icon (stacked 1-3 deep for bigger
@@ -466,6 +681,7 @@ local function shopCard(o: Open, v: State.View, parent: Instance, item: Config.R
 	local stack = item.stack or 1
 	local ix, iy, iw, ih = 0.15, 0.05, 0.7, 0.34
 	local step = iw * 0.16
+	shopSun(c.face, 0.5, iy + ih / 2, ih * 1.5)
 	for k = stack, 1, -1 do
 		local dx = (k - 1) * step - (stack - 1) * step / 2
 		local img = Ui.image(c.face, icon, UDim2.fromScale(iw, ih), UDim2.fromScale(ix + dx, iy - (k - 1) * ih * 0.06))
@@ -482,7 +698,7 @@ local function shopCard(o: Open, v: State.View, parent: Instance, item: Config.R
 	if info.bar then
 		local b = bar(c.face, 0.08, 0.655, 0.84, 0.085, info.bar, info.barText or "", Theme.training.power)
 		local t = b:FindFirstChild("Count") :: TextLabel
-		sized(t, "tiny")
+		sized(t, "small")
 	elseif info.chip and info.chip ~= "" then
 		local chip = Instance.new("Frame")
 		chip.Name = "Chip"
@@ -493,7 +709,7 @@ local function shopCard(o: Open, v: State.View, parent: Instance, item: Config.R
 		Ui.stroke(chip, Config.ui.cardStroke)
 		local t = Ui.inkLabel(chip, info.chip, UDim2.fromScale(0.9, 0.8), UDim2.fromScale(0.05, 0.1))
 		t.RichText = true
-		sized(t, "tiny")
+		sized(t, "small") -- shrinks to fit a long chip; "tiny" was hard to read on PC (QA 2026-11-11)
 		chip.Parent = c.face
 	end
 	local b = button(c.face, if owned then Theme.info else Theme.go, if owned then "Owned" else tostring(item.robux), 0, 1, function()
@@ -533,7 +749,7 @@ local function shopCard(o: Open, v: State.View, parent: Instance, item: Config.R
 		r.BackgroundColor3 = Theme.shopBadge.bestBack
 		r.BorderSizePixel = 0
 		r.Position = UDim2.fromScale(0.06, -0.045)
-		r.Size = UDim2.fromScale(0.62, 0.085)
+		r.Size = UDim2.fromScale(0.56, 0.085) -- ends before the "+% MORE" sticker
 		r.ZIndex = 5
 		Ui.corner(r)
 		local st = Instance.new("UIStroke")
@@ -550,119 +766,282 @@ local function shopCard(o: Open, v: State.View, parent: Instance, item: Config.R
 	return c, b
 end
 
+-- a Forever pass as a wide banner (owner's reference 2026-11-12: wide cards for the permanent upgrades):
+-- the picture on a soft light, the big "2x", its name and the value chip, and the green Robux button on
+-- the right. The whole banner buys, like a card.
+local function shopBanner(v: State.View, parent: Instance, item: Config.RobuxItem, info: CardInfo): (Ui.Block, Ui.Block)
+	local owned = ownsPass(v, item)
+	local colour = Theme.shopCards[if item.icon == "power" then "power" else item.kind] or Theme.info
+	if owned then
+		colour = colour:Lerp(Theme.slot, 0.6)
+	end
+	local c = Ui.block(parent, "Robux_" .. item.id, colour, "", if owned then nil else function()
+		SoundController.play("click")
+		State.send("BuyRobux", item.id)
+	end)
+	c.root.Size = UDim2.fromScale(1, 1)
+	c.text.Visible = false
+	shopSun(c.face, 0.1, 0.5, 1.25) -- rays behind the picture (was a flat white disc)
+	local icon = Config.images.icons[item.icon] or Config.images.icons.coin
+	local stack = item.stack or 1
+	local iw, ih = 0.16, 0.74
+	local step = iw * 0.2
+	for k = stack, 1, -1 do
+		local dx = (k - 1) * step - (stack - 1) * step / 2
+		local img = Ui.image(c.face, icon, UDim2.fromScale(iw, ih), UDim2.fromScale(0.02 + dx, 0.13 - (k - 1) * 0.03))
+		img.ZIndex = 1 + stack - k
+	end
+	local big = Ui.label(c.face, info.big)
+	big.Name = "Big"
+	sized(big, "big")
+	box(big, 0.2, 0.14, 0.16, 0.72)
+	local name = Ui.label(c.face, info.name)
+	name.Name = "Name"
+	name.TextXAlignment = Enum.TextXAlignment.Left
+	sized(name, "body")
+	box(name, 0.38, 0.1, 0.34, 0.4)
+	if info.chip and info.chip ~= "" then
+		local chip = Instance.new("Frame")
+		chip.Name = "Chip"
+		chip.BackgroundColor3 = Theme.white
+		chip.BorderSizePixel = 0
+		box(chip, 0.38, 0.54, 0.33, 0.33)
+		Ui.corner(chip, 0.5)
+		Ui.stroke(chip, Config.ui.cardStroke)
+		local t = Ui.inkLabel(chip, info.chip, UDim2.fromScale(0.9, 0.8), UDim2.fromScale(0.05, 0.1))
+		t.RichText = true
+		sized(t, "small")
+		chip.Parent = c.face
+	end
+	local b = button(c.face, if owned then Theme.info else Theme.go, if owned then "Owned" else tostring(item.robux), 0, 1, function()
+		if not owned then
+			State.send("BuyRobux", item.id)
+		end
+	end)
+	b.root.Name = "Buy"
+	box(b.root, 0.745, 0.2, 0.235, 0.6)
+	if not owned then
+		robuxTag(b)
+	end
+	return c, b
+end
+
+-- owner 2026-11-12: the Shop is one page you scroll from Forever down to Boosts (the reference's layout:
+-- a titled section per kind, wide banners for the permanent passes, cards for the packs). The left rail
+-- stays as shortcuts: a tab scrolls to its section, and the section in view is the lit tab.
 local function shop(o: Open, v: State.View)
 	local S = Config.ui.shop
 	local tabs = shopTabs()
+	shopFrame(o, v)
 	if #tabs == 0 then
 		local t = Ui.inkLabel(o.body, "Coming soon", UDim2.fromScale(1, 0.2), UDim2.fromScale(0, 0.4))
 		sized(t, "title")
 		return
 	end
-	local tab: ShopTab = tabs[1]
+	local fresh = shopTab == nil -- a new visit starts at its default section; a redraw keeps the scroll
 	shopTab = shopTab or defaultTab(v, tabs)
-	for _, t in tabs do
-		if t.id == shopTab then
-			tab = t
-		end
-	end
-	shopTab = tab.id
-	-- the rail: one block per tab in its colour; the open one is full colour, nudged toward the cards
 	local rail = Instance.new("Frame")
 	rail.Name = "Tabs"
 	rail.BackgroundTransparency = 1
 	rail.Size = UDim2.fromScale(S.rail, 1)
+	rail.Visible = S.showRail -- round 2: one full-width page like the references (the rail's code stays for a quick way back)
 	rail.Parent = o.body
+	local railW = if S.showRail then S.rail + 0.03 else 0
+	local content = Instance.new("Frame")
+	content.Name = "Content"
+	content.BackgroundTransparency = 1
+	content.Position = UDim2.fromScale(railW, 0)
+	content.Size = UDim2.fromScale(1 - railW, 1)
+	content.Parent = o.body
+	local sf = list(content, true) :: ScrollingFrame
+	sf.ScrollBarImageColor3 = Theme.white -- the ink bar vanished on the dark well
+	local heads: { [string]: Frame } = {}
+	local tabBlocks: { [string]: { block: Ui.Block, ring: UIStroke, colour: Color3, y: number } } = {}
+	local pinned: string? = nil -- a pressed tab keeps its light until the player scrolls by hand
+	local function styleTabs()
+		for id, t in tabBlocks do
+			local on = id == shopTab
+			local colour = if on then t.colour else t.colour:Lerp(Theme.white, 0.4)
+			t.block.face.BackgroundColor3 = colour
+			t.block.root.BackgroundColor3 = Ui.darker(colour)
+			t.block.root.Position = UDim2.fromScale(if on then 0.08 else 0, t.y)
+			t.ring.Enabled = on
+		end
+	end
+	local function jump(id: string, instant: boolean)
+		local h = heads[id]
+		if not h then
+			return
+		end
+		local y = h.AbsolutePosition.Y - sf.AbsolutePosition.Y + sf.CanvasPosition.Y - sf.AbsoluteSize.Y * Config.ui.listInset
+		local target = Vector2.new(0, math.clamp(y, 0, math.max(0, sf.AbsoluteCanvasSize.Y - sf.AbsoluteSize.Y)))
+		if instant or SettingsController.get("reducedMotion") == true then
+			sf.CanvasPosition = target
+		else
+			TweenService:Create(sf, TweenInfo.new(S.jumpSeconds, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { CanvasPosition = target }):Play()
+		end
+	end
+	-- the lit tab follows the scroll: the last section whose title has come into the top part of the view
+	local function mark()
+		if pinned then
+			return
+		end
+		local line = sf.AbsolutePosition.Y + sf.AbsoluteSize.Y * S.markLine
+		local cur = tabs[1].id
+		for _, t in tabs do
+			local h = heads[t.id]
+			if h and h.AbsolutePosition.Y <= line then
+				cur = t.id
+			end
+		end
+		local room = sf.AbsoluteCanvasSize.Y - sf.AbsoluteSize.Y
+		if room > 4 and sf.CanvasPosition.Y >= room - 2 then
+			cur = tabs[#tabs].id -- at the very bottom: the last section, even if its title can't reach the top
+		end
+		if cur ~= shopTab then
+			shopTab = cur
+			styleTabs()
+		end
+	end
 	local n = #tabs
 	local tabH = math.min(0.22, (1 - S.gap * (n - 1)) / n)
 	local top = (1 - (tabH * n + S.gap * (n - 1))) / 2
 	for i, t in tabs do
-		local on = t.id == tab.id
 		local colour = Theme.shopCards[t.colour] or Theme.info
-		local b = Ui.block(rail, "Tab_" .. t.id, if on then colour else colour:Lerp(Theme.white, 0.4), t.label, function()
-			if shopTab ~= t.id then
-				SoundController.play("click")
-				shopTab = t.id
-				PopupController.refresh()
-			end
+		local b = Ui.block(rail, "Tab_" .. t.id, colour, t.label, function()
+			SoundController.play("click")
+			pinned = t.id
+			shopTab = t.id
+			styleTabs()
+			jump(t.id, false)
 		end)
-		box(b.root, if on then 0.08 else 0, top + (i - 1) * (tabH + S.gap), 0.92, tabH)
+		local y = top + (i - 1) * (tabH + S.gap)
+		box(b.root, 0, y, 0.92, tabH)
 		Ui.image(b.face, Config.images.icons[t.icon] or Config.images.icons.coin, UDim2.fromScale(0.6, 0.6), UDim2.fromScale(0.2, 0.03))
 		box(b.text, 0.05, 0.62, 0.9, 0.34)
 		sized(b.text, "small")
-		if on then
-			local ring = Instance.new("UIStroke") -- the open tab: a white ring inside its outline
-			ring.Color = Theme.white
-			ring.Thickness = Config.ui.cardStroke * 1.5
-			ring.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-			ring.LineJoinMode = Enum.LineJoinMode.Round
-			ring.Parent = b.face
-		end
+		local ring = Instance.new("UIStroke") -- the lit tab: a white ring inside its outline
+		ring.Color = Theme.white
+		ring.Thickness = Config.ui.cardStroke * 1.5
+		ring.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		ring.LineJoinMode = Enum.LineJoinMode.Round
+		ring.Parent = b.face
+		tabBlocks[t.id] = { block = b, ring = ring, colour = colour, y = y }
 	end
-	local content = Instance.new("Frame")
-	content.Name = "Content"
-	content.BackgroundTransparency = 1
-	content.Position = UDim2.fromScale(S.rail + 0.03, 0)
-	content.Size = UDim2.fromScale(1 - S.rail - 0.03, 1)
-	content.Parent = o.body
-	-- the tab's heading: what it is, then one short line (the Power tab names the next island)
-	local sub = tab.sub
-	if tab.kinds.power then
-		local need = Config.nextNeed(v.coldPower or 0)
-		local isle = nil
-		for _, z in Config.world.zones do
-			if z.need == need then
-				isle = z.name
+	-- the sections, top to bottom
+	local order = 0
+	local passBuy: Ui.Block? = nil
+	local bestBuy: Ui.Block? = nil
+	local firstBuy: Ui.Block? = nil
+	for _, tab in tabs do
+		local colour = Theme.shopCards[tab.colour] or Theme.info
+		order += 1
+		local hr = row(sf, order, 1, S.headAspect)
+		hr.Name = "Head_" .. tab.id
+		heads[tab.id] = hr
+		-- the section's title as plain white words with its icon each side, straight on the well (round 2,
+		-- like the references: a coloured pill per section read as a button), and one short line under it
+		local _ = colour
+		local title = Ui.label(hr, tab.title, UDim2.fromScale(0.7, 0.56), UDim2.fromScale(0.15, 0.06))
+		title.Name = "Title"
+		sized(title, "title")
+		local tabIcon = Config.images.icons[tab.icon] or Config.images.icons.coin
+		local left = Ui.image(hr, tabIcon, UDim2.fromScale(0.1, S.headIcon), UDim2.fromScale(0, 0.03))
+		local right = Ui.image(hr, tabIcon, UDim2.fromScale(0.1, S.headIcon), UDim2.fromScale(0, 0.03))
+		task.defer(function()
+			local w = math.max(1, hr.AbsoluteSize.X)
+			local half = title.TextBounds.X / w / 2
+			local iw = left.AbsoluteSize.X / w
+			local y = 0.06 + 0.56 / 2
+			left.Position = UDim2.fromScale(0.5 - half - 0.015 - iw / 2, y)
+			right.Position = UDim2.fromScale(0.5 + half + 0.015 + iw / 2, y)
+		end)
+		local sub = tab.sub
+		if tab.kinds.power then
+			local need = Config.nextNeed(v.coldPower or 0)
+			local isle = nil
+			for _, z in Config.world.zones do
+				if z.need == need then
+					isle = z.name
+				end
+			end
+			sub = `{isle or "Your next island"} needs {Config.powerText(need)} Cold Power`
+		end
+		local line = Ui.inkLabel(hr, sub, UDim2.fromScale(1, 0.3), UDim2.fromScale(0, 0.68))
+		line.TextColor3 = Theme.shopFrame.text -- light words on the dark well
+		sized(line, "small")
+		-- its products: owned passes go last
+		local items = shopItems(tab)
+		table.sort(items, function(a, b)
+			local oa, ob = ownsPass(v, a), ownsPass(v, b)
+			if oa ~= ob then
+				return ob
+			end
+			return false
+		end)
+		local infos: { CardInfo } = {}
+		for k, item in items do
+			infos[k] = cardInfo(v, item)
+		end
+		if tab.kinds.pass then
+			for k, item in items do
+				order += 1
+				local r = row(sf, order, 1, S.bannerAspect)
+				r.Name = "Banner_" .. item.id
+				local _, buy = shopBanner(v, r, item, infos[k])
+				if not passBuy and not ownsPass(v, item) then
+					passBuy = buy
+				end
+			end
+		else
+			-- packs as cards, small to big, left to right
+			local bonus, best = shopBonuses(items, infos)
+			order += 1
+			local r = row(sf, order, 1, S.cardsAspect)
+			r.Name = "Cards_" .. tab.id
+			local count = #items
+			local gap = 0.04
+			local w = math.min(S.cardMax, (1 - gap * (count - 1)) / (count + (if best then S.bestGrow - 1 else 0)))
+			local total = w * count + gap * (count - 1) + (if best then w * (S.bestGrow - 1) else 0)
+			local x = (1 - total) / 2
+			for k, item in items do
+				local isBest = k == best
+				local cw = if isBest then w * S.bestGrow else w
+				local c, buy = shopCard(o, v, r, item, infos[k], bonus[k], isBest)
+				box(c.root, x, if isBest then 0.06 else 0.1, cw, if isBest then 0.94 else 0.86) -- room above for the stickers
+				x += cw + gap
+				firstBuy = firstBuy or buy
+				if isBest then
+					bestBuy = bestBuy or buy
+				end
 			end
 		end
-		sub = `{isle or "Your next island"} needs {Config.powerText(need)} Cold Power`
 	end
-	local title = Ui.inkLabel(content, tab.title, UDim2.fromScale(1, S.head * 0.56), UDim2.fromScale(0, 0))
-	title.TextXAlignment = Enum.TextXAlignment.Left
-	sized(title, "title")
-	local line = Ui.inkLabel(content, sub, UDim2.fromScale(1, S.head * 0.38), UDim2.fromScale(0, S.head * 0.58))
-	line.TextXAlignment = Enum.TextXAlignment.Left
-	line.TextColor3 = Theme.infoDeep
-	sized(line, "small")
-	-- the cards: small to big, left to right; owned passes go last
-	local items = shopItems(tab)
-	table.sort(items, function(a, b)
-		local oa, ob = ownsPass(v, a), ownsPass(v, b)
-		if oa ~= ob then
-			return ob
-		end
-		return false
-	end)
-	local infos: { CardInfo } = {}
-	for k, item in items do
-		infos[k] = cardInfo(v, item)
-	end
-	local bonus, best = shopBonuses(items, infos)
-	local row = Instance.new("Frame")
-	row.Name = "Cards"
-	row.BackgroundTransparency = 1
-	row.Position = UDim2.fromScale(0, S.head + 0.06)
-	row.Size = UDim2.fromScale(1, 1 - S.head - 0.06)
-	row.Parent = content
-	local count = #items
-	local gap = 0.04
-	local w = math.min(S.cardMax, (1 - gap * (count - 1)) / (count + (if best then S.bestGrow - 1 else 0)))
-	local total = w * count + gap * (count - 1) + (if best then w * (S.bestGrow - 1) else 0)
-	local x = (1 - total) / 2
-	local focal: Ui.Block? = nil
-	for k, item in items do
-		local isBest = k == best
-		local cw = if isBest then w * S.bestGrow else w
-		local c, buy = shopCard(o, v, row, item, infos[k], bonus[k], isBest)
-		box(c.root, x, if isBest then 0 else 0.05, cw, if isBest then 1 else 0.9)
-		x += cw + gap
-		-- one focal point: the best value, else the first thing you don't own yet
-		if not ownsPass(v, item) and (isBest or (not focal and not best)) then
-			focal = buy
-		end
-	end
+	-- one focal point: the first pass you don't own, else the best-value pack
+	local focal = passBuy or bestBuy or firstBuy
 	if focal then
 		pulse(focal.root)
 		o.first = focal.face
+	end
+	styleTabs()
+	sf:GetPropertyChangedSignal("CanvasPosition"):Connect(mark)
+	sf.InputBegan:Connect(function(input: InputObject)
+		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+			pinned = nil
+		end
+	end)
+	sf.InputChanged:Connect(function(input: InputObject)
+		if input.UserInputType == Enum.UserInputType.MouseWheel then
+			pinned = nil
+		end
+	end)
+	if fresh and shopTab ~= tabs[1].id then
+		pinned = shopTab
+		task.delay(0.05, function() -- once the list has been measured
+			if sf.Parent and shopTab then
+				jump(shopTab, true)
+			end
+		end)
 	end
 end
 
@@ -719,12 +1098,33 @@ local canInvite = false
 
 -- the Daily popup's last row (2026-11-10): the friend bonus (Config.friends) and an Invite button that
 -- opens Roblox's own friend picker. Roblox doesn't show invite prompts in Studio play tests.
+-- which painted icon a challenge wears (found by its text in Config.challenges.pool)
+local CHALLENGE_ICONS: { [string]: string } = {
+	frozen = Config.images.icons.ray, banked = Config.ui.tileIcons.pets, rares = Config.images.icons.star, coinsEarned = Config.images.icons.coin,
+}
+local function challengeIcon(c: State.Challenge): string
+	for _, def in Config.challenges.pool do
+		if def.text == c.text then
+			return CHALLENGE_ICONS[def.stat] or Config.images.icons.trophy
+		end
+	end
+	return Config.images.icons.trophy
+end
+
 local function inviteRow(l: GuiObject, order: number)
-	local r = card(row(l, order, 0.16))
+	local r = card(row(l, order, Config.ui.daily.inviteHeight))
 	r.Name = "Invite"
+	r.BackgroundColor3 = Theme.info:Lerp(Theme.white, 0.82) -- info blue: a tip, not one of today's goals
 	local F = Config.friends
-	text(r, `Play with friends: +{math.round(F.perFriend * 100)}% coins each (up to {F.max})`, 0.03, 0.6)
-	local b = button(r, Theme.go, "Invite", 0.66, 0.32, function()
+	Ui.image(r, Config.images.icons.gift, UDim2.fromScale(0.1, 0.8), UDim2.fromScale(0.02, 0.1))
+	local D = Config.ui.daily
+	local t = text(r, "Play with friends", D.textX, D.textW)
+	t.Size = UDim2.fromScale(D.textW, 0.46)
+	t.Position = UDim2.fromScale(D.textX, 0.07)
+	local s = text(r, `+{math.round(F.perFriend * 100)}% coins for each friend (up to {F.max})`, D.textX, D.textW, Theme.infoDeep, "small")
+	s.Size = UDim2.fromScale(D.textW, 0.36)
+	s.Position = UDim2.fromScale(D.textX, 0.55)
+	local b = button(r, Theme.go, "Invite", D.sideX, D.sideW, function()
 		pcall(function()
 			SocialService:PromptGameInvite(Players.LocalPlayer)
 		end)
@@ -732,37 +1132,29 @@ local function inviteRow(l: GuiObject, order: number)
 	b.root.Name = "InviteButton"
 end
 
+-- owner 2026-11-12 ("looks very strange"): the reward was a big yellow block that read as a button, the
+-- little bar hid under the words, and the timer floated between the cards. Now: the timer is a blue pill
+-- on top; each goal is a card with its painted icon, the goal, a wide bar, and on the right a quiet coin
+-- tag (what it pays), a pulsing green Claim once it's done (the card turns pale green), or "Done".
 local function daily(o: Open, v: State.View)
+	local D = Config.ui.daily
 	local l = list(o.body, false)
 	local d = v.daily
 	local items = if d then d.list else {}
-	for i, c in items do
-		local line = card(row(l, i, 0.2))
-		local what = string.gsub(c.text, "{n}", Ui.short(c.goal))
-		local t = text(line, what, 0.03, 0.4)
-		t.Size = UDim2.fromScale(0.4, 0.5)
-		t.Position = UDim2.fromScale(0.03, 0.06)
-		bar(line, 0.03, 0.6, 0.4, 0.3, c.have / math.max(1, c.goal), `{Ui.short(c.have)}/{Ui.short(c.goal)}`, Theme.tiles.daily)
-		if c.claimed then
-			local done = text(line, "Done", 0.72, 0.26, Theme.go, "button")
-			done.TextXAlignment = Enum.TextXAlignment.Center
-		elseif c.done then
-			local b = button(line, Theme.go, "Claim", 0.66, 0.32, function()
-				State.send("ClaimChallenge", i)
-			end)
-			pulse(b.root)
-			o.first = o.first or b.face
-		else
-			local tag = Ui.block(line, "Reward", Theme.coin, `+{Ui.short(d and d.coins or 0)}`, nil, true)
-			tag.root.Position = UDim2.fromScale(0.66, 0.15)
-			tag.root.Size = UDim2.fromScale(0.32, 0.7)
-			sized(tag.text, "button")
-			priceTag(tag)
-		end
-	end
 	if d then
-		local foot = text(row(l, #items + 1, 0.12), "", 0.02, 0.96, Theme.infoDeep, "small")
-		foot.TextXAlignment = Enum.TextXAlignment.Center
+		local pill = Instance.new("Frame")
+		pill.Name = "Timer"
+		pill.BackgroundColor3 = Theme.info:Lerp(Theme.white, 0.8)
+		pill.BorderSizePixel = 0
+		pill.AnchorPoint = Vector2.new(0.5, 0.5)
+		pill.Position = UDim2.fromScale(0.5, 0.5)
+		pill.Size = UDim2.fromScale(0.56, 0.9)
+		Ui.corner(pill, 0.5)
+		Ui.stroke(pill, Config.ui.cardStroke)
+		pill.Parent = row(l, 0, D.timerHeight)
+		local foot = Ui.inkLabel(pill, "", UDim2.fromScale(0.92, 0.7), UDim2.fromScale(0.04, 0.15))
+		foot.TextColor3 = Theme.infoDeep
+		sized(foot, "small")
 		local function show()
 			foot.Text = `New challenges in {Config.timeText(d.resetsAt - workspace:GetServerTimeNow())}`
 		end
@@ -774,13 +1166,67 @@ local function daily(o: Open, v: State.View)
 			end
 		end)
 	end
+	for i, c in items do
+		local line = card(row(l, i, D.rowHeight))
+		line.Name = "Challenge" .. i
+		local ready = c.done and not c.claimed
+		if c.claimed then
+			line.BackgroundColor3 = Theme.slot:Lerp(Theme.white, 0.5)
+		elseif ready then
+			line.BackgroundColor3 = Theme.go:Lerp(Theme.white, 0.8)
+		end
+		local badge = Instance.new("Frame")
+		badge.Name = "Badge"
+		badge.BackgroundColor3 = Theme.tiles.daily:Lerp(Theme.white, 0.7)
+		badge.BorderSizePixel = 0
+		badge.AnchorPoint = Vector2.new(0, 0.5)
+		badge.Position = UDim2.fromScale(0.015, 0.5)
+		badge.Size = UDim2.fromScale(0.2, 0.8)
+		local ba = Instance.new("UIAspectRatioConstraint")
+		ba.DominantAxis = Enum.DominantAxis.Height
+		ba.Parent = badge
+		Ui.corner(badge)
+		Ui.stroke(badge, Config.ui.cardStroke)
+		badge.Parent = line
+		Ui.image(badge, challengeIcon(c), UDim2.fromScale(0.84, 0.84), UDim2.fromScale(0.08, 0.08))
+		local what = string.gsub(c.text, "{n}", Ui.short(c.goal))
+		local t = text(line, what, D.textX, D.textW)
+		t.Size = UDim2.fromScale(D.textW, 0.42)
+		t.Position = UDim2.fromScale(D.textX, 0.08)
+		local b = bar(line, D.textX, 0.56, D.textW, 0.32, c.have / math.max(1, c.goal),
+			`{Ui.short(math.min(c.have, c.goal))} / {Ui.short(c.goal)}`, if c.done then Theme.go else Theme.tiles.daily)
+		sized(b:FindFirstChild("Count") :: TextLabel, "small")
+		if c.claimed then
+			local done = text(line, "Done", D.sideX, D.sideW, Theme.go, "button")
+			done.TextXAlignment = Enum.TextXAlignment.Center
+		elseif ready then
+			local claim = button(line, Theme.go, "Claim", D.sideX, D.sideW, function()
+				State.send("ClaimChallenge", i)
+			end)
+			pulse(claim.root)
+			o.first = o.first or claim.face
+		else
+			local tag = Instance.new("Frame")
+			tag.Name = "Reward"
+			tag.BackgroundColor3 = Theme.coin:Lerp(Theme.white, 0.78)
+			tag.BorderSizePixel = 0
+			tag.Position = UDim2.fromScale(D.sideX + 0.01, 0.24)
+			tag.Size = UDim2.fromScale(D.sideW - 0.02, 0.52)
+			Ui.corner(tag, 0.5)
+			Ui.stroke(tag, Config.ui.cardStroke)
+			tag.Parent = line
+			Ui.image(tag, Config.images.icons.coin, UDim2.fromScale(0.3, 0.84), UDim2.fromScale(0.05, 0.08))
+			local amount = Ui.inkLabel(tag, `+{Ui.short(d and d.coins or 0)}`, UDim2.fromScale(0.56, 0.7), UDim2.fromScale(0.37, 0.15))
+			sized(amount, "button")
+		end
+	end
 	if canInvite then
-		inviteRow(l, #items + 2)
+		inviteRow(l, #items + 1)
 	end
 end
 
 local function thawTime(v: State.View, p: State.PetView, def: PetDefs.PetDef): number
-	return Config.thawSeconds(def.tier, def.size, def.zone, p.mut, v.upgrades.pen or 1)
+	return Config.thawSeconds(def.tier, def.size, def.zone, p.mut, v.upgrades.pen or 1, if v.pan then (v.pan :: any).thaw else 1)
 end
 
 -- an ice-blue tag on the right of a pet card for a frozen pet: its thaw time, or the live time left in
@@ -807,6 +1253,26 @@ local function thaw(o: Open, v: State.View)
 		end
 	end
 	local inside = busy
+	-- its time is up: it waits for Claim (owner 2026-11-13), the one big green focal point
+	local readyNow = inside ~= nil and Config.thaw.claimByHand and (inside.thawAt or 0) <= workspace:GetServerTimeNow()
+	if inside and readyNow then
+		local l = list(o.body, false)
+		local def = PetDefs.get(inside.key)
+		if def then
+			local r = card(row(l, 1, 0, 7.5))
+			petInfo(r, inside, def)
+			local tag = iceTag(r, "Ready!")
+			tag.Parent.BackgroundColor3 = Theme.go
+		end
+		local r2 = row(l, 2, 0.2)
+		local claim = button(r2, Theme.go, "Claim", 0.25, 0.5, function()
+			State.send("ClaimThaw", m)
+			PopupController.close()
+		end)
+		pulse(claim.root)
+		o.first = claim.face
+		return
+	end
 	if inside or #frozen == 0 then
 		local l = list(o.body, false)
 		local def = if inside then PetDefs.get(inside.key) else nil
@@ -814,13 +1280,44 @@ local function thaw(o: Open, v: State.View)
 			local r = card(row(l, 1, 0, 7.5))
 			petInfo(r, inside, def)
 			countdowns(o, { { label = iceTag(r, ""), at = inside.thawAt or 0 } })
+			-- when the time runs out with the popup open, draw it again with the Claim button
+			local wait = (inside.thawAt or 0) - workspace:GetServerTimeNow()
+			if Config.thaw.claimByHand and wait > 0 then
+				task.delay(wait + 0.1, function()
+					if not o.closed then
+						PopupController.refresh()
+					end
+				end)
+			end
 		else
 			text(row(l, 1, 0.2), "No frozen pets. Freeze one and bring it home!", 0.02, 0.96).TextXAlignment = Enum.TextXAlignment.Center
 		end
-		local ok = button(row(l, 2, 0.2), Theme.go, "OK", 0.3, 0.4, function()
+		local r2 = row(l, 2, 0.2)
+		local left = if inside and inside.thawAt then inside.thawAt - workspace:GetServerTimeNow() else 0
+		local canSkip = left > Config.thaw.skip.minLeft
+		-- OK stays the big green focal point; the paid skip is the small button beside it (never a
+		-- pop-up, waiting is always free). A skip kept from before shows as a free one.
+		local ok = button(r2, Theme.go, "OK", if canSkip then 0.12 else 0.3, 0.4, function()
 			PopupController.close()
 		end)
 		o.first = ok.face
+		if canSkip then
+			local free = (v.thawSkips or 0) > 0
+			local tier = Config.thawSkipTier(left)
+			local sk = button(r2, Theme.coin, if free then "Skip free" else tostring(tier.robux), 0.58, 0.3, function()
+				State.send("SkipThaw", m)
+			end)
+			sk.root.Name = "Skip"
+			sk.root.Position = UDim2.fromScale(0.58, 0.2)
+			sk.root.Size = UDim2.fromScale(0.3, 0.6)
+			if not free then
+				robuxTag(sk)
+				local word = text(r2, "Skip", 0.58, 0.3, nil, "small")
+				word.TextXAlignment = Enum.TextXAlignment.Center
+				word.Position = UDim2.fromScale(0.58, -0.08)
+				word.Size = UDim2.fromScale(0.3, 0.28)
+			end
+		end
 		return
 	end
 	table.sort(frozen, function(a, b)
@@ -1168,24 +1665,129 @@ local function numberBox(parent: Instance, placeholder: string, x: number, w: nu
 	return box
 end
 
+-- The Tester panel, remade (owner 2026-11-12: "actual good UI, smaller buttons but a bigger panel on
+-- the screen, a button for each thing I need"). A big popup with a live readout on top, five tabs, and
+-- each tab a compact grid of small buttons (Config.dev.panel: slots to a row, the row's shape). Kinds of
+-- item: a button (one slot), a stepper (a value with - and +, two slots), a number box with Set (two
+-- slots), an On / Off toggle (one slot). Dev tools stay quiet: grey tabs, colour only on actions.
+local testerTab = "player"
+
 local function tester(o: Open, v: State.View)
 	local D = Config.dev
-	local l = list(o.body, true)
+	local P = D.panel
 	local updates: { (State.View) -> () } = {}
-	local order = 0
-	local function line(): Frame
-		order += 1
-		return row(l, order, 0, 9)
-	end
-	local function heading(s: string)
-		local t = text(line(), s, 0.02, 0.96, Theme.coin)
-		t.TextXAlignment = Enum.TextXAlignment.Left
-	end
 	local function send(action: string, a: any?, b: any?)
 		State.send("Tester", action, a, b)
 	end
-	local function toggle(r: Frame, label: string, x: number, w: number, get: (State.View) -> boolean, action: string)
-		local b = button(r, Theme.no, label, x, w, function()
+	local function readNum(key: string, default: number): number
+		local n = testerReadout[key]
+		return if typeof(n) == "number" then n else default
+	end
+
+	-- top: the readout and the tab row
+	local top = Instance.new("Frame")
+	top.Name = "TesterTop"
+	top.BackgroundTransparency = 1
+	top.Size = UDim2.fromScale(1, P.topHeight)
+	top.Parent = o.body
+	local readout = Ui.inkLabel(top, "", UDim2.fromScale(1, 0.42), UDim2.fromScale(0, 0))
+	readout.Name = "Readout"
+	readout.TextXAlignment = Enum.TextXAlignment.Left
+	readout.RichText = true
+	sized(readout, "small")
+	table.insert(updates, function()
+		local parts = 0
+		for _, d in workspace:GetDescendants() do
+			if d:IsA("BasePart") then
+				parts += 1
+			end
+		end
+		local r = testerReadout
+		local function b(s: string): string
+			return `<b>{s}</b>`
+		end
+		readout.Text = `FPS {b(tostring(math.round(fps)))}   Parts {b(Ui.commas(parts))}   Coins {b(Ui.short(r.coins or 0))} (x{r.mult or 1})   Power {b(Config.powerText(r.power or 0))}   `
+			.. `Rebirth {b(tostring(r.rebirths or 0))}   Islands {b(`{r.reach or 1}/{#Config.world.zones}`)}   Gun {b(tostring(r.gun or 1))}   `
+			.. `Trainer {b(tostring(r.trainer or 1))}   Slots {b(tostring(r.slots or 1))}   Pets {b(tostring(r.pets or 0))}`
+	end)
+	local tabRow = Instance.new("Frame")
+	tabRow.Name = "Tabs"
+	tabRow.BackgroundTransparency = 1
+	tabRow.Position = UDim2.fromScale(0, 0.48)
+	tabRow.Size = UDim2.fromScale(1, 0.52)
+	tabRow.Parent = top
+	for i, t in P.tabs do
+		local on = t.id == testerTab
+		local tb = button(tabRow, if on then Theme.info else Theme.tutorial.skip, t.label, (i - 1) / #P.tabs + 0.004, 1 / #P.tabs - 0.008, function()
+			if testerTab ~= t.id then
+				testerTab = t.id
+				PopupController.refresh()
+			end
+		end)
+		tb.root.Name = "Tab_" .. t.id
+		if on then
+			o.first = tb.face
+		end
+	end
+	local page = Instance.new("Frame")
+	page.Name = "Page"
+	page.BackgroundTransparency = 1
+	page.Position = UDim2.fromScale(0, P.topHeight + 0.02)
+	page.Size = UDim2.fromScale(1, 1 - P.topHeight - 0.02)
+	page.Parent = o.body
+	local l = list(page, true)
+
+	-- the grid: items fill rows of P.perRow slots
+	local GAP = P.gap
+	local slotW = (1 - GAP * (P.perRow + 1)) / P.perRow
+	local order, used = 0, P.perRow
+	local cur: Frame = Instance.new("Frame")
+	local function take(n: number): (Frame, number, number)
+		if used + n > P.perRow then
+			order += 1
+			cur = row(l, order, 0, P.rowAspect)
+			used = 0
+		end
+		local x = GAP + used * (slotW + GAP)
+		used += n
+		return cur, x, n * slotW + (n - 1) * GAP
+	end
+	local function heading(s: string)
+		order += 1
+		local r = row(l, order, 0, P.headAspect)
+		used = P.perRow
+		local t = text(r, s, GAP, 1 - 2 * GAP, Theme.infoDeep, "small")
+		t.Size = UDim2.fromScale(1 - 2 * GAP, 0.9)
+		t.Position = UDim2.fromScale(GAP, 0.05)
+	end
+	local function btn(label: string, colour: Color3, fn: () -> (), n: number?): Ui.Block
+		local r, x, w = take(n or 1)
+		local b = button(r, colour, label, x, w, fn)
+		sized(b.text, "small")
+		return b
+	end
+	local function stepper(get: (State.View) -> string, minus: () -> (), plus: () -> ())
+		local r, x, w = take(2)
+		local lab = text(r, "", x, w * 0.56, nil, "small")
+		lab.TextXAlignment = Enum.TextXAlignment.Center
+		sized(button(r, Theme.no, "-", x + w * 0.58, w * 0.2, minus).text, "small")
+		sized(button(r, Theme.go, "+", x + w * 0.8, w * 0.2, plus).text, "small")
+		table.insert(updates, function(view)
+			lab.Text = get(view)
+		end)
+	end
+	local function input(placeholder: string, onSet: (number) -> ())
+		local r, x, w = take(2)
+		local box = numberBox(r, placeholder, x, w * 0.66)
+		sized(button(r, Theme.go, "Set", x + w * 0.69, w * 0.31, function()
+			local n = tonumber(box.Text)
+			if n then
+				onSet(n)
+			end
+		end).text, "small")
+	end
+	local function toggle(label: string, get: (State.View) -> boolean, action: string)
+		local b = btn(label, Theme.no, function()
 			local view = State.view
 			if view and view.tester then
 				send(action, not get(view))
@@ -1198,322 +1800,295 @@ local function tester(o: Open, v: State.View)
 			b.text.Text = `{label}: {if on then "On" else "Off"}`
 		end)
 	end
-
-	-- readout
-	local readout = text(line(), "", 0.02, 0.96)
-	table.insert(updates, function()
-		local parts = 0
-		for _, d in workspace:GetDescendants() do
-			if d:IsA("BasePart") then
-				parts += 1
-			end
-		end
-		local r = testerReadout
-		readout.Text = `FPS {math.round(fps)}   Parts {Ui.commas(parts)}   Server: {Ui.short(r.coins or 0)} coins, x{r.mult or 1}, rebirths {r.rebirths or 0}, power {Config.powerText(r.power or 0)}`
-	end)
-
-	heading("Money multiplier")
-	local r = line()
-	local multNow = text(r, "", 0.02, 0.2)
-	local multBox = numberBox(r, "0.1 - 10000", 0.23, 0.22)
-	local setB = button(r, Theme.go, "Set", 0.46, 0.12, function()
-		local n = tonumber(multBox.Text)
-		if n then
-			send("mult", n)
-		end
-	end)
-	o.first = setB.face
-	for i, p in D.multPresets do
-		button(r, if p == 1 then Theme.no else Theme.info, if p == 1 then "Reset" else `{p}x`, 0.59 + (i - 1) * 0.1, 0.095, function()
-			send("mult", p)
-		end)
+	local function short(n: number): string
+		return Config.coinText(n)
 	end
-	table.insert(updates, function(view)
-		multNow.Text = `Now x{if view.tester then view.tester.mult else 1}`
-	end)
 
-	heading("Coins")
-	r = line()
-	local coinBox = numberBox(r, "Exact amount", 0.02, 0.3)
-	button(r, Theme.go, "Set", 0.33, 0.14, function()
-		local n = tonumber(coinBox.Text)
-		if n then
+	if testerTab == "player" then
+		heading("Coins")
+		input("Exact coins", function(n)
 			send("coinsSet", n)
-		end
-	end)
-	for i, n in D.addCoins do
-		local label = if n >= 1e9 then `+{n // 1e9}B` elseif n >= 1e6 then `+{n // 1e6}M` else `+{n // 1e3}K`
-		button(r, Theme.coin, label, 0.49 + (i - 1) * 0.17, 0.155, function()
-			send("coinsAdd", n)
 		end)
-	end
-
-	heading("Cold Power")
-	r = line()
-	for i, n in D.powerPresets do
-		button(r, Theme.training.power, Config.coinText(n), 0.02 + (i - 1) * 0.19, 0.17, function()
-			send("power", n)
-		end)
-	end
-
-	heading("Teleport")
-	local targets: { { id: string, label: string } } = testerReadout.targets or {}
-	for i = 1, #targets, 4 do
-		r = line()
-		for j = 0, 3 do
-			local t = targets[i + j]
-			if t then
-				button(r, Theme.info, t.label, 0.02 + j * 0.245, 0.23, function()
-					send("teleport", t.id)
-				end)
-			end
-		end
-	end
-
-	heading("Unlocks")
-	r = line()
-	-- every island gate (Round 4 phase 6): all open, the "Coming soon" ones too, or all shut again
-	button(r, Theme.go, "Open all gates", 0.02, 0.47, function()
-		send("openGates")
-	end)
-	button(r, Theme.no, "Close all gates", 0.51, 0.47, function()
-		send("closeGates")
-	end)
-	r = line()
-	button(r, Theme.go, "Max all upgrades", 0.02, 0.6, function()
-		send("upgrade", "all")
-	end)
-	local rebirthText = text(r, "", 0.66, 0.16)
-	button(r, Theme.no, "-", 0.83, 0.07, function()
-		send("rebirths", ((State.view and State.view.rebirths) or 0) - 1)
-	end)
-	button(r, Theme.go, "+", 0.91, 0.07, function()
-		send("rebirths", ((State.view and State.view.rebirths) or 0) + 1)
-	end)
-	table.insert(updates, function(view)
-		rebirthText.Text = `Rebirth {view.rebirths}`
-	end)
-	-- give any gun (Round 4 prompt 1; final QA 2026-11-03: the server action existed but no button sent it)
-	r = line()
-	local function gunNow(): number
-		return math.clamp((game:GetService("Players").LocalPlayer:GetAttribute("GunBest") or 1) :: number, 1, #Config.guns.list)
-	end
-	local gunText = text(r, "", 0.02, 0.78)
-	button(r, Theme.no, "-", 0.83, 0.07, function()
-		send("gun", gunNow() - 1)
-	end)
-	button(r, Theme.go, "+", 0.91, 0.07, function()
-		send("gun", gunNow() + 1)
-	end)
-	table.insert(updates, function()
-		gunText.Text = `Gun {gunNow()}: {Config.guns.list[gunNow()].name}`
-	end)
-	for i = 1, #Config.upgradeIds, 2 do
-		r = line()
-		for j = 0, 1 do
-			local id = Config.upgradeIds[i + j]
-			if id then
-				local x = 0.02 + j * 0.49
-				local lv = text(r, "", x, 0.27)
-				button(r, Theme.no, "-", x + 0.28, 0.06, function()
-					send("upgrade", id, ((State.view and State.view.upgrades[id]) or 1) - 1)
-				end)
-				button(r, Theme.go, "+", x + 0.35, 0.06, function()
-					send("upgrade", id, ((State.view and State.view.upgrades[id]) or 1) + 1)
-				end)
-				table.insert(updates, function(view)
-					lv.Text = `{Config.upgrades[id].name} {view.upgrades[id] or 1}`
-				end)
-			end
-		end
-	end
-	-- the pan's Look (Round 4 phase 5; Cold Level was removed 2026-11-10); every pan pet into Storage for money tests
-	r = line()
-	for j, kind in { "look" } do
-		local x = 0.02 + (j - 1) * 0.49
-		local lv = text(r, "", x, 0.27)
-		local function now(): number
-			local pan = State.view and State.view.pan
-			return if pan then (pan :: any)[kind] else 1
-		end
-		button(r, Theme.no, "-", x + 0.28, 0.06, function()
-			send("pan", kind, now() - 1)
-		end)
-		button(r, Theme.go, "+", x + 0.35, 0.06, function()
-			send("pan", kind, now() + 1)
-		end)
-		table.insert(updates, function()
-			lv.Text = `{Config.pan.names[kind]} {now()}`
-		end)
-	end
-	r = line()
-	button(r, Theme.info, "Pan pets to Storage", 0.02, 0.47, function()
-		send("storeAll")
-	end)
-	button(r, Theme.go, "Equip best", 0.51, 0.47, function()
-		State.send("EquipBest")
-	end)
-
-	heading("Pets")
-	local all: { PetDefs.PetDef } = {}
-	for _, z in Config.world.zones do
-		for _, def in PetDefs.inZone(z.id) do
-			table.insert(all, def)
-		end
-	end
-	local petIdx, mutIdx, tierIdx = 1, 0, #Config.tiers
-	local muts: { string } = {}
-	for name in Config.mutations do
-		table.insert(muts, name)
-	end
-	r = line()
-	local petName = text(r, "", 0.11, 0.38)
-	local function showPet()
-		local def = all[petIdx]
-		petName.Text = if def then `{def.name} ({def.tier})` else "-"
-		petName.TextColor3 = if def then tierColor(def.tier) else Theme.white
-	end
-	button(r, Theme.info, "<", 0.02, 0.08, function()
-		petIdx = (petIdx - 2) % #all + 1
-		showPet()
-	end)
-	button(r, Theme.info, ">", 0.5, 0.08, function()
-		petIdx = petIdx % #all + 1
-		showPet()
-	end)
-	local mutB: Ui.Block
-	mutB = button(r, Theme.info, "No mutation", 0.6, 0.2, function()
-		mutIdx = (mutIdx + 1) % (#muts + 1)
-		mutB.text.Text = if mutIdx == 0 then "No mutation" else muts[mutIdx]
-	end)
-	button(r, Theme.go, "Give", 0.82, 0.16, function()
-		local def = all[petIdx]
-		if def then
-			send("givePet", def.key, if mutIdx == 0 then nil else muts[mutIdx])
-		end
-	end)
-	showPet()
-	-- the pet above, wild, in any zone (0 = next to me), to test it without waiting for it to spawn
-	r = line()
-	local zoneIdx = 0
-	local zones = Config.world.zones
-	local zoneName = text(r, "", 0.11, 0.38)
-	local function showZone()
-		zoneName.Text = if zoneIdx == 0 then "Next to me" else `{zoneIdx}. {zones[zoneIdx].name}`
-	end
-	button(r, Theme.info, "<", 0.02, 0.08, function()
-		zoneIdx = (zoneIdx - 1) % (#zones + 1)
-		showZone()
-	end)
-	button(r, Theme.info, ">", 0.5, 0.08, function()
-		zoneIdx = (zoneIdx + 1) % (#zones + 1)
-		showZone()
-	end)
-	button(r, Theme.go, "Spawn wild", 0.6, 0.38, function()
-		local def = all[petIdx]
-		if def then
-			send("spawnPet", def.key, if zoneIdx == 0 then 0 else zones[zoneIdx].id)
-		end
-	end)
-	showZone()
-	r = line()
-	local tierB: Ui.Block
-	tierB = button(r, tierColor(Config.tiers[tierIdx].name), Config.tiers[tierIdx].name, 0.02, 0.24, function()
-		tierIdx = tierIdx % #Config.tiers + 1
-		local name = Config.tiers[tierIdx].name
-		tierB.text.Text = name
-		tierB.face.BackgroundColor3 = tierColor(name)
-		tierB.root.BackgroundColor3 = Ui.darker(tierB.face.BackgroundColor3)
-	end)
-	button(r, Theme.go, "Spawn here", 0.28, 0.24, function()
-		send("spawnTier", Config.tiers[tierIdx].name)
-	end)
-	button(r, Theme.go, "Fill my pan", 0.6, 0.38, function()
-		send("fillPan")
-	end)
-
-	heading("Speed")
-	r = line()
-	local walkText = text(r, "", 0.02, 0.2)
-	button(r, Theme.no, "Normal", 0.23, 0.14, function()
-		send("walk", 0)
-	end)
-	for i, s in D.walkPresets do
-		button(r, Theme.info, tostring(s), 0.39 + (i - 1) * 0.15, 0.13, function()
-			send("walk", s)
-		end)
-	end
-	table.insert(updates, function(view)
-		local w = if view.tester then view.tester.walk else 0
-		walkText.Text = if w > 0 then `Walk {w}` else "Walk normal"
-	end)
-	r = line()
-	toggle(r, "Instant freeze", 0.02, 0.47, function(view)
-		return view.tester ~= nil and view.tester.instantFreeze
-	end, "instantFreeze")
-	toggle(r, "No melt", 0.51, 0.47, function(view)
-		return view.tester ~= nil and view.tester.noMelt
-	end, "noMelt")
-
-	heading("Events")
-	r = line()
-	button(r, Theme.info, "Big Chill now", 0.02, 0.31, function()
-		send("chill")
-	end)
-	button(r, Theme.info, "Night / day", 0.35, 0.31, function()
-		send("night")
-	end)
-	r = line()
-	button(r, Theme.info, "Away 1 h", 0.02, 0.31, function()
-		send("away", 3600)
-	end)
-	button(r, Theme.info, "Away 8 h", 0.35, 0.31, function()
-		send("away", 8 * 3600)
-	end)
-
-	heading("Round 5")
-	r = line()
-	button(r, Theme.info, "Critters here", 0.02, 0.31, function()
-		send("critters") -- Heat Critters on the island you stand on (on / off)
-	end)
-	button(r, Theme.info, "Shield off", 0.35, 0.31, function()
-		send("shieldOff") -- ray-tag: drop your new-player shield
-	end)
-	button(r, Theme.info, "Gel on / off", 0.68, 0.3, function()
-		send("gel")
-	end)
-	r = line()
-	button(r, Theme.info, "Caught 25", 0.02, 0.31, function()
-		send("caught", Config.codes.needPets) -- unlock Codes
-	end)
-	button(r, Theme.info, "Thaw level max", 0.35, 0.31, function()
-		send("upgrade", "pen", Config.upgrades.pen.maxLevel) -- second Thaw Machine
-	end)
-
-	heading("Save")
-	r = line()
-	local keyText = text(r, "", 0.02, 0.62)
-	local armed = false
-	local wipeB: Ui.Block
-	wipeB = button(r, Theme.no, "Wipe my save", 0.66, 0.32, function()
-		if not testerReadout.qa then
-			wipeB.text.Text = "Live save: no"
-			return
-		end
-		if armed then
-			send("wipe", "confirm")
-		else
-			armed = true
-			wipeB.text.Text = "Sure? Press again"
-			task.delay(4, function()
-				armed = false
-				wipeB.text.Text = "Wipe my save"
+		for _, n in D.addCoins do
+			btn("+" .. short(n), Theme.coin, function()
+				send("coinsAdd", n)
 			end)
 		end
-	end)
-	table.insert(updates, function()
-		keyText.Text = `{testerReadout.saveKey or ""}{if testerReadout.qa then " (QA)" else ""}`
-	end)
+		btn("Zero", Theme.no, function()
+			send("coinsSet", 0)
+		end)
+		heading("Money multiplier (all coin income)")
+		for _, p in D.multPresets do
+			btn(if p == 1 then "x1 (reset)" else `x{p}`, if p == 1 then Theme.no else Theme.info, function()
+				send("mult", p)
+			end)
+		end
+		input("0.1 - 10000", function(n)
+			send("mult", n)
+		end)
+		heading("Cold Power")
+		for _, n in D.powerPresets do
+			btn(if n == 0 then "0" else Config.powerText(n), Theme.training.power, function()
+				send("power", n)
+			end)
+		end
+		btn("Next island", Theme.go, function()
+			send("powerNext")
+		end)
+		input("Exact Cold Power", function(n)
+			send("power", n)
+		end)
+		heading("Progress")
+		stepper(function(view)
+			return `Rebirth {view.rebirths}`
+		end, function()
+			send("rebirths", ((State.view and State.view.rebirths) or 0) - 1)
+		end, function()
+			send("rebirths", ((State.view and State.view.rebirths) or 0) + 1)
+		end)
+		stepper(function()
+			local g = math.clamp(readNum("gun", 1), 1, #Config.guns.list)
+			return `Gun {g}: {Config.guns.list[g].name}`
+		end, function()
+			send("gun", readNum("gun", 1) - 1)
+		end, function()
+			send("gun", readNum("gun", 1) + 1)
+		end)
+		stepper(function(view)
+			return `Islands open {view.reach or 1}`
+		end, function()
+			send("reach", ((State.view and State.view.reach) or 1) - 1)
+		end, function()
+			send("reach", ((State.view and State.view.reach) or 1) + 1)
+		end)
+		local function panLevel(kind: string): number
+			local pan = State.view and State.view.pan
+			return if pan and typeof((pan :: any)[kind]) == "number" then (pan :: any)[kind] else 1
+		end
+		stepper(function()
+			local t = math.clamp(panLevel("trainer"), 1, #Config.training.stations)
+			return `Trainer {t}: x{Config.training.stations[t].mult}`
+		end, function()
+			send("pan", "trainer", panLevel("trainer") - 1)
+		end, function()
+			send("pan", "trainer", panLevel("trainer") + 1)
+		end)
+		stepper(function(view)
+			return `Slots level {view.upgrades.pen or 1}`
+		end, function()
+			send("upgrade", "pen", ((State.view and State.view.upgrades.pen) or 1) - 1)
+		end, function()
+			send("upgrade", "pen", ((State.view and State.view.upgrades.pen) or 1) + 1)
+		end)
+		stepper(function()
+			local lk = math.clamp(panLevel("look"), 1, #Config.pan.looks)
+			return `Look: {Config.pan.looks[lk].name}`
+		end, function()
+			send("pan", "look", panLevel("look") - 1)
+		end, function()
+			send("pan", "look", panLevel("look") + 1)
+		end)
+		heading("Movement and switches")
+		btn("Walk normal", Theme.no, function()
+			send("walk", 0)
+		end)
+		for _, s in D.walkPresets do
+			btn(`Walk {s}`, Theme.info, function()
+				send("walk", s)
+			end)
+		end
+		toggle("Instant freeze", function(view)
+			return view.tester ~= nil and view.tester.instantFreeze
+		end, "instantFreeze")
+		toggle("No melt", function(view)
+			return view.tester ~= nil and view.tester.noMelt
+		end, "noMelt")
+		btn("Slow Gel on / off", Theme.info, function()
+			send("gel")
+		end)
+		btn("Shield off", Theme.info, function()
+			send("shieldOff")
+		end)
+	elseif testerTab == "world" then
+		heading("Teleport")
+		local targets: { { id: string, label: string } } = testerReadout.targets or {}
+		for _, t in targets do
+			btn(t.label, Theme.info, function()
+				send("teleport", t.id)
+			end)
+		end
+		heading("Gates")
+		btn("Open all gates", Theme.go, function()
+			send("openGates")
+		end, 2)
+		btn("Close all gates", Theme.no, function()
+			send("closeGates")
+		end, 2)
+		heading("Hazards")
+		btn("Critters here on / off", Theme.info, function()
+			send("critters")
+		end, 2)
+	elseif testerTab == "pets" then
+		heading("Pick a pet")
+		local all: { PetDefs.PetDef } = {}
+		for _, z in Config.world.zones do
+			for _, def in PetDefs.inZone(z.id) do
+				table.insert(all, def)
+			end
+		end
+		local muts: { string } = {}
+		for name in Config.mutations do
+			table.insert(muts, name)
+		end
+		table.sort(muts)
+		local petIdx, mutIdx, zoneIdx = 1, 0, 0
+		local zones = Config.world.zones
+		btn("<", Theme.info, function()
+			petIdx = (petIdx - 2) % #all + 1
+			o.update(State.view :: State.View)
+		end)
+		local r, x, w = take(2)
+		local petName = text(r, "", x, w, nil, "small")
+		petName.TextXAlignment = Enum.TextXAlignment.Center
+		btn(">", Theme.info, function()
+			petIdx = petIdx % #all + 1
+			o.update(State.view :: State.View)
+		end)
+		local mutB = btn("No mutation", Theme.info, function()
+			mutIdx = (mutIdx + 1) % (#muts + 1)
+			o.update(State.view :: State.View)
+		end)
+		btn("Give", Theme.go, function()
+			local def = all[petIdx]
+			if def then
+				send("givePet", def.key, if mutIdx == 0 then nil else muts[mutIdx])
+			end
+		end)
+		btn("Give frozen", Theme.go, function()
+			local def = all[petIdx]
+			if def then
+				send("giveFrozen", def.key)
+			end
+		end)
+		btn("<", Theme.info, function()
+			zoneIdx = (zoneIdx - 1) % (#zones + 1)
+			o.update(State.view :: State.View)
+		end)
+		local r2, x2, w2 = take(2)
+		local zoneName = text(r2, "", x2, w2, nil, "small")
+		zoneName.TextXAlignment = Enum.TextXAlignment.Center
+		btn(">", Theme.info, function()
+			zoneIdx = (zoneIdx + 1) % (#zones + 1)
+			o.update(State.view :: State.View)
+		end)
+		btn("Spawn wild", Theme.go, function()
+			local def = all[petIdx]
+			if def then
+				send("spawnPet", def.key, if zoneIdx == 0 then 0 else zones[zoneIdx].id)
+			end
+		end)
+		table.insert(updates, function()
+			local def = all[petIdx]
+			petName.Text = if def then `{def.name} ({def.tier})` else "-"
+			petName.TextColor3 = if def then Ui.darker(tierColor(def.tier)) else Theme.ink
+			mutB.text.Text = if mutIdx == 0 then "No mutation" else muts[mutIdx]
+			zoneName.Text = if zoneIdx == 0 then "Next to me" else `{zoneIdx}. {zones[zoneIdx].name}`
+		end)
+		heading("Any pet of a rarity, next to you")
+		for _, t in Config.tiers do
+			btn(t.name, tierColor(t.name), function()
+				send("spawnTier", t.name)
+			end)
+		end
+		heading("Your pan")
+		btn("Fill my pan", Theme.go, function()
+			send("fillPan")
+		end)
+		btn("Pan pets to Storage", Theme.info, function()
+			send("storeAll")
+		end)
+		btn("Equip best", Theme.go, function()
+			State.send("EquipBest")
+		end)
+		btn(`Caught {Config.codes.needPets} (codes)`, Theme.info, function()
+			send("caught", Config.codes.needPets)
+		end)
+		heading("Thaw and carry")
+		btn("Finish all thaws", Theme.go, function()
+			send("thawNow")
+		end)
+		btn("Melt my cube", Theme.no, function()
+			send("meltNow")
+		end)
+		stepper(function()
+			return `Free skips {readNum("skips", 0)}`
+		end, function()
+			send("thawSkips", readNum("skips", 0) - 1)
+		end, function()
+			send("thawSkips", readNum("skips", 0) + 1)
+		end)
+		btn("2nd Thaw Machine", Theme.info, function()
+			send("upgrade", "pen", Config.thaw.secondAt)
+		end)
+	elseif testerTab == "events" then
+		heading("Server events")
+		btn("Big Chill now", Theme.info, function()
+			send("chill")
+		end)
+		btn("Night / day", Theme.info, function()
+			send("night")
+		end)
+		heading("Time away (welcome back)")
+		for _, h in D.awayHours do
+			btn(`Away {h} h`, Theme.info, function()
+				send("away", h * 3600)
+			end)
+		end
+		heading("Friends in the server (friend bonus)")
+		for _, n in D.friendPresets do
+			btn(`{n} friends`, Theme.info, function()
+				send("friends", n)
+			end)
+		end
+	else -- save
+		heading("Save")
+		local r, x, w = take(3)
+		local keyText = text(r, "", x, w, nil, "small")
+		table.insert(updates, function()
+			keyText.Text = `{testerReadout.saveKey or ""}{if testerReadout.qa then " (QA store)" else " (LIVE store)"}`
+		end)
+		local armed = false
+		local wipeB: Ui.Block
+		wipeB = btn("Wipe my save", Theme.no, function()
+			if not testerReadout.qa then
+				wipeB.text.Text = "Live save: no"
+				return
+			end
+			if armed then
+				send("wipe", "confirm")
+			else
+				armed = true
+				wipeB.text.Text = "Sure? Press again"
+				task.delay(4, function()
+					armed = false
+					wipeB.text.Text = "Wipe my save"
+				end)
+			end
+		end, 2)
+		heading("Reset things to test them again")
+		btn("Free Gift again", Theme.gift, function()
+			send("giftReset")
+		end)
+		btn("Dailies done", Theme.tiles.daily, function()
+			send("dailyDone")
+		end)
+		btn("Replay tutorial", Theme.info, function()
+			State.send("Tutorial", "replay")
+		end)
+		btn("Skip tutorial", Theme.tutorial.skip, function()
+			State.send("Tutorial", "skip")
+		end)
+	end
 
 	o.update = function(view)
 		for _, fn in updates do
@@ -1567,6 +2142,235 @@ local function reward(o: Open, coins: number, sub: string, okText: string, onOk:
 	o.first = b.face
 end
 
+-- The one-time Free Gift board (owner 2026-11-12, from hit games' "free reward" boards): what you get, big,
+-- at the top; three numbered step cards with a picture of what to press (Like, Favorite, join the
+-- group); one green Claim, the only thing that pulses. Only the group join is checked, on the server.
+-- Favorite opens Roblox's own favourite prompt; Join opens Roblox's own group prompt.
+local function giftStep(parent: Instance, n: number, x: number, w: number, title: string, picture: string, action: (Frame) -> ())
+	local c = Instance.new("Frame")
+	c.Name = "Step" .. n
+	c.BackgroundColor3 = Theme.white
+	c.BorderSizePixel = 0
+	c.Position = UDim2.fromScale(x, 0)
+	c.Size = UDim2.fromScale(w, 1)
+	Ui.corner(c)
+	Ui.stroke(c, Config.ui.cardStroke)
+	c.Parent = parent
+	local badge = Instance.new("Frame")
+	badge.Name = "Number"
+	badge.BackgroundColor3 = Theme.gift
+	badge.BorderSizePixel = 0
+	badge.Position = UDim2.fromScale(0.05, 0.04)
+	badge.Size = UDim2.fromScale(0.2, 0.2)
+	local ba = Instance.new("UIAspectRatioConstraint")
+	ba.Parent = badge
+	Ui.corner(badge, 1)
+	Ui.stroke(badge, Config.ui.cardStroke)
+	badge.Parent = c
+	local num = Ui.label(badge, tostring(n), UDim2.fromScale(0.8, 0.8), UDim2.fromScale(0.1, 0.1))
+	sized(num, "body")
+	local t = text(c, title, 0.04, 0.92, nil, "small")
+	t.TextXAlignment = Enum.TextXAlignment.Center
+	t.Position = UDim2.fromScale(0.04, 0.25)
+	t.Size = UDim2.fromScale(0.92, 0.15)
+	local pic = Ui.image(c, picture, UDim2.fromScale(0.5, 0.3), UDim2.fromScale(0.5, 0.57))
+	pic.Name = "Picture"
+	local pa = Instance.new("UIAspectRatioConstraint")
+	pa.Parent = pic
+	pic.AnchorPoint = Vector2.new(0.5, 0.5)
+	pic.Position = UDim2.fromScale(0.5, 0.56)
+	local a = Instance.new("Frame")
+	a.Name = "Action"
+	a.BackgroundTransparency = 1
+	a.Position = UDim2.fromScale(0, 0.73)
+	a.Size = UDim2.fromScale(1, 0.25)
+	a.Parent = c
+	action(a)
+end
+
+-- a quiet word where a step has no button ("Joined", "Soon", where to tap Like)
+local function giftTag(a: Frame, s: string, color: Color3)
+	local t = text(a, s, 0.06, 0.88, color, "small")
+	t.TextXAlignment = Enum.TextXAlignment.Center
+end
+
+local function freeGift(o: Open, v: State.View)
+	local G = v.gift
+	local me = Players.LocalPlayer
+	-- what you get: the coin and the Cold Power with their amounts, centred together
+	local head = text(o.body, "One-time free reward", 0, 1, Theme.gift, "small")
+	head.TextXAlignment = Enum.TextXAlignment.Center
+	head.Position = UDim2.fromScale(0, 0)
+	head.Size = UDim2.fromScale(1, 0.08)
+	local top = Instance.new("Frame")
+	top.Name = "Reward"
+	top.BackgroundTransparency = 1
+	top.Position = UDim2.fromScale(0, 0.08)
+	top.Size = UDim2.fromScale(1, 0.2)
+	top.Parent = o.body
+	local parts: { { icon: ImageLabel, label: TextLabel } } = {}
+	for _, r in { { Config.images.icons.coin, G.coins, Theme.coin }, { Config.images.icons.power, G.power, Theme.info } } do
+		local icon = Ui.image(top, r[1] :: string, UDim2.fromScale(0.12, 0.95), UDim2.fromScale(0, 0.025))
+		local ia = Instance.new("UIAspectRatioConstraint")
+		ia.Parent = icon
+		local amount = Ui.label(top, `+{Ui.commas(r[2] :: number)}`, UDim2.fromScale(0.3, 0.95), UDim2.fromScale(0, 0.025))
+		amount.TextColor3 = r[3] :: Color3
+		amount.TextXAlignment = Enum.TextXAlignment.Left
+		sized(amount, "big")
+		table.insert(parts, { icon = icon, label = amount })
+	end
+	task.defer(function()
+		local w = math.max(1, top.AbsoluteSize.X)
+		local gap, between = 0.012, 0.06
+		local total = -between
+		for _, p in parts do
+			total += p.icon.AbsoluteSize.X / w + gap + p.label.TextBounds.X / w + between
+		end
+		local x = 0.5 - total / 2
+		for _, p in parts do
+			local iw = p.icon.AbsoluteSize.X / w
+			p.icon.Position = UDim2.fromScale(x + iw / 2, 0.5)
+			p.label.Position = UDim2.fromScale(x + iw + gap, 0.025)
+			x += iw + gap + p.label.TextBounds.X / w + between
+		end
+	end)
+	-- the three steps
+	local steps = Instance.new("Frame")
+	steps.Name = "Steps"
+	steps.BackgroundTransparency = 1
+	steps.Position = UDim2.fromScale(0, 0.31)
+	steps.Size = UDim2.fromScale(1, 0.45)
+	steps.Parent = o.body
+	local w, gap = 0.31, 0.035
+	giftStep(steps, 1, 0, w, "Like the game", Config.images.icons.like, function(a)
+		giftTag(a, "On the game page", Theme.infoDeep)
+	end)
+	giftStep(steps, 2, w + gap, w, "Favorite the game", Config.images.icons.star, function(a)
+		local b = button(a, Theme.info, "Favorite", 0.1, 0.8, function()
+			pcall(function()
+				AvatarEditorService:PromptSetFavorite(game.PlaceId, Enum.AvatarItemType.Asset, true)
+			end)
+		end)
+		b.root.Name = "FavoriteButton"
+	end)
+	giftStep(steps, 3, (w + gap) * 2, w, "Join the community", Config.ui.tileIcons.pets, function(a)
+		if G.groupId == 0 then
+			giftTag(a, "Soon", Theme.tiers.Common)
+		elseif giftJoined then
+			giftTag(a, "Joined!", Theme.shopBadge.bonus)
+		else
+			local b = button(a, Theme.info, "Join", 0.1, 0.8, function()
+				task.spawn(function()
+					pcall(function()
+						GroupService:PromptJoinAsync(G.groupId)
+					end)
+					local ok, yes = pcall(function()
+						return (me :: any):IsInGroupAsync(G.groupId)
+					end)
+					giftJoined = ok and yes == true
+					PopupController.refresh()
+				end)
+			end)
+			b.root.Name = "JoinButton"
+		end
+	end)
+	-- the one focal point
+	local foot = Instance.new("Frame")
+	foot.Name = "Foot"
+	foot.BackgroundTransparency = 1
+	foot.Position = UDim2.fromScale(0, 0.79)
+	foot.Size = UDim2.fromScale(1, 0.21)
+	foot.Parent = o.body
+	local claim = button(foot, Theme.go, "Claim!", 0.28, 0.44, function()
+		State.send("ClaimGift")
+	end)
+	claim.root.Name = "ClaimButton"
+	claim.root.Position = UDim2.fromScale(0.28, 0.05)
+	claim.root.Size = UDim2.fromScale(0.44, 0.9)
+	pulse(claim.root)
+	o.first = claim.face
+end
+
+-- A leaderboard's top 100 (owner 2026-11-12: press E at a board): a scrolling list of rank, face, name
+-- and score, the top 3 in their medal colours and your own row in green; under the list, your place.
+-- The rows are the server's (State.boards, asked for when the popup opens).
+local function boardDef(data: any): any
+	local id = if typeof(data) == "table" then data.id else nil
+	for _, b in Config.leaderboards.boards do
+		if b.id == id then
+			return b
+		end
+	end
+	return Config.leaderboards.boards[1]
+end
+
+local function board(o: Open)
+	local LB = Config.leaderboards
+	local P = LB.popup
+	local def = boardDef(o.data)
+	local got = State.boards[def.id]
+	local accent = Theme.boards[def.id] or Theme.info
+	local myId = Players.LocalPlayer.UserId
+	local top = Instance.new("Frame")
+	top.Name = "Rows"
+	top.BackgroundTransparency = 1
+	top.Size = UDim2.fromScale(1, 1 - P.footHeight - 0.02)
+	top.Parent = o.body
+	if not got or #got.rows == 0 then
+		local t = Ui.inkLabel(top, if got then "Be the first!" else "Loading...", UDim2.fromScale(1, 0.2), UDim2.fromScale(0, 0.4))
+		sized(t, "title")
+	else
+		local l = list(top, true)
+		local function circle(parent: Instance, name: string, x: number, color: Color3): Frame
+			local c = Instance.new("Frame")
+			c.Name = name
+			c.BackgroundColor3 = color
+			c.BorderSizePixel = 0
+			c.AnchorPoint = Vector2.new(0, 0.5)
+			c.Position = UDim2.fromScale(x, 0.5)
+			c.Size = UDim2.fromScale(0.2, 0.8)
+			local a = Instance.new("UIAspectRatioConstraint")
+			a.DominantAxis = Enum.DominantAxis.Height
+			a.Parent = c
+			Ui.corner(c, 0.5)
+			Ui.stroke(c, Config.ui.cardStroke)
+			c.Parent = parent
+			return c
+		end
+		for i, r in got.rows do
+			local line = card(row(l, i, 1, P.rowAspect))
+			local medal = Theme.medals[i]
+			if r.u == myId then
+				line.BackgroundColor3 = Theme.go:Lerp(Theme.white, 0.7)
+			elseif medal then
+				line.BackgroundColor3 = medal:Lerp(Theme.white, 0.6)
+			end
+			local rank = circle(line, "Rank", 0.012, medal or Theme.snowFar)
+			Ui.inkLabel(rank, tostring(i), UDim2.fromScale(0.84, 0.66), UDim2.fromScale(0.08, 0.17))
+			local head = circle(line, "Avatar", 0.105, Theme.ice)
+			local img = Instance.new("ImageLabel")
+			img.BackgroundTransparency = 1
+			img.Size = UDim2.fromScale(1, 1)
+			img.Image = `rbxthumb://type=AvatarHeadShot&id={r.u}&w=150&h=150` -- Roblox draws it, no web call
+			Ui.corner(img, 0.5)
+			img.Parent = head
+			text(line, r.n, 0.205, 0.44)
+			local coins = def.id == "coins_week"
+			local score = text(line, r.s, 0.65, if coins then 0.26 else 0.33)
+			score.TextXAlignment = Enum.TextXAlignment.Right
+			if coins then
+				Ui.image(line, Config.images.icons.coin, UDim2.fromScale(0.06, 0.7), UDim2.fromScale(0.925, 0.15))
+			end
+		end
+	end
+	-- your own place, always in view under the list
+	local foot = Ui.block(o.body, "YourPlace", accent, "", nil)
+	foot.root.Position = UDim2.fromScale(0, 1 - P.footHeight)
+	foot.root.Size = UDim2.fromScale(1, P.footHeight)
+	foot.text.Text = if not got then "" elseif got.place then `Your place: #{got.place}` else `Your place: not in the top {LB.rankScanSize} yet`
+	sized(foot.text, "body")
+end
+
 -- the builders the Equipment Booth popup borrows (EquipmentPopup)
 local helpers: EquipmentPopup.Helpers = {
 	list = list, row = row, button = button, text = text, card = card, sized = sized, priceTag = priceTag, bar = bar, pulse = pulse,
@@ -1592,7 +2396,7 @@ local function fill(o: Open)
 			State.send("CollectWelcome")
 		end)
 	elseif o.name == "gift" then
-		reward(o, o.data.coins, `Day {o.data.streak} in a row`, "Yay", function() end)
+		reward(o, o.data.coins, `and +{Ui.commas(o.data.power or 0)} Cold Power. Thank you!`, "Yay", function() end)
 	elseif o.name == "pageDone" then
 		local zone = Config.zone(o.data.zone)
 		-- a full page: claim its +10% right here (or later in the Index)
@@ -1610,6 +2414,10 @@ local function fill(o: Open)
 			index(o, v)
 		elseif o.name == "daily" then
 			daily(o, v)
+		elseif o.name == "freeGift" then
+			freeGift(o, v)
+		elseif o.name == "board" then
+			board(o)
 		elseif o.name == "tester" then
 			tester(o, v)
 		elseif o.name == "equipment" then
@@ -1622,7 +2430,9 @@ local function fill(o: Open)
 			RebirthPopup.fill(o, v, helpers)
 		end
 	end
-	InputController.select(o.first)
+	-- nothing to press yet (Index, Daily with nothing to claim): a controller still lands on the X
+	-- (device QA 2026-11-13, console)
+	InputController.select(o.first or (o :: any).closeFace)
 end
 
 function PopupController.isOpen(): boolean
@@ -1685,7 +2495,11 @@ function PopupController.open(name: string, data: any?, rebuilt: boolean?)
 		end
 		PopupController.close()
 	end
-	local frame = Screen.popupFrame(Config.ui.bigPopups[name] == true, Config.ui.hideHudFor[name] ~= true)
+	-- on a touch screen (phone or tablet) every full menu hides the HUD (device QA 2026-11-13: squeezed
+	-- between the tiles and the coin number, Pets / Daily / Settings / Pan / Thaw came out half the screen
+	-- wide on a phone and a third of it on a tablet, with 8 px text)
+	local hideHud = Config.ui.hideHudFor[name] == true or (Screen.deviceClass() ~= "pc" and not SMALL[name])
+	local frame = Screen.popupFrame(Config.ui.bigPopups[name] == true, not hideHud)
 	-- short messages get a smaller panel; on a phone only a little smaller, or their text came out 8.8 px
 	local smallK = if Screen.deviceClass() == "phone" then Config.ui.phoneSmallPopup else 0.62
 	if SMALL[name] then
@@ -1706,16 +2520,22 @@ function PopupController.open(name: string, data: any?, rebuilt: boolean?)
 	-- the body is a pale tint of the menu's colour and the title sits on a ribbon in the full colour,
 	-- so the popup reads as one piece with its tile (a flat cream body looked like another game's UI)
 	local menuColor = HEADER[name] or Theme.tiles[name] or Theme.info
+	local titleText, iconId = TITLES[name] or "", HEADER_ICONS[name]
+	if name == "board" then
+		-- a leaderboard's popup wears its board's colour, title and icon
+		local def = boardDef(data)
+		menuColor = Theme.boards[def.id] or Theme.info
+		titleText, iconId = def.title, Config.images.icons[def.icon]
+	end
 	local panel = Ui.block(frame, "Panel", menuColor:Lerp(Theme.white, Config.ui.panelTint), "", nil, true)
 	panel.root.Size = UDim2.fromScale(1, 1)
 	panel.text.Visible = false
 	local hh = Config.ui.headerHeight / (if SMALL[name] then smallK else 1)
-	local header = Ui.block(panel.face, "Header", menuColor, TITLES[name] or "", nil)
+	local header = Ui.block(panel.face, "Header", menuColor, titleText, nil)
 	header.root.Position = UDim2.fromScale(0.02, 0.025)
 	header.root.Size = UDim2.fromScale(0.96, hh)
 	sized(header.text, "title")
 	-- the menu's own icon beside its title, centred together by their visible width
-	local iconId = HEADER_ICONS[name]
 	if iconId then
 		local icon = Ui.image(header.face, iconId, UDim2.fromScale(0.2, 1.1), UDim2.fromScale(0, -0.05))
 		icon.ZIndex = 2
@@ -1764,13 +2584,17 @@ function PopupController.open(name: string, data: any?, rebuilt: boolean?)
 	body.Size = UDim2.fromScale(0.92, 0.92 - hh)
 	body.Parent = panel.face
 	local o: Open = { name = name, data = data, frame = frame, body = body, first = nil }
+	;(o :: any).closeFace = closeB.face
 	current = o
-	Screen.setMenuHidden(Config.ui.hideHudFor[name] == true)
+	Screen.setMenuHidden(hideHud)
 	Screen.setPopupOpen(true)
 	State.send("SetMenuOpen", true)
 	if name == "shop" and not rebuilt then
 		shopTab = nil -- each visit starts on its default tab
 		State.send("ShopOpened")
+	end
+	if name == "board" and not rebuilt then
+		State.send("GetBoard", boardDef(data).id) -- the answer ("boardRows") draws the list
 	end
 	if name == "tester" then
 		-- the server's readout while the panel is open (it also brings the teleport list)
@@ -1787,6 +2611,24 @@ end
 function PopupController.Init() end
 
 function PopupController.Start()
+	-- Studio-only test hook (device QA 2026-11-13): touch taps can't be sent from a test script, so setting
+	-- the player attribute DevOpen = "name" or "name:tab" opens that popup ("close" closes it). Off in live servers.
+	if game:GetService("RunService"):IsStudio() then
+		local lp = game:GetService("Players").LocalPlayer
+		lp:GetAttributeChangedSignal("DevOpen"):Connect(function()
+			local v = lp:GetAttribute("DevOpen")
+			if typeof(v) ~= "string" or v == "" then
+				return
+			end
+			local name, tab = string.match(v, "^([^:]+):?(.*)$")
+			if name == "close" then
+				PopupController.close()
+			elseif name then
+				PopupController.close()
+				PopupController.open(name, if tab ~= "" then { tab = tab } else nil)
+			end
+		end)
+	end
 	task.spawn(function()
 		local ok, yes = pcall(function()
 			return SocialService:CanSendGameInviteAsync(Players.LocalPlayer)
@@ -1851,9 +2693,20 @@ function PopupController.Start()
 					o.update(State.view)
 				end
 			end
+		elseif kind == "boardRows" then
+			boardStamp += 1
+			local o = current
+			if o and o.name == "board" and boardDef(o.data).id == data then
+				PopupController.refresh()
+			end
 		elseif kind == "welcomeBack" then
 			PopupController.open("welcome", data)
+		elseif kind == "freeGift" then
+			PopupController.open("freeGift", data)
 		elseif kind == "giftClaimed" then
+			if current and current.name == "freeGift" then
+				PopupController.close()
+			end
 			PopupController.open("gift", data)
 		elseif kind == "pageDone" then
 			PopupController.open("pageDone", data)

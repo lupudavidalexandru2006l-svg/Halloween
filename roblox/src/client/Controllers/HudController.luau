@@ -98,11 +98,34 @@ local function ensureTesterTile()
 	Screen.setTileCount(#Config.ui.tiles + 1)
 end
 
+-- the coin counter: the whole number up to 999,999 (owner 2026-11-03), then short with two decimals,
+-- 1.50M / 123.45M / 2.07B (owner 2026-11-13: the long whole number got hard to read past a million).
+-- Rounds down, so it never shows more than you have.
+local function counterText(n: number): string
+	n = math.max(0, math.floor(n))
+	if n < Config.ui.coinsShortFrom then
+		return Ui.commas(n)
+	end
+	for _, u in Config.coinUnits do
+		if n >= u.size then
+			return string.format("%.2f", math.floor(n / u.size * 100 + 1e-9) / 100) .. u.suffix
+		end
+	end
+	return Ui.commas(n)
+end
+
+-- the +N/s rate sits right of the number, centred on it (the number is centred on the coin now)
+local function placeRate()
+	local w = math.max(1, coinsRoot.AbsoluteSize.X)
+	local x = coinsText.Position.X.Scale + coinsText.TextBounds.X / w + Config.ui.coinsRateGap
+	coinsRate.Position = UDim2.fromScale(x, coinsRate.Position.Y.Scale)
+end
+
 local function render(v: State.View)
 	if v.tester then
 		ensureTesterTile()
 	end
-	coinsText.Text = Ui.commas(v.coins) -- the whole number, 1,508,273 not 1.5M (owner 2026-11-03)
+	coinsText.Text = counterText(v.coins)
 	-- the friend bonus rides on the income line (no new HUD item): "+120/s  +20% friends"
 	local f = v.friends or 0
 	local friendsText = if f > 0
@@ -399,11 +422,12 @@ function HudController.Start()
 	coinsRoot.Name = "Coins"
 	coinsRoot.BackgroundTransparency = 1
 	Ui.image(coinsRoot, Config.images.icons.coin, UDim2.fromScale(0.34, 1), UDim2.fromScale(0, 0))
-	-- wider than the frame (it runs on to the right) so a long whole number keeps a big font
-	coinsText = Ui.label(coinsRoot, "0", UDim2.fromScale(1.4, 0.62), UDim2.fromScale(0.34, 0))
+	-- wider than the frame (it runs on to the right) so a long whole number keeps a big font. Owner
+	-- 2026-11-13: centred on the coin and as big as the Cold Power number under it (same size and place)
+	coinsText = Ui.label(coinsRoot, "0", UDim2.fromScale(1.4, 0.84), UDim2.fromScale(0.34, 0.08))
 	coinsText.TextXAlignment = Enum.TextXAlignment.Left
 	-- wide enough for "+1.2K/s  +30% friends"; a short rate keeps its size (TextScaled caps at the height)
-	coinsRate = Ui.label(coinsRoot, "", UDim2.fromScale(1.6, 0.34), UDim2.fromScale(0.35, 0.62))
+	coinsRate = Ui.label(coinsRoot, "", UDim2.fromScale(1.6, 0.4), UDim2.fromScale(0.6, 0.32))
 	coinsRate.TextXAlignment = Enum.TextXAlignment.Left
 	coinsRate.RichText = true
 	coinsRate.TextColor3 = Theme.go -- income reads as "go/gain" green
@@ -415,6 +439,8 @@ function HudController.Start()
 		local s = t:FindFirstChildOfClass("UIStroke") :: UIStroke
 		s.Thickness = Config.ui.floatingStroke -- nothing behind it now, so a firmer outline reads over snow
 	end
+	coinsText:GetPropertyChangedSignal("TextBounds"):Connect(placeRate)
+	coinsRoot:GetPropertyChangedSignal("AbsoluteSize"):Connect(placeRate)
 	Screen.register("coins", coinsRoot)
 	-- Cold Power under the coins, the same look a size smaller: icon, then the number in white-to-cyan
 	powerRoot = Instance.new("Frame")
@@ -458,8 +484,9 @@ function HudController.Start()
 		elseif kind == "nightEnd" then
 			HudController.banner("Good morning!", Theme.info)
 		elseif kind == "bigWin" then
+			-- only other players' big wins (owner 2026-11-13: no alert for your own Epic and up)
 			local def = PetDefs.get(data.key)
-			if def then
+			if def and data.userId ~= Players.LocalPlayer.UserId then
 				HudController.banner(`{data.name} caught a {string.upper(def.tier)} {def.name}!`, Theme.tiers[def.tier])
 			end
 		elseif kind == "shoutout" then
@@ -469,17 +496,7 @@ function HudController.Start()
 				HudController.banner(`{data.name} froze a {string.upper(def.tier)} {def.name}!`, Theme.tierGlow[def.tier] or Theme.coin)
 			end
 		elseif kind == "banked" then
-			-- no "+N/s in your pan" banner (owner 2026-11-07: take the income text off); Epic and up still get named
-			local best = nil :: PetDefs.PetDef?
-			for _, b in data.banked do
-				local def = PetDefs.get(b.key)
-				if def and (not best or Config.tier(def.tier).rank > Config.tier(best.tier).rank) then
-					best = def
-				end
-			end
-			if best and Config.tier(best.tier).rank >= Config.effects.showRank then
-				HudController.banner(`{string.upper(best.tier)}! {best.name}`, Theme.tiers[best.tier]) -- prototype: Epic and up get the show
-			end
+			-- no banner at all when banking (owner 2026-11-07: no income text; 2026-11-13: no "EPIC! name" alert either)
 			-- no green "Put it in your Thaw Machine!" banner: the guide arrow already points there (owner 2026-11-10)
 		elseif kind == "zoneUnlocked" then
 			local z = Config.zone(if typeof(data.zone) == "number" then data.zone else 2)
@@ -498,6 +515,8 @@ function HudController.Start()
 			HudController.banner("It melted! Zap it again", Theme.info)
 		elseif kind == "chargeSaved" then
 			HudController.banner("Super Freeze saved for next time", Theme.info)
+		elseif kind == "skipKept" then
+			HudController.banner("Your pet was already out! Skip saved for next time", Theme.info)
 		elseif kind == "robuxBought" then
 			-- a Robux shop item arrived (saved first, MonetizationService)
 			if data.chill then
@@ -521,7 +540,11 @@ function HudController.Start()
 				HudController.banner(tostring(data.text), Theme.no, Config.ui.notYetSeconds)
 			end
 		elseif kind == "gearBought" then
-			HudController.banner("Slow Gel is on your hotbar!", Theme.go)
+			if typeof(data) == "table" and typeof(data.name) == "string" then
+				HudController.banner(`{data.name} on!`, Theme.go) -- an always-on gear (Config.gear)
+			else
+				HudController.banner("Slow Gel is on your hotbar!", Theme.go)
+			end
 		-- no banner when a pet goes into or comes out of the Thaw Machine (owner 2026-11-10)
 		elseif kind == "critterCaught" then
 			HudController.banner("A Heat Critter grabbed your cube! Zap it back", Theme.round5.critter)

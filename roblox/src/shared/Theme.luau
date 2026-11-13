@@ -41,6 +41,15 @@ local Theme = {
 	-- shop v2 badges: the "+45% MORE" sticker in present pink (a bonus, never red), and the Best Value
 	-- ribbon in gold on ink, so the two never read as the same thing
 	shopBadge = { more = Color3.fromHex("ff5a8a"), bestBack = Color3.fromHex("1b1433"), bestText = Color3.fromHex("ffd34a"), bonus = Color3.fromHex("2f9e5a") },
+	-- the Shop's own frame (owner 2026-11-12: "the colour scheme isn't good"; from the reference shops, one
+	-- saturated theme colour round everything): a royal-blue-to-violet frame, a deep indigo well the cards
+	-- sit in, an ice-cyan title bar with snow on it, and light text on the well
+	shopFrame = {
+		top = Color3.fromHex("4c6ef5"), bottom = Color3.fromHex("7048e8"),
+		wellTop = Color3.fromHex("2c2f8f"), wellBottom = Color3.fromHex("3a1f80"),
+		titleTop = Color3.fromHex("7fe3ff"), titleBottom = Color3.fromHex("2f8cff"),
+		snow = Color3.fromHex("f4f8ff"), text = Color3.fromHex("bfe9ff"), glow = Color3.fromHex("9fd8ff"),
+	},
 	board = Color3.fromHex("2b1f5c"),
 	-- the leaderboards: each board's header colour, its plain rows, and the top 3's medal rows
 	boards = {
@@ -180,6 +189,9 @@ local Theme = {
 	booths = {
 		sell = Color3.fromHex("ffc93c"), equipment = Color3.fromHex("3aa8ff"), rebirth = Color3.fromHex("aa50e6"), pan = Color3.fromHex("3ccf6e"),
 	} :: { [string]: Color3 },
+	-- the top buttons (owner 2026-11-12): Equipment in its booth's blue; Pan is a garden plot, rich soil
+	-- with a strip of grass along the top (the reference's "Garden" button)
+	topButtons = { equipment = Color3.fromHex("3aa8ff"), soil = Color3.fromHex("8a5232"), grass = Color3.fromHex("6fd04a") },
 	-- Cold Power (2026-11-10). power = the Cold Power number and its bars everywhere; heat* = the gun's
 	-- heat arc. The Frost Training Yard (2026-11-10, replaces the sky rink): each station's own palette,
 	-- warm targets (a snowman, a heat bag, a magma golem, a little sun) that frost over as you shoot them.
@@ -287,6 +299,9 @@ local Theme = {
 		gunBody = Color3.fromHex("e9f6ff"), gunTip = Color3.fromHex("7fe3ff"),
 		star = Color3.fromHex("ffd34a"), shadow = Color3.fromHex("1b1433"), frost = Color3.fromHex("dff6ff"),
 		giftBody = Color3.fromHex("ff5a8a"), giftLid = Color3.fromHex("ff7ca3"), giftRibbon = Color3.fromHex("ffd34a"),
+		-- the Free Gift as a frozen treasure (owner 2026-11-13: "something more relevant to our game"): a
+		-- pink chest with gold bands locked in a clear ice cube with frosty white edges, on a snow mound
+		giftIce = Color3.fromHex("7fcfff"), giftFrost = Color3.fromHex("f2fbff"), giftShard = Color3.fromHex("7fd0ff"),
 		superFrozen = Color3.fromHex("5f8dff"),
 		zzz = Color3.fromHex("e6e9ff"),
 		sleepLash = Color3.fromHex("2a1e24"), -- the closed-eye curve on a sleeping 3D pet's eyelid
@@ -387,6 +402,16 @@ local Theme = {
 		codes = Color3.fromHex("3ccf6e"),
 	},
 
+	-- the world E prompts (owner 2026-11-13: the green pill was "not a good choice"): a deep frosty indigo
+	-- pill that reads on snow and grass alike and means no one action colour, a white keycap with the key
+	-- in ink, the action in white, what it's on in ice blue, and an ice-cyan sweep while you hold
+	prompt = {
+		body = Color3.fromHex("2c2f8f"),
+		key = Color3.fromHex("ffffff"),
+		object = Color3.fromHex("bfe9ff"),
+		sweep = Color3.fromHex("7fe3ff"),
+	},
+
 	font = Enum.Font.FredokaOne,
 	lipDarken = 0.5, -- the lip under every block face is its colour mixed this far toward ink
 	temp = { cold = Color3.fromHex("6fd0ff"), cool = Color3.fromHex("5fd6b4"), warm = Color3.fromHex("ffb347"), hot = Color3.fromHex("ff6b5a"), chill = Color3.fromHex("d9f4ff") } :: { [string]: Color3 },
@@ -402,6 +427,29 @@ local Theme = {
 	islandValue = Color3.fromHex("5ee6ff"),
 	shade = Color3.fromRGB(0, 0, 0), -- the dim behind a popup
 	shadeTransparency = 0.55,
+}
+
+-- MapSpectacle's giant outside decor (owner 2026-11-13): full candy colours, brighter than the play
+-- area's own, so each island's skyline pops
+local hex = Color3.fromHex
+Theme.spectacle = {
+	white = hex("ffffff"), cream = hex("fff0c8"),
+	trunk = hex("9a5a2b"), trunkLight = hex("c27c3e"),
+	pine = { hex("1fb85a"), hex("2ed46b"), hex("52e57f") },
+	leaves = { hex("3bd45a"), hex("7be83a"), hex("1fbf6e") },
+	leavesPink = { hex("ff7ac8"), hex("ff4fa8"), hex("ffa3dc") },
+	caps = { hex("ff3d7f"), hex("a24bff"), hex("1fc8ff"), hex("ff8a1f") },
+	firefly = hex("fff36b"),
+	palm = { hex("2edb6a"), hex("18b85a") }, coconut = hex("7a4520"),
+	rainbow = { hex("ff3b3b"), hex("ff8a1f"), hex("ffe135"), hex("3bd45a"), hex("2e8bff"), hex("a24bff") },
+	templeA = hex("4fc3a1"), templeB = hex("3aa88a"), vine = hex("2fb84a"),
+	gold = hex("ffc21a"), emerald = hex("22ff8a"),
+	cliff = hex("c98b5a"), grass = hex("49e05a"), water = hex("3fd8ff"),
+	sand = hex("f5b942"), sandLight = hex("ffd873"), sunCore = hex("fff27a"), cactus = hex("2fcb5a"),
+	crystal = { hex("ff4fd8"), hex("3fe7ff"), hex("b66bff"), hex("7cff6b") },
+	cyan = hex("2ef2ff"), nova = hex("ff4fd8"), violet = hex("8a3cff"), pink = hex("ff4fb8"),
+	volcano = hex("ff5a2e"), volcanoDark = hex("b8322a"), lava = hex("ff6a00"), lavaHot = hex("ffc21a"),
+	smoke = hex("9a8c98"), obsidian = hex("3b2a5a"),
 }
 
 return Theme

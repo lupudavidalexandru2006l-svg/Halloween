@@ -23,6 +23,7 @@ local PetVisuals = require(script.Parent.PetVisuals)
 local EffectsController = {}
 local E = Config.effects
 local F = Config.show.freeze
+local J = Config.juice -- hit-stop and the bank tally (Animation Rules 8, Sound Rules 11)
 local snow: Part? = nil
 local flashFrame: Frame? = nil
 local meshes: Instance? = nil
@@ -309,8 +310,25 @@ local function snap(data: any)
 	local at = EffectsController.cubeAt(data, size)
 	model:PivotTo(at)
 	local flash = data.style == "flash"
+	-- the hit-stop (Animation Rules 8): the cube appears big and white and shakes for a beat (longer for
+	-- rarer pets), then snaps to size with the puff and the tink
+	local rank = Config.tier(def.tier).rank
+	local f = math.clamp((rank - 1) / math.max(1, Config.camera.lockKickFullRank - 1), 0, 1)
+	local hold = EffectsController.time(J.hitStop.lock[1] + (J.hitStop.lock[2] - J.hitStop.lock[1]) * f)
 	cube.Size = Vector3.one * size * F.snapScale
+	cube.Color = Theme.white
+	cube.Transparency = 0.15
+	local shake = if reduced() then 0 else J.hitShake
+	local t0 = os.clock()
+	while os.clock() - t0 < hold and model.Parent do
+		local now = os.clock()
+		model:PivotTo(at + Vector3.new(math.sin(now * 97) * shake, 0, math.cos(now * 83) * shake))
+		RunService.RenderStepped:Wait()
+	end
+	model:PivotTo(at)
+	cube.Color = Theme.ice
 	cube.Transparency = 0.9
+	SoundController.play("freeze") -- the crunch lands on the release, not the hit (Sound Rules 11)
 	local snapTime = EffectsController.time(F.snapSeconds)
 	TweenService:Create(cube, TweenInfo.new(snapTime, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Size = Vector3.one * size, Transparency = 0.45 }):Play()
 	puff(at.Position, if flash then F.flashPuffParts else F.puffParts)
@@ -332,6 +350,67 @@ local function snap(data: any)
 	end
 	task.wait(snapTime + EffectsController.time(0.12))
 	EffectsController.flyHome(model, real, EffectsController.time(F.flySeconds))
+end
+
+-- banking (Animation Rules 8 follow-through): each cube hops from your hands into your pen, one by
+-- one, each landing a coin ding a step higher up a major scale; then the finale (bank chime, bursts,
+-- the Epic-and-up pillar). The server has already banked them; this only plays it.
+local function hop(model: Model, from: Vector3, to: Vector3, seconds: number, note: number)
+	local T = J.tally
+	local t0 = os.clock()
+	while model.Parent do
+		local u = math.min(1, (os.clock() - t0) / math.max(0.01, seconds))
+		local pos = from:Lerp(to, u) + Vector3.new(0, math.sin(u * math.pi) * T.arc, 0)
+		model:PivotTo(CFrame.new(pos) * CFrame.Angles(0, u * math.pi, 0))
+		if u >= 1 then
+			break
+		end
+		RunService.RenderStepped:Wait()
+	end
+	model:Destroy()
+	EffectsController.burst(to - Vector3.new(0, 2, 0), Theme.ice, T.landParts)
+	SoundController.play("coin", 2 ^ (note / 12))
+end
+
+local function tally(data: any)
+	local v = State.view
+	if not v or not v.plot or typeof(data) ~= "table" or typeof(data.banked) ~= "table" then
+		return
+	end
+	local T = J.tally
+	local at = WorldRules.plotCenter(v.plot)
+	local c = Players.LocalPlayer.Character
+	local root = c and c:FindFirstChild("HumanoidRootPart")
+	if root and root:IsA("BasePart") then
+		local n = math.min(#data.banked, T.maxCubes)
+		for k = 1, n do
+			local def = PetDefs.get(data.banked[k].key)
+			if def then
+				local size = PetDefs.cubeSize[def.size] * Config.carry.scale
+				local model = PetVisuals.frozenCube(def.key, size)
+				if model then
+					local from = (root.CFrame * CFrame.new(0, T.startUp, -T.startFront)).Position
+					model:PivotTo(CFrame.new(from))
+					local note = T.notes[math.min(k, #T.notes)]
+					task.spawn(hop, model, from, at + Vector3.new(0, size / 2, 0), EffectsController.time(T.fly), note)
+				end
+			end
+			if k < n then
+				task.wait(EffectsController.time(T.stagger))
+			end
+		end
+		task.wait(EffectsController.time(T.fly + T.finale))
+	end
+	SoundController.play("bank")
+	EffectsController.burst(at, Theme.ice)
+	EffectsController.burst(at, Theme.coin)
+	-- Epic and up get an extra burst in the tier's colour (owner 2026-11-13: no light pillar any more)
+	for _, b in data.banked do
+		local def = PetDefs.get(b.key)
+		if def and Config.tier(def.tier).rank >= E.showRank then
+			EffectsController.burst(at, Theme.tiers[def.tier] or Theme.coin)
+		end
+	end
 end
 
 local function setSnow(on: boolean)
@@ -379,32 +458,19 @@ function EffectsController.Start()
 		elseif kind == "pickedUp" and typeof(data) == "table" and typeof(data.from) == "CFrame" then
 			task.spawn(pickUp, data)
 		elseif kind == "banked" then
-			local v = State.view
-			if v and v.plot then
-				local at = WorldRules.plotCenter(v.plot)
-				EffectsController.burst(at, Theme.ice)
-				EffectsController.burst(at, Theme.coin)
-				-- Epic and up get the show in your own pen (prototype): a pillar in the tier's colour
-				for _, b in data.banked do
-					local def = PetDefs.get(b.key)
-					if def and Config.tier(def.tier).rank >= E.showRank then
-						EffectsController.pillar(at, Theme.tiers[def.tier] or Theme.coin)
-						EffectsController.burst(at, Theme.tiers[def.tier] or Theme.coin)
-					end
-				end
-			end
+			task.spawn(tally, data)
 		elseif kind == "melted" then
 			local c = Players.LocalPlayer.Character
 			local root = c and c:FindFirstChild("HumanoidRootPart") :: BasePart?
 			if root then
 				EffectsController.burst(root.Position, Theme.ice)
 			end
+		elseif kind == "cubeGone" and typeof(data) == "table" and typeof(data.at) == "Vector3" then
+			EffectsController.burst(data.at, Theme.ice) -- a frozen pet left on the ground for 60 s poofs away
 		elseif kind == "zoneUnlocked" then
 			EffectsController.burst(Vector3.new(0, 6, WorldRules.gateZ(if typeof(data.zone) == "number" then data.zone else 2) or 0), Theme.go)
 		elseif kind == "giftClaimed" then
 			EffectsController.burst(Config.world.giftBox, Theme.coin)
-		elseif kind == "bigWin" and typeof(data.plot) == "number" then
-			EffectsController.pillar(WorldRules.plotCenter(data.plot), Theme.tiers[data.tier] or Theme.coin)
 		elseif kind == "chillStart" then
 			setSnow(true)
 		elseif kind == "chillEnd" then

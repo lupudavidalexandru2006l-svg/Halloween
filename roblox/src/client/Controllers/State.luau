@@ -24,13 +24,14 @@ export type View = {
 	machines: number?, -- Thaw Machines in your pan
 	found: { [string]: boolean },
 	pages: { Page },
-	gift: { ready: boolean, locked: boolean, streak: number, nextStreak: number, coins: number },
+	gift: { ready: boolean, claimed: boolean, coins: number, power: number, groupId: number }, -- the one-time Free Gift
 	forestUnlocked: boolean,
 	reach: number?, -- Round 4 phase 6: islands 1..reach have their gates open
 	coldPower: number?, -- the endless stat trained in the Frost Training Yard (decided on the server)
 	welcome: { coins: number, awaySeconds: number, capped: boolean, best: string? }?,
 	settings: { music: boolean, sound: boolean, reducedMotion: boolean, lowGraphics: boolean, unit: string },
 	superFreezeCharges: number,
+	thawSkips: number?, -- paid Thaw Machine skips kept for later (used free on the next Skip)
 	doubleCoins: boolean?, -- owns the 2x Coins game pass (the server checks it with Roblox)
 	stats: { frozen: number, banked: number, melts: number, coinsEarned: number },
 	plot: number?,
@@ -44,6 +45,9 @@ export type View = {
 local State = {}
 State.view = nil :: View?
 State.ranks = {} :: { [string]: number }
+-- a leaderboard's top 100 as the server last read it (asked for with "GetBoard" when its popup opens)
+export type BoardRow = { u: number, n: string, s: string }
+State.boards = {} :: { [string]: { rows: { BoardRow }, place: number? } }
 
 local changed = Instance.new("BindableEvent")
 local notify = Instance.new("BindableEvent")
@@ -75,8 +79,13 @@ function State.Start()
 	local rank = remotes:WaitForChild("BoardRank", 10) :: RemoteEvent
 	-- connect after every other controller's Start has run, so early messages (welcome back) aren't
 	-- passed on before anyone listens; Roblox holds remote events until this connects
+	local rows = remotes:WaitForChild("BoardRows", 10) :: RemoteEvent
 	task.defer(function()
 		State.connect(data, note, rank)
+		rows.OnClientEvent:Connect(function(id: string, list: { BoardRow }, place: number?)
+			State.boards[id] = { rows = list, place = place }
+			notify:Fire("boardRows", id)
+		end)
 	end)
 end
 

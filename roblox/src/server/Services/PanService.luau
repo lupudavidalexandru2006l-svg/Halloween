@@ -36,6 +36,12 @@ function PanService.level(d: Data, kind: string): number
 	if kind == "trainer" then
 		return d.pan.trainer
 	end
+	if kind == "thaw" then
+		return d.pan.thaw
+	end
+	if kind == "speed" then
+		return d.upgrades.boots -- walk speed (PlayerTracker.updateSpeed)
+	end
 	return d.pan.look
 end
 
@@ -122,6 +128,10 @@ local function buy(player: Player, kind: any)
 			PenService.fillEmptySlots(x) -- the new slots take the best pets from Storage
 		elseif kind == "trainer" then
 			x.pan.trainer = old + 1 -- TrainingService rebuilds the pan's trainer from PanTrainer<i>
+		elseif kind == "thaw" then
+			x.pan.thaw = old + 1 -- every thaw started from now on is shorter
+		elseif kind == "speed" then
+			x.upgrades.boots = old + 1
 		else
 			x.pan.look = old + 1
 		end
@@ -130,6 +140,9 @@ local function buy(player: Player, kind: any)
 		return
 	end
 	AnalyticsSvc.funnel(player, "first_coins_spent")
+	if kind == "speed" then
+		PlayerTracker.updateSpeed(player)
+	end
 	publish(player)
 	-- the show plays first, then the save marks it seen (SKIP from the second upgrade on)
 	Remotes.fire(player, "Notify", "panUpgraded", { kind = kind, level = old + 1, old = old, price = paid, plot = WorldService.plotOf(player) })

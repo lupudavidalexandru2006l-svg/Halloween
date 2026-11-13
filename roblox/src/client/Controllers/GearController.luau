@@ -57,6 +57,8 @@ end
 local function refresh()
 	local list = owned()
 	bar:SetAttribute("Slots", #list)
+	-- a cube in your hands: the whole hotbar goes away until it's home (GearService refuses it too)
+	bar:SetAttribute("Locked", me:GetAttribute("GunLocked") == true)
 	local n = #list
 	for _, s in H.slots do
 		local slot = slots[s.id]
@@ -170,15 +172,13 @@ function GearController.Start()
 	pill.root.AnchorPoint = Vector2.new(0.5, 0)
 	pill.root.Position = UDim2.fromScale(0.5, 0)
 	pill.root.Size = UDim2.fromScale(0.9, 0.24)
-	for _, part in { pill.root, pill.face } do
-		(part:FindFirstChildOfClass("UICorner") :: UICorner).CornerRadius = UDim.new(0.5, 0)
-	end
+	Ui.roundBlock(pill, 0.5)
 	shieldPill = pill.root
 	shieldText = pill.text
 	shieldPill.Visible = false
 	Screen.register("hotbar", bar)
 	refresh()
-	for _, attr in { "Held", "GearGel" } do
+	for _, attr in { "Held", "GearGel", "GunLocked" } do
 		me:GetAttributeChangedSignal(attr):Connect(refresh)
 	end
 	InputController.DeviceChanged:Connect(refresh)
@@ -187,6 +187,9 @@ function GearController.Start()
 	ContextActionService:BindActionAtPriority("IceRay_hotbar", function(_, st: Enum.UserInputState, input: InputObject)
 		if st ~= Enum.UserInputState.Begin or UserInputService:GetFocusedTextBox() then
 			return Enum.ContextActionResult.Pass
+		end
+		if me:GetAttribute("GunLocked") == true then
+			return Enum.ContextActionResult.Sink -- hands full: 1 / 2 / L1 / R1 do nothing
 		end
 		local list = owned()
 		if input.KeyCode == H.gamepadPrev or input.KeyCode == H.gamepadNext then

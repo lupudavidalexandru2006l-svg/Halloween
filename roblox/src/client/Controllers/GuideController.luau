@@ -14,6 +14,7 @@ local Theme = require(ReplicatedStorage.Shared.Theme)
 local WorldRules = require(ReplicatedStorage.Shared.WorldRules)
 local State = require(script.Parent.State)
 local SettingsController = require(script.Parent.SettingsController)
+local Screen = require(script.Parent.Screen)
 
 local GuideController = {}
 -- what the arrow points at this frame (TutorialController walks Ranger Bo there and makes it glow):
@@ -197,7 +198,8 @@ local function step()
 	end
 	GuideController.target = if goal and kind then { kind = kind, pos = goal, inst = inst } else nil
 	local flat = if goal then Vector3.new(goal.X - pos.X, 0, goal.Z - pos.Z) else Vector3.zero
-	local showArrow = goal ~= nil and flat.Magnitude > G.arrowHideNear
+	-- a show is playing (Screen.showHidden): the arrow steps out of the shot (2026-11-12, it sat in the rebirth reveal)
+	local showArrow = goal ~= nil and flat.Magnitude > G.arrowHideNear and not Screen.showHidden
 	if showArrow then
 		local dir = flat.Unit
 		local bob = if still then 0.15 else math.abs(math.sin(t * G.arrowBobSpeed)) * G.arrowBob

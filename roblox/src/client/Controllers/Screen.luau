@@ -8,6 +8,7 @@
 -- while it shows).
 -- Ranger Bo's tutorial card sits over the hotbar, for new players only, until the tutorial ends.
 
+local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
@@ -17,9 +18,13 @@ local Screen = {}
 local U = Config.ui
 local items: { [string]: GuiObject } = {}
 local tileCount = 0
+-- the top buttons fill this share of Roblox's top bar height (its own buttons are 44 px in a 58 px bar)
+local BAR_FILL = 0.76
 
 Screen.hud = nil :: ScreenGui?
 Screen.popups = nil :: ScreenGui?
+-- the free strip of Roblox's top bar (between its own buttons): the top buttons live here
+Screen.topbar = nil :: ScreenGui?
 -- every HUD piece but the banner sits in this full-screen frame, so a shop can hide them together
 -- (Config.ui.hideHudFor) while the banner still answers "Need 120 more"
 local main: Frame? = nil
@@ -91,13 +96,62 @@ function Screen.layout()
 		coins.Position = UDim2.fromScale(sx(U.sideInset), 1 - sy(U.sideInset + lift + powerH))
 		coinsTop = 1 - sy(U.sideInset + lift + powerH + U.coinsSize[2])
 	end
+	-- the top buttons (TopButtons): at the very top, inside Roblox's top bar between its own buttons
+	-- (owner 2026-11-13: "put this UI at the very top for every platform"). Where there is no top bar
+	-- (consoles, or the top bar switched off) they fall back to the top centre of the HUD layer, with the
+	-- island banner and the message banner under them. Gone while a popup or a shop is open, or while
+	-- they don't want to show.
+	local top = items.top
+	local topH = 0
+	if top then
+		local TB = U.topButtons
+		local n = #TB.list
+		local want = top:GetAttribute("Want") == true and not Screen.popupOpen
+		local bar = Screen.topbar
+		local barSize = if bar then bar.AbsoluteSize else Vector2.zero
+		if bar and GuiService.TopbarInset.Height > 0 and barSize.X > 0 and barSize.Y > 0 then
+			-- in pixels first (the bar is a strip of the screen), then Scale of the bar
+			local barW, barH = barSize.X, barSize.Y
+			local bh = math.min(barH - 4, math.max(barH * BAR_FILL, if touch then U.minTouchPx else 0))
+			local bw = TB.size[1] * bh / TB.size[2]
+			local gap = TB.gap * bh / TB.size[2]
+			local rowW = bw * n + gap * (n - 1)
+			if rowW > barW then
+				bh *= barW / rowW
+				rowW = barW
+			end
+			-- centred on the screen, slid sideways only if it would run into Roblox's own buttons
+			local half = rowW / 2 / barW
+			local cx = math.clamp((cam.ViewportSize.X / 2 - bar.AbsolutePosition.X) / barW, half, 1 - half)
+			if top.Parent ~= bar then
+				top.Parent = bar
+			end
+			top.Visible = want and not Screen.menuHidden
+			top.AnchorPoint = Vector2.new(0.5, 0.5)
+			top.Size = UDim2.fromScale(rowW / barW, bh / barH)
+			top.Position = UDim2.fromScale(cx, 0.5)
+		else
+			if top.Parent ~= main then
+				top.Parent = main
+			end
+			local bh = if touch then math.max(TB.size[2], U.minTouchPx / short) else TB.size[2]
+			local bw = TB.size[1] * bh / TB.size[2]
+			top.Visible = want
+			top.AnchorPoint = Vector2.new(0.5, 0)
+			top.Size = UDim2.fromScale(math.min(0.96, sx(bw * n + TB.gap * (n - 1) * bh / TB.size[2])), sy(bh))
+			top.Position = UDim2.fromScale(0.5, sy(U.topInset))
+			if top.Visible then
+				topH = bh + U.tileGap
+			end
+		end
+	end
 	local IB = U.islandBanner
 	local island = items.island
 	if island then
 		-- a fixed slot at the top centre; the strip inside it slides (HudController animates the inside only)
 		island.AnchorPoint = Vector2.new(0.5, 0)
 		island.Size = UDim2.fromScale(math.min(1, sx(IB.width)), sy(IB.height))
-		island.Position = UDim2.fromScale(0.5, sy(U.topInset))
+		island.Position = UDim2.fromScale(0.5, sy(U.topInset + topH))
 	end
 	local banner = items.banner
 	if banner then
@@ -109,13 +163,24 @@ function Screen.layout()
 			bw = math.max(bw, U.bannerPhoneWidth)
 		end
 		banner.Size = UDim2.fromScale(bw, sy(U.bannerSize[2]))
-		banner.Position = UDim2.fromScale(0.5, sy(U.topInset * 2 + IB.height))
+		banner.Position = UDim2.fromScale(0.5, sy(U.topInset * 2 + IB.height + topH))
+	end
+	-- the "you can now buy" card (UnlockAlert): top right, under the top buttons' row; bigger on a phone
+	-- so its words stay readable
+	local alert = items.alert
+	if alert then
+		local A = U.unlockAlert
+		local k = if Screen.deviceClass() == "phone" then A.phoneScale else 1
+		alert.AnchorPoint = Vector2.new(1, 0)
+		alert.Size = UDim2.fromScale(math.min(0.6, sx(A.size[1] * k)), sy(A.size[2] * k))
+		alert.Position = UDim2.fromScale(1 - sx(U.sideInset), sy(U.topInset + topH))
 	end
 	-- the hotbar: bottom centre, between the thumbstick and the jump button on touch screens
 	local hotbar = items.hotbar
 	if hotbar then
 		-- a phone popup takes the whole height, so the hotbar would peek out from under it: it steps aside
-		hotbar.Visible = not (Screen.popupOpen and Screen.deviceClass() == "phone")
+		-- Locked: a cube is in your hands, so there's nothing to hold (GearController)
+		hotbar.Visible = hotbar:GetAttribute("Locked") ~= true and not (Screen.popupOpen and Screen.deviceClass() == "phone")
 		local H = Config.hotbar
 		local n = math.max(1, (hotbar:GetAttribute("Slots") or 1) :: number)
 		local k = slotSize / H.size -- the gap grows with the slot, so GearController's proportions still hold
@@ -161,7 +226,7 @@ function Screen.layout()
 	end
 end
 
--- name: "tiles" | "coins" | "power" | "island" | "banner" | "hotbar" | "tutorial"; count = number of tiles for "tiles"
+-- name: "tiles" | "coins" | "power" | "island" | "banner" | "hotbar" | "tutorial" | "top" | "alert"; count = number of tiles for "tiles"
 -- (the hotbar's slot count is its "Slots" attribute)
 function Screen.register(name: string, obj: GuiObject, count: number?)
 	items[name] = obj
@@ -171,6 +236,8 @@ function Screen.register(name: string, obj: GuiObject, count: number?)
 	obj.Parent = if name == "banner" then Screen.hud else main
 	obj:GetPropertyChangedSignal("Visible"):Connect(Screen.layout) -- a piece appearing re-runs the layout
 	obj:GetAttributeChangedSignal("Slots"):Connect(Screen.layout)
+	obj:GetAttributeChangedSignal("Locked"):Connect(Screen.layout)
+	obj:GetAttributeChangedSignal("Want"):Connect(Screen.layout)
 	Screen.layout()
 end
 
@@ -251,12 +318,13 @@ function Screen.setMenuHidden(hidden: boolean)
 	if main then
 		main.Visible = not hidden
 	end
+	Screen.layout() -- the top buttons sit in the top bar, outside main
 	menuHiddenEvent:Fire(hidden)
 end
 
 -- shows hide the HUD and any popup while they play (Animation Rules 3) and show them again in their cleanup
 function Screen.setHidden(hidden: boolean)
-	for _, g in { Screen.hud, Screen.popups } do
+	for _, g in { Screen.hud, Screen.popups, Screen.topbar } do
 		if g then
 			g.Enabled = not hidden
 		end
@@ -270,6 +338,9 @@ end
 function Screen.Init()
 	Screen.hud = gui("Hud", 1)
 	Screen.popups = gui("Popups", 5)
+	local bar = gui("TopBar", 2)
+	bar.ScreenInsets = Enum.ScreenInsets.TopbarSafeInsets
+	Screen.topbar = bar
 	local f = Instance.new("Frame")
 	f.Name = "Main"
 	f.BackgroundTransparency = 1
@@ -290,6 +361,11 @@ function Screen.Start()
 	if Screen.hud then
 		Screen.hud:GetPropertyChangedSignal("AbsoluteSize"):Connect(Screen.layout) -- the top bar's size can change after the viewport
 	end
+	if Screen.topbar then
+		Screen.topbar:GetPropertyChangedSignal("AbsoluteSize"):Connect(Screen.layout)
+		Screen.topbar:GetPropertyChangedSignal("AbsolutePosition"):Connect(Screen.layout)
+	end
+	GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(Screen.layout)
 	watch()
 	InputController.DeviceChanged:Connect(Screen.layout)
 end

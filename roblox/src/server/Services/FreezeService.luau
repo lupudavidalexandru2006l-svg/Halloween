@@ -80,12 +80,10 @@ local function touchFor(gun: number): string?
 end
 
 -- how long this freeze takes with the ray on it the whole time, and how it looks: flash (quick snap),
--- normal, or layered (slow, cracks). A dazed pet zaps back quickly; a sleeping one freezes faster.
-function FreezeService.plan(def: PetDefs.PetDef, power: number, dazed: boolean, asleep: boolean?): (number, string)
-	if dazed then
-		return A.refreezeSeconds, "flash"
-	end
-	local seconds = Config.freezeSeconds(def.tier, def.size, power, def.zone, asleep)
+-- normal, or layered (slow, cracks). A sleeping one freezes faster. A dazed pet (its cube melted) takes the
+-- normal time again (owner 2026-11-12: zapping it back took about a second)
+function FreezeService.plan(def: PetDefs.PetDef, power: number, dazed: boolean, asleep: boolean?, gun: number?): (number, string)
+	local seconds = Config.freezeSeconds(def.tier, def.size, power, def.zone, asleep, gun)
 	return seconds, FreezeService.styleFor(seconds / A.timeScale)
 end
 
@@ -126,8 +124,9 @@ local function canFreeze(player: Player, pet: any, data: any, loud: boolean?): b
 		return false
 	end
 	if CarryService.load(player) >= CarryService.capacity(player) then
-		if loud then
-			Remotes.notYet(player, "Backpack full", "pet")
+		if loud then -- owner 2026-11-13: say what to do, not "Backpack full"
+			Remotes.notYet(player, if CarryService.count(player) < CarryService.load(player)
+				then "Pick up the pet you froze!" else "Take your pet home first!", "pet")
 		end
 		return false
 	end
@@ -176,7 +175,7 @@ local function freezeOne(player: Player, pet: any)
 	local at = pet.root.Position
 	local gun = FreezeService.gunTier(player)
 	local data = DataService.get(player)
-	local _, style = FreezeService.plan(pet.def, if data then data.coldPower else 0, dazed)
+	local _, style = FreezeService.plan(pet.def, if data then data.coldPower else 0, dazed, nil, gun)
 	-- a show only for a first freeze (zapping a melted pet back is quick and plain)
 	local show = if dazed then nil else F.shows[pet.def.tier]
 	WildPetSpawner.remove(id)
@@ -226,7 +225,7 @@ local function pushPet(player: Player, pet: any, data: any, gun: number, dt: num
 		return nil
 	end
 	local asleep = pet.state == "wild" and pet.action == "sleep"
-	local seconds, style = FreezeService.plan(pet.def, data.coldPower, pet.state == "dazed", asleep)
+	local seconds, style = FreezeService.plan(pet.def, data.coldPower, pet.state == "dazed", asleep, gun)
 	if data.tester.instantFreeze then -- tester switch: freezes on the first touch of the ray
 		seconds = 0
 	end
@@ -303,7 +302,8 @@ local function tick(dt: number)
 			aim.extras = left
 			-- firing heats the gun: it barely moves on islands the gun is made for, and overheats in a few
 			-- seconds one island past them (the ice then melts back by itself; nothing is lost)
-			if busy and GunService.addHeat(player, dt / (if hot then HB.overSeconds else HB.okSeconds)) then
+			local vest = Config.gearValue(player, "cooling_vest", "heatMult", 1) -- Cooling Vest
+			if busy and GunService.addHeat(player, vest * dt / (if hot then HB.overSeconds else HB.okSeconds)) then
 				Remotes.notYet(player, "Gun too hot!", "pet")
 				clearAim(player)
 				continue

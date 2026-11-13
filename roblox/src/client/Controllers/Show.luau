@@ -32,6 +32,7 @@ local InputController = require(script.Parent.InputController)
 local RayController = require(script.Parent.RayController)
 local EquipmentPopup = require(script.Parent.EquipmentPopup)
 local PanLooks = require(script.Parent.PanLooks)
+local LuckReveal = require(script.Parent.LuckReveal)
 
 local Show = {}
 local me = Players.LocalPlayer
@@ -44,6 +45,7 @@ type Ctx = {
 	controls: { hum: Humanoid, walk: number, jump: number, jumpH: number, rotate: boolean }?, -- the character, held still
 	conn: RBXScriptConnection?, -- a per-frame spin (the gun show)
 	extra: BasePart?, -- the pan upgrade show's glow
+	reveal: LuckReveal.Reveal?, -- the luck roll's words (Mythic / Secret freeze, Secret thaw)
 }
 local running: Ctx? = nil
 
@@ -187,12 +189,86 @@ BEATS.name = function(ctx, seconds, keep)
 	hold(ctx, seconds, keep)
 end
 
+-- the luck roll (owner 2026-11-13): "1 in N" climbs to the real odds, luck words step up, the name freezes
+-- in letter by letter; the frozen pet shivers harder as it nears the end. SKIP jumps to the real number.
+BEATS.odds = function(ctx, seconds, keep)
+	local gui, def = ctx.gui, ctx.def
+	if not gui or not def then
+		return
+	end
+	local r = LuckReveal.new(gui, def, ctx.reduced)
+	ctx.reveal = r
+	SoundController.play("ray_charge")
+	local base = ctx.at
+	local amp = Config.show.reveal.cubeShiver
+	r:roll(seconds, function()
+		return ctx.skipped or ctx.finished
+	end, function(u: number)
+		local model = ctx.model
+		if model and not ctx.reduced and ctx.name ~= "thawReveal" then
+			local tt = os.clock() * 31
+			model:PivotTo(base * CFrame.new(math.sin(tt) * amp * u, 0, math.cos(tt * 1.3) * amp * u))
+		end
+	end)
+	if ctx.model and ctx.name ~= "thawReveal" then
+		ctx.model:PivotTo(base)
+	end
+end
+
+-- the reveal: rarity, the name slams in over a sunburst, "1 in N", confetti; then Continue
+BEATS.title = function(ctx, seconds, keep)
+	local r, gui = ctx.reveal, ctx.gui
+	if not r or not gui then
+		return
+	end
+	local skip = gui:FindFirstChild("Skip")
+	if skip then
+		skip:Destroy() -- Continue is the one button now
+		ContextActionService:UnbindAction("IceRay_ShowSkip")
+	end
+	SoundController.play(if ctx.def and ctx.def.tier == "Secret" then "reveal_secret" else "rebirth_hit")
+	r:finale()
+	hold(ctx, seconds, true)
+	r:waitContinue(function()
+		return not ctx.finished
+	end)
+end
+
+-- the Secret thaw: the camera comes round to the front of your Thaw Machine
+BEATS.aim = function(ctx, seconds, keep)
+	local cam = ctx.cam
+	if cam then
+		local at = ctx.at.Position
+		local look = at + Vector3.new(0, ctx.cfg.lookUp, 0)
+		cam.CFrame = CFrame.lookAt(at + Vector3.new(0, ctx.cfg.camUp * 1.6, ctx.cfg.camBack * 1.5), look)
+		moveCamera(ctx, CFrame.lookAt(at + Vector3.new(0, ctx.cfg.camUp, ctx.cfg.camBack), look), seconds)
+	end
+	hold(ctx, seconds, keep)
+end
+
+-- the machine charges up: countable pulses of light and sparks, each a little bigger
+BEATS.charge = function(ctx, seconds, keep)
+	local n = math.max(1, ctx.cfg.chargePulses)
+	for i = 1, n do
+		if ctx.finished or (ctx.skipped and not keep) then
+			return
+		end
+		EffectsController.burst(ctx.at.Position, if i == n then ctx.color else Theme.ice, 8 + i * 6)
+		SoundController.play("upgrade_hit", 0.8 + i * 0.15)
+		hold(ctx, seconds / n, keep)
+	end
+end
+
 -- the cube flies into your hands and the camera comes home
 BEATS.fly = function(ctx, seconds, keep)
 	local gui = ctx.gui
 	local reveal = gui and gui:FindFirstChild("Reveal")
 	if reveal then
 		reveal:Destroy()
+	end
+	if ctx.reveal then
+		ctx.reveal:destroy()
+		ctx.reveal = nil
 	end
 	local home = CameraController.homeCFrame()
 	if ctx.cam and home then
@@ -229,6 +305,10 @@ local function finish(ctx: Ctx)
 	if ctx.frost then
 		ctx.frost:Destroy()
 		ctx.frost = nil
+	end
+	if ctx.reveal then
+		ctx.reveal:destroy()
+		ctx.reveal = nil
 	end
 	if ctx.conn then
 		ctx.conn:Disconnect()
@@ -368,6 +448,55 @@ function Show.play(name: string, data: any)
 	finish(ctx)
 	if not ok then
 		warn("[Show] beat failed:", err)
+	end
+end
+
+-- a Secret comes out of your Thaw Machine (Config.show.thawReveal): the server has already put it in your
+-- pan; this only plays it, at the machine
+function Show.thawReveal(data: any)
+	local cfg = Config.show.thawReveal
+	local def = PetDefs.get(data.key)
+	if not def or not cfg.tiers[def.tier] or typeof(data.at) ~= "Vector3" then
+		return
+	end
+	if running then
+		finish(running)
+	end
+	local ctx: Ctx = {
+		name = "thawReveal", cfg = cfg, data = { key = data.key }, def = def, reduced = SettingsController.get("reducedMotion") == true,
+		skipped = false, finished = false, model = nil, cube = nil, real = nil, at = CFrame.new(data.at), size = 3,
+		color = Theme.tierGlow[def.tier] or Theme.coin, gui = nil, cam = nil, frost = nil, controls = nil, conn = nil,
+	}
+	running = ctx
+	local ok, err = pcall(function()
+		local gui = Instance.new("ScreenGui")
+		gui.Name = "Show"
+		gui.ResetOnSpawn = false
+		gui.ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets
+		gui.DisplayOrder = 10
+		gui.Parent = me:WaitForChild("PlayerGui")
+		ctx.gui = gui
+		Screen.setHidden(true)
+		local hum = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
+		if hum then
+			ctx.controls = { hum = hum, walk = hum.WalkSpeed, jump = hum.JumpPower, jumpH = hum.JumpHeight, rotate = hum.AutoRotate }
+			hum.WalkSpeed, hum.JumpPower, hum.JumpHeight, hum.AutoRotate = 0, 0, 0, false
+		end
+		ctx.cam = CameraController.borrow()
+		local scale = if ctx.reduced then 0.5 else 1
+		for _, beat in cfg.beats do
+			if ctx.finished then
+				break
+			end
+			local play = BEATS[beat.name]
+			if play then
+				play(ctx, beat.time * scale, beat.keepOnSkip == true)
+			end
+		end
+	end)
+	finish(ctx)
+	if not ok then
+		warn("[Show] thaw reveal failed:", err)
 	end
 end
 
@@ -803,105 +932,824 @@ function Show.panTrip(data: any, rm: number, onArrive: () -> ())
 	end
 end
 
--- ---------- the rebirth show (Config.show.rebirth, Round 4 phase 7) ----------
--- At the Rebirth Booth: the camera pushes in to face you, an ice burst (one flash), then the new
--- rebirth and coin multiplier slam in, with the free gun if one came with it. The server has already
--- rebirthed and saved; the show only plays it. SKIP from the second rebirth; reduced motion halves it.
+-- ---------- the rebirth show (Config.show.rebirth) ----------
+-- Remade 2026-11-12 (owner: "it needs to be very good, sfx vfx all the things"; references in the vault:
+-- Research/Reference Clips 2026-11-12, the supernova crown aura and the rare-roll star flare). At the booth:
+--   title   a dark card, R E B I R T H letter-spaced over a line of light growing from the middle
+--   gather  a rune stage lights up under you (a glowing disc, three rings turning, sparks rising); the
+--           camera starts low and wide and drifts round you
+--   drain   your coins fly in from all round and melt into you (they're what the rebirth spends)
+--   charge  three countable pulses: a shockwave ring, the rings spin faster, the star over your head
+--           grows, the hum climbs, the camera creeps closer; then the reverse-cymbal suck
+--   burst   one flash, a light pillar, rays, confetti, the rings fly outward
+--   reveal  a turning sunburst, "NEW REBIRTH" small over REBIRTH n slamming in letter by letter, then
+--           coin x1 -> coin x1.5 and anything else that came with it; low on the screen so you stay in view
+--   back    the camera comes home and the stage fades
+-- The server has already rebirthed and saved; the show only plays it. Everything it makes lives in one
+-- stage that is cleaned up whatever happens (an error, a newer show, a respawn).
 
+type Ring = { parts: { BasePart }, radius: number, target: number, spin: number, angle: number, alpha: number, alphaTarget: number, y: number }
+type Stage = {
+	folder: Folder, ground: Vector3, center: Vector3, rings: { Ring }, speed: number,
+	disc: BasePart?, motes: ParticleEmitter?, light: PointLight?, glow: Highlight?, star: BillboardGui?, hum: Sound?,
+	orbit: { base: number, t: number, angle: number, radius: number, height: number, radiusTo: number, heightTo: number, look: number, lookTo: number }?, kickUntil: number,
+	conn: RBXScriptConnection?,
+}
+local stages: { [Ctx]: Stage } = {}
 local REBIRTH_BEATS: { [string]: (Ctx, number, boolean) -> () } = {}
 
-REBIRTH_BEATS.push = function(ctx, seconds, keep)
-	local cam = ctx.cam
+local function rebirthColours(): { [string]: Color3 }
+	return { rebirth = Theme.booths.rebirth, gold = Theme.coin, ice = Theme.fx.beamGlow }
+end
+
+local function stagePart(st: Stage, size: Vector3, color: Color3, alpha: number): Part
+	local p = Instance.new("Part")
+	p.Anchored, p.CanCollide, p.CanQuery, p.CanTouch, p.CastShadow = true, false, false, false, false
+	p.Material = Enum.Material.Neon
+	p.Color = color
+	p.Size = size
+	p.Transparency = alpha
+	p.Parent = st.folder
+	return p
+end
+
+-- a flat glowing disc on the ground (a cylinder lying on its side)
+local function flatDisc(st: Stage, radius: number, color: Color3, alpha: number, y: number): Part
+	local p = stagePart(st, Vector3.new(0.12, radius * 2, radius * 2), color, alpha)
+	p.Shape = Enum.PartType.Cylinder
+	p.CFrame = CFrame.new(st.ground + Vector3.new(0, y, 0)) * CFrame.Angles(0, 0, math.rad(90))
+	return p
+end
+
+local function sizeDisc(p: BasePart, st: Stage, radius: number, y: number)
+	p.Size = Vector3.new(0.12, radius * 2, radius * 2)
+	p.CFrame = CFrame.new(st.ground + Vector3.new(0, y, 0)) * CFrame.Angles(0, 0, math.rad(90))
+end
+
+-- a shockwave: a thin disc that grows out from you and fades
+local function shockwave(st: Stage, color: Color3, toRadius: number, seconds: number)
+	local p = flatDisc(st, 1, color, 0.25, 0.3)
+	local t0 = os.clock()
+	task.spawn(function()
+		while p.Parent do
+			local u = math.min(1, (os.clock() - t0) / math.max(0.05, seconds))
+			sizeDisc(p, st, 1 + (toRadius - 1) * (1 - (1 - u) ^ 3), 0.3)
+			p.Transparency = 0.25 + 0.75 * u
+			if u >= 1 then
+				break
+			end
+			RunService.RenderStepped:Wait()
+		end
+		p:Destroy()
+	end)
+end
+
+-- the star flare over your head: a long bright cross with a soft middle, made of fading bars
+local function starFlare(st: Stage, color: Color3): BillboardGui
+	local S = Config.show.rebirth.star
+	local holder = stagePart(st, Vector3.one * 0.2, color, 1)
+	holder.CFrame = CFrame.new(st.center + Vector3.new(0, S.height, 0))
+	local g = Instance.new("BillboardGui")
+	g.Name = "Star"
+	g.Size = UDim2.fromScale(S.from, S.from)
+	g.LightInfluence = 0
+	g.Adornee = holder
+	g.Parent = holder
+	local fade = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0), NumberSequenceKeypoint.new(1, 1) })
+	for i, spec in { { 1, 0.07, 0 }, { 0.07, 1, 0 }, { 0.55, 0.04, 45 }, { 0.55, 0.04, -45 } } do
+		local bar = Instance.new("Frame")
+		bar.Name = "Bar" .. i
+		bar.AnchorPoint = Vector2.new(0.5, 0.5)
+		bar.Position = UDim2.fromScale(0.5, 0.5)
+		bar.Size = UDim2.fromScale(spec[1], spec[2])
+		bar.Rotation = spec[3]
+		bar.BackgroundColor3 = Theme.white
+		bar.BorderSizePixel = 0
+		local grad = Instance.new("UIGradient")
+		grad.Transparency = fade
+		grad.Rotation = if spec[2] > spec[1] then 90 else 0
+		grad.Parent = bar
+		bar.Parent = g
+	end
+	local core = Instance.new("ImageLabel")
+	core.Name = "Core"
+	core.BackgroundTransparency = 1
+	core.Image = Config.images.icons.sunburst
+	core.ImageColor3 = color
+	core.AnchorPoint = Vector2.new(0.5, 0.5)
+	core.Position = UDim2.fromScale(0.5, 0.5)
+	core.Size = UDim2.fromScale(0.7, 0.7)
+	core.Parent = g
+	return g
+end
+
+-- the camera: drifts round you while the stage plays; anything solid in the way pulls it in front of it
+local function placeCamera(ctx: Ctx, st: Stage)
+	local cam, o = ctx.cam, st.orbit
+	if not cam or not o then
+		return
+	end
+	local O = Config.show.rebirth.orbit
+	local look = st.center + Vector3.new(0, o.look - 1, 0)
+	local want = st.center + Vector3.new(math.cos(o.angle) * o.radius, o.height, math.sin(o.angle) * o.radius)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { me.Character :: Model, st.folder }
+	local hit = workspace:Raycast(look, want - look, params)
+	if hit then
+		want = look + (want - look).Unit * math.max(3, hit.Distance - 1)
+	end
+	local cf = CFrame.lookAt(want, look)
+	if os.clock() < st.kickUntil and not ctx.reduced then
+		local k = Config.show.rebirth.kick
+		cf *= CFrame.new((math.random() - 0.5) * k, (math.random() - 0.5) * k, 0)
+	end
+	cam.CFrame = cf
+end
+
+-- build the stage and the per-frame driver (rings turning, camera drifting)
+local function buildStage(ctx: Ctx): Stage?
 	local hrp = me.Character and me.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
-	if cam and hrp then
-		local cfg = ctx.cfg
-		local at = hrp.Position + Vector3.new(0, 1, 0)
-		-- you face the booth when you use it, so the camera swings round to the open side: away from
-		-- the booth at a three-quarter angle (never into its wall)
-		local booth = at + hrp.CFrame.LookVector
-		for _, b in Config.world.booths do
-			if b.id == "rebirth" then
-				booth = b.pos
+	if not hrp then
+		return nil
+	end
+	local cfg = Config.show.rebirth
+	local folder = Instance.new("Folder")
+	folder.Name = "RebirthStage"
+	folder.Parent = workspace
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { me.Character :: Model, folder }
+	local down = workspace:Raycast(hrp.Position, Vector3.new(0, -12, 0), params)
+	local ground = if down then down.Position else hrp.Position - Vector3.new(0, 3, 0)
+	local st: Stage = {
+		folder = folder, ground = ground, center = hrp.Position, rings = {}, speed = 1, kickUntil = 0,
+	}
+	-- start the camera away from the booth at a three-quarter angle (never into its wall)
+	local booth = hrp.Position + hrp.CFrame.LookVector
+	for _, b in Config.world.booths do
+		if b.id == "rebirth" then
+			booth = b.pos
+		end
+	end
+	local away = (hrp.Position - booth) * Vector3.new(1, 0, 1)
+	local base = if away.Magnitude > 0.1 then away.Unit else Vector3.new(0, 0, -1)
+	local dir = CFrame.Angles(0, math.rad(cfg.angle), 0) * base
+	local O = cfg.orbit
+	local base0 = math.atan2(dir.Z, dir.X)
+	st.orbit = { base = base0, t = 0, angle = base0, radius = O.startRadius, height = O.startHeight, radiusTo = O.startRadius, heightTo = O.startHeight, look = O.lookHeight, lookTo = O.lookHeight }
+	-- you turn to face the camera (the open side), so the show sees your face, not your back
+	hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + Vector3.new(dir.X, 0, dir.Z))
+	local last = os.clock()
+	st.conn = RunService.RenderStepped:Connect(function()
+		local now = os.clock()
+		local dt = math.min(0.1, now - last)
+		last = now
+		if not folder.Parent then
+			return
+		end
+		local slow = if ctx.reduced then 0.4 else 1
+		for _, r in st.rings do
+			r.angle += r.spin * st.speed * slow * dt * math.pi * 2
+			r.radius += (r.target - r.radius) * math.min(1, dt * 6)
+			r.alpha += (r.alphaTarget - r.alpha) * math.min(1, dt * 5)
+			local n = #r.parts
+			for i, p in r.parts do
+				local a = r.angle + (i - 1) * (math.pi * 2 / n)
+				p.CFrame = CFrame.new(ground + Vector3.new(0, r.y, 0)) * CFrame.Angles(0, a, 0) * CFrame.new(0, 0, -r.radius)
+				p.Transparency = r.alpha
 			end
 		end
-		local away = (at - booth) * Vector3.new(1, 0, 1)
-		local base = if away.Magnitude > 0.1 then away.Unit else Vector3.new(0, 0, -1)
-		local dir = (CFrame.Angles(0, math.rad(cfg.angle), 0) * base).Unit
-		-- anything in the way (a wall, a lamp) pulls the camera in front of it
-		local params = RaycastParams.new()
-		params.FilterType = Enum.RaycastFilterType.Exclude
-		params.FilterDescendantsInstances = { me.Character :: Model }
-		local function clear(offset: Vector3): Vector3
-			local hit = workspace:Raycast(at, offset, params)
-			return if hit then at + offset.Unit * math.max(2, hit.Distance - 1) else at + offset
+		local o = st.orbit
+		if o then
+			o.t += dt * math.min(2, st.speed)
+			local swing = math.rad(if ctx.reduced then O.reducedSwing else O.swing)
+			o.angle = o.base + swing * math.sin(o.t / O.swingSeconds * math.pi * 2 - math.pi / 2) -- starts at one side, sways across
+			local f = math.min(1, dt * O.follow)
+			o.radius += (o.radiusTo - o.radius) * f
+			o.height += (o.heightTo - o.height) * f
+			o.look += (o.lookTo - o.look) * f
+			placeCamera(ctx, st)
 		end
-		local from = clear(dir * cfg.pushDistance * 1.7 + Vector3.new(0, cfg.pushHeight * 1.6, 0))
-		local to = clear(dir * cfg.pushDistance + Vector3.new(0, cfg.pushHeight, 0))
-		cam.CFrame = CFrame.lookAt(from, at)
-		moveCamera(ctx, CFrame.lookAt(to, at), seconds)
-		ctx.at = CFrame.new(at)
+	end)
+	stages[ctx] = st
+	return st
+end
+
+local function clearStage(ctx: Ctx)
+	local st = stages[ctx]
+	if not st then
+		return
+	end
+	stages[ctx] = nil
+	if st.conn then
+		st.conn:Disconnect()
+	end
+	if st.hum then
+		st.hum:Destroy()
+	end
+	if st.glow then
+		st.glow:Destroy()
+	end
+	-- the stage fades rather than popping out (it's gone in half a second either way)
+	local folder = st.folder
+	for _, d in folder:GetDescendants() do
+		if d:IsA("BasePart") and d.Transparency < 1 then
+			TweenService:Create(d, TweenInfo.new(0.4), { Transparency = 1 }):Play()
+		elseif d:IsA("ParticleEmitter") then
+			d.Enabled = false
+		elseif d:IsA("PointLight") then
+			TweenService:Create(d, TweenInfo.new(0.4), { Brightness = 0 }):Play()
+		end
+	end
+	task.delay(0.5, function()
+		folder:Destroy()
+	end)
+end
+
+-- letter-spaced capitals (title card, small words)
+local function spaced(s: string): string
+	return (s:gsub("(.)", "%1 "):sub(1, -2))
+end
+
+REBIRTH_BEATS.title = function(ctx, seconds, keep)
+	local gui = ctx.gui
+	local TC = Config.show.rebirth.titleCard
+	if not gui then
+		return
+	end
+	local card = Instance.new("Frame")
+	card.Name = "TitleCard"
+	card.BackgroundColor3 = Theme.ink
+	card.BorderSizePixel = 0
+	card.Position = UDim2.fromScale(-0.1, -0.2) -- past the safe area's edges, so it covers the whole screen
+	card.Size = UDim2.fromScale(1.2, 1.4)
+	card.ZIndex = 0
+	card.Parent = gui
+	local word = Ui.label(card, spaced(TC.word), UDim2.fromScale(0.5, 0.09), UDim2.fromScale(0.25, 0.36))
+	word.Name = "Word"
+	word.TextColor3 = Theme.coin
+	word.TextTransparency = 1
+	local line = Instance.new("Frame")
+	line.Name = "Line"
+	line.AnchorPoint = Vector2.new(0.5, 0.5)
+	line.Position = UDim2.fromScale(0.5, 0.465)
+	line.Size = UDim2.fromScale(0, 0.004)
+	line.BackgroundColor3 = Theme.white
+	line.BorderSizePixel = 0
+	local grad = Instance.new("UIGradient")
+	grad.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0), NumberSequenceKeypoint.new(1, 1) })
+	grad.Parent = line
+	line.Parent = card
+	local cap = Ui.label(card, TC.caption, UDim2.fromScale(0.5, 0.04), UDim2.fromScale(0.25, 0.72))
+	cap.Name = "Caption"
+	cap.TextTransparency = 1
+	SoundController.play("island")
+	SoundController.play("chill")
+	local ti = TweenInfo.new(seconds * 0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local late = TweenInfo.new(seconds * 0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, 0, false, seconds * 0.25)
+	TweenService:Create(line, ti, { Size = UDim2.fromScale(TC.line / 1.2, 0.004) }):Play()
+	for _, pair in { { word, ti, 0 }, { cap, late, 0.15 } } do
+		local t = pair[1] :: TextLabel
+		local s = t:FindFirstChildOfClass("UIStroke")
+		if s then
+			s.Transparency = 1 -- the outline fades in with its words (an outline alone read as ghost text)
+			TweenService:Create(s, pair[2] :: TweenInfo, { Transparency = 0 }):Play()
+		end
+		TweenService:Create(t, pair[2] :: TweenInfo, { TextTransparency = pair[3] :: number }):Play()
 	end
 	hold(ctx, seconds, keep)
+end
+
+local function dropTitleCard(ctx: Ctx, seconds: number)
+	local gui = ctx.gui
+	local card = gui and gui:FindFirstChild("TitleCard") :: Frame?
+	if not card then
+		return
+	end
+	card.Name = "TitleCardOut"
+	local ti = TweenInfo.new(seconds)
+	TweenService:Create(card, ti, { BackgroundTransparency = 1 }):Play()
+	for _, d in card:GetDescendants() do
+		if d:IsA("TextLabel") then
+			TweenService:Create(d, ti, { TextTransparency = 1 }):Play()
+			local s = d:FindFirstChildOfClass("UIStroke")
+			if s then
+				TweenService:Create(s, ti, { Transparency = 1 }):Play()
+			end
+		elseif d:IsA("Frame") then
+			TweenService:Create(d, ti, { BackgroundTransparency = 1 }):Play()
+		end
+	end
+	task.delay(seconds, function()
+		card:Destroy()
+	end)
+end
+
+REBIRTH_BEATS.gather = function(ctx, seconds, keep)
+	local cfg = Config.show.rebirth
+	local st = stages[ctx]
+	dropTitleCard(ctx, math.min(0.4, seconds * 0.35))
+	if not st then
+		hold(ctx, seconds, keep)
+		return
+	end
+	local C = rebirthColours()
+	-- the rune disc fades up under you
+	local disc = flatDisc(st, cfg.discRadius, C.rebirth, 1, 0.08)
+	st.disc = disc
+	TweenService:Create(disc, TweenInfo.new(seconds * 0.6), { Transparency = cfg.discAlpha }):Play()
+	-- three rings, each switching on as a circle of glowing segments
+	for i, spec in cfg.rings do
+		local parts: { BasePart } = {}
+		local n = spec.segments
+		local len = 2 * math.pi * spec.radius / n * (if spec.dashed then 0.55 else 1.06)
+		for k = 1, n do
+			table.insert(parts, stagePart(st, Vector3.new(len, 0.16, spec.width), C[spec.colour] or C.rebirth, 1))
+		end
+		table.insert(st.rings, { parts = parts, radius = spec.radius * 0.6, target = spec.radius, spin = spec.spin, angle = i, alpha = 1, alphaTarget = 0.05, y = 0.18 + i * 0.04 })
+	end
+	-- sparks rising off the disc
+	local lowG = SettingsController.get("lowGraphics") == true
+	local emitterPart = stagePart(st, Vector3.new(cfg.discRadius * 1.6, 0.2, cfg.discRadius * 1.6), C.rebirth, 1)
+	emitterPart.CFrame = CFrame.new(st.ground + Vector3.new(0, 0.3, 0))
+	local e = Instance.new("ParticleEmitter")
+	e.Name = "Motes"
+	e.Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, C.rebirth), ColorSequenceKeypoint.new(0.5, C.gold), ColorSequenceKeypoint.new(1, C.ice) })
+	e.LightEmission = 1
+	e.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.35), NumberSequenceKeypoint.new(1, 0) })
+	e.Transparency = NumberSequence.new(0.1, 1)
+	e.Speed = NumberRange.new(2.5, 5)
+	e.Lifetime = NumberRange.new(1.4, 2.4)
+	e.EmissionDirection = Enum.NormalId.Top
+	e.Shape = Enum.ParticleEmitterShape.Box
+	e.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
+	e.Rate = cfg.motes * (if lowG then 0.5 else 1) * (if ctx.reduced then 0.5 else 1)
+	e.Parent = emitterPart
+	st.motes = e
+	-- a light on you in the rebirth colour, and the hum starting low
+	local lp = stagePart(st, Vector3.one * 0.2, C.rebirth, 1)
+	lp.CFrame = CFrame.new(st.center)
+	local light = Instance.new("PointLight")
+	light.Color = C.rebirth
+	light.Range = 18
+	light.Brightness = 0.5
+	light.Shadows = false
+	light.Parent = lp
+	st.light = light
+	local hum = SoundController.loop("ray_hum")
+	if hum then
+		hum.PlaybackSpeed = cfg.hum.from
+		st.hum = hum
+	end
+	SoundController.play("bridge")
+	hold(ctx, seconds, keep)
+end
+
+REBIRTH_BEATS.drain = function(ctx, seconds, keep)
+	local cfg = Config.show.rebirth
+	local st = stages[ctx]
+	if not st then
+		hold(ctx, seconds, keep)
+		return
+	end
+	-- your coins fly in from all round, spiral, and melt into you
+	local n = cfg.coins
+	local fly = math.min(cfg.coinFly, seconds * 0.7)
+	for i = 1, n do
+		task.delay((i - 1) / n * math.max(0.05, seconds - fly), function()
+			if ctx.finished or not st.folder.Parent then
+				return
+			end
+			local a0 = (i / n) * math.pi * 2 + math.random() * 0.4
+			local h0 = 2 + math.random() * 4
+			local C0 = cfg.coinSize
+			local coin = stagePart(st, Vector3.new(C0 * 0.18, C0, C0), Theme.coin, 0)
+			coin.Shape = Enum.PartType.Cylinder
+			coin.Material = Enum.Material.SmoothPlastic
+			-- the painted coin on both faces, so it reads as the game's coin (a bare disc read as a yellow plate)
+			for _, faceId in { Enum.NormalId.Left, Enum.NormalId.Right } do
+				local dcl = Instance.new("Decal")
+				dcl.Texture = Config.images.icons.coin
+				dcl.Face = faceId
+				dcl.Parent = coin
+			end
+			local t0 = os.clock()
+			while coin.Parent and not ctx.finished do
+				local u = math.min(1, (os.clock() - t0) / fly)
+				local e = u * u
+				local r = cfg.coinRadius * (1 - e)
+				local a = a0 + e * math.pi * 1.4
+				local pos = st.center + Vector3.new(math.cos(a) * r, h0 * (1 - e) + 0.5 * e, math.sin(a) * r)
+				coin.CFrame = CFrame.new(pos) * CFrame.Angles(0, os.clock() * 8 + i, 0) -- standing on its edge, spinning
+				coin.Size = Vector3.new(C0 * 0.18, C0, C0) * (1 - 0.6 * e)
+				if u >= 1 then
+					break
+				end
+				RunService.RenderStepped:Wait()
+			end
+			coin:Destroy()
+			if not ctx.finished then
+				SoundController.play("coin")
+				if st.light then
+					st.light.Brightness += 0.12
+				end
+			end
+		end)
+	end
+	if st.orbit then
+		local O = cfg.orbit
+		st.orbit.radiusTo = O.startRadius - (O.startRadius - O.endRadius) * 0.25
+	end
+	hold(ctx, seconds, keep)
+end
+
+REBIRTH_BEATS.charge = function(ctx, seconds, keep)
+	local cfg = Config.show.rebirth
+	local st = stages[ctx]
+	if not st then
+		hold(ctx, seconds, keep)
+		return
+	end
+	local C = rebirthColours()
+	local star = starFlare(st, C.rebirth)
+	st.star = star
+	-- you start to glow
+	local char = me.Character
+	if char then
+		local glow = Instance.new("Highlight")
+		glow.Name = "RebirthGlow"
+		glow.FillColor = Theme.white
+		glow.OutlineColor = C.rebirth
+		glow.FillTransparency = 1
+		glow.OutlineTransparency = 0.2
+		glow.DepthMode = Enum.HighlightDepthMode.Occluded
+		glow.Adornee = char
+		glow.Parent = st.folder
+		st.glow = glow
+		TweenService:Create(glow, TweenInfo.new(seconds), { FillTransparency = 0.45 }):Play()
+	end
+	local O = cfg.orbit
+	local P = cfg.pulses
+	local hum = st.hum
+	if hum then
+		TweenService:Create(hum, TweenInfo.new(seconds, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { PlaybackSpeed = cfg.hum.to }):Play()
+	end
+	local suckAt = seconds * 0.72
+	local t0 = os.clock()
+	local fired = 0
+	local sucked = false
+	while not ctx.finished and os.clock() - t0 < seconds do
+		if ctx.skipped and not keep then
+			break
+		end
+		local t = os.clock() - t0
+		local due = math.min(P, math.floor(t / (seconds * 0.7 / P)) + 1)
+		while fired < due do
+			fired += 1
+			local k = fired / P
+			shockwave(st, if fired == P then C.gold else C.rebirth, cfg.pulseRadius * (0.7 + 0.3 * k), 0.55)
+			SoundController.play("upgrade_hit", 1 + 0.14 * (fired - 1))
+			SoundController.play("tink", 1 + 0.2 * (fired - 1))
+			st.speed = 1 + cfg.pulseSpin * fired
+			st.kickUntil = os.clock() + 0.12
+			local size = cfg.star.from + (cfg.star.to - cfg.star.from) * k
+			TweenService:Create(star, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Size = UDim2.fromScale(size, size) }):Play()
+			if st.light then
+				st.light.Brightness = 1 + 1.5 * k
+			end
+			if st.orbit then
+				st.orbit.radiusTo = O.startRadius - (O.startRadius - O.endRadius) * (0.25 + 0.75 * k)
+				st.orbit.heightTo = O.startHeight + (O.endHeight - O.startHeight) * k
+			end
+		end
+		if not sucked and t >= suckAt then
+			sucked = true
+			SoundController.play("ray_charge") -- the reverse-cymbal suck right before the burst
+			for _, r in st.rings do
+				r.target *= 0.55 -- the rings pull in toward you
+			end
+		end
+		RunService.RenderStepped:Wait()
+	end
 end
 
 REBIRTH_BEATS.burst = function(ctx, seconds, keep)
-	local cfg = ctx.cfg
-	local pos = ctx.at.Position
+	local cfg = Config.show.rebirth
+	local st = stages[ctx]
+	local C = rebirthColours()
 	SoundController.play("slam")
-	EffectsController.burst(pos, Theme.fx.frost, cfg.burstParts)
-	EffectsController.burst(pos, ctx.color, math.floor(cfg.burstParts / 2))
-	if cfg.rays > 0 then
-		EffectsController.rays(pos, ctx.color, cfg.rays, seconds * 4)
+	SoundController.play("reveal_secret")
+	SoundController.play("rebirth_hit")
+	if not ctx.reduced then
+		EffectsController.flash() -- the one flash of the show
 	end
-	if cfg.flash then
-		EffectsController.flash() -- one flash per show
+	if st then
+		local pos = st.center
+		if st.hum then
+			st.hum:Destroy()
+			st.hum = nil
+		end
+		-- a light pillar of our own: thinner and more see-through than the freeze shows' one, so you stay in view
+		local PL = cfg.pillar
+		local pillar = stagePart(st, Vector3.new(0.1, PL.width, PL.width), C.rebirth, PL.alpha)
+		pillar.Shape = Enum.PartType.Cylinder
+		task.spawn(function()
+			local t0 = os.clock()
+			while pillar.Parent do
+				local u = (os.clock() - t0)
+				local h = PL.height * math.min(1, 1 - (1 - math.min(1, u / PL.rise)) ^ 2)
+				pillar.Size = Vector3.new(math.max(0.1, h), PL.width, PL.width)
+				pillar.CFrame = CFrame.new(st.ground + Vector3.new(0, h / 2, 0)) * CFrame.Angles(0, 0, math.rad(90))
+				pillar.Transparency = PL.alpha + (1 - PL.alpha) * math.clamp((u - PL.rise) / PL.seconds, 0, 1)
+				if u > PL.rise + PL.seconds then
+					break
+				end
+				RunService.RenderStepped:Wait()
+			end
+			pillar:Destroy()
+		end)
+		EffectsController.rays(pos, C.gold, cfg.rays, seconds * 5)
+		EffectsController.burst(pos - Vector3.new(0, 1, 0), C.rebirth, cfg.burstParts)
+		EffectsController.burst(pos - Vector3.new(0, 1, 0), C.gold, math.floor(cfg.burstParts / 2))
+		shockwave(st, Theme.white, cfg.pulseRadius * 1.6, 0.7)
+		-- confetti: every colour of the game's palette
+		local lowG = SettingsController.get("lowGraphics") == true
+		local cp = stagePart(st, Vector3.one * 0.5, C.gold, 1)
+		cp.CFrame = CFrame.new(pos + Vector3.new(0, 2, 0))
+		local conf = Instance.new("ParticleEmitter")
+		conf.Name = "Confetti"
+		conf.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Theme.tiles.pets), ColorSequenceKeypoint.new(0.25, Theme.coin),
+			ColorSequenceKeypoint.new(0.5, Theme.go), ColorSequenceKeypoint.new(0.75, Theme.info), ColorSequenceKeypoint.new(1, C.rebirth),
+		})
+		conf.Size = NumberSequence.new(0.35)
+		conf.Speed = NumberRange.new(16, 30)
+		conf.Drag = 2.5
+		conf.Acceleration = Vector3.new(0, -18, 0)
+		conf.Lifetime = NumberRange.new(1.6, 2.6)
+		conf.SpreadAngle = Vector2.new(70, 70)
+		conf.EmissionDirection = Enum.NormalId.Top
+		conf.RotSpeed = NumberRange.new(-300, 300)
+		conf.Rotation = NumberRange.new(0, 360)
+		conf.LightEmission = 0.3
+		conf.Rate = 0
+		conf.Parent = cp
+		conf:Emit(math.floor(cfg.confetti * (if lowG then 0.5 else 1) * (if ctx.reduced then 0.5 else 1)))
+		-- the rings fly outward and fade; the star pops
+		for _, r in st.rings do
+			r.target = r.radius * 2.6
+			r.alphaTarget = 1
+		end
+		if st.disc then
+			TweenService:Create(st.disc, TweenInfo.new(0.8), { Transparency = 0.9 }):Play()
+		end
+		if st.motes then
+			st.motes.Rate *= 0.4
+		end
+		local star = st.star
+		if star then
+			TweenService:Create(star, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Size = UDim2.fromScale(cfg.star.to * 2.2, cfg.star.to * 2.2) }):Play()
+			for _, d in star:GetDescendants() do
+				if d:IsA("Frame") then
+					TweenService:Create(d, TweenInfo.new(0.5), { BackgroundTransparency = 1 }):Play()
+				elseif d:IsA("ImageLabel") then
+					TweenService:Create(d, TweenInfo.new(0.5), { ImageTransparency = 1 }):Play()
+				end
+			end
+		end
+		if st.glow then
+			TweenService:Create(st.glow, TweenInfo.new(1.2), { FillTransparency = 0.85 }):Play()
+		end
+		st.speed = 0.6
 	end
 	hold(ctx, seconds, keep)
 end
 
-REBIRTH_BEATS.slam = function(ctx, seconds, keep)
+-- one line of the reveal: icons and words laid out left to right by their real widths, centred
+local function revealRow(parent: GuiObject, y: number, h: number, items: { { kind: string, value: string, color: Color3? } }): Frame
+	local row = Instance.new("Frame")
+	row.Name = "Row"
+	row.BackgroundTransparency = 1
+	row.AnchorPoint = Vector2.new(0.5, 0)
+	row.Position = UDim2.fromScale(0.5, y)
+	row.Size = UDim2.fromScale(1, h)
+	row.Parent = parent
+	local parts: { GuiObject } = {}
+	for _, it in items do
+		if it.kind == "text" then
+			local t = Ui.label(row, it.value, UDim2.fromScale(0.6, 1), UDim2.fromScale(0, 0))
+			t.TextXAlignment = Enum.TextXAlignment.Left
+			if it.color then
+				t.TextColor3 = it.color
+			end
+			table.insert(parts, t)
+		else
+			local img = Ui.image(row, it.value, UDim2.fromScale(0.2, if it.kind == "arrow" then 0.8 else 1.05), UDim2.fromScale(0, 0))
+			if it.kind == "arrow" then
+				local a = img:FindFirstChildOfClass("UIAspectRatioConstraint")
+				if a then
+					a.AspectRatio = 512 / 384
+				end
+			end
+			table.insert(parts, img)
+		end
+	end
+	task.defer(function()
+		local w = math.max(1, row.AbsoluteSize.X)
+		local gap = 0.008
+		local widths: { number } = {}
+		local total = -gap
+		for _, p in parts do
+			local pw = if p:IsA("TextLabel") then p.TextBounds.X / w else p.AbsoluteSize.X / w
+			table.insert(widths, pw)
+			total += pw + gap
+		end
+		local x = 0.5 - total / 2
+		for i, p in parts do
+			p.AnchorPoint = Vector2.new(0, 0.5)
+			p.Position = UDim2.fromScale(x, 0.5)
+			if p:IsA("TextLabel") then
+				p.Size = UDim2.fromScale(widths[i] + 0.01, 1)
+			end
+			x += widths[i] + gap
+		end
+	end)
+	return row
+end
+
+REBIRTH_BEATS.reveal = function(ctx, seconds, keep)
+	local cfg = Config.show.rebirth
+	local R = cfg.reveal
 	local gui = ctx.gui
-	if gui then
-		local d = ctx.data
-		local title = Ui.label(gui, `REBIRTH {d.rebirths}!`, UDim2.fromScale(U.titleSize[1], U.titleSize[2]), UDim2.fromScale((1 - U.titleSize[1]) / 2, U.titleY - U.titleSize[2]))
-		title.Name = "RebirthTitle"
-		title.TextColor3 = ctx.color
-		local mult = Ui.label(gui, `x{d.mult} COINS`, UDim2.fromScale(U.titleSize[1], U.titleSize[2] * 0.8), UDim2.fromScale((1 - U.titleSize[1]) / 2, U.titleY))
-		mult.Name = "RebirthMult"
-		mult.TextColor3 = Theme.coin
-		local lines = { title, mult }
-		local g = typeof(d.gun) == "number" and Config.guns.list[d.gun]
-		local gifts: { string } = {}
-		if Config.rebirth.slotsPer > 0 then
-			table.insert(gifts, `+{Config.rebirth.slotsPer} pan slot`)
+	local d = ctx.data
+	local C = rebirthColours()
+	dropTitleCard(ctx, 0.2) -- after a SKIP the card may still be up
+	local st = stages[ctx]
+	if st and st.orbit then
+		st.orbit.radiusTo = cfg.orbit.endRadius
+		st.orbit.lookTo = cfg.orbit.revealLook
+	end
+	local skip = gui and gui:FindFirstChild("Skip")
+	if skip then
+		skip:Destroy() -- nothing left to skip, and it sat on the reveal's last line
+	end
+	if not gui then
+		hold(ctx, seconds, keep)
+		return
+	end
+	SoundController.play("rebirth_fanfare")
+	local group = Instance.new("CanvasGroup")
+	group.Name = "Reveal"
+	group.BackgroundTransparency = 1
+	group.Size = UDim2.fromScale(1, 1)
+	group.Parent = gui
+	-- the sunburst behind the words, turning slowly (still with reduced motion)
+	local sun = Instance.new("ImageLabel")
+	sun.Name = "Sunburst"
+	sun.BackgroundTransparency = 1
+	sun.Image = Config.images.icons.sunburst
+	sun.ImageColor3 = C.gold
+	sun.ImageTransparency = 1
+	sun.AnchorPoint = Vector2.new(0.5, 0.5)
+	sun.Position = UDim2.fromScale(0.5, R.y)
+	sun.Size = UDim2.fromScale(R.sunburst, R.sunburst)
+	sun.SizeConstraint = Enum.SizeConstraint.RelativeYY
+	sun.ZIndex = 0
+	sun.Parent = group
+	TweenService:Create(sun, TweenInfo.new(0.35), { ImageTransparency = 0.25 }):Play()
+	if not ctx.reduced then
+		local t0 = os.clock()
+		local conn: RBXScriptConnection
+		conn = RunService.RenderStepped:Connect(function()
+			if not sun.Parent then
+				conn:Disconnect()
+				return
+			end
+			sun.Rotation = (os.clock() - t0) * R.sunSpin * 360
+		end)
+	end
+	-- small word above
+	local small = Ui.label(group, spaced("NEW REBIRTH"), UDim2.fromScale(0.5, R.small), UDim2.fromScale(0.25, R.y - R.big / 2 - R.small - 0.01))
+	small.Name = "Small"
+	small.TextColor3 = C.gold
+	-- REBIRTH n, letter by letter
+	local word = `REBIRTH {d.rebirths}`
+	local letters: { string } = {}
+	for _, cp in utf8.codes(word) do
+		table.insert(letters, utf8.char(cp))
+	end
+	local big = Instance.new("Frame")
+	big.Name = "Big"
+	big.BackgroundTransparency = 1
+	big.AnchorPoint = Vector2.new(0.5, 0.5)
+	big.Position = UDim2.fromScale(0.5, R.y)
+	big.Size = UDim2.fromScale(1, R.big)
+	big.Parent = group
+	local vh = math.max(1, gui.AbsoluteSize.Y)
+	local vw = math.max(1, gui.AbsoluteSize.X)
+	local letterW = R.big * vh * 0.62 / vw -- each letter's box, a share of the screen width
+	local gapW = letterW * R.letterGap
+	local function boxW(ch: string): number
+		return if ch == " " then letterW * R.spaceWidth else letterW
+	end
+	local totalW = -gapW
+	for _, ch in letters do
+		totalW += boxW(ch) + gapW
+	end
+	local fit = math.min(1, 0.92 / totalW) -- a phone in portrait: the word shrinks to fit
+	letterW *= fit
+	gapW *= fit
+	totalW *= fit
+	local x = 0.5 - totalW / 2
+	local per = math.min(0.09, seconds * 0.4 / #letters)
+	for i, ch in letters do
+		local isNumber = ch:match("%d") ~= nil
+		local w = boxW(ch)
+		local t = Ui.label(big, ch, UDim2.fromScale(w, fit), UDim2.fromScale(x, (1 - fit) / 2))
+		x += w + gapW
+		t.Name = "Letter" .. i
+		t.TextColor3 = if isNumber then C.gold else Theme.white
+		local s = t:FindFirstChildOfClass("UIStroke")
+		if s then
+			s.Thickness = 3
 		end
-		if g then
-			table.insert(gifts, `New gun: {g.name}`)
+		t.Visible = false
+		local sc = Instance.new("UIScale")
+		sc.Scale = U.slamFrom
+		sc.Parent = t
+		task.delay((i - 1) * per, function()
+			if ctx.finished or not t.Parent then
+				return
+			end
+			t.Visible = ch ~= " "
+			if ch ~= " " then
+				SoundController.play("upgrade_chime", 1 + 0.05 * i)
+			end
+			TweenService:Create(sc, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+		end)
+	end
+	-- what you got: coin x1 [arrow] coin x1.5, then the gun / island it brings
+	local before = Config.rebirthIncome(d.rebirths - 1)
+	local lineY = R.y + R.big / 2 + 0.02
+	local row = revealRow(group, lineY, R.line, {
+		{ kind = "image", value = Config.images.icons.coin },
+		{ kind = "text", value = `x{before}` },
+		{ kind = "arrow", value = Config.images.icons.arrow },
+		{ kind = "image", value = Config.images.icons.coin },
+		{ kind = "text", value = `x{d.mult}`, color = C.gold },
+		{ kind = "text", value = "  coins + training" },
+	})
+	row.Name = "Mult"
+	local extras: { string } = {}
+	local g = typeof(d.gun) == "number" and Config.guns.list[d.gun]
+	if g then
+		table.insert(extras, `New gun: {g.name}`)
+	end
+	for id, need in Config.world.rebirthGates do
+		local isl = Config.world.islands[id]
+		if need == d.rebirths and isl and isl.ready then
+			table.insert(extras, `New island: {isl.name}`)
 		end
-		local extra = table.concat(gifts, "   ")
-		local sub = Ui.label(gui, extra, UDim2.fromScale(U.nameSize[1], U.nameSize[2] * 0.8), UDim2.fromScale((1 - U.nameSize[1]) / 2, U.titleY + U.titleSize[2] * 0.85))
-		sub.Name = "RebirthGift"
-		table.insert(lines, sub)
-		for i, t in lines do
-			local s = Instance.new("UIScale")
-			s.Scale = U.slamFrom
-			s.Parent = t
-			t.Visible = false
-			task.delay((i - 1) * math.min(0.25, seconds * 0.15), function()
-				t.Visible = true
-				TweenService:Create(s, TweenInfo.new(math.min(0.3, seconds * 0.2), Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	end
+	local extraRow: Frame? = nil
+	if #extras > 0 then
+		extraRow = revealRow(group, lineY + R.line + 0.01, R.line * 0.8, { { kind = "text", value = table.concat(extras, "   "), color = C.ice } })
+		;(extraRow :: Frame).Name = "Extra"
+	end
+	for _, r in { row, extraRow } do
+		if r then
+			r.Visible = false
+			local sc = Instance.new("UIScale")
+			sc.Scale = 0.6
+			sc.Parent = r
+			task.delay(#letters * per + 0.15, function()
+				if ctx.finished or not r.Parent then
+					return
+				end
+				r.Visible = true
+				TweenService:Create(sc, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
 			end)
 		end
-		SoundController.play("pan_up")
 	end
 	hold(ctx, seconds, keep)
 end
 
 REBIRTH_BEATS.back = function(ctx, seconds, keep)
+	local st = stages[ctx]
+	if st then
+		st.orbit = nil -- the camera tween below takes over
+	end
+	local gui = ctx.gui
+	local group = gui and gui:FindFirstChild("Reveal") :: CanvasGroup?
+	if group then
+		TweenService:Create(group, TweenInfo.new(seconds * 0.8), { GroupTransparency = 1 }):Play()
+	end
 	local home = CameraController.homeCFrame()
 	if ctx.cam and home then
 		moveCamera(ctx, home, seconds)
 	end
+	clearStage(ctx)
 	hold(ctx, seconds, keep)
 end
 
@@ -919,6 +1767,13 @@ function Show.rebirth(data: any)
 		color = Theme.booths.rebirth, gui = nil, cam = nil, frost = nil, controls = nil, conn = nil,
 	}
 	running = ctx
+	-- owner 2026-11-12: the gun goes away for the show (hands free for the glow-up) and comes back after.
+	-- Asked through SetGear like a hotbar tap, so the server decides and everyone sees it.
+	local heldBefore = me:GetAttribute("Held")
+	local putAway = typeof(heldBefore) == "string" and heldBefore ~= "none"
+	if putAway then
+		State.send("SetGear", "none")
+	end
 	local ok, err = pcall(function()
 		local gui = Instance.new("ScreenGui")
 		gui.Name = "Show"
@@ -934,6 +1789,7 @@ function Show.rebirth(data: any)
 			hum.WalkSpeed, hum.JumpPower, hum.JumpHeight, hum.AutoRotate = 0, 0, 0, false
 		end
 		ctx.cam = CameraController.borrow()
+		buildStage(ctx)
 		if State.view and State.view.seenShows and State.view.seenShows.rebirth then
 			skipButton(ctx)
 		end
@@ -951,7 +1807,12 @@ function Show.rebirth(data: any)
 			end
 		end
 	end)
+	clearStage(ctx) -- always, even when a beat errored or a newer show ended this one
 	finish(ctx)
+	-- the gun back in your hand, unless you picked something else on the hotbar meanwhile
+	if putAway and me:GetAttribute("Held") == "none" then
+		State.send("SetGear", heldBefore)
+	end
 	if not ok then
 		warn("[Show] rebirth show failed:", err)
 	end
@@ -963,6 +1824,8 @@ function Show.Start()
 	State.Notify:Connect(function(kind: string, data: any)
 		if kind == "frozen" and typeof(data) == "table" and typeof(data.show) == "string" then
 			task.spawn(Show.play, data.show, data)
+		elseif kind == "thawed" and typeof(data) == "table" and Config.show.thawReveal.tiers[data.tier] then
+			task.spawn(Show.thawReveal, data)
 		elseif kind == "gunBought" then
 			task.spawn(Show.gunBuy, data)
 		elseif kind == "rebirthed" then

@@ -13,6 +13,13 @@ local Ui = require(script.Parent.Parent.Lib.Ui)
 local State = require(script.Parent.State)
 local EquipmentPopup = require(script.Parent.EquipmentPopup)
 local SoundController = require(script.Parent.SoundController)
+local Screen = require(script.Parent.Screen)
+
+-- tiles to a row: fewer on a phone (device QA 2026-11-13: 4 made 7 px pet names); the row keeps each
+-- tile's shape, so its width / height shrinks with the count
+local function columns(): number
+	return if Screen.deviceClass() == "phone" then Config.sell.phoneColumns else Config.sell.columns
+end
 
 local SellPopup = {}
 local S = Config.sell
@@ -105,7 +112,7 @@ local function groupTile(h: EquipmentPopup.Helpers, parent: Instance, k: number,
 		h.refresh()
 	end)
 	tile.text.Visible = false
-	local w = (1 - S.tileGap * (S.columns - 1)) / S.columns
+	local w = (1 - S.tileGap * (columns() - 1)) / columns()
 	tile.root.Position = UDim2.fromScale((k - 1) * (w + S.tileGap), 0.04)
 	tile.root.Size = UDim2.fromScale(w, 0.92)
 	if o.data.pick == g.id then
@@ -245,9 +252,9 @@ function SellPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
 	-- tiles, S.columns to a row (each row sized from its width, so the scrolling list measures it)
 	local r: Frame? = nil
 	for n, g in list do
-		local k = (n - 1) % S.columns + 1
+		local k = (n - 1) % columns() + 1
 		if k == 1 then
-			r = h.row(l, n, 0, S.rowAspect)
+			r = h.row(l, n, 0, S.rowAspect * columns() / S.columns)
 		end
 		groupTile(h, r :: Frame, k, g, o)
 	end

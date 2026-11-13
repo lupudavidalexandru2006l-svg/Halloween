@@ -178,12 +178,14 @@ function TagService.Start()
 					local u = p:GetAttribute("ShieldUntil")
 					data.shieldLeft = if typeof(u) == "number" then math.max(0, u - workspace:GetServerTimeNow()) else 0
 				end
-				-- everyone sees who is safe: Roblox's own sparkly force field around a shielded player
+				-- a force field while shielded, but invisible (owner 2026-11-12: "remove the bubble around the
+				-- character"); your own SAFE pill over the hotbar still shows it
 				local c = p.Character
 				local ff = c and c:FindFirstChild("TagShield")
 				if c and sh and not ff then
 					local f = Instance.new("ForceField")
 					f.Name = "TagShield"
+					f.Visible = false
 					f.Parent = c
 				elseif ff and not sh then
 					ff:Destroy()

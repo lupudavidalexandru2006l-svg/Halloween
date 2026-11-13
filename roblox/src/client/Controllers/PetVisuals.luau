@@ -24,6 +24,7 @@ local CameraController = require(script.Parent.CameraController)
 local RayController = require(script.Parent.RayController)
 local SoundController = require(script.Parent.SoundController)
 local CoinPops = require(script.Parent.CoinPops)
+local WorldRules = require(ReplicatedStorage.Shared.WorldRules)
 local TweenService = game:GetService("TweenService")
 
 local PetVisuals = {}
@@ -36,12 +37,12 @@ type Anim = { key: string, start: any, t: number, clock: number, from: Pose?, bl
 	role: string, pivot: Vector3?, side: number, hang: boolean, liftedOnly: boolean } }, sneezed: boolean, culled: boolean,
 	seed: number, scratchy: boolean, hasArms: boolean, headPivot: Vector3?, -- seed: from the pet's id (the scratch pick); scratchy: it has back legs or arms
 	lids: { BasePart }, shut: boolean, awake: number } -- lids: closed eyelids (shown while shut); awake: 1 awake, 0 asleep (head, ears and tail fade still)
-type Banked = { edges: SelectionBox, coin: BillboardGui, coinImg: ImageLabel, phase: number }
+type Banked = { edges: SelectionBox, coin: BillboardGui, coinImg: ImageLabel, phase: number, ready: BillboardGui? } -- ready: the READY! sign over a finished thaw
 type Fleck = { part: BasePart, round: number, angle: number, y: number, reach: number }
 type FreezeLook = { shell: Part, highlight: Highlight?, crystals: { BasePart }, cracks: { { part: BasePart, face: number, u: number, v: number, turn: number } }, nextChip: number, style: string, cracked: number,
 	rim: { BasePart }, flecks: { Fleck }, mist: BasePart?, mistFx: ParticleEmitter? } -- the ice front (owner 2026-11-05)
 type Drawn = { model: PVInstance, height: number, offer: BillboardGui?, img: ImageLabel?, born: number, fx: Fx, banked: Banked?,
-	clock: number, freeze: FreezeLook?, zzz: BillboardGui, anim: Anim } -- clock: the pet's own animation time (it slows while held and freezing)
+	clock: number, freeze: FreezeLook?, zzz: BillboardGui, anim: Anim, box: Folder?, shown: boolean? } -- box: a wild pet's own folder (hidden off your island) -- clock: the pet's own animation time (it slows while held and freezing)
 type CubeLook = { model: PVInstance, edges: SelectionBox, cracks: { { part: BasePart, offset: CFrame } }, onGround: boolean } -- onGround: frozen, waiting for E
 local drawn: { [BasePart]: Drawn } = {}
 local cubes: { [BasePart]: CubeLook } = {}
@@ -250,15 +251,29 @@ local function offerButton(root: BasePart): BillboardGui
 	local g = Instance.new("BillboardGui")
 	g.Name = "SuperFreeze"
 	g.Size = UDim2.fromScale(5, 1.4)
-	g.StudsOffset = Vector3.new(3.5, 1, 0)
-	g.AlwaysOnTop = true
+	-- beside the dazed pet and pulled toward the camera (Z), not AlwaysOnTop: in this place an AlwaysOnTop
+	-- BillboardGui never draws (Lessons 2026-11-12). Sibling so the block's face dressing sits on its face
+	g.StudsOffset = Vector3.new(3.5, 1, 2)
+	g.AlwaysOnTop = false
+	g.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	g.Active = true
 	g.Adornee = root
 	local charges = if State.view then State.view.superFreezeCharges else 0
-	local label = if charges > 0 then `Super Freeze ({charges} left)` else `Super Freeze {Config.monetization.superFreeze.robux} R$`
-	Ui.block(g, "Button", Theme.iceDeep, label, function()
+	local label = if charges > 0 then `Super Freeze ({charges} left)` else "Super Freeze"
+	local b = Ui.block(g, "Button", Theme.iceDeep, label, function()
 		State.send("RequestSuperFreeze", root:GetAttribute("PetId"))
-	end).root.Size = UDim2.fromScale(1, 1)
+	end)
+	b.root.Size = UDim2.fromScale(1, 1)
+	if charges == 0 then
+		-- the price wears Roblox's own Robux mark (Child Safety: every purchase shows it), not "R$" text
+		b.text.Size = UDim2.fromScale(0.6, 0.8)
+		b.text.Position = UDim2.fromScale(0.04, 0.1)
+		local mark = Ui.image(b.face, Config.images.icons.robux, UDim2.fromScale(0.14, 0.62), UDim2.fromScale(0.65, 0.19))
+		mark.ZIndex = 2
+		local price = Ui.label(b.face, tostring(Config.monetization.superFreeze.robux), UDim2.fromScale(0.18, 0.8), UDim2.fromScale(0.79, 0.1))
+		price.TextXAlignment = Enum.TextXAlignment.Left
+		price.ZIndex = 2
+	end
 	g.Parent = me:WaitForChild("PlayerGui")
 	return g
 end
@@ -739,21 +754,31 @@ local function addPet(root: Instance)
 	local penPet = root:GetAttribute("Banked") == true
 	local banked = penPet and root:GetAttribute("Thaw") ~= "out"
 	local h = if banked then (root :: BasePart).Size.Y * 0.62 else PetDefs.sizeHeight[def.size]
+	local wild = root:GetAttribute("PenOwner") == nil
+	-- a wild pet's parts all live in its own box, so step() can hide it while you're on another island
+	-- (owner 2026-11-13: no glowing pets seen through the gates and walls)
+	local box: Folder? = nil
+	local home: Instance = folder
+	if wild then
+		box = Instance.new("Folder")
+		;(box :: Folder).Name = "WildPet"
+		;(box :: Folder).Parent = folder
+		home = box :: Folder
+	end
 	local model, img = standIn(def, h)
-	model.Parent = folder
+	model.Parent = home
 	if not banked and not penPet then
 		nameTag(model, def, h, root:GetAttribute("Mut"))
 	end
 	-- prototype syncWild: a soft shadow, a glowing ring in the tier's colour (wild pets only),
 	-- dazed stars, sparkles round Rare and up, snowflakes round Frosty pets
-	local wild = root:GetAttribute("PenOwner") == nil
 	local color = Theme.tiers[def.tier] or Theme.white
-	local core = fxPart(Vector3.one * 0.2, color, folder) :: Part
+	local core = fxPart(Vector3.one * 0.2, color, home) :: Part
 	core.Transparency = 1
-	local shadow = fxPart(Vector3.new(0.1, h * P.shadowScale, h * P.shadowScale), Theme.fx.shadow, folder)
+	local shadow = fxPart(Vector3.new(0.1, h * P.shadowScale, h * P.shadowScale), Theme.fx.shadow, home)
 	shadow.Shape = Enum.PartType.Cylinder
 	shadow.Transparency = 0.7
-	local ring = if wild then fxPart(Vector3.new(h * P.ringScale, 0.15, h * P.ringScale), color, folder, "Ring") else nil
+	local ring = if wild then fxPart(Vector3.new(h * P.ringScale, 0.15, h * P.ringScale), color, home, "Ring") else nil
 	if ring then
 		ring.Material = Enum.Material.Neon
 		ring.Transparency = 0.25
@@ -763,7 +788,7 @@ local function addPet(root: Instance)
 	end
 	local stars: { BasePart } = {}
 	for _ = 1, P.starCount do
-		local s = fxPart(Vector3.new(0.35, 0.5, 0.35), Theme.fx.star, folder, "Octa")
+		local s = fxPart(Vector3.new(0.35, 0.5, 0.35), Theme.fx.star, home, "Octa")
 		s.Material = Enum.Material.Neon
 		s.Transparency = 1
 		table.insert(stars, s)
@@ -798,7 +823,7 @@ local function addPet(root: Instance)
 	end
 	mutationLook(model, img, core, root:GetAttribute("Mut"))
 	drawn[root] = { model = model, height = h, offer = nil, img = img, born = os.clock(), fx = { core = core, ring = ring, shadow = shadow, stars = stars }, banked = b,
-		clock = math.random() * 10, freeze = nil, zzz = zzzGui(core, h), anim = newAnim(def, model, img, root) }
+		clock = math.random() * 10, freeze = nil, zzz = zzzGui(core, h), anim = newAnim(def, model, img, root), box = box, shown = true }
 end
 
 local function removePet(root: Instance)
@@ -820,6 +845,12 @@ local function removePet(root: Instance)
 		if d.banked then
 			d.banked.edges:Destroy()
 			d.banked.coin:Destroy()
+			if d.banked.ready then
+				d.banked.ready:Destroy()
+			end
+		end
+		if d.box then
+			d.box:Destroy()
 		end
 		drawn[root :: BasePart] = nil
 	end
@@ -1213,10 +1244,29 @@ local function step(dt: number)
 	local mine = 0
 	local cam = workspace.CurrentCamera
 	local reduced = SettingsController.get("reducedMotion") == true
+	-- the island I'm on: wild pets show only there (from the hub, island 1 shows too: it's open to it)
+	local char = me.Character
+	local myRoot = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local myZone = if myRoot then WorldRules.zoneAt(myRoot.Position) else -1
 	for root, d in drawn do
 		if not root.Parent then
 			removePet(root)
 			continue
+		end
+		if d.box then
+			local z = root:GetAttribute("Zone")
+			local show = z == myZone or (myZone == 0 and z == 1)
+			if show ~= d.shown then
+				d.shown = show
+				d.box.Parent = if show then folder else nil
+				root:SetAttribute("OffIsland", not show) -- this client only: RayController won't aim at it
+				if not show then
+					clearFreeze(d)
+				end
+			end
+			if not show then
+				continue
+			end
 		end
 		if d.banked then
 			-- frozen on the pan: a tiny wiggle inside the ice, frost shimmer, a coin rising now and then
@@ -1233,6 +1283,28 @@ local function step(dt: number)
 			if root:GetAttribute("Thaw") == "machine" and typeof(ends) == "number" and typeof(total) == "number" and total > 0 then
 				thawLeft = math.clamp((ends - workspace:GetServerTimeNow()) / total, 0, 1)
 				amp *= 1 + 3 * (1 - thawLeft)
+			end
+			-- done and waiting for Claim (Config.thaw.claimByHand): a green READY! sign bobs over it
+			local isReady = Config.thaw.claimByHand and root:GetAttribute("Thaw") == "machine" and thawLeft <= 0
+			if isReady and not b.ready then
+				local RS = Config.thaw.readySign
+				local g = Instance.new("BillboardGui")
+				g.Name = "ThawReady"
+				g.Adornee = root
+				g.Size = UDim2.fromScale(RS.size[1], RS.size[2])
+				g.LightInfluence = 0
+				g.MaxDistance = PC.drawDistance
+				local sign = Ui.block(g, "Sign", Theme.go, "READY!", nil)
+				sign.root.Size = UDim2.fromScale(1, 1)
+				g.Parent = folder
+				b.ready = g
+			elseif not isReady and b.ready then
+				b.ready:Destroy()
+				b.ready = nil
+			end
+			if b.ready then
+				local RS = Config.thaw.readySign
+				b.ready.StudsOffset = Vector3.new(0, RS.y - root.Size.Y / 2 + math.sin(t * RS.bobSpeed) * RS.bob * (if reduced then 0 else 1), 0)
 			end
 			local w = math.sin(t * PC.wiggleSpeed + b.phase) * PC.wiggle * amp
 			local at = root.CFrame * CFrame.new(0, -root.Size.Y / 2 + d.height / 2 + 0.15, 0) * CFrame.Angles(0, 0, w)

@@ -34,13 +34,14 @@ export type Data = {
 	week: { id: string, coins: number },
 	lastSeen: number,
 	welcome: { coins: number, awaySeconds: number, capped: boolean, best: string? }?,
-	gift: { lastDay: string, streak: number },
+	gift: { claimed: boolean }, -- the one-time Free Gift (2026-11-12, was a daily gift)
 	funnel: { [string]: boolean },
 	forestUnlocked: boolean, -- kept in step with reach (reach >= 2) for older code
 	reach: number, -- Round 4 phase 6: islands 1..reach have their gates open (rebirth keeps it)
 	coldPower: number, -- the endless stat trained in the Frost Training Yard (never spent; rebirth resets it)
 	coldRefund: number, -- coins paid back for the removed pan Cold Level, not yet shown to the player (PenService tells them once)
 	superFreezeCharges: number,
+	thawSkips: number, -- paid Thaw Machine skips not used yet (a skip bought just as the pet came out is kept for later)
 	superCubes: { { key: string, pose: string, mut: string? } }, -- bought Super Freeze cubes not yet banked (back on your back after a rejoin)
 	lastBest: string?, -- best pet banked last session, shown in the welcome back (end on a high, on the return)
 	receipts: { string },
@@ -48,9 +49,9 @@ export type Data = {
 	rebirths: number,
 	seenShows: { [string]: boolean }, -- shows watched once (their SKIP button shows after that)
 	guns: { best: number, equipped: number }, -- guns are bought in order, so the best one says which you own (Round 4 phase 4)
-	pan: { look: number, trainer: number }, -- the pan's Look (Round 4 phase 5; Slots is upgrades.pen; Cold Level was removed 2026-11-10) and its Cold Power trainer (2026-11-10, Config.training.stations). Rebirth keeps both
+	pan: { look: number, trainer: number, thaw: number }, -- thaw: the Thaw Speed upgrade (2026-11-13) -- the pan's Look (Round 4 phase 5; Slots is upgrades.pen; Cold Level was removed 2026-11-10) and its Cold Power trainer (2026-11-10, Config.training.stations). Rebirth keeps both
 	tester: TesterSettings,
-	gear: { gel: boolean }, -- gear bought at the Equipment Booth's Gear tab (Round 5)
+	gear: { [string]: boolean }, -- gel + every Config.gear key (2026-11-13) -- gear bought at the Equipment Booth's Gear tab (Round 5)
 	codes: { [string]: boolean }, -- codes already redeemed (Round 5)
 	shieldLeft: number, -- seconds of the new-player tag shield still to use (counts down only while playing)
 	daily: DailyState,
@@ -90,13 +91,14 @@ local function defaults(): Data
 		week = { id = "", coins = 0 },
 		lastSeen = 0,
 		welcome = nil,
-		gift = { lastDay = "", streak = 0 },
+		gift = { claimed = false },
 		funnel = {},
 		forestUnlocked = false,
 		reach = 1,
 		coldPower = 0,
 		coldRefund = 0,
 		superFreezeCharges = 0,
+		thawSkips = 0,
 		superCubes = {},
 		lastBest = nil,
 		receipts = {},
@@ -104,7 +106,7 @@ local function defaults(): Data
 		rebirths = 0,
 		seenShows = {},
 		guns = { best = 1, equipped = 1 },
-		pan = { look = 1, trainer = 1 },
+		pan = { look = 1, trainer = 1, thaw = 1 },
 		tester = testerDefaults(),
 		gear = { gel = false },
 		codes = {},
@@ -237,7 +239,7 @@ local function migrate(old: any): Data
 		d.welcome = { coins = math.floor(num(old.welcome.coins, 0, 1e15)), awaySeconds = num(old.welcome.awaySeconds, 0, 1e9), capped = old.welcome.capped == true, best = if typeof(best) == "string" and PetDefs.get(best) then best else nil }
 	end
 	local g = tbl(old.gift)
-	d.gift = { lastDay = str(g.lastDay, 10), streak = int(g.streak, 0, Config.dailyGift.streakMax) }
+	d.gift = { claimed = g.claimed == true } -- old daily-gift saves (lastDay/streak) start unclaimed: everyone gets the one-time gift once
 	for _, step in Config.analytics.funnel do
 		if tbl(old.funnel)[step.name] == true then
 			d.funnel[step.name] = true
@@ -249,6 +251,7 @@ local function migrate(old: any): Data
 	-- a save from before Cold Power starts at the need of its highest open island, so nobody is locked out
 	d.coldPower = if typeof(old.coldPower) == "number" then num(old.coldPower, 0, Config.coldPower.max) else Config.need(d.reach)
 	d.superFreezeCharges = int(old.superFreezeCharges, 0, 999)
+	d.thawSkips = int(old.thawSkips, 0, 999)
 	for _, c in tbl(old.superCubes) do
 		if #d.superCubes < 5 and typeof(c) == "table" and typeof(c.key) == "string" and PetDefs.get(c.key) then
 			table.insert(d.superCubes, { key = c.key, pose = knownPose(c.pose), mut = knownMut(c.mut) })
@@ -285,6 +288,7 @@ local function migrate(old: any): Data
 	d.coldRefund = math.min(num(old.coldRefund, 0, 1e15) + refund, 1e15)
 	d.pan.look = int(pa.look, 1, #Config.pan.looks, 1)
 	d.pan.trainer = int(pa.trainer, 1, #Config.training.stations, 1)
+	d.pan.thaw = int(pa.thaw, 1, Config.panMax("thaw"), 1)
 	local te = tbl(old.tester)
 	d.tester = {
 		mult = num(te.mult, Config.dev.multMin, Config.dev.multMax, 1),
@@ -293,6 +297,9 @@ local function migrate(old: any): Data
 		noMelt = te.noMelt == true,
 	}
 	d.gear.gel = tbl(old.gear).gel == true
+	for _, g in Config.gear do
+		d.gear[g.key] = tbl(old.gear)[g.key] == true
+	end
 	for k, v in tbl(old.codes) do
 		if typeof(k) == "string" and #k <= Config.codes.maxLength and v == true then
 			d.codes[k] = true

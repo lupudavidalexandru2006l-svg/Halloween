@@ -1,6 +1,6 @@
 --!strict
 -- PromptController: draws every world prompt (they use ProximityPromptStyle.Custom) as a Chunky Pop
--- block floating on its object: what it is, what it does, the key (E / X / Hold) and a hold bar.
+-- pill floating on its object: a keycap (E / X / Tap / Hold), what it does, what it's on and a hold sweep.
 -- On touch the block itself is the hold button. The server still decides what a prompt does.
 -- Also hides prompts that can't do anything for you right now (open gate, gift before the first bank,
 -- another player's Pan Upgrades), and runs the booth prompts (Round 4 phase 2: each booth opens what
@@ -8,6 +8,7 @@
 
 
 local ProximityPromptService = game:GetService("ProximityPromptService")
+local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -22,20 +23,42 @@ local SettingsController = require(script.Parent.SettingsController)
 
 local PromptController = {}
 local playerGui: Instance
-local shown: { [ProximityPrompt]: { gui: BillboardGui, bar: Frame, conns: { RBXScriptConnection } } } = {}
+-- key = the keycap's face; held = the key is down for a hold
+local shown: { [ProximityPrompt]: { gui: BillboardGui, bar: Frame, key: GuiObject, held: boolean, conns: { RBXScriptConnection } } } = {}
 
-local function color(prompt: ProximityPrompt): Color3
-	local a = prompt.ActionText
-	return if a == "Freeze" or a == "Zap" then Theme.info elseif a == "Open" or a == "Pick up" then Theme.go else Theme.info
+local P = Theme.prompt
+local K = Config.ui.promptKey
+
+-- the keycap's face drops onto its lip (a press); unless it's held down, it springs back up
+local function keyDown(face: GuiObject, hold: boolean)
+	local down = TweenService:Create(face, TweenInfo.new(K.down), { Position = UDim2.fromScale(0, 1 - face.Size.Y.Scale) })
+	down:Play()
+	if not hold then
+		down.Completed:Once(function()
+			TweenService:Create(face, TweenInfo.new(K.up, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Position = UDim2.fromScale(0, 0) }):Play()
+		end)
+	end
 end
 
+local function keyUp(face: GuiObject)
+	TweenService:Create(face, TweenInfo.new(K.up, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Position = UDim2.fromScale(0, 0) }):Play()
+end
+
+-- v3 (owner 2026-11-13: "green is not a good choice, improve the E UI"): a chunky white keycap with the
+-- key on it, standing over the left end of a deep indigo pill; the action big in white, what it's on
+-- small in ice blue under it. The key taps itself down now and then ("press me"), goes down for real
+-- when you press or hold, and the pill fills with an ice sweep while you hold. Pops in when it appears.
 local function show(prompt: ProximityPrompt)
 	if shown[prompt] then
 		return
 	end
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "Prompt"
-	gui.AlwaysOnTop = true
+	-- not AlwaysOnTop: in this place an AlwaysOnTop BillboardGui never draws at all (found 2026-11-12: a
+	-- magenta test box showed only with it off), which is why the gate's hold-E "couldn't be seen". The
+	-- prompts float in open space in front of their objects, so the depth test doesn't hide them
+	gui.AlwaysOnTop = false
+	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling -- children draw over their parent (Global hid the key's "E" under its badge)
 	-- a fixed screen size (a share of the short side), so it never fills the screen up close
 	local cam = workspace.CurrentCamera
 	local short = if cam then math.min(cam.ViewportSize.X, cam.ViewportSize.Y) else 720
@@ -56,104 +79,137 @@ local function show(prompt: ProximityPrompt)
 	end
 	gui.Adornee = prompt.Parent :: any
 	gui.Active = true
-	-- a pill in the action's colour (owner 2026-10-31: the white card was "buns"): a white key badge,
-	-- the action big in white, what it's on small under it, and the hold filling the pill left to right
-	-- see-through, so the pet under it stays in view (owner 2026-10-31). A CanvasGroup fades the pill
-	-- as one layer (fading face and lip apart went dark where they overlap); the words and key sit on
-	-- an overlay outside it and stay solid. The margin keeps the outline from being clipped.
+	gui.ClipsDescendants = false
+	local reduced = SettingsController.get("reducedMotion") == true
+	-- everything in one holder, so the prompt pops in as one piece
+	local holder = Instance.new("Frame")
+	holder.Name = "Holder"
+	holder.BackgroundTransparency = 1
+	holder.Size = UDim2.fromScale(1, 1)
+	holder.Parent = gui
+	local pop = Instance.new("UIScale")
+	pop.Parent = holder
+	local baseW, baseH = gui.Size.X.Offset, gui.Size.Y.Offset
+	local bodyY, bodyH = 0.1, 0.8 -- the pill is a little shorter than the key, so the key stands proud of it
+	-- the pill: see-through so a pet under it stays in view (owner 2026-10-31). A CanvasGroup fades it as
+	-- one layer (fading face and lip apart went dark where they overlap); the key and words sit above it
+	-- and stay solid. The margin keeps the outline from being clipped.
 	local m = Config.ui.stroke + 1
 	local fade = Instance.new("CanvasGroup")
 	fade.Name = "Fade"
 	fade.BackgroundTransparency = 1
-	fade.Position = UDim2.fromOffset(-m, -m)
-	fade.Size = UDim2.new(1, 2 * m, 1, 2 * m)
-	fade.GroupTransparency = Config.ui.promptFade
-	fade.Parent = gui
-	local b = Ui.block(fade, "Block", color(prompt), "", nil)
+	fade.ZIndex = 1
+	-- solid where nothing under it needs to show: a hold prompt (a gate) and a compact one (on a cube)
+	fade.GroupTransparency = if compact or prompt.HoldDuration > 0 then 0 else Config.ui.promptFade
+	fade.Parent = holder
+	local b = Ui.block(fade, "Block", P.body, "", nil)
 	b.root.Position = UDim2.fromOffset(m, m)
 	b.root.Size = UDim2.new(1, -2 * m, 1, -2 * m)
-	local top = Instance.new("TextButton") -- the face's twin above the fade: the words, the key, the touch target
-	top.Name = "Top"
-	top.Text = ""
-	top.AutoButtonColor = false
-	top.BackgroundTransparency = 1
-	top.Size = b.face.Size
-	top.Parent = gui
-	b.face:GetPropertyChangedSignal("Size"):Connect(function()
-		top.Size = b.face.Size
-	end)
-	b.text.Parent = top
-	for _, part in { b.root, b.face } do
-		local c = part:FindFirstChildOfClass("UICorner") :: UICorner
-		c.CornerRadius = UDim.new(0.5, 0)
-	end
-	local bar = Instance.new("Frame") -- under the text, over the face's colour
+	b.text.Visible = false
+	Ui.roundBlock(b, 0.5)
+	-- the hold sweep: over the pill (inside the faded pill it was too faint to see: owner 2026-11-12),
+	-- under the key and the words; it fills its track left to right
+	local track = Instance.new("Frame")
+	track.Name = "Track"
+	track.BackgroundTransparency = 1
+	track.ZIndex = 2
+	track.Parent = holder
+	local bar = Instance.new("Frame")
 	bar.Name = "Hold"
-	bar.BackgroundColor3 = Theme.white
+	bar.BackgroundColor3 = P.sweep
 	bar.BackgroundTransparency = Config.ui.promptHoldFill
 	bar.BorderSizePixel = 0
 	bar.Size = UDim2.fromScale(0, 1)
-	bar.ZIndex = 0
 	Ui.corner(bar, 0.5)
-	bar.Parent = b.face
-	local keyBox = Instance.new("Frame")
-	keyBox.Name = "Key"
-	keyBox.BackgroundColor3 = Theme.white
-	keyBox.AnchorPoint = Vector2.new(0, 0.5)
-	keyBox.Position = UDim2.fromScale(0.04, 0.5)
-	keyBox.Size = UDim2.fromScale(0.5, 0.74)
-	local ka = Instance.new("UIAspectRatioConstraint")
-	ka.Parent = keyBox
-	Ui.corner(keyBox, 0.5)
-	Ui.stroke(keyBox, 2)
-	keyBox.Parent = top
-	local key = Ui.inkLabel(keyBox, InputController.keyHint(prompt), UDim2.fromScale(0.8, 0.7), UDim2.fromScale(0.1, 0.15))
+	bar.Parent = track
+	-- the keycap: a white Chunky Pop block (its lip is the key's side), the key in ink
+	local key = Ui.block(holder, "Key", P.key, InputController.keyHint(prompt), nil)
+	key.root.ZIndex = 3
+	Ui.roundBlock(key, 0.28)
+	local keyText = key.text
+	keyText.TextColor3 = Theme.ink
+	local ks = keyText:FindFirstChildOfClass("UIStroke")
+	if ks then
+		ks.Enabled = false
+	end
+	keyText.Size = UDim2.fromScale(0.76, 0.6)
+	keyText.Position = UDim2.fromScale(0.12, 0.16)
+	-- the words
+	local hasObject = prompt.ObjectText ~= ""
+	local action = Ui.label(holder, prompt.ActionText, UDim2.fromScale(0.6, if hasObject then 0.4 else 0.5), UDim2.fromScale(0.35, if hasObject then 0.15 else 0.22))
+	action.Name = "Action"
+	action.ZIndex = 4
+	action.TextXAlignment = Enum.TextXAlignment.Left
+	local what: TextLabel? = nil
+	if hasObject then
+		local w = Ui.label(holder, prompt.ObjectText, UDim2.fromScale(0.6, 0.24), UDim2.fromScale(0.35, 0.54))
+		w.Name = "What"
+		w.ZIndex = 4
+		w.TextXAlignment = Enum.TextXAlignment.Left
+		w.TextColor3 = P.object
+		what = w
+	end
+	-- "Tap" / "Hold" on touch gets a wider key, and the prompt grows by the extra width so the words keep
+	-- their room (QA 2026-11-13: squeezed to a sliver on a phone). The pill starts under the key's middle
+	-- and the words right after the key, so a wide key never covers them (final QA 2026-11-03)
 	local function fitKey()
-		ka.AspectRatio = if #key.Text > 1 then 1.5 else 1 -- "Tap" / "Hold" on touch gets a wider badge
-		-- the words start right after the badge, so a wide badge never covers them (final QA 2026-11-03:
-		-- on a phone "Tap" hid the "Up" of "Upgrade" and the "Op" of "Open")
-		local x = 0.04 + 0.74 * ka.AspectRatio * ps[2] / ps[1] + 0.03
-		for _, t in { b.text, top:FindFirstChild("What") } do
-			if t and t:IsA("GuiObject") then
+		local keyPx = baseH * (if #keyText.Text > 1 then 1.55 else 1)
+		local w = baseW + keyPx - baseH
+		gui.Size = UDim2.fromOffset(w, baseH)
+		local kw = keyPx / w
+		key.root.Size = UDim2.fromScale(kw, 1)
+		local bodyX = kw * 0.5
+		fade.Position = UDim2.new(bodyX, -m, bodyY, -m)
+		fade.Size = UDim2.new(1 - bodyX, 2 * m, bodyH, 2 * m)
+		track.Position = UDim2.fromScale(bodyX, bodyY)
+		track.Size = UDim2.fromScale(1 - bodyX, bodyH * 0.86) -- the pill's face, above its lip
+		local x = kw + 0.035
+		for _, t in { action, what } do
+			if t then
 				t.Position = UDim2.fromScale(x, t.Position.Y.Scale)
-				t.Size = UDim2.fromScale(0.97 - x, t.Size.Y.Scale)
+				t.Size = UDim2.fromScale(0.95 - x, t.Size.Y.Scale)
 			end
 		end
 	end
-	b.text.Text = prompt.ActionText
-	b.text.TextXAlignment = Enum.TextXAlignment.Left
-	local hasObject = prompt.ObjectText ~= ""
-	b.text.Size = UDim2.fromScale(0.62, if hasObject then 0.5 else 0.7)
-	b.text.Position = UDim2.fromScale(0.33, if hasObject then 0.08 else 0.15)
-	if hasObject then
-		local what = Ui.label(top, prompt.ObjectText, UDim2.fromScale(0.62, 0.32), UDim2.fromScale(0.33, 0.57))
-		what.Name = "What"
-		what.TextXAlignment = Enum.TextXAlignment.Left
-		what.TextTransparency = 0.1
-	end
 	fitKey()
 	if compact then
-		-- it rests above the cube, so nothing under it needs to show through: a solid pill reads crisper
-		fade.GroupTransparency = 0
 		-- outlines shrink with the pill (UI Rules: after scaling, recheck outline weight), never under 1.5 px
-		for _, s in { b.root:FindFirstChildOfClass("UIStroke"), keyBox:FindFirstChildOfClass("UIStroke") } do
+		for _, s in { b.root:FindFirstChildOfClass("UIStroke"), key.root:FindFirstChildOfClass("UIStroke") } do
 			if s then
 				s.Thickness = math.max(1.5, s.Thickness * k)
 			end
 		end
 	end
+	-- touch and mouse: the whole prompt is the hold button
+	local top = Instance.new("TextButton")
+	top.Name = "Top"
+	top.Text = ""
+	top.AutoButtonColor = false
+	top.BackgroundTransparency = 1
+	top.Size = UDim2.fromScale(1, 1)
+	top.ZIndex = 5
+	top.Parent = holder
 	gui.Enabled = not (Screen.menuHidden or Screen.showHidden) -- a shop is open or a show plays: the pill stays out of the way
 	gui.Parent = playerGui
-	if compact then
-		-- pops up off the cube (Animation Rules: pop, Back Out); the bottom stays on the cube as it grows
-		local full = gui.Size
-		local reduced = SettingsController.get("reducedMotion") == true
-		gui.Size = UDim2.fromOffset(full.X.Offset * 0.3, full.Y.Offset * 0.3)
-		TweenService:Create(gui, TweenInfo.new(Config.motion.promptPop * (if reduced then 0.5 else 1), Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Size = full }):Play()
+	if not reduced then
+		-- pops up (Animation Rules: pop, Back Out)
+		pop.Scale = 0.4
+		TweenService:Create(pop, TweenInfo.new(Config.motion.promptPop, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
 	end
-	local conns: { RBXScriptConnection } = {}
-	-- touch and mouse: the block is the hold button. The hold ends when that finger (or the mouse button)
-	-- lifts anywhere: a finger that slid off the pill kept the hold going (mobile QA 2026-11-10)
+	local entry = { gui = gui, bar = bar, key = key.face, held = false, conns = {} :: { RBXScriptConnection } }
+	if not reduced then
+		task.spawn(function()
+			while gui.Parent do
+				task.wait(K.tapEvery)
+				if gui.Parent and gui.Enabled and not entry.held then
+					keyDown(key.face, false)
+				end
+			end
+		end)
+	end
+	local conns = entry.conns
+	-- the hold ends when that finger (or the mouse button) lifts anywhere: a finger that slid off the
+	-- pill kept the hold going (mobile QA 2026-11-10)
 	local holding: InputObject? = nil
 	local function release(input: InputObject)
 		local h = holding
@@ -171,10 +227,10 @@ local function show(prompt: ProximityPrompt)
 	table.insert(conns, top.InputEnded:Connect(release))
 	table.insert(conns, UserInputService.InputEnded:Connect(release))
 	table.insert(conns, InputController.DeviceChanged:Connect(function()
-		key.Text = InputController.keyHint(prompt)
+		keyText.Text = InputController.keyHint(prompt)
 		fitKey()
 	end))
-	shown[prompt] = { gui = gui, bar = bar, conns = conns }
+	shown[prompt] = entry
 end
 
 local function hide(prompt: ProximityPrompt)
@@ -207,6 +263,7 @@ local function refreshWorldPrompts(v: State.View)
 	local gift_p = gift and gift:FindFirstChildWhichIsA("ProximityPrompt", true)
 	if gift_p then
 		gift_p.Enabled = v.gift.ready
+		gift_p.ObjectText = "Free gift" -- a saved map keeps the old "Daily gift" text (one-time gift since 2026-11-12)
 	end
 	-- Pan Upgrades: only at your own pan
 	for i in Config.world.plots do
@@ -223,6 +280,16 @@ local function refreshWorldPrompts(v: State.View)
 			local tp = machine and machine:FindFirstChild("ThawPrompt", true)
 			if tp and tp:IsA("ProximityPrompt") then
 				tp.Enabled = v.plot == i and m <= (v.machines or 1)
+			end
+		end
+	end
+	-- the Cold Power trainer's "Train" (TrainingService): only at your own pan, and not while you're in
+	local training = Players.LocalPlayer:GetAttribute("TrainLocked") == true
+	for _, a in workspace.Terrain:GetChildren() do
+		if a.Name == "TrainPromptSpot" then
+			local tp = a:FindFirstChildWhichIsA("ProximityPrompt")
+			if tp then
+				tp.Enabled = v.plot ~= nil and v.plot == tp:GetAttribute("Trainer") and not training
 			end
 		end
 	end
@@ -252,6 +319,8 @@ function PromptController.Start()
 	ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt: ProximityPrompt)
 		local s = shown[prompt]
 		if s then
+			s.held = true
+			keyDown(s.key, true)
 			s.bar.Size = UDim2.fromScale(0, 1)
 			if prompt.ActionText ~= "Freeze" and prompt.ActionText ~= "Zap" then -- a freeze's bar follows the freeze (below)
 				TweenService:Create(s.bar, TweenInfo.new(prompt.HoldDuration, Enum.EasingStyle.Linear), { Size = UDim2.fromScale(1, 1) }):Play()
@@ -262,12 +331,40 @@ function PromptController.Start()
 	ProximityPromptService.PromptButtonHoldEnded:Connect(function(prompt: ProximityPrompt)
 		local s = shown[prompt]
 		if s then
+			s.held = false
+			keyUp(s.key)
 			TweenService:Create(s.bar, TweenInfo.new(0.1), { Size = UDim2.fromScale(0, 1) }):Play()
 		end
 	end)
 	State.Changed:Connect(refreshWorldPrompts)
+	-- a trainer's prompt is new when its trainer is rebuilt (an upgrade), and hides while you train
+	local function refreshNow()
+		local v = State.view
+		if v then
+			refreshWorldPrompts(v)
+		end
+	end
+	Players.LocalPlayer:GetAttributeChangedSignal("TrainLocked"):Connect(refreshNow)
+	workspace.Terrain.ChildAdded:Connect(function(c)
+		if c.Name == "TrainPromptSpot" then
+			task.defer(refreshNow) -- its prompt arrives with it; one beat later to be safe
+		end
+	end)
+	refreshNow()
 	-- booths: the prompt card is the way in (no HUD button)
 	ProximityPromptService.PromptTriggered:Connect(function(prompt: ProximityPrompt)
+		local s = shown[prompt]
+		if s and prompt.HoldDuration <= 0 then
+			keyDown(s.key, false) -- the key clicks down under your press
+		end
+		-- a leaderboard: its top 100 (owner 2026-11-12)
+		local boardId = prompt:GetAttribute("Leaderboard")
+		if typeof(boardId) == "string" then
+			if PopupController.openName() ~= "board" then
+				PopupController.open("board", { id = boardId })
+			end
+			return
+		end
 		local booth = prompt:GetAttribute("Booth")
 		if typeof(booth) ~= "string" then
 			return

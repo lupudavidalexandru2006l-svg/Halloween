@@ -31,9 +31,11 @@ local me = Players.LocalPlayer
 local giftParts: { { part: BasePart, cf: CFrame } } = {}
 local giftLabel: Ui.Block? = nil
 local giftGui: BillboardGui? = nil
+local giftPromptUp = false -- the gift's E prompt is showing: it says "Free gift" itself, so the label steps aside
 local glows: { BasePart } = {}
 local glowBase: { [BasePart]: number } = setmetatable({}, { __mode = "k" }) :: any -- each glow's resting transparency
 local lightZone = -1
+local shownSky: string? = nil -- Config.lighting.skies key on this screen (nil = the day sky)
 local gateBars: { [number]: Frame } = {} -- each gate sign's progress fill
 
 local function map(): Instance?
@@ -258,17 +260,29 @@ local function gift(v: State.View)
 	if not giftGui then
 		local g, b = Ui.pill("", Theme.fx.giftBody, Config.worldText.gift)
 		g.Name = "GiftLabel"
-		g.StudsOffset = Vector3.new(0, 4.6, 0)
+		g.StudsOffset = Vector3.new(0, Config.art.gift.labelLift, 0) -- over the frozen treasure's snow cap
 		g.Adornee = box
 		g.Parent = me:WaitForChild("PlayerGui")
 		giftGui, giftLabel = g, b
 	end
 	local g, b = giftGui :: BillboardGui, giftLabel :: Ui.Block
-	g.Enabled = not v.gift.locked
-	local color = if v.gift.ready then Theme.fx.giftBody else Theme.tiers.Common
-	Ui.fitPill(g, b, if v.gift.ready then "Daily gift" else "Next gift tomorrow", Config.worldText.gift)
-	b.face.BackgroundColor3 = color
-	b.root.BackgroundColor3 = Ui.darker(color)
+	-- the one-time Free Gift (2026-11-12): once claimed, the box and its label are gone for you. Up close
+	-- the E prompt shows instead (both at once overlapped, owner 2026-11-13)
+	g.Enabled = v.gift.ready and not giftPromptUp
+	Ui.fitPill(g, b, "Free gift!", Config.worldText.gift)
+	b.face.BackgroundColor3 = Theme.fx.giftBody
+	b.root.BackgroundColor3 = Ui.darker(Theme.fx.giftBody)
+	local hide = if v.gift.ready then 0 else 1
+	for _, p in giftParts do
+		p.part.LocalTransparencyModifier = hide
+		for _, d in p.part:GetDescendants() do
+			if d:IsA("Decal") or d:IsA("Texture") then
+				d.LocalTransparencyModifier = hide
+			elseif d:IsA("Light") or d:IsA("ParticleEmitter") or d:IsA("BillboardGui") or d:IsA("SurfaceGui") then
+				(d :: any).Enabled = v.gift.ready
+			end
+		end
+	end
 end
 
 local function findGlows()
@@ -282,6 +296,48 @@ local function findGlows()
 			end
 		end
 	end
+end
+
+-- the late islands' own sky (Config.lighting.zoneSky): the skybox can't fade, so it swaps behind a
+-- short white flash. Only this screen changes; the server never touches the skybox after start.
+local function islandSky(key: string?, still: boolean)
+	if key == shownSky then
+		return
+	end
+	shownSky = key
+	local L = Config.lighting
+	local sky = Lighting:FindFirstChildOfClass("Sky")
+	if not sky then
+		return
+	end
+	local set = if key then L.skies[key] else nil
+	local function swap()
+		local src = set or L.sky
+		sky.SkyboxBk, sky.SkyboxDn, sky.SkyboxFt = src.bk, src.dn, src.ft
+		sky.SkyboxLf, sky.SkyboxRt, sky.SkyboxUp = src.lf, src.rt, src.up
+		sky.CelestialBodiesShown = if set then set.sun else true
+		local clouds = workspace.Terrain:FindFirstChildOfClass("Clouds")
+		if clouds then
+			clouds.Cover = if set then set.cloudCover else L.clouds.cover
+		end
+		local atmo = Lighting:FindFirstChildOfClass("Atmosphere")
+		if atmo then
+			atmo.Decay = if set then set.decay else L.atmosphereDecay
+		end
+	end
+	local cc = Lighting:FindFirstChildOfClass("ColorCorrectionEffect")
+	if still or not cc then
+		swap()
+		return
+	end
+	local F = L.skyFlash
+	local base = cc.Brightness
+	local up = TweenService:Create(cc, TweenInfo.new(F.flashUp, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Brightness = base + F.flash })
+	up.Completed:Connect(function()
+		swap()
+		TweenService:Create(cc, TweenInfo.new(F.flashDown), { Brightness = base }):Play()
+	end)
+	up:Play()
 end
 
 -- each island's own light: tint and haze fade to the section you're standing in
@@ -308,7 +364,10 @@ local function islandLight()
 			end
 		end
 	end
-	local seconds = if SettingsController.get("reducedMotion") then M.lightTweenSeconds * 0.5 else M.lightTweenSeconds
+	local still = SettingsController.get("reducedMotion") == true
+	local seconds = if still then M.lightTweenSeconds * 0.5 else M.lightTweenSeconds
+	local zoneDef = if zone > 0 then Config.zone(zone) else nil
+	islandSky(if zoneDef then Config.lighting.zoneSky[zoneDef.theme] else nil, still)
 	local cc = Lighting:FindFirstChildOfClass("ColorCorrectionEffect")
 	if cc then
 		TweenService:Create(cc, TweenInfo.new(seconds), { TintColor = tint }):Play()
@@ -345,6 +404,23 @@ function MapController.Start()
 	if State.view then
 		refresh(State.view)
 	end
+	local PPS = game:GetService("ProximityPromptService")
+	local function giftPrompt(p: ProximityPrompt, up: boolean)
+		local m = map()
+		local box = m and m:FindFirstChild("GiftBox", true)
+		if box and p:IsDescendantOf(box) then
+			giftPromptUp = up
+			if State.view then
+				gift(State.view)
+			end
+		end
+	end
+	PPS.PromptShown:Connect(function(p)
+		giftPrompt(p, true)
+	end)
+	PPS.PromptHidden:Connect(function(p)
+		giftPrompt(p, false)
+	end)
 	findGlows()
 	-- map parts can stream in late: look again now and then (cheap)
 	task.spawn(function()

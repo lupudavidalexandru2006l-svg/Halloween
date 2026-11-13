@@ -256,7 +256,8 @@ local function candidates(): { Target }
 	if wild then
 		for _, r in wild:GetChildren() do
 			local owner = r:GetAttribute("OwnerUserId")
-			if r:IsA("BasePart") and (owner == 0 or owner == me.UserId) then
+			-- OffIsland: set on this client by PetVisuals for pets on another island (not drawn, not aimable)
+			if r:IsA("BasePart") and (owner == 0 or owner == me.UserId) and r:GetAttribute("OffIsland") ~= true then
 				table.insert(out, { kind = "pet", id = r:GetAttribute("PetId") :: string, part = r })
 			end
 		end
@@ -872,7 +873,10 @@ end
 local function makeReticle(): { gui: BillboardGui, ring: Frame, fill: Frame, hint: TextLabel }
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "AimRing"
-	gui.AlwaysOnTop = true
+	-- not AlwaysOnTop: in this place an AlwaysOnTop BillboardGui never draws (Lessons 2026-11-12). It's
+	-- pulled toward the camera instead (drawReticle), so the target's own body doesn't cover it
+	gui.AlwaysOnTop = false
+	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	gui.LightInfluence = 0
 	gui.ResetOnSpawn = false
 	local ring = Instance.new("Frame")
@@ -959,6 +963,8 @@ local function drawReticle()
 	local px = A.reticle * short
 	r.gui.Size = UDim2.fromOffset(px, px * 1.35)
 	r.gui.Adornee = t.part
+	-- StudsOffset's Z is toward the camera: in front of the pet's (or player's) near side
+	r.gui.StudsOffset = Vector3.new(0, A.reticleLift, math.max(t.part.Size.X, t.part.Size.Z) * A.reticleFront + 0.6)
 	r.gui.Enabled = true
 	local meter = (t.part:GetAttribute("Meter") or 0) :: number
 	local pulse = if aiming() then 1 else 1 + 0.08 * math.sin(os.clock() * 5)
@@ -1176,6 +1182,18 @@ local function isAimKey(k: Enum.KeyCode): boolean
 	return table.find(A.keys, k) ~= nil
 end
 
+-- world prompts on screen right now (a gate, a booth, the Thaw Machine): their key belongs to them, so
+-- it doesn't also fire the ray (owner 2026-11-12: holding E at a gate shot at the pets behind it)
+local promptsShown: { [ProximityPrompt]: boolean } = {}
+local function promptOwnsKey(k: Enum.KeyCode): boolean
+	for p in promptsShown do
+		if p.Enabled and (p.KeyboardKeyCode == k or p.GamepadKeyCode == k) then
+			return true
+		end
+	end
+	return false
+end
+
 -- my frozen pets waiting on the ground for E (CarryService.dropCube); near = within pick-up reach
 local function myGroundCube(near: boolean): boolean
 	local folder = workspace:FindFirstChild("GroundCubes")
@@ -1255,6 +1273,13 @@ function RayController.Init() end
 
 function RayController.Start()
 	watchSteam()
+	local PPS = game:GetService("ProximityPromptService")
+	PPS.PromptShown:Connect(function(p: ProximityPrompt)
+		promptsShown[p] = true
+	end)
+	PPS.PromptHidden:Connect(function(p: ProximityPrompt)
+		promptsShown[p] = nil
+	end)
 	for _, p in Players:GetPlayers() do
 		watchPlayer(p)
 	end
@@ -1275,6 +1300,8 @@ function RayController.Start()
 			pointer = { pos = Vector2.new(input.Position.X, input.Position.Y), touch = input }
 		elseif input.KeyCode == Enum.KeyCode.E and myGroundCube(true) then
 			return -- E next to my frozen pet picks it up (its prompt), it doesn't aim
+		elseif input.KeyCode ~= Enum.KeyCode.Unknown and promptOwnsKey(input.KeyCode) then
+			return -- a prompt on screen uses this key
 		elseif isAimKey(input.KeyCode) then
 			autoAim = true
 		end

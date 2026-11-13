@@ -21,9 +21,9 @@ local UpgradeMotion = require(script.Parent.UpgradeMotion)
 local PanPopup = {}
 local P = Config.pan
 local I = Config.images.icons
-local ICONS: { [string]: string } = { slots = I.pen, look = I.paint, trainer = I.power }
-local TILES: { [string]: Color3 } = { slots = Theme.pen, look = Theme.grassFar, trainer = Theme.training.power }
-local NAMES: { [string]: string } = { slots = "Slots", look = "Look", trainer = "Trainer" }
+local ICONS: { [string]: string } = { slots = I.pen, look = I.paint, trainer = I.power, thaw = I.temp, speed = I.boots }
+local TILES: { [string]: Color3 } = { slots = Theme.pen, look = Theme.grassFar, trainer = Theme.training.power, thaw = Theme.coin, speed = Theme.go }
+local NAMES: { [string]: string } = P.names
 local PROGRESS_STEPS = 20 -- the "how close" bar redraws in 5% steps (the popup only rebuilds on a key change)
 
 function PanPopup.level(v: State.View, kind: string): number
@@ -32,6 +32,12 @@ function PanPopup.level(v: State.View, kind: string): number
 	end
 	if kind == "trainer" then
 		return if v.pan and v.pan.trainer then v.pan.trainer else 1
+	end
+	if kind == "thaw" then
+		return if v.pan and (v.pan :: any).thaw then (v.pan :: any).thaw else 1
+	end
+	if kind == "speed" then
+		return v.upgrades.boots or 1
 	end
 	return if v.pan then v.pan.look else 1
 end
@@ -56,6 +62,19 @@ end
 local function values(kind: string, level: number, rebirths: number, canBuy: boolean): (string, string?, string?)
 	if kind == "slots" then
 		return tostring(slotsAt(level, rebirths)), if canBuy then tostring(slotsAt(level + 1, rebirths)) else nil, "pets"
+	end
+	if kind == "thaw" then -- how long a thaw takes, against the start
+		local f = Config.thaw.upgradeFactor
+		local function pct(l: number): string
+			return `-{math.round((1 - f ^ (l - 1)) * 100)}%`
+		end
+		return if level <= 1 then "0%" else pct(level), if canBuy then pct(level + 1) else nil, "wait"
+	end
+	if kind == "speed" then -- walk speed in studs a second
+		local function spd(l: number): string
+			return tostring(math.round(Config.player.walkSpeed * (1 + Config.upgrades.boots.speedBonus * (l - 1))))
+		end
+		return spd(level), if canBuy then spd(level + 1) else nil, "speed"
 	end
 	if kind == "trainer" then -- the Cold Power trainer in front of your pan: its xN
 		local cur, nxt = Config.training.stations[level], Config.training.stations[level + 1]
@@ -135,6 +154,25 @@ local function icon(parent: Instance, kind: string)
 	Ui.image(tile, ICONS[kind] or I.coin, UDim2.fromScale(0.84, 0.84), UDim2.fromScale(0.08, 0.08))
 end
 
+-- the words start just right of the icon tile, whatever the card's shape. The tile is a square as tall
+-- as the card, so on touch (taller rows) it's wider: a fixed start at 0.17 put the name and the values
+-- over it (owner 2026-11-13). They end just before the button (0.7).
+local function besideTile(face: GuiObject, frames: { GuiObject })
+	local function fit()
+		local w, ht = face.AbsoluteSize.X, face.AbsoluteSize.Y
+		if w <= 0 or ht <= 0 then
+			return
+		end
+		local x = math.min(0.4, 0.015 + 0.9 * ht / w) -- the tile (0.82 of the height) and a gap
+		for _, f in frames do
+			f.Position = UDim2.fromScale(x, f.Position.Y.Scale)
+			f.Size = UDim2.fromScale(0.685 - x, f.Size.Y.Scale)
+		end
+	end
+	fit()
+	face:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
+end
+
 -- the focal point: a slow pulse on the button you can afford (none with reduced motion)
 local function pulse(b: Ui.Block)
 	if SettingsController.get("reducedMotion") == true then
@@ -190,11 +228,11 @@ local function flatBox(parent: Instance, s: string, h: EquipmentPopup.Helpers)
 end
 
 function PanPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
-	local l = h.list(o.body, false)
+	local l = h.list(o.body, #P.order > 3) -- five cards (2026-11-13) scroll
 	local pulsing = false
 	for i, kind in P.order do
 		local level = PanPopup.level(v, kind)
-		local r = h.row(l, i, 0.3)
+		local r = h.row(l, i, 0, Config.ui.gearCardAspect) -- a scrolling list: rows sized by shape
 		r.Name = "Pan_" .. kind
 		-- the card: white on a lip, a little inset so the lip and outline aren't clipped
 		local card = Ui.block(r, "Card", Theme.white, "", nil, true)
@@ -224,6 +262,7 @@ function PanPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
 		if unit then
 			word(stat, unit, Theme.tiers.Common:Lerp(Theme.ink, 0.35), "small", h, 4)
 		end
+		besideTile(face, { top, stat })
 		if not price then
 			flatBox(face, "Max", h)
 			continue

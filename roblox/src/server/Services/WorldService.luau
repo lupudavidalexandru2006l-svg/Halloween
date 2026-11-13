@@ -192,7 +192,7 @@ local function buildHub()
 	end
 	-- gift box (invisible: MapArt draws the ribboned box, the client bobs it and shows its label)
 	local gift = part("GiftBox", Vector3.new(3, 3, 3), CFrame.new(W.giftBox.X, 1.5, W.giftBox.Z), Theme.gift, map, { Transparency = 1 })
-	WorldService.giftPrompt = prompt(gift, "Open", "Daily gift", Config.player.openHold)
+	WorldService.giftPrompt = prompt(gift, "Open", "Free gift", Config.player.openHold)
 	-- leaderboards on the side walls, facing into the plaza
 	for i, pos in W.boards do
 		local at = Vector3.new(pos.X, 10, pos.Z)
@@ -246,7 +246,9 @@ local function buildTunnel()
 			local gate = collider("Gate" .. zone.id, Vector3.new(T.width, G.height, G.depth), CFrame.new(0, G.height / 2, gz), sec)
 			gate:SetAttribute("GateZone", zone.id)
 			local spot = part("GatePromptSpot" .. zone.id, Vector3.new(1, 1, 1), CFrame.new(0, 0.5, gz - Config.gatePromptOffset), Theme.ice, sec, { Transparency = 1, CanCollide = false, CanQuery = false })
-			WorldService.gatePrompts[zone.id] = prompt(spot, "Open", gateText(zone), Config.player.interactHold)
+			local gp = prompt(spot, "Open", gateText(zone), Config.gatePrompt.hold)
+			gp.MaxActivationDistance = Config.gatePrompt.range
+			WorldService.gatePrompts[zone.id] = gp
 			local sign = part("GateSign" .. zone.id, Vector3.new(20 * T.archScale, 4 * T.archScale, 0.5), CFrame.new(0, G.height + 3.4 * T.archScale, gz - G.depth / 2 - 0.4), look.accent, sec) -- text toward the section before
 			surfaceText(sign, Enum.NormalId.Front, if zone.ready then string.upper(zone.name) else "COMING SOON", look.accent)
 			WorldService.gateSigns[zone.id] = sign
@@ -348,6 +350,8 @@ local function findExisting(): boolean
 		local pp = spot and spot:FindFirstChildWhichIsA("ProximityPrompt", true)
 		if pp then
 			pp.ObjectText = gateText(z) -- the saved map keeps its old text; prices live in Config
+			pp.HoldDuration = Config.gatePrompt.hold -- and its old hold and reach
+			pp.MaxActivationDistance = Config.gatePrompt.range
 			WorldService.gatePrompts[z.id] = pp
 		end
 	end

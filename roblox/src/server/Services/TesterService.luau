@@ -20,6 +20,7 @@ local WorldService = require(script.Parent.WorldService)
 local PlayerTracker = require(script.Parent.PlayerTracker)
 local CritterService = require(script.Parent.CritterService)
 local FriendService = require(script.Parent.FriendService)
+local CarryService = require(script.Parent.CarryService)
 local WorldRules = require(ReplicatedStorage.Shared.WorldRules)
 
 local TesterService = {}
@@ -102,6 +103,72 @@ ACTIONS.closeGates = function(player)
 		d.forestUnlocked = false
 	end)
 	WorldService.setReach(player, 1)
+end
+
+-- open islands 1..n exactly (the panel's - / + on "Islands open", 2026-11-12)
+ACTIONS.reach = function(player, n)
+	if not finite(n) then
+		return
+	end
+	local r = math.clamp(math.floor(n), 1, #Config.world.zones)
+	change(player, function(d)
+		d.reach = r
+		d.forestUnlocked = r >= 2
+	end)
+	WorldService.setReach(player, r)
+end
+
+-- Cold Power straight to the next island's need (the next gate opens with it)
+ACTIONS.powerNext = function(player)
+	change(player, function(d)
+		d.coldPower = math.min(Config.coldPower.max, Config.nextNeed(d.coldPower))
+	end)
+end
+
+-- every pet in a Thaw Machine comes out now (PenService lets them out on its next tick)
+ACTIONS.thawNow = function(player)
+	change(player, function(d)
+		for _, p in d.pets do
+			if p.thawM then
+				p.thawEnd = os.time()
+			end
+		end
+	end)
+end
+
+-- the cubes in your hands melt now (test melting and zapping a pet back)
+ACTIONS.meltNow = function(player)
+	CarryService.devMeltAll(player)
+end
+
+-- the one-time Free Gift can be claimed again
+ACTIONS.giftReset = function(player)
+	change(player, function(d)
+		d.gift.claimed = false
+	end)
+end
+
+-- today's daily challenges all done (ready to claim)
+ACTIONS.dailyDone = function(player)
+	change(player, function(d)
+		for _, c in d.daily.list do
+			for _, def in Config.challenges.pool do
+				if def.id == c.id then
+					local now = if def.stat == "rares" then d.daily.rares else ((d.stats :: any)[def.stat] or 0)
+					c.from = now - c.goal
+				end
+			end
+		end
+	end)
+end
+
+-- free Thaw Machine skips to test "Skip free" (paid skips are free in Studio until the products exist)
+ACTIONS.thawSkips = function(player, n)
+	if finite(n) then
+		change(player, function(d)
+			d.thawSkips = math.clamp(math.floor(n), 0, 999)
+		end)
+	end
 end
 
 -- Cold Power (2026-11-10): set it to any amount, to test gates, freeze speed and the training stations
@@ -345,6 +412,8 @@ ACTIONS.readout = function(player)
 	Remotes.fire(player, "Notify", "testerReadout", {
 		coins = math.floor(d.coins), mult = d.tester.mult, rebirths = d.rebirths, power = d.coldPower,
 		income = PenService.incomePerSecond(d), saveKey = key, qa = qa, targets = targets,
+		reach = d.reach, gun = d.guns.best, trainer = d.pan.trainer, slots = d.upgrades.pen, look = d.pan.look,
+		pets = #d.pets, frozen = d.stats.frozen, skips = d.thawSkips,
 	})
 end
 

@@ -93,7 +93,7 @@ local function requestSuperFreeze(player: Player, petId: any)
 		return
 	end
 	if CarryService.load(player) >= CarryService.capacity(player) then
-		Remotes.notYet(player, "Backpack full", "offer")
+		Remotes.notYet(player, "Take your pet home first!", "offer")
 		return
 	end
 	if d.superFreezeCharges > 0 then
@@ -119,6 +119,83 @@ local function requestSuperFreeze(player: Player, petId: any)
 		return
 	end
 	MarketplaceService:PromptProductPurchase(player, SF.productId)
+end
+
+-- ---------- skipping a Thaw Machine's wait (owner 2026-11-12; at the machine only, not in the Shop) ----------
+-- The price steps with the time left (Config.thaw.skip.tiers). The receipt finishes the pet that was in
+-- that machine when the player asked; if it already came out by itself, the skip is kept (thawSkips)
+-- and used free next time. Saved before PurchaseGranted, like every product.
+local skipAsked: { [Player]: { machine: number, at: number } } = {}
+
+local function thawingIn(d: any, m: number): any?
+	for _, p in d.pets do
+		if p.thawM == m and (p.thawEnd or 0) > os.time() then
+			return p
+		end
+	end
+	return nil
+end
+
+-- the Robux price of the skip tier sold as this product (nil = not a skip)
+local function skipTierRobux(productId: number): number?
+	if productId == 0 then
+		return nil
+	end
+	for _, t in Config.thaw.skip.tiers do
+		if t.productId == productId then
+			return t.robux
+		end
+	end
+	return nil
+end
+
+-- inside a data change: the pet in machine m comes out on the next machine tick (PenService), or the
+-- skip is kept for later. Returns "done" or "kept".
+local function applySkip(x: any, m: number?): string
+	local p = if m then thawingIn(x, m) else nil
+	if p then
+		p.thawEnd = os.time()
+		return "done"
+	end
+	x.thawSkips = math.min(x.thawSkips + 1, 999)
+	return "kept"
+end
+
+local function requestSkip(player: Player, m: any)
+	local d = DataService.get(player)
+	if not d or typeof(m) ~= "number" or m ~= math.floor(m) or m < 1 or m > 2 then
+		return
+	end
+	local asked = skipAsked[player]
+	if asked and os.clock() - asked.at < Config.thaw.skip.cooldown then
+		return
+	end
+	local p = thawingIn(d, m)
+	if not p then
+		return
+	end
+	skipAsked[player] = { machine = m, at = os.clock() }
+	if d.thawSkips > 0 then -- one bought earlier: used with a tap, no purchase
+		DataService.mutate(player, function(x)
+			if x.thawSkips > 0 and thawingIn(x, m) then
+				x.thawSkips -= 1
+				applySkip(x, m)
+			end
+		end)
+		DataService.saveNow(player)
+		return
+	end
+	local tier = Config.thawSkipTier((p.thawEnd or 0) - os.time())
+	if tier.productId ~= 0 then
+		MarketplaceService:PromptProductPurchase(player, tier.productId)
+	elseif RunService:IsStudio() then
+		DataService.mutate(player, function(x) -- Studio test until the owner makes the products
+			applySkip(x, m)
+		end)
+		DataService.saveNow(player)
+	else
+		Remotes.notYet(player, "Not available yet", "thaw")
+	end
 end
 
 -- ---------- the Shop's Robux tab ----------
@@ -218,6 +295,27 @@ local function processReceipt(receipt: { [string]: any }): Enum.ProductPurchaseD
 		-- first try may have failed to save, and "granted" would then end Roblox's retries with nothing stored)
 		return if DataService.saveNow(player) then Enum.ProductPurchaseDecision.PurchaseGranted else Enum.ProductPurchaseDecision.NotProcessedYet
 	end
+	local skipRobux = skipTierRobux(receipt.ProductId)
+	if skipRobux then
+		local asked = skipAsked[player]
+		skipAsked[player] = nil
+		local result = "kept"
+		DataService.mutate(player, function(x)
+			result = applySkip(x, if asked then asked.machine else nil)
+			table.insert(x.receipts, purchaseId)
+			while #x.receipts > Config.data.receiptsKept do
+				table.remove(x.receipts, 1)
+			end
+		end)
+		if not DataService.saveNow(player) then
+			return Enum.ProductPurchaseDecision.NotProcessedYet -- not saved: Roblox asks again, the receipt id stops a double grant
+		end
+		if result == "kept" then
+			Remotes.fire(player, "Notify", "skipKept", {})
+		end
+		AnalyticsSvc.event(player, "offer_bought", { offer = "thaw_skip", robux = skipRobux })
+		return Enum.ProductPurchaseDecision.PurchaseGranted
+	end
 	local item = productItem(receipt.ProductId)
 	if item then
 		local note = grantItem(player, item)
@@ -257,6 +355,7 @@ function MonetizationService.Start()
 	MarketplaceService.ProcessReceipt = processReceipt
 	Remotes.on("RequestSuperFreeze", requestSuperFreeze)
 	Remotes.on("BuyRobux", buyRobux)
+	Remotes.on("SkipThaw", requestSkip)
 	Players.PlayerAdded:Connect(loadPolicy)
 	for _, p in Players:GetPlayers() do
 		task.spawn(loadPolicy, p)
@@ -301,6 +400,7 @@ function MonetizationService.Start()
 	Players.PlayerRemoving:Connect(function(p)
 		randomItemsOk[p] = nil
 		passes[p] = nil
+		skipAsked[p] = nil
 	end)
 end
 

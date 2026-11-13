@@ -19,6 +19,9 @@ local held: { [Player]: string } = {}
 local lastThrow: { [Player]: number } = {}
 local lastBuy: { [Player]: number } = {}
 local stowed: { [Player]: boolean } = {} -- the game put the ray away (after a freeze); it brings it back
+-- a cube is in your hands (CarryService): nothing on the hotbar can come out until it's home or gone
+-- (owner 2026-11-12: you could pick the ray back up and freeze more pets on the way home)
+local locked: { [Player]: boolean } = {}
 type Puddle = { pos: Vector3, untilT: number, part: BasePart }
 local puddles: { Puddle } = {}
 local folder: Folder
@@ -75,8 +78,25 @@ function GearService.unstowRay(player: Player)
 	end
 end
 
+-- CarryService: your hands are full (on) or empty again (off). The client hides the hotbar from
+-- "GunLocked"; the server refuses SetGear while it's on, so a faked call can't bring the ray out
+function GearService.setLocked(player: Player, on: boolean)
+	if (locked[player] == true) == on then
+		return
+	end
+	locked[player] = if on then true else nil
+	player:SetAttribute("GunLocked", on)
+	if on and GearService.held(player) ~= "none" then
+		stowed[player] = true -- it comes back out by itself once your hands are empty (FreezeService)
+		setHeld(player, "none")
+	end
+end
+
 -- TrainingService: training is done with the gun, so stepping onto a station puts it in your hand
 function GearService.equipRay(player: Player)
+	if locked[player] then
+		return
+	end
 	stowed[player] = nil
 	setHeld(player, "ray")
 end
@@ -87,6 +107,10 @@ end
 
 local function onSetGear(player: Player, id: any)
 	if typeof(id) ~= "string" or (id ~= "ray" and id ~= "gel" and id ~= "none") then
+		return
+	end
+	if locked[player] and id ~= "none" then
+		Remotes.notYet(player, "Bring your pet home first", "hotbar")
 		return
 	end
 	stowed[player] = nil -- the player's own choice wins
@@ -150,7 +174,50 @@ local function boothPos(): Vector3?
 	return nil
 end
 
+-- the always-on gear (Config.gear, 2026-11-13): bought once at the booth, checked again inside the one
+-- change that charges; the Gear_<key> attribute (setOwned) switches its effect on in the other services
+local function buyItem(player: Player, item: Config.GearItem)
+	local d = DataService.get(player)
+	local p, b = PlayerTracker.position(player), boothPos()
+	if not d or not p or not b or (Vector3.new(p.X, 0, p.Z) - Vector3.new(b.X, 0, b.Z)).Magnitude > Config.guns.boothRange then
+		return
+	end
+	local now = os.clock()
+	if now - (lastBuy[player] or -math.huge) < Config.guns.buyCooldown or d.gear[item.key] then
+		return
+	end
+	if d.coins < item.price then
+		Remotes.notYet(player, `Need {Config.coinText(item.price - d.coins)} more`, "gear")
+		return
+	end
+	lastBuy[player] = now
+	local bought = false
+	DataService.mutate(player, function(x)
+		if x.gear[item.key] or x.coins < item.price then
+			return
+		end
+		x.coins -= item.price
+		x.gear[item.key] = true
+		bought = true
+	end)
+	if bought then
+		AnalyticsSvc.funnel(player, "first_coins_spent")
+		DataService.saveNow(player)
+		player:SetAttribute("Gear_" .. item.key, true)
+		PlayerTracker.updateSpeed(player) -- Ice Skates
+		Remotes.fire(player, "Notify", "gearBought", { key = item.key, name = item.name })
+	end
+end
+
 local function onBuy(player: Player, key: any)
+	if typeof(key) ~= "string" then
+		return
+	end
+	local item = Config.gearItem(key)
+	if item then
+		buyItem(player, item)
+		return
+	end
 	if key ~= "gel" then
 		return
 	end
@@ -180,7 +247,9 @@ local function onBuy(player: Player, key: any)
 	if bought then
 		AnalyticsSvc.funnel(player, "first_coins_spent")
 		DataService.saveNow(player)
-		setHeld(player, "gel") -- straight into your hands, so you see the new slot light up
+		if not locked[player] then
+			setHeld(player, "gel")
+		end -- straight into your hands, so you see the new slot light up
 		Remotes.fire(player, "Notify", "gearBought", { key = "gel" })
 	end
 end
@@ -189,6 +258,9 @@ local function setOwned(player: Player)
 	local d = DataService.get(player)
 	if d then
 		player:SetAttribute("GearGel", d.gear.gel) -- the hotbar unlocks its slot from it
+		for _, g in Config.gear do
+			player:SetAttribute("Gear_" .. g.key, d.gear[g.key] == true)
+		end
 		if held[player] == "gel" and not d.gear.gel then
 			setHeld(player, "ray")
 		end
@@ -206,14 +278,16 @@ function GearService.Start()
 	Remotes.on("ThrowGel", onThrow)
 	Remotes.on("BuyGear", onBuy)
 	DataService.Loaded:Connect(function(player: Player)
-		stowed[player] = nil
-		setHeld(player, "ray")
+		-- a saved Super Freeze cube may already be back in your hands (CarryService): then the ray waits
+		stowed[player] = if locked[player] then true else nil
+		setHeld(player, if locked[player] then "none" else "ray")
 		setOwned(player)
 	end)
 	DataService.Changed:Connect(setOwned)
 	Players.PlayerRemoving:Connect(function(p)
 		held[p] = nil
 		stowed[p] = nil
+		locked[p] = nil
 		lastThrow[p] = nil
 		lastBuy[p] = nil
 	end)
