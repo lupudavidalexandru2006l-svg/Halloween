@@ -1173,7 +1173,7 @@ end
 
 -- a pet's model (or painted sprite) on its own, for other controllers (Heat Critters wear a pet's art)
 -- the model drawn for a wild or pen pet's root (the root itself is an invisible part): the tutorial
--- makes the pet Ranger Bo is showing glow
+-- makes the pet Captain Frost is showing glow
 function PetVisuals.drawnModel(root: Instance): PVInstance?
 	local d = if root:IsA("BasePart") then drawn[root] else nil
 	return if d then d.model else nil

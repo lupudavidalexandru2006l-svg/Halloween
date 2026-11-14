@@ -1,6 +1,6 @@
 --!strict
 -- GuideController: the world teaches (prototype client.js). The only owner of three local guides:
---  - a green chevron on the ground, 6.5 studs out: to the nearest pet while you own fewer than 3,
+--  - a chevron on the ground in the island's own colour (Theme.placeColor, owner 2026-11-13), 6.5 studs out: to the nearest pet while you own fewer than 3,
 --    home to your pen while you carry a cube (hidden once you're close)
 --  - a small diamond over the nearest pet you can't reach yet (hands free, arrow hidden)
 --  - a soft green light pillar over your pen while you carry
@@ -17,13 +17,15 @@ local SettingsController = require(script.Parent.SettingsController)
 local Screen = require(script.Parent.Screen)
 
 local GuideController = {}
--- what the arrow points at this frame (TutorialController walks Ranger Bo there and makes it glow):
+-- what the arrow points at this frame (TutorialController flies Captain Frost there and makes it glow):
 -- kind = "pet" | "cube" | "machine" | "pan" | "train"; inst = the pet or cube part when there is one
 export type Target = { kind: string, pos: Vector3, inst: Instance? }
 GuideController.target = nil :: Target?
 -- the tutorial is teaching the catch: point at pets even if you own plenty (a replay) and before a
 -- frozen pet waiting for the Thaw Machine
 GuideController.pointPets = false
+-- the tutorial is showing something the arrow doesn't know (the Pan Upgrades stand): point there instead
+GuideController.extra = nil :: Target?
 local G = Config.guide
 local me = Players.LocalPlayer
 -- "Need more Cold Power" (a pet or a gate said so): the arrow points at your pan's trainer for a while
@@ -37,6 +39,7 @@ local function trainSpot(): Vector3?
 end
 local folder: Folder
 local arrow: Model
+local arrowZone = -1 -- the zone whose colour the arrow wears now
 local marker: BasePart
 local beacon: BasePart
 
@@ -186,6 +189,8 @@ local function step()
 		goal, kind = WorldRules.plotCenter(v.plot), "pan"
 	elseif waiting then
 		goal, kind, inst = waiting, "cube", waitingPart -- go back and pick it up
+	elseif GuideController.extra then
+		goal, kind = GuideController.extra.pos, GuideController.extra.kind
 	elseif t < needPowerUntil and (me:GetAttribute("TrainStation") or 0) == 0 and trainSpot() then
 		goal, kind = trainSpot(), "train" -- train there, then come back
 	elseif machine and not GuideController.pointPets then
@@ -205,6 +210,17 @@ local function step()
 		local bob = if still then 0.15 else math.abs(math.sin(t * G.arrowBobSpeed)) * G.arrowBob
 		local at = Vector3.new(pos.X, 0, pos.Z) + dir * G.arrowDistance + Vector3.new(0, G.arrowY + bob, 0)
 		arrow:PivotTo(CFrame.lookAt(at, at + dir))
+		local zone = WorldRules.zoneAt(pos)
+		if zone ~= arrowZone then
+			arrowZone = zone
+			local def = if zone > 0 then Config.zone(zone) else nil
+			local color = Theme.placeColor[if def then def.theme else "hub"] or Theme.fx.arrow
+			for _, p in arrow:GetChildren() do
+				if p:IsA("BasePart") then
+					p.Color = color
+				end
+			end
+		end
 		arrow.Parent = folder
 	else
 		arrow.Parent = nil

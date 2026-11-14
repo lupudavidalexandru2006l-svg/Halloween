@@ -593,7 +593,7 @@ Config.ui = {
 	listInset = 0.015, -- scrolling lists keep this gap on every side so outlines and lips aren't clipped
 	-- a block face's dressing (Ui.block): white wash at the top, a shade toward the lip, a bevel line (transparencies)
 	face = { topLight = 0.75, bottomShade = 0.82, rimInset = 0.035, rimThickness = 2, rimTop = 0.35 },
-	-- the tutorial card (Ranger Bo's lines): bottom centre, just above the hotbar. Shares of the screen's
+	-- the tutorial card (Captain Frost's lines): bottom centre, just above the hotbar. Shares of the screen's
 	-- short side: phone is wider (fewer pixels), PC and tablet use `wide`. text = the line's size, a share of the card's height
 	tutorial = { phone = { 1.08, 0.27 }, wide = { 0.82, 0.2 }, text = 0.17, goalText = 0.13 },
 	settingsRow = 0.128, -- a Settings row's height (share of the list): 7 rows and their gaps fit
@@ -615,7 +615,12 @@ Config.ui = {
 			{ id = "equipment", label = "EQUIPMENT", icon = "ray" },
 			{ id = "pan", label = "PAN", icon = "pen" },
 		},
-		size = { 0.34, 0.1 }, gap = 0.03, iconSize = 0.86,
+		-- owner 2026-11-13 "make them bigger": 1.3x (was size { 0.34, 0.1 } and 76% of the top bar's height).
+		-- barFill = their height as a share of Roblox's top bar (over 1 = they hang below it); barTop = their
+		-- top edge down the bar (share of its height), level with Roblox's own buttons
+		-- barShort = the most they take of the screen's short side (laptops: 1.3x the bar was too big on a
+		-- ~650 px tall window); barMin = never smaller than this share of the bar (the old size)
+		size = { 0.44, 0.13 }, gap = 0.03, iconSize = 0.86, barFill = 1.3, barTop = 0.12, barShort = 0.085, barMin = 0.76,
 		equipment = { at = Vector3.new(80, 3, -19), face = Vector3.new(80, 3, -8) },
 		panFront = 7,
 		cooldown = 2,
@@ -699,7 +704,7 @@ export type RayCue = { at: number, sound: string?, fx: string?, kick: string? }
 
 Config.world = {
 	maxPlayers = 6, -- one pan per server slot. Owner item: Server Size 6 in Game Settings > Places
-	mapVersion = 25, -- 25 = vivid colours and the giant outside decor per island (MapSpectacle, owner 2026-11-13), 24 = solid scenery (MapArt.solidify: everything you can see blocks you), 23 = smaller outside (MapArt farScenery: ground and peaks only as big as the camera needs), 22 = pan fence walls only fence-high, so you can jump them, 21 = solid pan fences (invisible PanFence walls; the gate is the only way in), 20 = Cold Power trainers in every pan (TrainingService builds them; the rink door, its beacon and the right flower box are gone, Equipment back by the tunnel mouth), 19 = open plaza: no fountain, no paved boulevard, no spawn pad, 18 = the Sell and Equipment booths no longer run into the village wall, 17 = map pass 2026-11-10 (rink door in front, its beacon, bigger snowman and waterfall), 16 = the Training Rink's door. Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges, 6 = bigger square pans, 7 = pans measured against the real avatar, 8 = open gaps, open ground behind, level pans, 9 = no flush overlapping surfaces, 10 = booth details: sign bulbs, log ends, scalloped awnings, chalk coin, 11 = wide tunnel and big entrance for big pets, a clean road, 12 = booths shaped like what they do: treasure chest, gear workshop, ring portal, 13 = the detailed sci-fi Thaw Machine, 14 = each world's own gate towers, 15 = never-visible buried parts left out (PERF-AUDIT-2026-11-09))
+	mapVersion = 26, -- 26 = at most 3 lava pools per island, each in its own stretch (owner 2026-11-13), 25 = vivid colours and the giant outside decor per island (MapSpectacle, owner 2026-11-13), 24 = solid scenery (MapArt.solidify: everything you can see blocks you), 23 = smaller outside (MapArt farScenery: ground and peaks only as big as the camera needs), 22 = pan fence walls only fence-high, so you can jump them, 21 = solid pan fences (invisible PanFence walls; the gate is the only way in), 20 = Cold Power trainers in every pan (TrainingService builds them; the rink door, its beacon and the right flower box are gone, Equipment back by the tunnel mouth), 19 = open plaza: no fountain, no paved boulevard, no spawn pad, 18 = the Sell and Equipment booths no longer run into the village wall, 17 = map pass 2026-11-10 (rink door in front, its beacon, bigger snowman and waterfall), 16 = the Training Rink's door. Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges, 6 = bigger square pans, 7 = pans measured against the real avatar, 8 = open gaps, open ground behind, level pans, 9 = no flush overlapping surfaces, 10 = booth details: sign bulbs, log ends, scalloped awnings, chalk coin, 11 = wide tunnel and big entrance for big pets, a clean road, 12 = booths shaped like what they do: treasure chest, gear workshop, ring portal, 13 = the detailed sci-fi Thaw Machine, 14 = each world's own gate towers, 15 = never-visible buried parts left out (PERF-AUDIT-2026-11-09))
 	hubZMax = 0, -- the tunnel mouth: the hub is z < 0 (no wild pets, no heat)
 	-- wide enough for the row of six pans plus 10 studs at each end; zMin is worked out below (behind the pans' backSpace)
 	hub = { xMin = -150, xMax = 150, zMin = 0, wallHeight = 16, colliderHeight = 60 },
@@ -734,6 +739,8 @@ Config.world = {
 	-- Repriced 2026-11-07 (owner: round prices, a long smooth game): every gate a round number (Config.nice),
 	-- island 10 3B (was a 13x jump over island 9, now 4x). GrindBot: everything in ~7.2 h typical, see Config.rebirth.
 	-- Hazards: sun patches (sun) and lava pools (lava) melt cubes faster and glow so you see them from far.
+	-- Owner 2026-11-13: sun patches only on the two sunny islands (Sunny Beach, Desert Dunes), drawn in
+	-- more detail there (MapArt hazards); every other island lost its `sun` entry.
 	-- Owner 2026-11-13: "make later islands longer". From Jungle Falls on each island is longer than the
 	-- one before (176 -> 210 ... 320 studs; about 30 s more walking to the end), with its trees, sun
 	-- patches, lava and landmark spot scaled to match. Cube life follows on its own (Config.cubeLife
@@ -741,15 +748,15 @@ Config.world = {
 	islands = {
 		{ key = "meadow", name = "Snowy Meadow", feel = "Cold", open = true, ready = true, theme = "meadow", length = 168, heat = 0.5, iceLife = 1, need = 0,
 			landmark = "snowman", landmarkAt = { x = 66, z = 112 }, landmarkScale = 2.6, -- map pass 2026-11-10: the first landmark a new player sees, now well over the cliffs -- landmarks stand in the cliffs, tall enough to show over them (World Rules 9)
-			trees = { kind = "snowpine", count = 14, r = { 4, 6.5 } }, sun = { count = 5, r = { 7, 11 } },
+			trees = { kind = "snowpine", count = 14, r = { 4, 6.5 } },
 			near = { 8, 34 }, farFrom = 60 },
 		{ key = "forest", name = "Pine Forest", feel = "Cold", open = true, ready = true, theme = "forest", length = 176, heat = 0.8, iceLife = 1, need = 500,
 			landmark = "mushroom", landmarkAt = { x = -66, z = 104 },
-			trees = { kind = "pine", count = 34, r = { 4.5, 7.5 } }, sun = { count = 3, r = { 6, 10 } },
+			trees = { kind = "pine", count = 34, r = { 4.5, 7.5 } },
 			near = { 10, 42 }, farFrom = 10 },
 		{ key = "grove", name = "Mushroom Grove", feel = "Mild", open = true, ready = true, theme = "grove", length = 172, heat = 1.0, iceLife = 1.6, need = 20e3,
 			landmark = "toadstoolTower", landmarkAt = { x = 66, z = 100 },
-			trees = { kind = "toadstool", count = 22, r = { 4, 7 } }, sun = { count = 3, r = { 6, 9 } },
+			trees = { kind = "toadstool", count = 22, r = { 4, 7 } },
 			near = { 10, 40 }, farFrom = 12 },
 		{ key = "beach", name = "Sunny Beach", feel = "Warm", open = true, ready = true, theme = "beach", length = 172, heat = 1.3, iceLife = 2.4, need = 300e3,
 			landmark = "lighthouse", landmarkAt = { x = -66, z = 104 },
@@ -757,7 +764,7 @@ Config.world = {
 			near = { 10, 40 }, farFrom = 12 },
 		{ key = "jungle", name = "Jungle Falls", feel = "Hot and humid", open = true, ready = true, theme = "jungle", length = 210, heat = 1.6, iceLife = 3.3, need = 600e3,
 			landmark = "waterfall", landmarkAt = { x = 56, z = 130 }, landmarkScale = 2.3, -- map pass 2026-11-10: it hid behind the jungle trees -- pours from the cliff face
-			trees = { kind = "jungle", count = 33, r = { 4.5, 7.5 } }, sun = { count = 5, r = { 6, 9 } },
+			trees = { kind = "jungle", count = 33, r = { 4.5, 7.5 } },
 			near = { 10, 42 }, farFrom = 12 },
 		{ key = "desert", name = "Desert Dunes", feel = "Hot", open = true, ready = true, theme = "desert", length = 230, heat = 2.0, iceLife = 4.4, need = 40e6,
 			landmark = "cactus", landmarkAt = { x = -66, z = 136 },
@@ -765,19 +772,19 @@ Config.world = {
 			near = { 10, 42 }, farFrom = 12 },
 		{ key = "canyon", name = "Canyon Mesa", feel = "Very hot", open = true, ready = true, theme = "canyon", length = 250, heat = 2.4, iceLife = 5.7, need = 150e6,
 			landmark = "arch", landmarkAt = { x = 0, z = 155 },
-			trees = { kind = "hoodoo", count = 14, r = { 4, 6 } }, sun = { count = 11, r = { 8, 12 } },
+			trees = { kind = "hoodoo", count = 14, r = { 4, 6 } },
 			near = { 10, 42 }, farFrom = 12 },
 		{ key = "volcano", name = "Volcano Slopes", feel = "Lava", open = true, ready = true, theme = "volcano", length = 270, heat = 2.9, iceLife = 7.2, need = 7.5e9,
 			landmark = "volcano", landmarkAt = { x = 70, z = 160 }, -- beside the tunnel, rising over the cliffs
-			trees = { kind = "charred", count = 12, r = { 4, 6 } }, sun = { count = 4, r = { 6, 9 } }, lava = { count = 7, r = { 5, 8 } },
+			trees = { kind = "charred", count = 12, r = { 4, 6 } }, lava = { count = 3, r = { 5, 8 } },
 			near = { 10, 42 }, farFrom = 12 },
 		{ key = "lavalake", name = "Lava Lake", feel = "Lava", open = true, ready = true, theme = "lavalake", length = 290, heat = 3.4, iceLife = 9, need = 15e9,
 			landmark = "spire", landmarkAt = { x = -66, z = 176 },
-			trees = { kind = "obsidian", count = 13, r = { 4, 6 } }, lava = { count = 12, r = { 6, 10 } },
+			trees = { kind = "obsidian", count = 13, r = { 4, 6 } }, lava = { count = 3, r = { 6, 10 } },
 			near = { 10, 42 }, farFrom = 12 },
 		{ key = "magma", name = "Magma Core", feel = "Extreme", open = true, ready = true, theme = "magma", length = 320, heat = 4.0, iceLife = 11, need = 2e12,
 			landmark = "core", landmarkAt = { x = 0, z = 200 },
-			trees = { kind = "obsidian", count = 12, r = { 4, 6 } }, lava = { count = 17, r = { 5, 9 } },
+			trees = { kind = "obsidian", count = 12, r = { 4, 6 } }, lava = { count = 3, r = { 5, 9 } },
 			near = { 10, 42 }, farFrom = 12 },
 		-- Balance pass 2026-11-12 (prototype/ice-ray-for-pets/BALANCE-2026-11-12.md, balance_sim.py): needs
 		-- 500 / 20K / 300K / 600K / 40M / 150M / 7.5B / 15B / 2T with training.levelValue 4. The islands behind
@@ -928,6 +935,7 @@ Config.ui.shop = { rail = 0.19, gap = 0.035, cardMax = 0.3, bestGrow = 1.07, bon
 	-- as landscape tiles two a row (tileRowAspect = the row's width / height, tileGap between them,
 	-- tileTop = room above for the stickers); an odd product out leads as a full-width banner.
 	headIcon = 0.9, headAspect = 16, subAspect = 34, tileRowAspect = 4.4, tileGap = 0.025, tileTop = 0.1, stickerRoom = 0.16,
+	tileRowAspectTouch = 3.3, cardsAspectTouch = 1.85, -- taller on phones (thumb-sized Buy buttons)
 	-- where things sit on a tile, { x, y, w, h } shares of it: title across the top, picture bottom-left,
 	-- chip (or bar) and the buy button bottom-right
 	tile = { title = { 0.04, 0.06, 0.92, 0.25 }, icon = { 0.03, 0.33, 0.31, 0.62 }, chip = { 0.37, 0.35, 0.59, 0.17 }, buy = { 0.37, 0.56, 0.59, 0.37 } },
@@ -936,6 +944,12 @@ Config.ui.shop = { rail = 0.19, gap = 0.035, cardMax = 0.3, bestGrow = 1.07, bon
 	-- off and snowy ground in front, both mixed from the card's colour (toward ink or white by `amount`;
 	-- dark-on-dark hills vanished into the card's own bottom shade); at = { x, width, height }
 	cardStripeAlpha = 0.9,
+	-- owner 2026-11-13 ("make some animations", the reference clip): each product's rays turn slowly
+	-- (sunSpin = seconds a turn), its picture rocks gently (iconTilt degrees, iconSeconds a swing), and a
+	-- light sweeps over each Buy button (shineSeconds, then a rest of shineEvery; staggered card to card).
+	-- None of it with Reduced motion. robuxOutline = the Robux mark's dark contour, a share of its size.
+	motion = { sunSpin = 16, iconTilt = 6, iconSeconds = 1.4, shineSeconds = 0.7, shineEvery = 2.8, shineStagger = 0.45, shineAlpha = 0.35 },
+	robuxOutline = 0.075,
 	scene = { moonAlpha = 0.72, moon = { x = 0.84, y = 0.16, size = 0.5 },
 		hills = {
 			{ to = "ink", amount = 0.3, at = { { 0.12, 0.42, 0.3 }, { 0.5, 0.5, 0.36 }, { 0.9, 0.44, 0.28 } } },
@@ -955,68 +969,100 @@ Config.guide = {
 	markerRange = 45, markerY = 1, markerBob = 0.3, markerSpin = 1.5,
 	beaconRadius = 3.2, beaconHeight = 70, beaconTransparency = 0.78, beaconPulse = 0.06,
 }
--- The tutorial (owner 2026-11-10): Ranger Bo, a guide only you can see, walks a new player through one
--- full catch. The world still teaches (the green arrow, the glow on the next thing); Bo says one short
--- line per step and reacts to what you do (Game Design Rules 2: goal shown, not told).
+-- The tutorial (owner 2026-11-10): a guide only you can see walks a new player through one full catch.
+-- Owner 2026-11-14: he's Captain Frost now, a pet-freezing pro (parka, goggles, a cryo tank on his back,
+-- the top ice ray in his hand) who glides on frost jets, so he floats over fences instead of sliding
+-- through them; and the tutorial ends with a first Pan Upgrade (Speed, on him).
+-- The world still teaches (the green arrow, the glow on the next thing); he says one short line per
+-- step and reacts to what you do (Game Design Rules 2: goal shown, not told).
 -- on = what finishes a step: an action the server saw (TutorialService.did) or "next" (the Next
--- button). A later step's action counts too, so a player who runs ahead is never held back.
--- focus = what Bo walks to, points at and makes glow (GuideController's arrow target).
+-- button, or by itself after autoNext seconds). A later step's action counts too, so a player who runs
+-- ahead is never held back, except an `only` step, which counts only while it's the current one (an
+-- upgrade bought before the catch must not skip the catch).
+-- focus = what he flies to, points at and makes glow (GuideController's arrow target).
 -- hints = said again if the step takes a while, worded for the player's device (or "all").
--- Saved per player (DataService tutorial = { step, done }); saves from before it existed count as done
+-- cheer = his line when that step is done (else a random praise).
+-- gift = coins topped up to the price of this Pan Upgrade's next level when the step starts, once per save
+-- (giftSay = the line when he hands them over; {coins} = how many).
+-- Saved per player (DataService tutorial = { step, done, gift }); saves from before it existed count as done
 -- (Lessons: new-player things are for new players only). Replay is in Settings.
 Config.tutorial = {
-	name = "Ranger Bo",
+	name = "Captain Frost",
 	modelName = "TutorialGuide", -- the server builds the guide here in ReplicatedStorage; each client clones it
 	steps = {
-		{ id = "hello", on = "next", say = "Hi, I'm Bo! The pets out here run too hot. Let's cool one down!" },
-		{ id = "zap", on = "zap", focus = "pet", say = "See that pet? Point your ice ray at it.", goal = "Aim at a pet",
+		{ id = "hello", on = "next", say = "Captain Frost here! These pets run way too hot. Let's freeze one!" },
+		{ id = "zap", on = "zap", focus = "pet", say = "See that pet? Aim your ice ray at it!", goal = "Aim at a pet",
 			hints = { keyboard = "Hold click on the pet!", touch = "Hold your finger on the pet!", gamepad = "Aim at it and hold R2!" } },
-		{ id = "freeze", on = "freeze", focus = "pet", say = "Keep the ray on it until it freezes!", goal = "Freeze the pet",
+		{ id = "freeze", on = "freeze", focus = "pet", say = "Keep the beam on it till it's an ice cube!", goal = "Freeze the pet",
+			cheer = "BRRR! Textbook freeze!",
 			hints = { keyboard = "Don't let go yet!", touch = "Keep holding!", gamepad = "Keep holding R2!" } },
-		{ id = "pickup", on = "pickup", focus = "cube", say = "Brrr! Now grab the ice cube.", goal = "Pick up the cube",
+		{ id = "pickup", on = "pickup", focus = "cube", say = "Grab that cube before it melts!", goal = "Pick up the cube",
 			hints = { keyboard = "Walk to the cube and press E!", touch = "Walk to the cube and tap Pick up!", gamepad = "Walk to the cube and press X!" } },
-		{ id = "carry", on = "bank", focus = "pan", say = "Run it home to your pan. Follow the arrow!", goal = "Bring it to your pan",
+		{ id = "carry", on = "bank", focus = "pan", say = "Now run it home to your pan. Follow the arrow!", goal = "Bring it to your pan",
 			hints = { all = "Walk into your pan with the cube on your back!" } },
 		{ id = "thaw", on = "thawStart", focus = "machine", say = "Pop it in your Thaw Machine!", goal = "Use the Thaw Machine",
 			hints = { keyboard = "Stand by the machine and press E!", touch = "Stand by the machine and tap its button!", gamepad = "Stand by the machine and press X!" } },
-		{ id = "wait", on = "thawed", focus = "machine", say = "It's thawing! It hops out in a few seconds.", goal = "Wait for your pet" },
-		{ id = "done", on = "next", say = "Your pet makes coins for you now. Go catch them all!" },
-	} :: { { id: string, on: string, say: string, focus: string?, goal: string?, hints: { [string]: string }? } },
-	actions = { zap = true, freeze = true, pickup = true, bank = true, thawStart = true, thawed = true } :: { [string]: boolean },
-	praise = { "Nice!", "Great job!", "You got it!", "Perfect!" },
+		-- since 2026-11-13 a thawed pet waits for Claim (Config.thaw.claimByHand): say so, or players wait forever
+		{ id = "wait", on = "thawed", focus = "machine", say = "It's thawing! When it says READY, Claim it!", goal = "Claim your pet",
+			cheer = "Your first pet! It makes coins for you now.",
+			hints = { keyboard = "Press E at the machine, then Claim!", touch = "Tap the machine, then Claim!", gamepad = "Press X at the machine, then Claim!" } },
+		{ id = "upgrade", on = "upgrade", only = true, focus = "stand", gift = "speed",
+			say = "Pro tip: upgrades! Buy Speed at your Pan Upgrades stand!", goal = "Buy Speed",
+			giftSay = "Pro tip: upgrades! Here's {coins} coins on me. Buy Speed at your Pan Upgrades stand!",
+			-- a replay with Speed already at the top: any Pan Upgrade counts (TutorialService takes any kind)
+			maxedSay = "Pro tip: upgrades! Buy one at your Pan Upgrades stand!", maxedGoal = "Buy a Pan Upgrade",
+			cheer = "WHOOSH! Upgraded!",
+			hints = { keyboard = "Press E at the stand, then press Buy!", touch = "Tap the stand, then tap Buy!", gamepad = "Press X at the stand, then press Buy!" } },
+		{ id = "done", on = "next", say = "You're a natural! Freeze more pets, earn coins, upgrade. Go get 'em!" },
+	} :: { { id: string, on: string, say: string, focus: string?, goal: string?, hints: { [string]: string }?, cheer: string?, only: boolean?, gift: string?, giftSay: string?, maxedSay: string?, maxedGoal: string? } },
+	actions = { zap = true, freeze = true, pickup = true, bank = true, thawStart = true, thawed = true, upgrade = true } :: { [string]: boolean },
+	praise = { "Nice!", "Great job!", "Ice cold!", "Perfect!", "Chill moves!" },
 	react = {
 		melted = "Oh no, it thawed out! Zap it again.",
 		tooWarm = "Too hot for your ray! Try a pet near the start.",
 		wrongWay = "Your pan is the other way! Follow the arrow.",
-		skipped = "No problem! Have fun out there.",
-		finished = "See you around!",
+		skipped = "No problem! Stay frosty out there.",
+		finished = "Stay frosty!",
 		skipConfirm = "Sure?",
 	},
 	-- timings (seconds) and distances (studs)
-	typeCps = 45, -- typewriter letters per second
+	typeCps = 50, -- typewriter letters per second
 	praiseHold = 1.3, -- "Nice!" stays this long before the next step's line
-	hintAfter = 14, hintEvery = 20, -- a stuck player hears the step's hint after this, then again every hintEvery
+	autoNext = 8, -- a talk step moves on by itself after this (seconds after its line is fully shown)
+	hintAfter = 9, hintEvery = 14, -- a stuck player hears the step's hint after this, then again every hintEvery
 	reactCooldown = 8, -- at most one reaction line this often
 	wrongWayStuds = 18, -- carrying home: this much farther from the pan than your closest = wrong way
 	skipConfirmSeconds = 3, -- Skip asks "Sure?"; a second press within this skips
 	nextCooldown = 0.5, -- the server ignores a second "next" sooner than this
-	leaveSeconds = 2.5, -- after the last line Bo waves, then goes
+	leaveSeconds = 2.8, -- after the last line he waves, then jets up into the sky and is gone
 	popSeconds = 0.25, closeSeconds = 0.15, -- the card pops in and closes (Animation Rules: pop, close)
 	pulseSeconds = 0.6, pulseScale = 1.06, -- Next breathes (Animation Rules: pulse, 1.2 s a loop)
 	npc = {
-		walkSpeed = 14, runSpeed = 38, runFrom = 14, -- runs to catch up when this far from where he wants to be (faster than Config.player.walkSpeed, or he falls behind)
-		arrive = 1.5, teleport = 90, -- snaps to you if left this far behind (a gate, a respawn)
-		followGap = 9, followSide = 5, -- walks at your side; only moves when you get this far away
+		-- he glides on frost jets: hovers a little while moving, rises over fences and props in his way
+		-- (owner 2026-11-14: he slid through fences and popped up onto their tops)
+		walkSpeed = 16, runSpeed = 40, runFrom = 14, -- flies fast to catch up when this far from where he wants to be
+		accel = 5, -- how fast he speeds up and slows down (share of the gap a second)
+		arrive = 1.5, teleport = 90, -- left this far behind (a gate, a respawn): a frost poof and he's there
+		retarget = 3.5, -- a new spot closer than this to where he's already going is ignored (no jitter after a wandering pet)
+		followGap = 9, followSide = 5, -- stands at your side; only moves when you get this far away
 		focusRange = 45, focusStand = 6, -- stands this far from the thing he's showing, on your side
-		leadAhead = 9, -- farther than focusRange: he walks this far ahead of you toward it, leading the way
-		turnRate = 10, groundRay = 80, stepUp = 6, -- the ground ray starts this far over his feet
+		leadAhead = 9, -- farther than focusRange: he flies this far ahead of you toward it, leading the way
+		turnRate = 10, groundRay = 80,
+		stepUp = 2.5, -- the ground ray starts this far over his feet: lower things (fences, posts) are flown over, not stood on
+		clearMax = 7, lookAhead = 2, -- while flying he rises over anything up to this tall, checked this far ahead
+		hoverWalk = 1, hoverRun = 2.2, -- how high he hovers while moving slow / fast
+		heightRate = 9, -- how fast his height follows (share of the gap a second): smooth, never a pop
+		lean = 14, -- degrees he leans into a fast flight
+		dropFrom = 28, dropRate = 3, -- he arrives from the sky: starts this high over the ground and lands (slower than heightRate)
+		leaveRise = 70, leaveRate = 2.2, -- leaving: he jets this high, this fast (share of the gap a second)
 		helloOffset = Vector3.new(4, 0, 9), -- from the spawn, toward the tunnel and the pets
-		pillY = 1.8, -- name pill height over his head
+		pillY = 2.4, -- name pill height over his head (over the hat)
 		-- Roblox's own R15 animations: owned by Roblox, so they play in any game (Animation Rules 4)
-		anims = { idle = 507766388, walk = 507777826, run = 507767714, wave = 507770239, point = 507770453, cheer = 507770677 } :: { [string]: number },
-		portraitFov = 26, portraitDistance = 3.4,
+		anims = { idle = 507766388, wave = 507770239, point = 507770453, cheer = 507770677 } :: { [string]: number },
+		portraitFov = 30, portraitDistance = 3.6,
+		gun = "absolute_zero", gunScale = 1.2, -- the ice ray in his hand: ReplicatedStorage.GunModels.<gun>
 	},
-	sounds = { line = "click", praise = "coin", finish = "unlock" },
+	sounds = { line = "click", praise = "coin", finish = "unlock", arrive = "island", leave = "bridge", gift = "gift" },
 }
 -- the ice ray: a small gun in every player's right hand, a beam while you hold Freeze
 Config.ray = { beamCore = 0.28, beamGlow = 0.84, armRaise = 90, tipSize = 0.76, sparkleRate = 20,
@@ -1173,6 +1219,7 @@ Config.scenery = {
 	treeBand = 32, -- shade trees stand between this |x| and the walls, so the middle of each island stays open (World Rules 9)
 	gateClear = 20, -- and this far from a gate or the end cap (they stay in view)
 	startClear = 12, -- the first studs of a section stay open (its sign and the near pets)
+	maxLava = 3, -- owner 2026-11-13: "fewer, never beside each other, max 3 per island"; each pool gets its own stretch of the island
 }
 
 -- The look of the world (MapArt). Shapes come from ReplicatedStorage.SceneryMeshes
@@ -1555,6 +1602,10 @@ Config.pan = {
 	crystalEvery = 2, -- crystal ice: a crystal on every 2nd fence post
 	auroraSpeed = 0.2, -- aurora: the rails' colours drift this many cycles a second
 	drawDistance = 160, -- studs: pans farther than this keep their look but stop animating
+	-- owner 2026-11-13: the new Look showed for a split second before its animation. From the Look card's
+	-- Buy press your pan keeps its old Look until the pieces pop off; if no upgrade comes within this
+	-- many seconds (refused, lost), it lets go and shows whatever the server says.
+	holdLook = 5,
 }
 
 -- what the next level of a pan upgrade costs (nil = at the top)
@@ -2274,6 +2325,13 @@ Config.art.spectacle = {
 	-- (backMin..backMax out, backDensity as many) fills the skyline behind
 	baseLength = 176, densityPerIsland = 0.08,
 	backFrom = 2, backMin = 175, backMax = 240, backDensity = 0.8,
+	-- ground detail inside the tunnel (owner 2026-11-13 "make the map more detailed"): small themed
+	-- clusters (tufts, flowers, shells, crystals, glowing cracks) perStud of island length, from inner
+	-- studs off the road's middle to the cliffs' foot (edgeMargin), more of them toward the edges, kept
+	-- clear studs away from trees, sun patches and lava pools. Walk-through, never in the way.
+	detail = { perStud = 0.3, inner = 16, edgeMargin = 4, clear = 2, scale = 1.8 }, -- scale: each piece grown round its foot
+	-- the detailed sun patch: rays round the rim (rayCount, rayLength x radius), turning rayTurn rad/s
+	sun = { rayCount = 14, rayLength = 0.45, rayTurn = 0.15 },
 }
 
 return Config

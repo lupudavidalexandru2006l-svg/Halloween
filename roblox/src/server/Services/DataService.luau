@@ -55,7 +55,7 @@ export type Data = {
 	codes: { [string]: boolean }, -- codes already redeemed (Round 5)
 	shieldLeft: number, -- seconds of the new-player tag shield still to use (counts down only while playing)
 	daily: DailyState,
-	tutorial: { step: number, done: boolean }, -- Ranger Bo's tutorial (TutorialService): the step you're on, or done
+	tutorial: { step: number, done: boolean, gift: boolean? }, -- Captain Frost's tutorial (TutorialService): the step you're on, or done; gift = his coins for the first upgrade were given
 	createdAt: number,
 	lock: { job: string, t: number }?,
 }
@@ -324,7 +324,7 @@ local function migrate(old: any): Data
 	-- new-player things are for new players only); they can still replay it from Settings
 	local tu = old.tutorial
 	if typeof(tu) == "table" then
-		d.tutorial = { step = int(tu.step, 1, #Config.tutorial.steps, 1), done = tu.done == true }
+		d.tutorial = { step = int(tu.step, 1, #Config.tutorial.steps, 1), done = tu.done == true, gift = tu.gift == true }
 	else
 		d.tutorial = { step = #Config.tutorial.steps, done = true }
 	end

@@ -25,7 +25,7 @@ local P = Config.pan
 local W = Config.world.pans
 
 type Piece = { part: BasePart, kind: string, cf: CFrame, size: Vector3 }
-type Pan = { pieces: { Piece }, look: number, extras: Folder?, busy: boolean }
+type Pan = { pieces: { Piece }, look: number, extras: Folder?, busy: boolean, hold: {}? }
 local pans: { [number]: Pan } = {}
 
 local function near(a: number, b: number): boolean
@@ -179,6 +179,29 @@ function PanLooks.glow(i: number, color: Color3, seconds: number): BasePart
 	return g
 end
 
+-- keep pan i in its old Look until its upgrade show pops the pieces off (the server sets the new Look
+-- before its "upgraded" message, and the camera is still gliding there). look: the Look to show while
+-- held (the old one), or nil to keep what it shows now. Lets go by itself after Config.pan.holdLook.
+function PanLooks.hold(i: number, look: number?)
+	local pan = pans[i]
+	if not pan then
+		return
+	end
+	if look and pan.look ~= look and not pan.busy then
+		PanLooks.apply(i, look)
+	end
+	pan.busy = true
+	local token = {}
+	pan.hold = token
+	task.delay(P.holdLook, function()
+		if pan.hold == token then -- no show took over
+			pan.hold = nil
+			pan.busy = false
+			PanLooks.apply(i, PanLooks.lookOf(i))
+		end
+	end)
+end
+
 -- the old pieces pop off: copies fly up and away, spinning, and fade; the real ones hide until the drop
 function PanLooks.popOff(i: number, seconds: number)
 	local pan = pans[i]
@@ -186,6 +209,7 @@ function PanLooks.popOff(i: number, seconds: number)
 		return
 	end
 	pan.busy = true
+	pan.hold = nil -- the show has it now
 	local cfg = Config.show.panUpgrade
 	local rng = Random.new()
 	local copies: { BasePart } = {}
@@ -266,7 +290,7 @@ function PanLooks.settle(i: number, look: number)
 			piece.part.Transparency = 0
 		end
 	end
-	pan.busy = false
+	pan.busy = pan.hold ~= nil -- a next Look already bought stays hidden until its own show
 	PanLooks.apply(i, look)
 end
 

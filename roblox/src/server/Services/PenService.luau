@@ -865,7 +865,7 @@ local function view(player: Player, d: Data): { [string]: any }
 		rebirths = d.rebirths,
 		seenShows = d.seenShows,
 		pan = d.pan, -- Look (Slots = slots / upgrades.pen)
-		tutorial = d.tutorial, -- Ranger Bo's step (TutorialService)
+		tutorial = d.tutorial, -- Captain Frost's step (TutorialService)
 		tester = if Config.isTester(player.UserId) then d.tester else nil, -- only testers learn the panel exists
 	}
 end

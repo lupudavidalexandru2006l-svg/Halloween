@@ -1,5 +1,5 @@
 --!strict
--- TutorialCard: Ranger Bo's speech card, built by TutorialController (no Init/Start of its own).
+-- TutorialCard: Captain Frost's speech card, built by TutorialController (no Init/Start of its own).
 -- Chunky Pop (UI Rules): a cream panel block with his face in a window, his name on a ribbon in his
 -- coat colour, the line typed out letter by letter, the step's goal in small blue, a green Next (only
 -- on talk steps, the one thing that pulses) and a quiet grey Skip that asks "Sure?" first.
@@ -38,18 +38,21 @@ local function reduced(): boolean
 	return SettingsController.get("reducedMotion") == true
 end
 
--- a small white key badge (like the world prompts' E / X)
+-- a small white key badge (like the world prompts' E / X), stuck on the button's top-right corner so
+-- the label keeps the whole button (owner 2026-11-14: "Next" ran into the "Enter" badge)
 local function badge(parent: GuiObject): Frame
 	local b = Instance.new("Frame")
 	b.Name = "Key"
 	b.BackgroundColor3 = Theme.white
-	b.AnchorPoint = Vector2.new(1, 0.5)
-	b.Position = UDim2.fromScale(0.95, 0.5)
-	b.Size = UDim2.fromScale(0.34, 0.62)
+	b.AnchorPoint = Vector2.new(0.5, 0.5)
+	b.Position = UDim2.fromScale(0.92, 0.04)
+	b.Size = UDim2.fromScale(0.36, 0.42)
+	b.ZIndex = 5
 	Ui.corner(b, 0.5)
 	Ui.stroke(b, Config.ui.cardStroke)
 	local t = Ui.inkLabel(b, "", UDim2.fromScale(0.86, 0.8), UDim2.fromScale(0.07, 0.1))
 	t.Name = "Text"
+	t.ZIndex = 6
 	b.Parent = parent
 	return b
 end
@@ -67,13 +70,11 @@ local function refreshKeys()
 	local d = InputController.device()
 	setBadge(nextBadge, if d == "keyboard" then "Enter" elseif d == "gamepad" then "A" else nil)
 	setBadge(skipBadge, if d == "gamepad" then "B" else nil)
-	-- the label makes room for the badge when there is one
-	local function room(b: Ui.Block, k: Frame)
-		b.text.Size = UDim2.fromScale(if k.Visible then 0.56 else 0.9, 0.8)
-		b.text.Position = UDim2.fromScale(0.05, 0.1)
+	-- the badge sits on the corner, so the label always keeps the middle of the button
+	for _, b in { nextB, skipB } do
+		b.text.Size = UDim2.fromScale(0.8, 0.72)
+		b.text.Position = UDim2.fromScale(0.1, 0.14)
 	end
-	room(nextB, nextBadge)
-	room(skipB, skipBadge)
 end
 
 -- one text size per role, from the card's height (UI Rules); long lines may shrink a little to fit
@@ -144,11 +145,11 @@ function TutorialCard.build(onNext: () -> (), onSkip: () -> ())
 	nextB = Ui.block(root, "Next", Theme.go, "Next", onNext)
 	nextB.root.Position = UDim2.fromScale(0.785, 0.12)
 	nextB.root.Size = UDim2.fromScale(0.195, 0.44)
-	nextBadge = badge(nextB.face)
+	nextBadge = badge(nextB.root)
 	skipB = Ui.block(root, "Skip", Theme.tutorial.skip, "Skip", onSkip)
 	skipB.root.Position = UDim2.fromScale(0.81, 0.62)
 	skipB.root.Size = UDim2.fromScale(0.145, 0.27)
-	skipBadge = badge(skipB.face)
+	skipBadge = badge(skipB.root)
 	local ps = Instance.new("UIScale")
 	ps.Name = "Pulse"
 	ps.Parent = nextB.root

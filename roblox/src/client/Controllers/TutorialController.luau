@@ -1,11 +1,13 @@
 --!strict
 -- TutorialController: plays the tutorial the server tracks (TutorialService decides when a step is
--- done; this only shows it). For each step Ranger Bo (TutorialNpc) walks to where it happens (the
--- green arrow's target, GuideController), points at it and makes it glow, and says one short line on
--- his card (TutorialCard). Then he reacts to what the player really does:
---   - a finished step: a quick "Nice!" and a cheer, then the next line
+-- done; this only shows it). Captain Frost (TutorialNpc) drops in from the sky, and for each step flies
+-- to where it happens (the green arrow's target, GuideController), points at it and makes it glow, and
+-- says one short line on his card (TutorialCard). Then he reacts to what the player really does:
+--   - a finished step: its own cheer (or a quick "Nice!"), then the next line
 --   - stuck on a step: after a while he says how, for the device in hand (mouse, touch, controller)
 --   - something goes wrong: a cube melts, a pet is too hot, you carry it away from home
+-- A talk line moves on by itself after a while, so nobody waits on a button they didn't see.
+-- The last steps: Claim your first pet, then a first Pan Upgrade (Speed) with his coins, then he jets off.
 -- Skip (asks "Sure?" first) ends it for good; Settings > Tutorial > Replay starts it again.
 
 local ContextActionService = game:GetService("ContextActionService")
@@ -29,10 +31,11 @@ local T = Config.tutorial
 local N = T.npc
 local me = Players.LocalPlayer
 
-type Step = { id: string, on: string, say: string, focus: string?, goal: string?, hints: { [string]: string }? }
+type Step = { id: string, on: string, say: string, focus: string?, goal: string?, hints: { [string]: string }?, cheer: string?,
+	gift: string?, giftSay: string?, maxedSay: string?, maxedGoal: string? }
 
 local active = false -- a tutorial is running
-local leaving = false -- the last line is up and Bo is about to go
+local leaving = false -- the last line is up and the Captain is about to go
 local step = 0 -- the step on screen
 local stepAt = 0
 local spokeAt = 0
@@ -44,6 +47,8 @@ local skipped = false -- the server said this end was a Skip
 local token = 0 -- a newer line cancels older delayed ones
 local glow: Highlight
 local keysBound = false
+local autoSent = false -- this talk step already moved itself on
+local gift = 0 -- coins he just handed over with this step (the server's Notify), said in its line
 
 local function flat(a: Vector3, b: Vector3): number
 	return Vector3.new(a.X - b.X, 0, a.Z - b.Z).Magnitude
@@ -58,7 +63,7 @@ local function current(): Step?
 	return T.steps[step]
 end
 
--- one line on the card; Bo turns to you and makes the gesture
+-- one line on the card; the Captain turns to you and makes the gesture
 local function say(text: string, goalText: string?, withNext: boolean, gesture: string?)
 	TutorialCard.say(text, goalText, withNext)
 	spokeAt = os.clock()
@@ -76,7 +81,7 @@ local function hintFor(s: Step): string?
 	return h[InputController.device()] or h.all
 end
 
--- something went wrong: Bo says so, at most once per cooldown
+-- something went wrong: the Captain says so, at most once per cooldown
 local function react(kind: string)
 	local text = (T.react :: any)[kind]
 	if not active or not text or os.clock() - reactAt < T.reactCooldown then
@@ -96,24 +101,51 @@ local function gestureFor(s: Step): string?
 	return if s.focus then "point" else nil
 end
 
-local function showStep(i: number, praised: boolean)
+-- the Pan Upgrades stand of your pan (the same spot as PanService's atStand)
+local function standOf(plot: number): Vector3
+	local W = Config.world.pans
+	return Vector3.new(Config.world.plots[plot].x + W.boothOffset, 0, W.frontZ + 2.5)
+end
+
+-- this Pan Upgrade is already at the top for you (a replay): nothing left to buy there
+local function isMaxed(kind: string): boolean
+	local v = State.view
+	if not v then
+		return false
+	end
+	local level = if kind == "speed" then v.upgrades.boots elseif kind == "slots" then v.upgrades.pen
+		elseif kind == "thaw" then (v.pan and (v.pan :: any).thaw) else 1
+	return Config.panPrice(kind, level or 1, v.rebirths) == nil
+end
+
+-- `done` = the step the player just finished (its cheer), nil = no praise
+local function showStep(i: number, done: Step?)
 	token += 1
 	local my = token
-	step, stepAt, hints, closestHome = i, os.clock(), 0, math.huge
+	step, stepAt, hints, closestHome, autoSent = i, os.clock(), 0, math.huge, false
 	local s = current()
 	if not s then
 		return
 	end
 	GuideController.pointPets = s.focus == "pet"
+	local given = gift
+	gift = 0
 	local function line()
 		if token == my and active then
-			say(s.say, s.goal, s.on == "next", gestureFor(s))
+			local text, goalText = s.say, s.goal
+			if given > 0 and s.giftSay then
+				text = s.giftSay:gsub("{coins}", Config.coinText(given))
+				SoundController.play(T.sounds.gift)
+			elseif s.gift and s.maxedSay and isMaxed(s.gift) then
+				text, goalText = s.maxedSay, s.maxedGoal or goalText
+			end
+			say(text, goalText, s.on == "next", gestureFor(s))
 		end
 	end
-	if praised then
-		say(T.praise[math.random(#T.praise)], nil, false, "cheer")
+	if done then
+		say(done.cheer or T.praise[math.random(#T.praise)], nil, false, "cheer")
 		SoundController.play(T.sounds.praise)
-		task.delay(T.praiseHold, line)
+		task.delay(T.praiseHold + (if done.cheer then 0.6 else 0), line) -- a longer cheer stays a bit longer
 	else
 		line()
 	end
@@ -130,17 +162,39 @@ local function setGlow(inst: Instance?)
 	end
 end
 
+-- beside you where the camera sees him: to the right and a little beyond you (nearer the horizon, so
+-- the card over the hotbar doesn't hide him)
+local function besideYou(p: Vector3): Vector3
+	local cam = workspace.CurrentCamera
+	local right = if cam then cam.CFrame.RightVector else Vector3.xAxis
+	local fwd = if cam then cam.CFrame.LookVector else -Vector3.zAxis
+	right = Vector3.new(right.X, 0, right.Z)
+	fwd = Vector3.new(fwd.X, 0, fwd.Z)
+	right = if right.Magnitude > 0.1 then right.Unit else Vector3.xAxis
+	fwd = if fwd.Magnitude > 0.1 then fwd.Unit else -Vector3.zAxis
+	return p + right * N.followSide + fwd * 3
+end
+
 local function begin(i: number)
 	active, leaving, skipped = true, false, false
 	-- a new player meets him by the spawn; a replay (or a rejoin mid-tutorial) far from there gets him at your side
 	local p = myPos()
 	local hello = Config.world.spawn + N.helloOffset
-	local at = if p and flat(p, hello) > N.followGap * 2 then p + Vector3.new(N.followSide, 0, 0) else hello
+	local at = if p and flat(p, hello) > N.followGap * 2 then besideYou(p) else hello
 	TutorialNpc.despawn()
-	TutorialNpc.spawn(at, p) -- false = no model from the server: the card still teaches
 	TutorialCard.confirmSkip(false)
 	TutorialCard.skipVisible(true)
-	showStep(i, false)
+	showStep(i, nil) -- the card first: it never waits on his model
+	local my = token
+	if TutorialNpc.spawn(at, p) then -- false = no model from the server: the card still teaches
+		SoundController.play(T.sounds.arrive)
+		task.delay(0.8, function()
+			local c = current()
+			if token == my and c then
+				TutorialNpc.gesture(gestureFor(c) or "wave") -- landed: hello!
+			end
+		end)
+	end
 end
 
 local function finish()
@@ -151,6 +205,7 @@ local function finish()
 	token += 1
 	local my = token
 	GuideController.pointPets = false
+	GuideController.extra = nil
 	setGlow(nil)
 	TutorialCard.skipVisible(false)
 	if skipped then
@@ -159,6 +214,13 @@ local function finish()
 		say(T.react.finished, nil, false, "wave")
 		SoundController.play(T.sounds.finish)
 	end
+	-- a wave, then he jets up into the sky and is gone
+	task.delay(T.leaveSeconds * 0.45, function()
+		if token == my and TutorialNpc.alive() then
+			TutorialNpc.leave()
+			SoundController.play(T.sounds.leave)
+		end
+	end)
 	task.delay(T.leaveSeconds, function()
 		if token == my then
 			leaving = false
@@ -179,7 +241,7 @@ local function apply(i: number, done: boolean)
 	elseif i ~= step then
 		local was = current()
 		-- praise only a step the player did (not one they just read)
-		showStep(i, i > step and was ~= nil and was.on ~= "next")
+		showStep(i, if i > step and was ~= nil and was.on ~= "next" then was else nil)
 	end
 end
 
@@ -258,6 +320,8 @@ local function focusOf(s: Step, v: State.View): (Vector3?, Instance?)
 	local plot = v.plot
 	if s.focus == "pan" and plot then
 		return WorldRules.plotCenter(plot), nil
+	elseif s.focus == "stand" and plot then
+		return standOf(plot), nil
 	elseif s.focus == "machine" and plot then
 		for _, p in v.pets do
 			local m = p.thawM
@@ -286,7 +350,9 @@ local function frame(dt: number)
 	if not p or not v or not s then
 		return
 	end
-	-- Bo: by the thing to do next (on your side of it), or at your side
+	-- the arrow doesn't know the Pan Upgrades stand: point it there while that's the step
+	GuideController.extra = if active and s.focus == "stand" and v.plot then { kind = "stand", pos = standOf(v.plot) } else nil
+	-- the Captain: by the thing to do next (on your side of it), or at your side
 	local npc = TutorialNpc.position()
 	local focus: Vector3?, inst: Instance? = nil, nil
 	if active then
@@ -307,13 +373,17 @@ local function frame(dt: number)
 		TutorialNpc.look(focus)
 	else
 		if npc and flat(npc, p) > N.followGap then
-			local r = TutorialNpc.myRoot()
-			TutorialNpc.walkTo(p + (if r then r.CFrame.RightVector else Vector3.xAxis) * N.followSide)
+			TutorialNpc.walkTo(besideYou(p))
 		end
 		TutorialNpc.look(p)
 	end
 	if not active then
 		return
+	end
+	-- a talk line moves on by itself once it's had time to be read (the card is up, no popup over it)
+	if s.on == "next" and not autoSent and not popup and not TutorialCard.typing() and os.clock() - spokeAt > T.autoNext then
+		autoSent = true
+		State.send("Tutorial", "next")
 	end
 	setGlow(if s.focus == "pet" or s.focus == "cube" then inst else nil)
 	-- stuck: say how, then again now and then
@@ -359,18 +429,20 @@ function TutorialController.Start()
 	State.Notify:Connect(function(kind: string, data: any)
 		if kind == "tutorial" and typeof(data) == "table" then
 			skipped = data.why == "skip"
+			gift = if typeof(data.gift) == "number" then data.gift else 0
 			apply(data.step, data.done == true)
+			gift = 0 -- only the line of the step it came with says it
 		elseif kind == "melted" then
 			react("melted")
 		elseif kind == "tooWarm" then
 			react("tooWarm")
 		end
 	end)
-	me.CharacterAdded:Connect(function()
-		-- respawned: Bo comes to you (he snaps over if you're far)
-		local p = myPos()
-		if active and p then
-			TutorialNpc.walkTo(p)
+	me.CharacterAdded:Connect(function(c: Model)
+		-- respawned: he comes to you (a frost poof over if you're far)
+		local r = c:WaitForChild("HumanoidRootPart", 10)
+		if active and r and r:IsA("BasePart") then
+			TutorialNpc.walkTo(besideYou(r.Position))
 		end
 	end)
 	RunService.RenderStepped:Connect(frame)

@@ -38,6 +38,21 @@ local Theme = {
 		chill = Color3.fromHex("2ec4c4"),
 		power = Color3.fromHex("35c8e8"), -- Cold Power packs: frosty cyan
 	} :: { [string]: Color3 },
+	-- owner 2026-11-13: "different backgrounds for the things you buy": every product its own card colour
+	-- (its little world is mixed from it), so two cards side by side never look the same. Green stays
+	-- the Buy button's alone. A product missing here falls back to its kind's colour above.
+	shopItemCards = {
+		doubleCoins = Color3.fromHex("aa50e6"), -- royal purple
+		coinsSmall = Color3.fromHex("ff8a2e"), -- warm orange
+		coinsMedium = Color3.fromHex("ff5a9e"), -- candy pink
+		coinsBig = Color3.fromHex("ffb020"), -- coin gold
+		superFreeze3 = Color3.fromHex("3a8cff"), -- ice blue
+		bigChill = Color3.fromHex("2ec4c4"), -- teal
+		autoTrain = Color3.fromHex("6a5cff"), -- indigo
+		doublePower = Color3.fromHex("35c8e8"), -- frosty cyan
+		powerSmall = Color3.fromHex("ff6a5a"), -- coral
+		powerBig = Color3.fromHex("d14fff"), -- magenta
+	} :: { [string]: Color3 },
 	-- shop v2 badges: the "+45% MORE" sticker in present pink (a bonus, never red), and the Best Value
 	-- ribbon in gold on ink, so the two never read as the same thing
 	shopBadge = { more = Color3.fromHex("ff5a8a"), bestBack = Color3.fromHex("1b1433"), bestText = Color3.fromHex("ffd34a"), bonus = Color3.fromHex("2f9e5a") },
@@ -47,7 +62,9 @@ local Theme = {
 	shopFrame = {
 		top = Color3.fromHex("4c6ef5"), bottom = Color3.fromHex("7048e8"),
 		wellTop = Color3.fromHex("2c2f8f"), wellBottom = Color3.fromHex("3a1f80"),
-		titleTop = Color3.fromHex("7fe3ff"), titleBottom = Color3.fromHex("2f8cff"),
+		-- round 3 (2026-11-13): a sunny title bar against the cool frame, like the references' orange bar on
+		-- purple; it's the Shop tile's own orange, so the popup matches the button that opened it
+		titleTop = Color3.fromHex("ffe14d"), titleBottom = Color3.fromHex("ff9a1f"),
 		snow = Color3.fromHex("f4f8ff"), text = Color3.fromHex("bfe9ff"), glow = Color3.fromHex("9fd8ff"),
 	},
 	board = Color3.fromHex("2b1f5c"),
@@ -59,13 +76,18 @@ local Theme = {
 	} :: { [string]: Color3 },
 	boardRow = Color3.fromHex("3d3a8f"),
 	medals = { Color3.fromHex("ffc93c"), Color3.fromHex("cdd8ec"), Color3.fromHex("e8945a") },
-	-- Ranger Bo, the tutorial guide: a park ranger in the game's ice blue, with a red scarf like the snowmen
+	-- Captain Frost, the tutorial guide (owner 2026-11-14: "a guy who would freeze animals"): an ice-blue
+	-- parka with white fur trim, a navy cryo suit, a steel cryo tank glowing ice cyan, goggles, a red scarf
 	tutorial = {
 		skin = Color3.fromHex("e8b98f"),
-		coat = Color3.fromHex("3aa8ff"),
-		pants = Color3.fromHex("2d3561"),
-		hat = Color3.fromHex("9a6b43"),
-		hatBand = Color3.fromHex("ffc93c"),
+		coat = Color3.fromHex("2f8cff"), -- parka, and his name pill / ribbon
+		fur = Color3.fromHex("f4fbff"), -- fur trim, hat, shoulder pads
+		suit = Color3.fromHex("22305e"), -- navy cryo suit: legs, belt, harness, tank frame
+		glove = Color3.fromHex("bfe9ff"),
+		boot = Color3.fromHex("1a2140"),
+		steel = Color3.fromHex("c7d3e0"), -- tank caps, buckle, goggle rims, jet nozzles
+		glow = Color3.fromHex("5fe4ff"), -- the cryo glow: tank, lenses, badge, jets
+		ice = Color3.fromHex("a8e6ff"), -- the little frozen cube on his belt
 		scarf = Color3.fromHex("e8414a"),
 		portrait = Color3.fromHex("bfe9ff"), -- behind his face on the card
 		focus = Color3.fromHex("3ccf6e"), -- the glow on the thing he's showing (go-green, like the arrow)
@@ -450,6 +472,19 @@ Theme.spectacle = {
 	cyan = hex("2ef2ff"), nova = hex("ff4fd8"), violet = hex("8a3cff"), pink = hex("ff4fb8"),
 	volcano = hex("ff5a2e"), volcanoDark = hex("b8322a"), lava = hex("ff6a00"), lavaHot = hex("ffc21a"),
 	smoke = hex("9a8c98"), obsidian = hex("3b2a5a"),
+	-- ground detail and the sun patches (owner 2026-11-13)
+	shell = hex("ffc2d6"), starfish = hex("ff7a59"), dryBush = hex("c9a35a"), ice = hex("9fe8ff"),
+	flowers = { hex("ff4fb8"), hex("ffe135"), hex("ff8a1f"), hex("a24bff"), hex("ffffff") },
+	sunRay = hex("ffd21f"), sunRayLight = hex("fff3a0"), sunCoreRing = hex("ff9f1c"),
+}
+
+-- each place's own sign and guide colour (owner 2026-11-13: "thematic with the islands, not green"):
+-- the gate sign of an open island and the guide arrow on the ground. Green stays only for "READY TO
+-- OPEN" (green = go). Forest's own accent is go-green, so its sign and arrow are warm wood instead.
+Theme.placeColor = {
+	hub = hex("4fc3ff"), meadow = hex("4fc3ff"), forest = hex("e0822b"), grove = hex("b45cff"),
+	beach = hex("1fbfe8"), jungle = hex("12c9b4"), desert = hex("ff9f1c"), canyon = hex("ff5a8a"),
+	volcano = hex("ff5a1f"), lavalake = hex("ff3d6a"), magma = hex("ffbf1f"), suntemple = hex("ffbf1f"),
 }
 
 return Theme

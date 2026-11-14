@@ -595,6 +595,8 @@ function UpgradeMotion.press(kind: string, level: number, canAfford: boolean, se
 	local v = State.view
 	if kind == "trainer" and C.trainerView and v and typeof(v.plot) == "number" then
 		na.old = Show.trainerSnapshot(v.plot) -- the trainer as it is, before the server swaps it
+	elseif kind == "look" and v and typeof(v.plot) == "number" then
+		PanLooks.hold(v.plot) -- the pan keeps its old Look until the show pops it off
 	end
 	SoundController.play("upgrade_charge")
 	if p then
@@ -622,6 +624,9 @@ function UpgradeMotion.Start()
 				startTile = 1, startCard = 1, buffered = nil, fired = {}, glow = glowOf(k, data.level or 1), strength = 1, big = false, streak = 0, trip = false,
 			}
 			anims[k] = a
+		end
+		if k == "look" and typeof(data.plot) == "number" and typeof(data.old) == "number" then
+			PanLooks.hold(data.plot, data.old) -- bought without a press here: back to the old Look until the show
 		end
 		land(k, a, data)
 		if a.trip and k == "trainer" then

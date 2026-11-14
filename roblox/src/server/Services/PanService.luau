@@ -21,6 +21,7 @@ local AnalyticsSvc = require(script.Parent.AnalyticsSvc)
 local PlayerTracker = require(script.Parent.PlayerTracker)
 local WorldService = require(script.Parent.WorldService)
 local PenService = require(script.Parent.PenService)
+local TutorialService = require(script.Parent.TutorialService)
 
 type Data = DataService.Data
 
@@ -149,6 +150,7 @@ local function buy(player: Player, kind: any)
 	DataService.mutate(player, function(x)
 		x.seenShows.panUpgrade = true
 	end)
+	TutorialService.did(player, "upgrade") -- Captain Frost's first-upgrade step (after the show's Notify, before the save waits on the DataStore)
 	DataService.saveNow(player) -- a purchase is written at once
 end
 
