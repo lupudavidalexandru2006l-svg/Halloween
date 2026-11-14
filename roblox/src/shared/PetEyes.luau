@@ -121,6 +121,16 @@ local PetEyes: { [string]: Spec } = {
 	fenny = { part = "Head", lid = Color3.fromRGB(196, 100, 22), eyes = {
 		eye(0.1186, -0.0042, -0.3416, 0.263, -0.050, -0.964, 0.0585),
 		eye(-0.1167, -0.0052, -0.3408, -0.187, 0.031, -0.982, 0.0591) } },
+	-- 2026-11-14, measured on the split rigs (find_pet_eyes.py joins the parts)
+	lumpkin = { part = "Head", lid = Color3.fromRGB(80, 38, 13), eyes = {
+		eye(0.1128, 0.2264, -0.2274, 0.212, 0.146, -0.966, 0.0504),
+		eye(-0.1128, 0.2264, -0.2283, -0.093, 0.208, -0.974, 0.0504) } },
+	sunfrill = { part = "Head", lid = Color3.fromRGB(168, 28, 20), eyes = {
+		eye(0.1245, 0.0765, -0.2709, 0.359, -0.343, -0.868, 0.0436),
+		eye(-0.1256, 0.0763, -0.2681, -0.168, -0.405, -0.899, 0.0449) } },
+	dunehorn_ram = { part = "Head", lid = Color3.fromRGB(205, 188, 161), eyes = {
+		eye(0.1379, 0.1423, -0.3368, 0.275, 0.139, -0.951, 0.0523),
+		eye(-0.1373, 0.1422, -0.3379, -0.319, 0.564, -0.762, 0.0513) } },
 }
 
 return PetEyes

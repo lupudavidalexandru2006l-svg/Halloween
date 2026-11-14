@@ -12,6 +12,10 @@ S = "https://trellis-community-trellis.hf.space/gradio_api"
 # GUEST=1 runs without the login (its own small daily quota, by IP)
 AUTH = {} if os.environ.get("GUEST") else {"Authorization": "Bearer " + os.environ["HF_TOKEN"]}
 SESSION = uuid.uuid4().hex[:11]
+# MODE=multidiffusion: the other way the Space blends several views (stochastic is the default); SEED=<n> for
+# a different try of the same input (Scarabit 2026-11-14: stochastic put its horns on the sides, bottom white)
+MODE = os.environ.get("MODE", "stochastic")
+SEED = int(os.environ.get("SEED", "0"))
 FN = {"start_session": 4, "multi_tab": 7, "preprocess_image": 8, "preprocess_images": 9, "generate_and_extract_glb": 11}
 TRIG = {"start_session": 0, "multi_tab": 7, "preprocess_image": 6, "preprocess_images": 8, "generate_and_extract_glb": 30}
 CRLF = b"\r\n"
@@ -58,11 +62,11 @@ fds = [upload(i) for i in imgs]
 run("start_session", [])
 if len(fds) == 1:
     pre = run("preprocess_image", [fds[0]])[0]
-    res = run("generate_and_extract_glb", [pre, [], None, 0, 7.5, 12, 3.0, 12, "stochastic", 0.95, 1024])
+    res = run("generate_and_extract_glb", [pre, [], None, SEED, 7.5, 12, 3.0, 12, MODE, 0.95, 1024])
 else:
     run("multi_tab", [])
     gal = run("preprocess_images", [[{"image": f, "caption": None} for f in fds]])[0]
-    res = run("generate_and_extract_glb", [None, gal, None, 0, 7.5, 12, 3.0, 12, "stochastic", 0.95, 1024])
+    res = run("generate_and_extract_glb", [None, gal, None, SEED, 7.5, 12, 3.0, 12, MODE, 0.95, 1024])
 glb = next(x["url"] for x in res[1:] if isinstance(x, dict) and str(x.get("url", "")).endswith(".glb"))
 with req(glb) as r, open(out, "wb") as f:
     f.write(r.read())

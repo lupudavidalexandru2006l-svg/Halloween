@@ -103,7 +103,7 @@ local PetDefs: { PetDef } = {
 	pet("fenny", "Fenny", 6, "Common", "Quadruped", "S", "f0742a"),
 	pet("lumpkin", "Lumpkin", 6, "Uncommon", "Quadruped", "M", "6a3f22"),
 	pet("scarabit", "Scarabit", 6, "Rare", "Custom", "S", "5a2a9a"),
-	pet("sunfrill", "Sunfrill", 6, "Epic", "Quadruped", "M", "c41f2a", { "Frill" }),
+	pet("sunfrill", "Sunfrill", 6, "Epic", "Quadruped", "M", "c41f2a", { "FrillGlowL", "FrillGlowR" }),
 	pet("dunehorn_ram", "Dunehorn Ram", 6, "Legendary", "Quadruped", "L", "d64f86"),
 	pet("solaris_sphinx", "Solaris Sphinx", 6, "Mythic", "Custom", "M", "e3a81c", { "Wings", "SunGem", "TailTip" }),
 	pet("mirage_manta", "Mirage Manta", 6, "Secret", "Swimmer", "M", "14837f", { "WingDots" }),

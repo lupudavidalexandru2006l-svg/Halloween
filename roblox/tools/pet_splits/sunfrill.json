@@ -1,0 +1,12 @@
+{"parts": [
+  ["Head", "y < -0.03 and z > 0.44 and abs(x) < 0.24"],
+  ["FrillGlowL", "-0.08 < y < 0.25 and z > 0.3 and (abs(x) > 0.17 or z > 0.5) and x > 0 and 35 < h < 62 and s > 0.45 and v > 0.45"],
+  ["FrillGlowR", "-0.08 < y < 0.25 and z > 0.3 and (abs(x) > 0.17 or z > 0.5) and 35 < h < 62 and s > 0.45 and v > 0.45"],
+  ["FrillL", "-0.08 < y < 0.25 and z > 0.3 and (abs(x) > 0.17 or z > 0.5) and x > 0"],
+  ["FrillR", "-0.08 < y < 0.25 and z > 0.3 and (abs(x) > 0.17 or z > 0.5)"],
+  ["Tail", "y > 0.22 and z < 0.3"],
+  ["LegFL", "z < 0.12 and y < -0.02 and x > 0"],
+  ["LegFR", "z < 0.12 and y < -0.02"],
+  ["LegBL", "z < 0.12 and y < 0.22 and x > 0"],
+  ["LegBR", "z < 0.12 and y < 0.22"]],
+ "scale": {"FrillL": [1.18, [0, 0, 0.62], 0.2, 0.44], "FrillR": [1.18, [0, 0, 0.62], 0.2, 0.44], "FrillGlowL": [1.18, [0, 0, 0.62], 0.2, 0.44], "FrillGlowR": [1.18, [0, 0, 0.62], 0.2, 0.44]}}

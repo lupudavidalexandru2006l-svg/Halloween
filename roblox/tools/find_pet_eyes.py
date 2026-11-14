@@ -13,7 +13,14 @@ OPTS = dict(a.split("=", 1) for a in sys.argv[sys.argv.index("--") + 3:])
 DARK = float(OPTS.get("dark", 0.2)); ASPECT = float(OPTS.get("aspect", 1.6))
 bpy.ops.object.select_all(action="SELECT"); bpy.ops.object.delete()
 bpy.ops.import_scene.gltf(filepath=GLB)
-o = [x for x in bpy.context.scene.objects if x.type == "MESH"][0]
+parts = [x for x in bpy.context.scene.objects if x.type == "MESH"]
+if len(parts) > 1:  # a split rig (split_pet.py): measure the whole pet
+    bpy.ops.object.select_all(action="DESELECT")
+    for x in parts:
+        x.select_set(True)
+    bpy.context.view_layer.objects.active = parts[0]
+    bpy.ops.object.join()
+o = bpy.context.view_layer.objects.active if len(parts) > 1 else parts[0]
 vs = [o.matrix_world @ v.co for v in o.data.vertices]
 lo = Vector((min(v.x for v in vs), min(v.y for v in vs), min(v.z for v in vs)))
 hi = Vector((max(v.x for v in vs), max(v.y for v in vs), max(v.z for v in vs)))
