@@ -1554,16 +1554,12 @@ local function thaw(o: Open, v: State.View)
 		else
 			text(row(l, 1, 0.2), "No frozen pets. Freeze one and bring it home!", 0.02, 0.96).TextXAlignment = Enum.TextXAlignment.Center
 		end
-		local r2 = row(l, 2, 0.2)
 		local left = if inside and inside.thawAt then inside.thawAt - workspace:GetServerTimeNow() else 0
-		-- OK stays the green focal point; the paid Skip is the purple bar under it (never a pop-up,
-		-- waiting is always free). A skip kept from before shows as a free one.
-		local ok = button(r2, Theme.go, "OK", 0.3, 0.4, function()
-			PopupController.close()
-		end)
-		o.first = ok.face
+		-- no OK button (owner 2026-11-16: "we dont need that OK"); the X closes it. The paid Skip is the
+		-- purple bar under the pet (never a pop-up, waiting is always free), and it isn't the gamepad's
+		-- first pick, so A never opens a purchase. A skip kept from before shows as a free one.
 		if left > Config.thaw.skip.minLeft then
-			robuxBar(l, 3, "Skip", "Skip", Config.thawSkipTier(left).robux, (v.thawSkips or 0) > 0, function()
+			robuxBar(l, 2, "Skip", "Skip", Config.thawSkipTier(left).robux, (v.thawSkips or 0) > 0, function()
 				State.send("SkipThaw", m)
 			end)
 		end
