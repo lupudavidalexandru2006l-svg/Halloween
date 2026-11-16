@@ -841,7 +841,7 @@ Config.world = {
 			landmark = "mushroom", landmarkAt = { x = -66, z = 104 },
 			trees = { kind = "pine", count = 34, r = { 4.5, 7.5 } },
 			near = { 10, 42 }, farFrom = 10 },
-		{ key = "grove", name = "Mushroom Grove", feel = "Mild", open = true, ready = true, theme = "grove", length = 172, heat = 1.0, iceLife = 1.6, need = 20e3,
+		{ key = "grove", name = "Mushroom Grove", feel = "Mild", open = true, ready = true, theme = "grove", length = 172, heat = 1.0, iceLife = 1.6, need = 5e3,
 			landmark = "toadstoolTower", landmarkAt = { x = 66, z = 100 },
 			trees = { kind = "toadstool", count = 22, r = { 4, 7 } },
 			near = { 10, 40 }, farFrom = 12 },
@@ -849,11 +849,11 @@ Config.world = {
 			landmark = "lighthouse", landmarkAt = { x = -66, z = 104 },
 			trees = { kind = "palm", count = 14, r = { 4, 6 } }, sun = { count = 7, r = { 7, 11 } },
 			near = { 10, 40 }, farFrom = 12 },
-		{ key = "jungle", name = "Jungle Falls", feel = "Hot and humid", open = true, ready = true, theme = "jungle", length = 210, heat = 1.6, iceLife = 3.3, need = 600e3,
+		{ key = "jungle", name = "Jungle Falls", feel = "Hot and humid", open = true, ready = true, theme = "jungle", length = 210, heat = 1.6, iceLife = 3.3, need = 4e6,
 			landmark = "waterfall", landmarkAt = { x = 56, z = 130 }, landmarkScale = 2.3, -- map pass 2026-11-10: it hid behind the jungle trees -- pours from the cliff face
 			trees = { kind = "jungle", count = 33, r = { 4.5, 7.5 } },
 			near = { 10, 42 }, farFrom = 12 },
-		{ key = "desert", name = "Desert Dunes", feel = "Hot", open = true, ready = true, theme = "desert", length = 230, heat = 2.0, iceLife = 4.4, need = 40e6,
+		{ key = "desert", name = "Desert Dunes", feel = "Hot", open = true, ready = true, theme = "desert", length = 230, heat = 2.0, iceLife = 4.4, need = 75e6,
 			landmark = "cactus", landmarkAt = { x = -66, z = 136 },
 			trees = { kind = "cactus", count = 12, r = { 3.5, 5 } }, sun = { count = 12, r = { 8, 12 } },
 			near = { 10, 42 }, farFrom = 12 },
@@ -861,20 +861,21 @@ Config.world = {
 			landmark = "arch", landmarkAt = { x = 0, z = 155 },
 			trees = { kind = "hoodoo", count = 14, r = { 4, 6 } },
 			near = { 10, 42 }, farFrom = 12 },
-		{ key = "volcano", name = "Volcano Slopes", feel = "Lava", open = true, ready = true, theme = "volcano", length = 270, heat = 2.9, iceLife = 7.2, need = 7.5e9,
+		{ key = "volcano", name = "Volcano Slopes", feel = "Lava", open = true, ready = true, theme = "volcano", length = 270, heat = 2.9, iceLife = 7.2, need = 15e9,
 			landmark = "volcano", landmarkAt = { x = 70, z = 160 }, -- beside the tunnel, rising over the cliffs
 			trees = { kind = "charred", count = 12, r = { 4, 6 } }, lava = { count = 3, r = { 5, 8 } },
 			near = { 10, 42 }, farFrom = 12 },
-		{ key = "lavalake", name = "Lava Lake", feel = "Lava", open = true, ready = true, theme = "lavalake", length = 290, heat = 3.4, iceLife = 9, need = 15e9,
+		{ key = "lavalake", name = "Lava Lake", feel = "Lava", open = true, ready = true, theme = "lavalake", length = 290, heat = 3.4, iceLife = 9, need = 200e9,
 			landmark = "spire", landmarkAt = { x = -66, z = 176 },
 			trees = { kind = "obsidian", count = 13, r = { 4, 6 } }, lava = { count = 3, r = { 6, 10 } },
 			near = { 10, 42 }, farFrom = 12 },
-		{ key = "magma", name = "Magma Core", feel = "Extreme", open = true, ready = true, theme = "magma", length = 320, heat = 4.0, iceLife = 11, need = 2e12,
+		{ key = "magma", name = "Magma Core", feel = "Extreme", open = true, ready = true, theme = "magma", length = 320, heat = 4.0, iceLife = 11, need = 4e12,
 			landmark = "core", landmarkAt = { x = 0, z = 200 },
 			trees = { kind = "obsidian", count = 12, r = { 4, 6 } }, lava = { count = 3, r = { 5, 9 } },
 			near = { 10, 42 }, farFrom = 12 },
 		-- Balance pass 2026-11-12 (prototype/ice-ray-for-pets/BALANCE-2026-11-12.md, balance_sim.py): needs
-		-- 500 / 20K / 300K / 600K / 40M / 150M / 7.5B / 15B / 2T with training.levelValue 4. The islands behind
+		-- 500 / 20K / 300K / 600K / 40M / 150M / 7.5B / 15B / 2T with training.levelValue 4.
+		-- Pacing pass 2026-11-16 (PACING-2026-11-16.md): 150 / 5K / 300K / 4M / 75M / 150M / 15B / 200B / 4T. The islands behind
 		-- a rebirth gate (3, 5, 7, 9) need about 2x the island before, so they open soon after their rebirth;
 		-- 4, 6, 8 and 10 are the real Cold Power goals. Typical kid: island 2 at 4.7 min, island 10 at 6.4 h.
 		-- the next update (not built): its colour glows behind the end cap. Later updates add islands 11-20
@@ -1586,16 +1587,17 @@ Config.guns = {
 	list = {
 		{ key = "frost_popper", name = "Frost Popper", training = 1, range = 10, heat = 2, beams = 1, price = 0, rebirths = 0 },
 		-- balance pass 2026-11-12: each Heat gun lands just before the island that needs it, the rest fill saves
+		-- pacing pass 2026-11-16 (PACING-2026-11-16.md): guns 3-10 repriced for the ~12 h curve
 		-- 2026-11-13: 20K -> 7.5K, the first gun lands ~8 min in (guns now also freeze faster: Config.gunFreeze)
 		{ key = "snowball_blaster", name = "Snowball Blaster", training = 2, range = 11, heat = 2, beams = 1, price = 7.5e3, rebirths = 0 },
-		{ key = "icicle_repeater", name = "Icicle Repeater", training = 3, range = 12, heat = 4, beams = 1, price = 200e3, rebirths = 0 },
-		{ key = "glacier_cannon", name = "Glacier Cannon", training = 5, range = 13, heat = 4, beams = 2, price = 1e6, rebirths = 0 },
-		{ key = "blizzard_beam", name = "Blizzard Beam", training = 8, range = 14, heat = 6, beams = 2, price = 10e6, rebirths = 0 },
-		{ key = "aurora_ray", name = "Aurora Ray", training = 12, range = 15, heat = 6, beams = 2, price = 30e6, rebirths = 0 },
-		{ key = "cryo_lance", name = "Cryo Lance", training = 20, range = 16, heat = 8, beams = 3, price = 500e6, rebirths = 0 },
-		{ key = "polar_vortex", name = "Polar Vortex", training = 30, range = 17, heat = 8, beams = 3, price = 2e9, rebirths = 0 },
-		{ key = "absolute_zero", name = "Absolute Zero", training = 50, range = 18, heat = 10, beams = 3, price = 15e9, rebirths = 0 },
-		{ key = "starfrost_nova", name = "Starfrost Nova", training = 100, range = 19, heat = 10, beams = 4, price = 250e9, rebirths = 0 },
+		{ key = "icicle_repeater", name = "Icicle Repeater", training = 3, range = 12, heat = 4, beams = 1, price = 500e3, rebirths = 0 },
+		{ key = "glacier_cannon", name = "Glacier Cannon", training = 5, range = 13, heat = 4, beams = 2, price = 3e6, rebirths = 0 },
+		{ key = "blizzard_beam", name = "Blizzard Beam", training = 8, range = 14, heat = 6, beams = 2, price = 15e6, rebirths = 0 },
+		{ key = "aurora_ray", name = "Aurora Ray", training = 12, range = 15, heat = 6, beams = 2, price = 100e6, rebirths = 0 },
+		{ key = "cryo_lance", name = "Cryo Lance", training = 20, range = 16, heat = 8, beams = 3, price = 2e9, rebirths = 0 },
+		{ key = "polar_vortex", name = "Polar Vortex", training = 30, range = 17, heat = 8, beams = 3, price = 25e9, rebirths = 0 },
+		{ key = "absolute_zero", name = "Absolute Zero", training = 50, range = 18, heat = 10, beams = 3, price = 75e9, rebirths = 0 },
+		{ key = "starfrost_nova", name = "Starfrost Nova", training = 100, range = 19, heat = 10, beams = 4, price = 1.5e12, rebirths = 0 },
 		-- owner 2026-11-09: every gun shows a coin price (the free rebirth guns read "Rebirth 2" on only some
 		-- rows and looked odd), so all guns are bought with coins in order; rebirth gates islands, not guns
 	} :: { Gun },
@@ -1657,7 +1659,9 @@ Config.rebirth = {
 	-- Retuned 2026-11-10 for Cold Power (gates cost no coins now, and training takes part of the time):
 	-- GrindBot, typical player: island 2 in 11 min, Rebirth 1 in 35 min, everything in about 4.4 h
 	-- balance pass 2026-11-12 (BALANCE-2026-11-12.md): Rebirth 1 at ~36 min, Rebirth 2 at ~67 min, then about one an hour
-	costs = { 300e3, 3e6, 200e6, 600e6, 7.5e9, 15e9, 150e9 }, -- Rebirth 1, 2, 3 ...
+	-- pacing pass 2026-11-16 (PACING-2026-11-16.md): Rebirth 1 at ~33 min, Rebirth 2 at ~66 min, then one every
+	-- 1-1.5 h; island 10 at ~8 h and the last buy at ~12 h for a typical kid (was everything in ~4.5 h)
+	costs = { 1e6, 20e6, 600e6, 4e9, 40e9, 100e9, 2e12 }, -- Rebirth 1, 2, 3 ...
 	costGrowth = 3,
 	fullAt = 7,
 	boothRange = 30, -- studs from the Rebirth Booth (the server's position)
@@ -1699,11 +1703,11 @@ end
 --   Cozy Hat:      your pan's coins x coinMult
 export type GearItem = { key: string, name: string, shape: string, price: number, text: string, [string]: any }
 Config.gear = {
-	{ key = "magnet_gloves", name = "Magnet Gloves", shape = "gloves", price = 25e3, text = "Grab frozen pets from far away", rangeMult = 2.5 },
-	{ key = "ice_skates", name = "Ice Skates", shape = "skates", price = 150e3, text = "Faster when carrying pets home", carrySpeed = 1.2 },
-	{ key = "frost_boots", name = "Frost Boots", shape = "boots", price = 1.5e6, text = "Pets run slower from you", fleeMult = 0.75 },
-	{ key = "cooling_vest", name = "Cooling Vest", shape = "vest", price = 60e6, text = "Your gun heats up slower", heatMult = 0.6 },
-	{ key = "cozy_hat", name = "Cozy Hat", shape = "hat", price = 2e9, text = "+10% coins from your pets", coinMult = 1.1 },
+	{ key = "magnet_gloves", name = "Magnet Gloves", shape = "gloves", price = 75e3, text = "Grab frozen pets from far away", rangeMult = 2.5 },
+	{ key = "ice_skates", name = "Ice Skates", shape = "skates", price = 400e3, text = "Faster when carrying pets home", carrySpeed = 1.2 },
+	{ key = "frost_boots", name = "Frost Boots", shape = "boots", price = 4e6, text = "Pets run slower from you", fleeMult = 0.75 },
+	{ key = "cooling_vest", name = "Cooling Vest", shape = "vest", price = 200e6, text = "Your gun heats up slower", heatMult = 0.6 },
+	{ key = "cozy_hat", name = "Cozy Hat", shape = "hat", price = 75e9, text = "+10% coins from your pets", coinMult = 1.1 },
 } :: { GearItem }
 
 function Config.gearItem(key: string): GearItem?
@@ -1792,7 +1796,7 @@ Config.pan = {
 	-- Machine's wait -10% a level); rebirth keeps it. Speed was sold here too until 2026-11-15 (now Gear only).
 	order = { "slots", "thaw", "trainer", "look" },
 	-- the price of level 2, 3 ... 10 (cheap at first: a buy every minute or two in the first half hour)
-	thawPrices = { 250, 1e3, 4e3, 15e3, 60e3, 400e3, 4e6, 40e6, 400e6 },
+	thawPrices = { 250, 1e3, 4e3, 30e3, 200e3, 1e6, 40e6, 1e9, 12e9 }, -- pacing pass 2026-11-16
 	-- what Speed level 2, 3 ... 10 cost while it was sold: DataService pays these back once and resets the level
 	speedRefund = { 120, 500, 2e3, 7.5e3, 30e3, 200e3, 2e6, 20e6, 250e6 },
 	coldStart = 2,
@@ -1802,10 +1806,10 @@ Config.pan = {
 	buyCooldown = 0.4,
 	looks = {
 		{ key = "garden", name = "Garden", price = 0 }, -- Round 5: white fences on a striped lawn (was straw)
-		{ key = "wood", name = "Wood", price = 50e3 }, -- balance pass 2026-11-12: each fills a save
-		{ key = "stone", name = "Stone", price = 6e6 },
-		{ key = "ice", name = "Crystal Ice", price = 250e6 },
-		{ key = "aurora", name = "Aurora", price = 50e9 },
+		{ key = "wood", name = "Wood", price = 150e3 }, -- each fills a save (pacing pass 2026-11-16)
+		{ key = "stone", name = "Stone", price = 7.5e6 },
+		{ key = "ice", name = "Crystal Ice", price = 1.5e9 },
+		{ key = "aurora", name = "Aurora", price = 750e9 },
 	} :: { { key: string, name: string, price: number } },
 	crystalEvery = 2, -- crystal ice: a crystal on every 2nd fence post
 	auroraSpeed = 0.2, -- aurora: the rails' colours drift this many cycles a second
@@ -2021,7 +2025,7 @@ Config.hotbar = {
 -- Slow Gel (Gear tab of the Equipment Booth): equipped, click / tap throws a puddle; pets and Heat
 -- Critters in it move at x slow. A cooldown, no ammo.
 -- price: a goal on the way to Rebirth 1, just before island 3 brings the Heat Critters it slows (was 3,000)
-Config.gel = { price = 75e3, -- 75K (balance pass 2026-11-12): fills the Rebirth 1 save
+Config.gel = { price = 250e3, -- 250K (pacing pass 2026-11-16): fills the Rebirth 1 save
 	 slow = 0.6, radius = 7, seconds = 6, cooldown = 10, throwRange = 45, flySeconds = 0.45 }
 
 -- the Thaw Machine in every pan (owner 2026-11-09): a cube you bring home goes into your Pets as a
@@ -2323,16 +2327,16 @@ Config.training = {
 	stations = {
 		{ id = "snowman", name = "Snowman Dummy", kind = "snowman", mult = 1, price = 0, aimY = 4.4, shell = { bottom = 0.9, height = 8.4, width = 4.6 } },
 		-- v3 (owner 2026-11-12): nine themed levels after the snowman, each its own gate and target (TrainingArt)
-		-- prices: balance pass 2026-11-12 (spread through the saves)
+		-- prices: pacing pass 2026-11-16 (spread through the saves, PACING-2026-11-16.md)
 		{ id = "peppermint", name = "Peppermint Pal", kind = "peppermint", mult = 2, price = 4e3, aimY = 4.9, shell = { bottom = 0.3, height = 7.8, width = 5.4 } },
-		{ id = "gingerbread", name = "Gingerbread Man", kind = "gingerbread", mult = 3, price = 120e3, aimY = 4.4, shell = { bottom = 0.3, height = 7.8, width = 4.6 } },
-		{ id = "workshop", name = "Nutcracker", kind = "workshop", mult = 5, price = 4e6, aimY = 4.8, shell = { bottom = 0.5, height = 8.6, width = 4.4 } },
-		{ id = "ice", name = "Penguin", kind = "ice", mult = 8, price = 75e6, aimY = 4.2, shell = { bottom = 0.4, height = 7.8, width = 4.6 } },
-		{ id = "reindeer", name = "Reindeer", kind = "reindeer", mult = 12, price = 200e6, aimY = 4.6, shell = { bottom = 0.3, height = 8.4, width = 4.4 } },
-		{ id = "crystal", name = "Amethyst Golem", kind = "crystal", mult = 20, price = 3e9, aimY = 5, shell = { bottom = 0.8, height = 8.6, width = 6.2 } },
-		{ id = "aurora", name = "Snow Owl", kind = "aurora", mult = 30, price = 4e9, aimY = 4.6, shell = { bottom = 1.2, height = 7.4, width = 4.6 } },
-		{ id = "citadel", name = "Knight", kind = "citadel", mult = 50, price = 7.5e9, aimY = 4.6, shell = { bottom = 0.3, height = 8.4, width = 5.0 } },
-		{ id = "northstar", name = "Star Spirit", kind = "northstar", mult = 100, price = 400e9, aimY = 4.9, shell = { bottom = 0.4, height = 7.6, width = 5.6 } },
+		{ id = "gingerbread", name = "Gingerbread Man", kind = "gingerbread", mult = 3, price = 300e3, aimY = 4.4, shell = { bottom = 0.3, height = 7.8, width = 4.6 } },
+		{ id = "workshop", name = "Nutcracker", kind = "workshop", mult = 5, price = 40e6, aimY = 4.8, shell = { bottom = 0.5, height = 8.6, width = 4.4 } },
+		{ id = "ice", name = "Penguin", kind = "ice", mult = 8, price = 750e6, aimY = 4.2, shell = { bottom = 0.4, height = 7.8, width = 4.6 } },
+		{ id = "reindeer", name = "Reindeer", kind = "reindeer", mult = 12, price = 3e9, aimY = 4.6, shell = { bottom = 0.3, height = 8.4, width = 4.4 } },
+		{ id = "crystal", name = "Amethyst Golem", kind = "crystal", mult = 20, price = 25e9, aimY = 5, shell = { bottom = 0.8, height = 8.6, width = 6.2 } },
+		{ id = "aurora", name = "Snow Owl", kind = "aurora", mult = 30, price = 75e9, aimY = 4.6, shell = { bottom = 1.2, height = 7.4, width = 4.6 } },
+		{ id = "citadel", name = "Knight", kind = "citadel", mult = 50, price = 600e9, aimY = 4.6, shell = { bottom = 0.3, height = 8.4, width = 5.0 } },
+		{ id = "northstar", name = "Star Spirit", kind = "northstar", mult = 100, price = 5e12, aimY = 4.9, shell = { bottom = 0.4, height = 7.6, width = 5.6 } },
 	} :: { TrainStation },
 	targetTag = "TrainTarget", -- each trainer's target Model (TrainingArt); the client frosts and wobbles it
 	spot = { x = 14, z = 12 }, padSize = { 11, 12 }, padHeight = 0.8,
