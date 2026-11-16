@@ -90,10 +90,14 @@ BEATS.push = function(ctx, seconds, keep)
 		local pet = ctx.at.Position
 		local away = Vector3.new(pet.X - hrp.Position.X, 0, pet.Z - hrp.Position.Z)
 		local dir = if away.Magnitude > 0.1 then away.Unit else -(cam.CFrame.LookVector * Vector3.new(1, 0, 1)).Unit
+		-- 2026-11-16: a little to one side, so you don't stand straight behind the pet and hide it
+		dir = CFrame.Angles(0, math.rad(ctx.cfg.pushSide or 0), 0):VectorToWorldSpace(dir)
 		local from = pet + dir * ctx.cfg.pushDistance * 1.6 + Vector3.new(0, ctx.cfg.pushHeight * 1.5, 0)
 		local to = pet + dir * ctx.cfg.pushDistance + Vector3.new(0, ctx.cfg.pushHeight, 0)
-		cam.CFrame = CFrame.lookAt(from, pet)
-		moveCamera(ctx, CFrame.lookAt(to, pet + Vector3.new(0, 0.5, 0)), seconds)
+		-- looking at a point under the pet puts the pet in the upper half of the shot, above the reveal's words
+		local look = pet + Vector3.new(0, 0.5 - (ctx.cfg.lookDrop or 0), 0)
+		cam.CFrame = CFrame.lookAt(from, look)
+		moveCamera(ctx, CFrame.lookAt(to, look), seconds)
 	end
 	hold(ctx, seconds, keep)
 end
@@ -228,6 +232,9 @@ BEATS.title = function(ctx, seconds, keep)
 	end
 	SoundController.play(if ctx.def and ctx.def.tier == "Secret" then "reveal_secret" else "rebirth_hit")
 	r:finale()
+	if ctx.cfg.stats and ctx.def then
+		Show.statsCard(ctx, gui, ctx.def)
+	end
 	hold(ctx, seconds, true)
 	r:waitContinue(function()
 		return not ctx.finished
@@ -286,6 +293,449 @@ BEATS.fly = function(ctx, seconds, keep)
 	end
 end
 
+-- ---------- the Secret catch, v3 (owner 2026-11-16: "improve the secret catching animation by miles") ----------
+-- From the owner's reference clips (not copied): the screen drops into a neon night stage; "1 in N" climbs
+-- while glowing outlines of pets flick past in the middle, slowing down, until the outline is YOUR pet; the
+-- words go dark but a small white ring that pulses twice, a slash of light, a white-out; then back in the world
+-- the ice slams on the pet, rainbow ribbons swirl round it, the name fills in and a stat card shows what it is.
+-- Numbers in Config.show.secretCinema. Candy neon on deep violet, never scary. Reduced motion: no spin or
+-- shake, a soft fade instead of the white-out. Everything here goes in finish(), even if a beat fails.
+local function cinemaFrame(parent: Instance, name: string, z: number): Frame
+	-- full screen and past the safe-area edges (notches, the top bar), so it never shows a gap on a phone
+	local f = Instance.new("Frame")
+	f.Name = name
+	f.BorderSizePixel = 0
+	f.Size = UDim2.new(1, 600, 1, 600)
+	f.Position = UDim2.new(0, -300, 0, -300)
+	f.ZIndex = z
+	f.Parent = parent
+	return f
+end
+
+-- a full-screen layer of its own for the stage, the ring and the white-out: the show's ScreenGui keeps to the
+-- phone's safe area, so on a phone a stage inside it left the world showing round the edges (2-player phone
+-- test 2026-11-16). order: under the show's words (9), over them (11), over everything (12). Gone in finish().
+local function fullGui(ctx: Ctx, name: string, order: number): ScreenGui
+	local g = Instance.new("ScreenGui")
+	g.Name = name
+	g.ResetOnSpawn = false
+	g.IgnoreGuiInset = true
+	g.ScreenInsets = Enum.ScreenInsets.None
+	g.ClipToDeviceSafeArea = false
+	g.DisplayOrder = order
+	g.Parent = me:WaitForChild("PlayerGui")
+	local list = (ctx :: any).layers or {}
+	;(ctx :: any).layers = list
+	table.insert(list, g)
+	return g
+end
+
+local function petPictures(): { string }
+	local list = {}
+	for _, img in Config.images.pets do
+		if typeof(img) == "string" and img ~= "" then
+			table.insert(list, img)
+		end
+	end
+	return list
+end
+
+-- the stage: deep violet, neon orbs drifting, snowflakes falling. Fades in over the world.
+BEATS.blackout = function(ctx, seconds, keep)
+	local gui = ctx.gui
+	if not gui then
+		return
+	end
+	local SC = Config.show.secretCinema
+	local st = Instance.new("CanvasGroup")
+	st.Name = "Stage"
+	st.BorderSizePixel = 0
+	st.BackgroundColor3 = Theme.white
+	st.Size = UDim2.new(1, 600, 1, 600)
+	st.Position = UDim2.new(0, -300, 0, -300)
+	st.ZIndex = 1
+	st.GroupTransparency = 1
+	local sky = Instance.new("UIGradient")
+	sky.Rotation = 90
+	sky.Color = ColorSequence.new(SC.skyTop, SC.skyBottom)
+	sky.Parent = st
+	st.Parent = fullGui(ctx, "ShowStage", 9)
+	;(ctx :: any).stage = st
+	local inner = Instance.new("Frame")
+	inner.Name = "Inner"
+	inner.BackgroundTransparency = 1
+	inner.Position = UDim2.new(0, 300, 0, 300)
+	inner.Size = UDim2.new(1, -600, 1, -600)
+	inner.Parent = st
+	local rng = Random.new()
+	for i = 1, SC.orbs do
+		local o = Instance.new("Frame")
+		o.Name = "Orb"
+		o.BorderSizePixel = 0
+		o.BackgroundColor3 = SC.orbColors[(i % #SC.orbColors) + 1]
+		o.AnchorPoint = Vector2.new(0.5, 0.5)
+		local s = rng:NextNumber(SC.orbSize[1], SC.orbSize[2])
+		o.Size = UDim2.fromScale(s, s)
+		o.SizeConstraint = Enum.SizeConstraint.RelativeYY
+		local x, y = rng:NextNumber(0.02, 0.98), rng:NextNumber(0.3, 1.02)
+		o.Position = UDim2.fromScale(x, y)
+		Ui.corner(o, 0.5)
+		local glow = Instance.new("UIGradient") -- a bright middle, soft edges
+		glow.Color = ColorSequence.new(Theme.white, o.BackgroundColor3)
+		glow.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.55), NumberSequenceKeypoint.new(0.5, 0), NumberSequenceKeypoint.new(1, 0.55),
+		})
+		glow.Parent = o
+		o.Parent = inner
+		if not ctx.reduced then
+			TweenService:Create(o, TweenInfo.new(rng:NextNumber(2.4, 4.4), Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+				{ Position = UDim2.fromScale(x + rng:NextNumber(-0.05, 0.05), y - rng:NextNumber(0.04, 0.12)) }):Play()
+		end
+	end
+	for i = 1, (if ctx.reduced then math.floor(SC.flakes / 3) else SC.flakes) do
+		local f = Instance.new("Frame")
+		f.Name = "Flake"
+		f.BorderSizePixel = 0
+		f.BackgroundColor3 = if i % 3 == 0 then SC.flakeMint else Theme.white
+		f.BackgroundTransparency = rng:NextNumber(0.05, 0.4)
+		f.AnchorPoint = Vector2.new(0.5, 0.5)
+		local s = rng:NextNumber(0.008, 0.02)
+		f.Size = UDim2.fromScale(s, s)
+		f.SizeConstraint = Enum.SizeConstraint.RelativeYY
+		f.Rotation = 45
+		local x = rng:NextNumber()
+		f.Position = UDim2.fromScale(x, rng:NextNumber(-0.1, 1))
+		f.Parent = inner
+		if not ctx.reduced then
+			TweenService:Create(f, TweenInfo.new(rng:NextNumber(2.5, 5), Enum.EasingStyle.Linear, Enum.EasingDirection.In, -1),
+				{ Position = UDim2.fromScale(x + rng:NextNumber(-0.05, 0.05), 1.08), Rotation = 405 }):Play()
+		end
+	end
+	TweenService:Create(st, TweenInfo.new(seconds, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { GroupTransparency = 0 }):Play()
+	SoundController.play("ray_charge")
+	hold(ctx, seconds, keep)
+end
+
+-- the luck roll over the stage: glowing outlines of pets flick past in the middle, slowing down, and the last
+-- one is your pet (the counter and the name come from LuckReveal, as before)
+BEATS.silhouettes = function(ctx, seconds, keep)
+	local gui, def = ctx.gui, ctx.def
+	if not gui or not def then
+		return
+	end
+	local SC = Config.show.secretCinema
+	local st = (ctx :: any).stage :: Instance?
+	local inner = (st and st:FindFirstChild("Inner")) or gui
+	local box = Instance.new("Frame")
+	box.Name = "Silhouette"
+	box.BackgroundTransparency = 1
+	box.AnchorPoint = Vector2.new(0.5, 0.5)
+	box.Position = UDim2.fromScale(0.5, SC.silY)
+	box.Size = UDim2.fromScale(SC.silSize, SC.silSize)
+	box.SizeConstraint = Enum.SizeConstraint.RelativeYY
+	box.ZIndex = 2
+	box.Parent = inner
+	local function pic(z: number, color: Color3, x: number, y: number): ImageLabel
+		local i = Instance.new("ImageLabel")
+		i.BackgroundTransparency = 1
+		i.ScaleType = Enum.ScaleType.Fit
+		i.AnchorPoint = Vector2.new(0.5, 0.5)
+		i.Position = UDim2.fromScale(0.5 + x, 0.5 + y)
+		i.Size = UDim2.fromScale(1, 1)
+		i.ImageColor3 = color
+		i.ZIndex = z
+		i.Parent = box
+		return i
+	end
+	-- the neon outline: the same picture nudged eight ways in the glow colour, the black shape on top
+	local glows: { ImageLabel } = {}
+	for k = 1, 8 do
+		local a = k * math.pi / 4
+		table.insert(glows, pic(2, SC.outlineColors[1], math.cos(a) * SC.outline, math.sin(a) * SC.outline))
+	end
+	local core = pic(3, SC.silhouette, 0, 0)
+	local pictures = petPictures()
+	local final = Config.images.pets[def.key] or pictures[1] or ""
+	local function show(img: string, color: Color3)
+		core.Image = img
+		for _, g in glows do
+			g.Image = img
+			g.ImageColor3 = color
+		end
+	end
+	local pop = Instance.new("UIScale")
+	pop.Parent = box
+	local function bump(to: number)
+		if ctx.reduced then
+			return
+		end
+		pop.Scale = to
+		TweenService:Create(pop, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	end
+	show(if #pictures > 0 then pictures[math.random(#pictures)] else final, SC.outlineColors[1])
+	local r = LuckReveal.new(gui, def, ctx.reduced)
+	ctx.reveal = r
+	-- its dark bands (for reading the words over the world) aren't needed on the stage, and on a phone they showed
+	-- as a darker box inside the safe area: hidden here, back for the title over the world (whiteout)
+	for _, c in r.root:GetChildren() do
+		if c:IsA("Frame") and c.ZIndex == 1 then
+			c.Visible = false
+		end
+	end
+	local nextSwap, swaps, landed = 0, 0, false
+	r:roll(seconds, function()
+		return ctx.skipped or ctx.finished
+	end, function(u: number)
+		local now = os.clock()
+		if u < SC.landAt and now >= nextSwap and #pictures > 0 then
+			-- quick at first, slower and slower: the next outline comes later each time
+			nextSwap = now + SC.swapFrom + (SC.swapTo - SC.swapFrom) * u * u
+			swaps += 1
+			show(pictures[math.random(#pictures)], SC.outlineColors[(swaps % #SC.outlineColors) + 1])
+			bump(1.12)
+		elseif u >= SC.landAt and not landed then
+			landed = true
+			show(final, Theme.tierGlow[def.tier] or SC.outlineColors[1])
+			bump(1.35)
+			SoundController.play("upgrade_hit", 1.3)
+		end
+		if not ctx.reduced then
+			box.Rotation = math.sin(now * 2.2) * 3 * (1 - u)
+		end
+	end)
+	show(final, Theme.tierGlow[def.tier] or SC.outlineColors[1])
+	box.Rotation = 0
+	hold(ctx, SC.holdFinal * (if ctx.reduced then 0.5 else 1), keep)
+end
+
+-- everything goes dark but a small white ring that pulses twice, then a slash of light opens down the middle
+BEATS.ring = function(ctx, seconds, keep)
+	local gui = ctx.gui
+	if not gui then
+		return
+	end
+	local SC = Config.show.secretCinema
+	local parts: { Instance } = {}
+	;(ctx :: any).ringParts = parts
+	local rg = fullGui(ctx, "ShowRing", 11)
+	local dark = cinemaFrame(rg, "Dark", 20)
+	dark.BackgroundColor3 = SC.dark
+	dark.BackgroundTransparency = 1
+	table.insert(parts, dark)
+	TweenService:Create(dark, TweenInfo.new(seconds * 0.18), { BackgroundTransparency = 0 }):Play()
+	local function circle(size: number, thick: number): Frame
+		local c = Instance.new("Frame")
+		c.BackgroundTransparency = 1
+		c.AnchorPoint = Vector2.new(0.5, 0.5)
+		c.Position = UDim2.fromScale(0.5, 0.5)
+		c.Size = UDim2.fromScale(size, size)
+		c.SizeConstraint = Enum.SizeConstraint.RelativeYY
+		c.ZIndex = 21
+		Ui.corner(c, 0.5)
+		local s = Instance.new("UIStroke")
+		s.Color = Theme.white
+		s.Thickness = thick
+		s.Parent = c
+		c.Parent = rg
+		table.insert(parts, c)
+		return c
+	end
+	local dot = circle(0.012, 0)
+	dot.BackgroundTransparency = 0
+	dot.BackgroundColor3 = Theme.white
+	hold(ctx, seconds * 0.18, keep)
+	for p = 1, 2 do
+		if ctx.finished or (ctx.skipped and not keep) then
+			return
+		end
+		local ring = circle(SC.ringFrom, 2.5)
+		local stroke = ring:FindFirstChildOfClass("UIStroke") :: UIStroke
+		local grow = seconds * 0.24
+		TweenService:Create(ring, TweenInfo.new(grow, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Size = UDim2.fromScale(SC.ringTo * p, SC.ringTo * p) }):Play()
+		TweenService:Create(stroke, TweenInfo.new(grow, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Transparency = 0.6 }):Play()
+		SoundController.play("tink", 0.7 + p * 0.25)
+		hold(ctx, grow, keep)
+	end
+	-- the slash: a thin white line top to bottom, opening
+	local line = Instance.new("Frame")
+	line.BorderSizePixel = 0
+	line.BackgroundColor3 = Theme.white
+	line.AnchorPoint = Vector2.new(0.5, 0.5)
+	line.Position = UDim2.fromScale(0.5, 0.5)
+	line.Size = UDim2.new(0, 3, 0, 0)
+	line.ZIndex = 22
+	local lg = Instance.new("UIGradient")
+	lg.Rotation = 90
+	lg.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0), NumberSequenceKeypoint.new(1, 1) })
+	lg.Parent = line
+	line.Parent = rg
+	table.insert(parts, line)
+	SoundController.play("ray_fire")
+	TweenService:Create(line, TweenInfo.new(seconds * 0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Size = UDim2.new(0, 6, 1.4, 0) }):Play()
+	hold(ctx, seconds * 0.16, keep)
+end
+
+-- white-out (a soft fade with reduced motion): behind it the stage goes and the world comes back. Kept on SKIP:
+-- it's what clears the stage away
+BEATS.whiteout = function(ctx, seconds, keep)
+	local gui = ctx.gui
+	if not gui then
+		return
+	end
+	local SC = Config.show.secretCinema
+	local w = cinemaFrame(fullGui(ctx, "ShowWhite", 12), "WhiteOut", 40)
+	w.BackgroundColor3 = Theme.white
+	w.BackgroundTransparency = 1
+	local peak = if ctx.reduced then SC.softPeak else 0
+	TweenService:Create(w, TweenInfo.new(seconds * 0.25), { BackgroundTransparency = peak }):Play()
+	SoundController.play("reveal_secret")
+	hold(ctx, seconds * 0.3, true)
+	local st = (ctx :: any).stage :: Instance?
+	if st then
+		st:Destroy()
+		;(ctx :: any).stage = nil
+	end
+	for _, p in ((ctx :: any).ringParts or {}) :: { Instance } do
+		p:Destroy()
+	end
+	;(ctx :: any).ringParts = nil
+	if ctx.reveal then
+		for _, c in ctx.reveal.root:GetChildren() do
+			if c:IsA("Frame") and c.ZIndex == 1 then
+				c.Visible = true -- the words' dark bands again, over the world
+			end
+		end
+	end
+	TweenService:Create(w, TweenInfo.new(seconds * 0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { BackgroundTransparency = 1 }):Play()
+	task.delay(seconds * 0.7, function()
+		w:Destroy()
+	end)
+end
+
+-- rainbow ribbons swirling round the pet (3D beams on a turning hub), until the show ends
+BEATS.ribbons = function(ctx, seconds, keep)
+	local SC = Config.show.secretCinema
+	local folder = Instance.new("Folder")
+	folder.Name = "ShowRibbons"
+	folder.Parent = workspace
+	;(ctx :: any).fxFolder = folder
+	local center = ctx.at.Position
+	local hub = Instance.new("Part")
+	hub.Anchored, hub.CanCollide, hub.CanQuery, hub.CanTouch, hub.CastShadow = true, false, false, false, false
+	hub.Transparency = 1
+	hub.Size = Vector3.one
+	hub.CFrame = CFrame.new(center)
+	hub.Parent = folder
+	local rainbow = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromHex("ff5a8a")), ColorSequenceKeypoint.new(0.2, Color3.fromHex("ffbf1f")),
+		ColorSequenceKeypoint.new(0.4, Color3.fromHex("5dffb0")), ColorSequenceKeypoint.new(0.6, Color3.fromHex("5fd0ff")),
+		ColorSequenceKeypoint.new(0.8, Color3.fromHex("9b7bff")), ColorSequenceKeypoint.new(1, Color3.fromHex("ff4fd8")),
+	})
+	local r = SC.ribbonRadius + ctx.size * 0.5
+	for k = 1, SC.ribbons do
+		local a = (k - 1) * math.pi * 2 / SC.ribbons
+		local b = a + math.rad(SC.ribbonArc)
+		local y0 = -ctx.size * 0.4 + (k - 1) * SC.ribbonRise
+		local function att(angle: number, y: number): Attachment
+			local at = Instance.new("Attachment")
+			at.Position = Vector3.new(math.cos(angle) * r, y, math.sin(angle) * r)
+			at.Axis = Vector3.new(-math.sin(angle), 0, math.cos(angle)) -- along the circle, so the curve hugs it
+			at.SecondaryAxis = Vector3.yAxis
+			at.Parent = hub
+			return at
+		end
+		local beam = Instance.new("Beam")
+		beam.Attachment0 = att(a, y0)
+		beam.Attachment1 = att(b, y0 + SC.ribbonRise * 1.5)
+		beam.CurveSize0 = r * 0.9
+		beam.CurveSize1 = -r * 0.9
+		beam.Width0, beam.Width1 = SC.ribbonWidth, SC.ribbonWidth * 0.6
+		beam.Color = rainbow
+		beam.LightEmission = 0.8
+		beam.LightInfluence = 0
+		beam.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.9), NumberSequenceKeypoint.new(0.3, 0.15), NumberSequenceKeypoint.new(0.8, 0.15), NumberSequenceKeypoint.new(1, 0.9) })
+		beam.Segments = 24
+		beam.FaceCamera = true
+		beam.Parent = hub
+	end
+	if not ctx.reduced then
+		if ctx.conn then
+			ctx.conn:Disconnect()
+		end
+		ctx.conn = RunService.RenderStepped:Connect(function()
+			hub.CFrame = CFrame.new(center) * CFrame.Angles(0, os.clock() * SC.ribbonSpin, 0)
+		end)
+	end
+	hold(ctx, seconds, keep)
+end
+
+-- the stat card at the top of the reveal (the references' size / mutation / income card): what it is, where
+-- it lives and what it earns, in a dark pill with a rainbow rim
+function Show.statsCard(ctx: Ctx, gui: ScreenGui, def: PetDefs.PetDef)
+	local SC = Config.show.secretCinema
+	local card = Instance.new("Frame")
+	card.Name = "Stats"
+	card.AnchorPoint = Vector2.new(0.5, 0)
+	card.Position = UDim2.fromScale(0.5, SC.statsY)
+	card.Size = UDim2.fromScale(SC.statsSize[1], SC.statsSize[2])
+	card.BackgroundColor3 = Theme.alert.back
+	card.BorderSizePixel = 0
+	card.ZIndex = 6
+	Ui.corner(card, 0.3)
+	local rim = Instance.new("UIStroke")
+	rim.Thickness = 4
+	rim.Color = Theme.white
+	rim.Parent = card
+	local rg = Instance.new("UIGradient")
+	rg.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromHex("ff5a8a")), ColorSequenceKeypoint.new(0.33, Color3.fromHex("ffbf1f")),
+		ColorSequenceKeypoint.new(0.66, Color3.fromHex("5fd0ff")), ColorSequenceKeypoint.new(1, Color3.fromHex("9b7bff")),
+	})
+	rg.Parent = rim
+	local list = Instance.new("UIListLayout")
+	list.FillDirection = Enum.FillDirection.Horizontal
+	list.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	list.VerticalAlignment = Enum.VerticalAlignment.Center
+	list.Padding = UDim.new(0.02, 0)
+	list.SortOrder = Enum.SortOrder.LayoutOrder
+	list.Parent = card
+	local mut = if ctx.data and typeof(ctx.data.mut) == "string" then ctx.data.mut else nil
+	local bonus = if mut and Config.mutations[mut] then Config.mutations[mut].bonus else 1
+	local tier = Config.tier(def.tier)
+	local income = (tier.income or 0) * Config.incomeZoneMultiplier ^ math.max(0, def.zone - 1) * bonus
+	local zone = Config.zone(def.zone)
+	local cells = {
+		{ head = "RARITY", value = string.upper(def.tier), color = Theme.tierGlow[def.tier] or Theme.white },
+		{ head = "MUTATION", value = if mut then string.upper(mut) else "NONE", color = if mut then (Theme.mut and (Theme.mut :: any)[mut]) or Theme.coin else Theme.white },
+		{ head = "EARNS", value = `+{Ui.short(income)}/s`, color = Theme.coin },
+		{ head = "ISLAND", value = if zone then zone.name else "?", color = Theme.ice },
+	}
+	for i, c in cells do
+		local cell = Instance.new("Frame")
+		cell.BackgroundColor3 = Theme.ink
+		cell.BackgroundTransparency = 0.35
+		cell.BorderSizePixel = 0
+		cell.Size = UDim2.fromScale(0.225, 0.8)
+		cell.LayoutOrder = i
+		cell.ZIndex = 7
+		Ui.corner(cell, 0.25)
+		cell.Parent = card
+		local h = Ui.label(cell, c.head, UDim2.fromScale(0.9, 0.3), UDim2.fromScale(0.05, 0.06))
+		h.ZIndex = 8
+		h.TextColor3 = Theme.white
+		local v = Ui.label(cell, c.value, UDim2.fromScale(0.9, 0.52), UDim2.fromScale(0.05, 0.4))
+		v.ZIndex = 8
+		v.TextColor3 = c.color
+	end
+	local s = Instance.new("UIScale")
+	s.Scale = if ctx.reduced then 1 else 0.3
+	s.Parent = card
+	card.Parent = gui
+	if not ctx.reduced then
+		TweenService:Create(s, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out, 0, false, 0.25), { Scale = 1 }):Play()
+	end
+end
+
 -- Safe to call any number of times: each thing the show holds is given back once, whenever it was
 -- taken (a show finished early by a newer one may still be setting up, and runs this again at its end)
 local function finish(ctx: Ctx)
@@ -294,6 +744,15 @@ local function finish(ctx: Ctx)
 	if running == ctx then
 		running = nil
 	end
+	local fx = (ctx :: any).fxFolder :: Instance?
+	if fx then
+		fx:Destroy()
+		;(ctx :: any).fxFolder = nil
+	end
+	for _, layer in ((ctx :: any).layers or {}) :: { Instance } do
+		layer:Destroy()
+	end
+	;(ctx :: any).layers = nil
 	if ctx.model then
 		ctx.model:Destroy()
 		ctx.model = nil
@@ -453,10 +912,11 @@ end
 
 -- a Secret comes out of your Thaw Machine (Config.show.thawReveal): the server has already put it in your
 -- pan; this only plays it, at the machine
+-- (and your very first pet, any tier: Config.show.firstReveal, a shorter cut)
 function Show.thawReveal(data: any)
-	local cfg = Config.show.thawReveal
+	local cfg = if data.first then Config.show.firstReveal else Config.show.thawReveal
 	local def = PetDefs.get(data.key)
-	if not def or not cfg.tiers[def.tier] or typeof(data.at) ~= "Vector3" then
+	if not def or not (data.first or cfg.tiers[def.tier]) or typeof(data.at) ~= "Vector3" then
 		return
 	end
 	if running then
@@ -2093,7 +2553,7 @@ function Show.Start()
 	State.Notify:Connect(function(kind: string, data: any)
 		if kind == "frozen" and typeof(data) == "table" and typeof(data.show) == "string" then
 			task.spawn(Show.play, data.show, data)
-		elseif kind == "thawed" and typeof(data) == "table" and Config.show.thawReveal.tiers[data.tier] then
+		elseif kind == "thawed" and typeof(data) == "table" and (data.first or Config.show.thawReveal.tiers[data.tier]) then
 			task.spawn(Show.thawReveal, data)
 		elseif kind == "gunBought" then
 			task.spawn(Show.gunBuy, data)

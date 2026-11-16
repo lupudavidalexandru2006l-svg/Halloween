@@ -4,6 +4,7 @@
 -- Builders only make instances; the Screen module decides where HUD pieces go.
 
 local TweenService = game:GetService("TweenService")
+local CollectionService = game:GetService("CollectionService")
 local TextService = game:GetService("TextService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
@@ -20,7 +21,10 @@ end
 -- a card and a popup. (A share of each block's own size made big panels almost pill-shaped next to
 -- small buttons, QA 2026-10-31.) A scale (0.5 = pill, 1 = circle) is for shapes that should stay round.
 -- shared-radius corners follow the screen size (mobile QA 2026-11-10: after a resize they kept the old size)
-local sharedCorners: { [UICorner]: boolean } = setmetatable({} :: any, { __mode = "k" })
+-- Shared corners carry a tag, not a weak table: Roblox drops an instance from a weak table once its Lua
+-- handle is collected, even while it's on screen, so some corners kept their first (4 px) radius after
+-- the window resized (owner 2026-11-13: EQUIPMENT sharp, PAN round). Tags go away with the instance.
+local SHARED = "UiSharedCorner"
 local watching: Camera? = nil
 local function radiusNow(): UDim
 	local cam = workspace.CurrentCamera
@@ -35,8 +39,8 @@ local function watchViewport()
 	watching = cam
 	cam:GetPropertyChangedSignal("ViewportSize"):Connect(function()
 		local r = radiusNow()
-		for c in sharedCorners do
-			c.CornerRadius = r
+		for _, c in CollectionService:GetTagged(SHARED) do
+			(c :: UICorner).CornerRadius = r
 		end
 	end)
 end
@@ -48,7 +52,7 @@ function Ui.corner(parent: Instance, scale: number?)
 	else
 		watchViewport()
 		c.CornerRadius = radiusNow()
-		sharedCorners[c] = true
+		c:AddTag(SHARED)
 	end
 	c.Parent = parent
 end
@@ -234,13 +238,13 @@ end
 function Ui.roundBlock(b: Block, scale: number)
 	for _, c in b.root:GetDescendants() do
 		if c:IsA("UICorner") then
-			sharedCorners[c] = nil
+			c:RemoveTag(SHARED)
 			c.CornerRadius = UDim.new(scale, 0)
 		end
 	end
 	local own = b.root:FindFirstChildOfClass("UICorner")
 	if own then
-		sharedCorners[own] = nil
+		own:RemoveTag(SHARED)
 		own.CornerRadius = UDim.new(scale, 0)
 	end
 end

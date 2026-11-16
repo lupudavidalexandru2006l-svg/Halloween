@@ -272,6 +272,7 @@ local function build(part: BasePart, board: Board): Frame
 	text(bg, note, px(T.note), Theme.ice, UDim2.fromScale(w, BS.note * 0.8), UDim2.fromScale(BS.padX, BS.padY + BS.header + BS.note * 0.15), Enum.TextXAlignment.Center)
 	local list = frame(bg, "Rows", Theme.board, UDim2.fromScale(w, 1), UDim2.fromScale(BS.padX, BS.padY + BS.header + BS.note))
 	list.BackgroundTransparency = 1
+	sg:AddTag("LeaderboardGui") -- each client draws it only within Config.leaderboards.loadRange (PerformanceController)
 	sg.Parent = part
 	-- press E in front of the board to scroll its top 100 (the client opens the popup and asks for the rows)
 	if not part:FindFirstChild("BoardPrompt") then

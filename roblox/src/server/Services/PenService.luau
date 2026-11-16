@@ -20,6 +20,7 @@ local WorldService = require(script.Parent.WorldService)
 local CarryService = require(script.Parent.CarryService)
 local IndexService = require(script.Parent.IndexService)
 local ChallengeService = require(script.Parent.ChallengeService)
+local EventService = require(script.Parent.EventService)
 
 type Data = DataService.Data
 type PetEntry = DataService.PetEntry
@@ -58,7 +59,7 @@ end
 function PenService.machineSpot(plot: number, m: number): Vector3
 	local T, P = Config.thaw, Config.world.pans
 	local spot = Config.world.plots[plot]
-	return Vector3.new(spot.x + T.machine.x + (m - 1) * T.machine.gap, P.soilHeight + T.machine.padTop, P.frontZ - P.length + T.machine.z) -- on its heat pad
+	return Vector3.new(spot.x + Config.thawMachineOffset(m, Config.machineCount(plot)), P.soilHeight + T.machine.padTop, P.frontZ - P.length + T.machine.z) -- on its heat pad
 end
 
 local function machines(d: Data): number
@@ -617,6 +618,7 @@ local function thawPet(player: Player, id: any, m: any)
 	end
 	DataService.saveNow(player) -- the timer is saved, so leaving never loses it
 	Remotes.fire(player, "Notify", "thawStarted", { key = p.key, seconds = p.thawTotal, machine = m })
+	AnalyticsSvc.funnel(player, "first_thaw")
 	TutorialService.did(player, "thawStart")
 end
 
@@ -635,8 +637,20 @@ end
 -- the weakest pan pet's place when it earns more (Config.thaw.swapWeakest; that pet goes to Storage,
 -- nothing is lost), else it goes to Storage. Before 2026-11-10 a full pan sent even a Legendary to Storage.
 -- onlyM: just that machine's pet (Config.thaw.claimByHand: you press Claim at the machine)
+-- no pet of this save has ever come out of a Thaw Machine (every pet still frozen): the first one is a
+-- moment of its own (Config.thaw.firstPops)
+local function noPetOutYet(d: Data): boolean
+	for _, p in d.pets do
+		if not p.frozen then
+			return false
+		end
+	end
+	return true
+end
+
 local function releaseThawed(player: Player, d: Data, onlyM: number?)
 	local now = os.time()
+	local first = noPetOutYet(d)
 	local out: { { p: PetEntry, m: number, replaced: string? } } = {}
 	for _, p in d.pets do
 		if p.thawM and (p.thawEnd or 0) <= now and (onlyM == nil or p.thawM == onlyM) then
@@ -664,7 +678,9 @@ local function releaseThawed(player: Player, d: Data, onlyM: number?)
 	for _, o in out do
 		local def = PetDefs.get(o.p.key)
 		Remotes.fire(player, "Notify", "thawed", { key = o.p.key, income = earn(o.p), plot = WorldService.plotOf(player), machine = o.m, stored = not o.p.eq, replaced = o.replaced,
-			tier = if def then def.tier else nil, mut = o.p.mut, at = PenService.machineSpot(WorldService.plotOf(player) or 1, o.m) })
+			tier = if def then def.tier else nil, mut = o.p.mut, at = PenService.machineSpot(WorldService.plotOf(player) or 1, o.m), first = first or nil })
+		first = false -- two at once: only the first gets the reveal
+		AnalyticsSvc.funnel(player, "first_pet_out")
 		TutorialService.did(player, "thawed")
 	end
 end
@@ -746,6 +762,29 @@ end
 -- "Machines" attribute says 2 (PanLooks and ThawMachines pick it up when it arrives).
 local parked: { [number]: { model: Instance, pan: Instance } } = {}
 local watchedPlots: { [Instance]: boolean } = {}
+
+-- owner 2026-11-15: one machine stands in the middle of the back row, two stand side by side round it.
+-- MapArt builds them at the old spots (T.machine.x, + gap); each model is slid sideways from where it was
+-- built (BasePivot, remembered once) to Config.thawMachineOffset. ThawMachines (client) re-reads a moved machine.
+local function centreMachines(i: number, pan: Instance, count: number)
+	local T = Config.thaw.machine
+	for m = 1, 2 do
+		local model = pan:FindFirstChild("ThawMachine" .. m)
+		if not (model and model:IsA("Model")) or m > count then -- an unowned second one is about to be parked
+			continue
+		end
+		local base = model:GetAttribute("BasePivot")
+		if typeof(base) ~= "CFrame" then
+			base = model:GetPivot()
+			model:SetAttribute("BasePivot", base)
+		end
+		local shift = Config.thawMachineOffset(m, count) - (T.x + (m - 1) * T.gap)
+		local want = (base :: CFrame) + Vector3.new(shift, 0, 0)
+		if (model:GetPivot().Position - want.Position).Magnitude > 0.01 then
+			model:PivotTo(want)
+		end
+	end
+end
 local function placeSecondMachine(i: number)
 	local map = workspace:FindFirstChild("Map")
 	local plot = map and map:FindFirstChild("Plot" .. i)
@@ -781,6 +820,7 @@ local function placeSecondMachine(i: number)
 		inPan.Parent = folder
 		parked[i] = { model = inPan, pan = pan }
 	end
+	centreMachines(i, pan, if own then 2 else 1)
 end
 
 -- ---------- zone gates ----------
@@ -812,6 +852,7 @@ local function openGate(player: Player, id: number)
 	if d.coldPower < need then
 		Remotes.fire(player, "Notify", "needPower", { zone = id }) -- the client's arrow to the Frost Training Yard
 		Remotes.notYet(player, `Need {Config.coinText(need - d.coldPower)} more Cold Power`, "gate")
+		TutorialService.did(player, "needPower") -- no step waits on it since Lesson 2 joined the main run (2026-11-15)
 		return
 	end
 	local opened = false
@@ -828,6 +869,7 @@ local function openGate(player: Player, id: number)
 	DataService.saveNow(player) -- an opened island is written at once
 	WorldService.setReach(player, id)
 	Remotes.fire(player, "Notify", "zoneUnlocked", { zone = zone.id, need = need })
+	TutorialService.did(player, "gateOpen") -- Lesson 2's last step
 end
 
 -- ---------- the client's copy of its data ----------
@@ -865,7 +907,7 @@ local function view(player: Player, d: Data): { [string]: any }
 		rebirths = d.rebirths,
 		seenShows = d.seenShows,
 		pan = d.pan, -- Look (Slots = slots / upgrades.pen)
-		tutorial = d.tutorial, -- Captain Frost's step (TutorialService)
+		tutorial = d.tutorial, -- the tutorial step (TutorialService)
 		tester = if Config.isTester(player.UserId) then d.tester else nil, -- only testers learn the panel exists
 	}
 end
@@ -882,8 +924,27 @@ function PenService.Start()
 	DataService.Loaded:Connect(function(player: Player, d: any)
 		local data = d :: Data
 		incomeCarry[player] = 0
-		if not WorldService.assignPlot(player) then
+		local plot = WorldService.assignPlot(player)
+		if not plot then
 			warn(`[PenService] no free pen for {player.UserId}: set the place's Server Size to {#Config.world.plots}`)
+		else
+			-- owner 2026-11-15: every spawn (join, reset, respawn) puts you in front of your own pan, facing it
+			local W = Config.world
+			local pl = W.plots[plot]
+			local at = Vector3.new(pl.x, W.spawn.Y + 1, pl.z + W.penSize.Z / 2 + W.panSpawnFront)
+			local function toPan(character: Model)
+				local root = character:WaitForChild("HumanoidRootPart", 5)
+				if root and character.Parent and player.Parent and player.Character == character then
+					-- through PlayerTracker so the speed check starts fresh here (a plain pivot flagged every spawn)
+					PlayerTracker.teleport(player, CFrame.lookAt(at, Vector3.new(pl.x, at.Y, pl.z)))
+				end
+			end
+			player.CharacterAdded:Connect(function(c)
+				task.defer(toPan, c)
+			end)
+			if player.Character then
+				task.spawn(toPan, player.Character)
+			end
 		end
 		WorldService.setReach(player, data.reach)
 		local w = WorldRules.weekId(os.time())
@@ -939,7 +1000,8 @@ function PenService.Start()
 					-- claimByHand: a finished pet waits in its machine for Claim (claimThaw); only one left in a
 					-- second machine you no longer have (Slots reset by a rebirth) still comes out by itself
 					local onlyM = if Config.thaw.claimByHand then (if machines(d) < 2 and inMachine(d, 2) then 2 else nil) else nil
-					if Config.thaw.claimByHand and not onlyM then
+					-- (the very first pet ever pops out by itself: Config.thaw.firstPops)
+					if Config.thaw.claimByHand and not onlyM and not (Config.thaw.firstPops and noPetOutYet(d)) then
 						continue
 					end
 					local ok, err = pcall(releaseThawed, player, d, onlyM)
@@ -966,7 +1028,8 @@ function PenService.Start()
 			for player, carry in incomeCarry do
 				local d = DataService.get(player)
 				if d then
-					local total = carry + PenService.incomePerSecond(d) * Config.income.tickSeconds
+					-- Coin Rush (Config.events): every pan earns x2 while it runs
+					local total = carry + PenService.incomePerSecond(d) * EventService.mult("coins") * Config.income.tickSeconds
 					local whole = math.floor(total)
 					incomeCarry[player] = total - whole
 					if whole > 0 then

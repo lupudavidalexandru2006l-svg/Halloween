@@ -315,6 +315,9 @@ local function snap(data: any)
 	local rank = Config.tier(def.tier).rank
 	local f = math.clamp((rank - 1) / math.max(1, Config.camera.lockKickFullRank - 1), 0, 1)
 	local hold = EffectsController.time(J.hitStop.lock[1] + (J.hitStop.lock[2] - J.hitStop.lock[1]) * f)
+	if data.first then
+		hold *= F.firstHoldScale -- your very first freeze: a longer hit-stop (Tizzy: the first time is a wow)
+	end
 	cube.Size = Vector3.one * size * F.snapScale
 	cube.Color = Theme.white
 	cube.Transparency = 0.15
@@ -343,6 +346,14 @@ local function snap(data: any)
 		g:Destroy()
 	end)
 	if flash then
+		SoundController.play("tink")
+	end
+	if data.first then
+		-- the first freeze ever: one flash, light rays and a big frosty burst round the new cube
+		EffectsController.flash()
+		EffectsController.rays(at.Position, Theme.ice, F.firstRays, EffectsController.time(F.firstRaySeconds))
+		EffectsController.burst(at.Position, Theme.ice, F.firstBurst)
+		EffectsController.burst(at.Position, Theme.white, math.floor(F.firstBurst / 2))
 		SoundController.play("tink")
 	end
 	if typeof(data.touch) == "string" then

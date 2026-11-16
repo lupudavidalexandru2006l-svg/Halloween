@@ -196,7 +196,7 @@ local function buildHub()
 	-- leaderboards on the side walls, facing into the plaza
 	for i, pos in W.boards do
 		local at = Vector3.new(pos.X, 10, pos.Z)
-		WorldService.boards[i] = part("Leaderboard" .. i, Vector3.new(14, 18, 1), CFrame.lookAt(at, Vector3.new(0, 10, pos.Z)), Theme.board, map)
+		WorldService.boards[i] = part("Leaderboard" .. i, Vector3.new(14, 18, 1), CFrame.lookAt(at, at + W.boardFacing), Theme.board, map)
 	end
 end
 
@@ -291,7 +291,7 @@ local function buildMap()
 	areas.Parent = map
 	for _, t in list.trees do
 		local shade = part("Shade", Vector3.new(0.2, t.r * 2, t.r * 2), CFrame.new(t.x, 0.25, t.z) * CFrame.Angles(0, 0, math.rad(90)), A.shade, areas,
-			{ Shape = Enum.PartType.Cylinder, Transparency = 0.82, CanCollide = false, CanQuery = false, CanTouch = false, CastShadow = false })
+			{ Shape = Enum.PartType.Cylinder, Transparency = 1, CanCollide = false, CanQuery = false, CanTouch = false, CastShadow = false }) -- owner 2026-11-13: no blue circle; the tree's own shadow shows the shade, which still works
 		CollectionService:AddTag(shade, "ShadeZone")
 	end
 	for _, s in list.sun do

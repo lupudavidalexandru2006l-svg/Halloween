@@ -184,7 +184,9 @@ end
 
 local function check()
 	local v = State.view
-	if not v or card or Screen.popupOpen or Screen.showHidden or me:GetAttribute("GunLocked") == true then
+	-- not during the tutorial either (QA 2026-11-16: the card covered the first steps' goal)
+	if not v or card or Screen.popupOpen or Screen.showHidden or Screen.menusLocked or me:GetAttribute("GunLocked") == true
+		or (v.tutorial and not v.tutorial.done) then
 		return
 	end
 	local best = me:GetAttribute("GunBest")

@@ -1334,7 +1334,8 @@ end
 -- a leaderboard's frame: stone pillars with glowing crystal caps, a wooden border, a crown on top
 local function boardFrame(parent: Instance, pos: Vector3, i: number)
 	local f = folder("BoardFrame" .. i, parent)
-	local cf = CFrame.lookAt(Vector3.new(pos.X, 10, pos.Z), Vector3.new(0, 10, pos.Z)) -- the board's own frame (front = -Z)
+	local at = Vector3.new(pos.X, 10, pos.Z)
+	local cf = CFrame.lookAt(at, at + Config.world.boardFacing) -- the board's own frame (front = -Z)
 	for _, x in { -8.4, 8.4 } do
 		block(Vector3.new(2.4, 21, 2.4), cf * CFrame.new(x, 0.5, 0.6), V.stone, f, true, Enum.Material.Cobblestone)
 		block(Vector3.new(3, 0.8, 3), cf * CFrame.new(x, 11.2, 0.6), V.trim, f)
@@ -2072,11 +2073,28 @@ local function hazards(parent: Instance, zone: Config.Zone)
 			e.Parent = pool
 		end
 	end
-	if zone.id >= 3 then
+	-- owner 2026-11-13: sun patches only on the sunny islands (Config), and more detailed there: a
+	-- second inner ring, a little sun in the middle, a ring of rays round the rim that turns slowly
+	-- (MapController), rising sparkles and the heat shimmer. Every glow is see-through, so you walk over it.
+	local SP, SU = Theme.spectacle, C.spectacle.sun
+	do
 		for _, s in list.sun do
 			if s.z >= zone.zMin and s.z < zone.zMax then
+				local at = Vector3.new(s.x, 0, s.z)
 				local rim = glow(shape("Ring", Vector3.new(s.r * 2 + 0.6, 0.3, s.r * 2 + 0.6), CFrame.new(s.x, 0.12, s.z), A.sunGlow, f), 0.15)
 				rim.Name = "SunRim"
+				glow(shape("Ring", Vector3.new(s.r * 1.3, 0.24, s.r * 1.3), CFrame.new(s.x, 0.14, s.z), SP.sunRayLight, f), 0.35)
+				glow(cyl(s.r * 0.22, 0.2, CFrame.new(at + Vector3.new(0, 0.32, 0)), SP.sunRay, f), 0.05)
+				glow(shape("Ring", Vector3.new(s.r * 0.62, 0.22, s.r * 0.62), CFrame.new(s.x, 0.33, s.z), SP.sunCoreRing, f), 0.05)
+				local rays = motion(f, "spin", CFrame.new(at), { Axis = Vector3.new(0, 1, 0), Speed = SU.rayTurn })
+				for k = 0, SU.rayCount - 1 do
+					local a = k / SU.rayCount * math.pi * 2
+					local len = s.r * SU.rayLength * (if k % 2 == 0 then 1 else 0.6)
+					local d = s.r + 0.7 + len / 2
+					glow(block(Vector3.new(len, 0.12, math.max(0.5, s.r * 0.14)), CFrame.new(at + Vector3.new(math.cos(a) * d, 0.14, math.sin(a) * d)) * CFrame.Angles(0, -a, 0),
+						if k % 2 == 0 then SP.sunRay else SP.sunRayLight, rays), 0.1)
+				end
+				sparks(f, at, SP.sunRay, 0.3, 2 + s.r * 0.2, 2)
 				local e = Instance.new("ParticleEmitter")
 				e.Color = ColorSequence.new(A.sunGlow)
 				e.LightEmission = 0.6
@@ -2766,7 +2784,8 @@ end
 -- (about 30 studs up), no view 4 degrees or more below the horizon runs off its edge (ray-checked in
 -- play from every edge of the walkable area; shallower views end in the haze).
 -- side 170 -> 290 (owner 2026-11-13): the island peaks stand behind MapSpectacle's two layers of giant decor
-local FAR = { reach = 600, back = 450, past = 450, row = 95, sideHub = 85, side = 290, sideStep = 20, r = 56 }
+-- reach: the island ground ends just past the outermost peaks (side + 2 x sideStep + r = 386), owner 2026-11-15
+local FAR = { reach = 400, back = 450, past = 450, row = 95, sideHub = 85, side = 290, sideStep = 20, r = 56 }
 
 -- a row of 9 peaks across the map at z, stepping back (dir) by 20 every other one
 local function peakRow(parent: Instance, z: number, dir: number, snowLine: number, color: Color3)
@@ -2961,7 +2980,8 @@ local function walkThrough(p: BasePart): boolean
 	end
 	local a = p.Parent
 	while a and not a:IsA("Workspace") do
-		if string.match(a.Name, "^GateBars") or (a.Name == "Far" and a:IsA("Folder")) then
+		-- GroundDetail (MapSpectacle.ground): ankle-high tufts and shells never trip anyone
+		if string.match(a.Name, "^GateBars") or ((a.Name == "Far" or a.Name == "GroundDetail") and a:IsA("Folder")) then
 			return true
 		end
 		a = a.Parent
@@ -3030,6 +3050,7 @@ function MapArt.build(map: Instance)
 		end
 	end
 	endCap(tunnel)
+	MapSpectacle.ground(tunnel) -- owner 2026-11-13: "make the map more detailed"
 	local farF = folder("Far", art)
 	farScenery(farF, rng)
 	-- owner 2026-11-13: giant decor outside the walls, bigger island by island (its own random stream,

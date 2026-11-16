@@ -79,7 +79,6 @@ function PlayerTracker.updateSpeed(player: Player)
 		hum.WalkSpeed = data.tester.walk -- tester walk speed slider (DataService keeps it 0 for everyone else)
 		return
 	end
-	local boots = 1 + Config.upgrades.boots.speedBonus * (data.upgrades.boots - 1)
 	local extra = math.max(0, s.carrying - 1)
 	local slow = math.max(0.5, 1 - Config.upgrades.backpack.slowPerExtraCube * extra)
 	-- Ice Skates (Config.gear): carrying pets home is faster and a full load doesn't slow you
@@ -87,7 +86,7 @@ function PlayerTracker.updateSpeed(player: Player)
 	if skates > 1 then
 		slow = 1
 	end
-	hum.WalkSpeed = Config.player.walkSpeed * boots * slow * skates
+	hum.WalkSpeed = Config.player.walkSpeed * slow * skates -- speed comes only from Gear (owner 2026-11-15)
 end
 
 -- moves a player's character (tester teleports); the speed check starts fresh from there
@@ -189,6 +188,10 @@ function PlayerTracker.Start()
 		}
 		AnalyticsSvc.funnel(player, "joined")
 		player.CharacterAdded:Connect(function()
+			local s = states[player]
+			if s then
+				s.lastPos = nil -- a new body (respawn, then the walk-free hop to your pan) isn't a fast move
+			end
 			task.defer(PlayerTracker.updateSpeed, player)
 		end)
 		PlayerTracker.updateSpeed(player)

@@ -64,16 +64,20 @@ function Scenery.get(): List
 				table.insert(sun, { x = x, z = z, r = s.r[1] + r() * (s.r[2] - s.r[1]) })
 			end
 		end
-		-- lava pools beside the path (never on it: the path stays a safe way through), clear of each other
+		-- lava pools beside the path (never on it: the path stays a safe way through). Each pool gets its own
+		-- stretch of the island (front, middle, back) and the sides alternate, so two are never side by side.
 		local first = #lava + 1
 		local l = isl.lava
 		if l then
-			for _ = 1, l.count do
+			local count = math.min(l.count, S.maxLava)
+			local band = (z1 - z0 - 10) / count
+			local startSide = if r() < 0.5 then -1 else 1
+			for i = 1, count do
 				local rad = l.r[1] + r() * (l.r[2] - l.r[1])
 				for _ = 1, 8 do
-					local side = if r() < 0.5 then -1 else 1
+					local side = if i % 2 == 1 then startSide else -startSide
 					local x = side * (S.pathHalfWidth + 2 + rad + r() * math.max(0, half - S.pathHalfWidth - 4 - rad * 2))
-					local z = z0 + 10 + r() * (z1 - z0 - 10)
+					local z = z0 + 10 + (i - 1 + 0.2 + r() * 0.6) * band
 					local ok = true
 					for _, p in lava do
 						if (p.x - x) ^ 2 + (p.z - z) ^ 2 < (p.r + rad + 3) ^ 2 then

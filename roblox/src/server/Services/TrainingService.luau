@@ -28,6 +28,7 @@ local GunService = require(script.Parent.GunService)
 local GearService = require(script.Parent.GearService)
 local WorldService = require(script.Parent.WorldService)
 local TrainingArt = require(script.Parent.TrainingArt)
+local TutorialService = require(script.Parent.TutorialService)
 
 local TrainingService = {}
 local T = Config.training
@@ -128,6 +129,8 @@ local function onPrompt(player: Player, i: number)
 	-- from the ground beside the pad: up onto it, never into it
 	local y = if Config.trainerAt(pos) == i then pos.Y else pos.Y + T.padHeight
 	PlayerTracker.teleport(player, standFrame(i, y))
+	AnalyticsSvc.funnel(player, "first_train")
+	TutorialService.did(player, "trainStart") -- Lesson 2: on the pad
 end
 
 -- the "Train" E prompt over a trainer's stand spot (drawn by the client's PromptController)
@@ -193,6 +196,12 @@ local function shoot(player: Player, s: State, click: boolean)
 	DataService.mutate(player, function(x)
 		x.coldPower = math.min(Config.coldPower.max, x.coldPower + total)
 	end)
+	if d.coldPower >= Config.need(d.reach + 1) then
+		-- enough for the next island: Lesson 2 sends you to its gate (every shot, so power from a gift or a
+		-- pack counts on the next one; both calls do nothing after the first time)
+		AnalyticsSvc.funnel(player, "first_power_ready")
+		TutorialService.did(player, "powerReady")
+	end
 	s.gained += total
 	s.shots += 1
 	player:SetAttribute("TrainShots", s.shots) -- every client draws this player's bolt

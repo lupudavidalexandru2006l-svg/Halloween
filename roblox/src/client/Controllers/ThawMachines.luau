@@ -73,6 +73,7 @@ type Machine = {
 	cube: BasePart?,
 	queue: number,
 	culled: boolean,
+	coreAt: Vector3, -- where the core stood at setup: the server slides machines to centre them (PenService)
 }
 
 local machines: { [Model]: Machine } = {}
@@ -176,8 +177,7 @@ local function makeScreen(part: BasePart, m: number): Screen
 	scan.BorderSizePixel = 0
 	scan.Parent = bg
 	local pad = math.floor(w * 0.05)
-	local title = WorldText.label(bg, `THAW POD {m}`, math.floor(h * 0.13), R5.machineCold, true, UDim2.new(0.6, -pad, 0, math.floor(h * 0.18)), UDim2.fromOffset(pad, math.floor(h * 0.04)))
-	title.TextXAlignment = Enum.TextXAlignment.Left
+	-- no "THAW POD 1" title any more (owner 2026-11-16: remove the 1 and the name): the screen is the status only
 	local queue = WorldText.label(bg, "", math.floor(h * 0.12), R5.machineWarm, true, UDim2.new(0.4, -pad, 0, math.floor(h * 0.18)), UDim2.new(0.6, 0, 0, math.floor(h * 0.04)))
 	queue.TextXAlignment = Enum.TextXAlignment.Right
 	local status = WorldText.label(bg, "READY", math.floor(h * 0.36), R5.machineReady, true, UDim2.new(1, 0, 0, math.floor(h * 0.4)), UDim2.fromOffset(0, math.floor(h * 0.2)))
@@ -235,7 +235,7 @@ local function setup(model: Model, plot: number, m: number): Machine?
 		mist = Instance.new("ParticleEmitter"), sparks = Instance.new("ParticleEmitter"),
 		beams = {}, screen = nil,
 		phase = math.random() * TAU, chaseAt = 0, angle = 0, innerAngle = 0, heat = 0, flash = 0,
-		outUntil = 0, outName = "", cube = nil, queue = 0, culled = true,
+		outUntil = 0, outName = "", cube = nil, queue = 0, culled = true, coreAt = core.Position,
 	}
 	for _, d in model:GetDescendants() do
 		if not d:IsA("BasePart") then
@@ -482,7 +482,78 @@ local function sleep(mc: Machine)
 	end
 end
 
+-- the countdown over a busy machine (owner 2026-11-16: "add a timer on the thaw machine so you can see how long
+-- you need to wait"): a dark pill with the time left in big white numbers, floating over the machine, the same
+-- size on screen at any distance (Config.thaw.timerSign). Made the first time the machine is busy.
+local function timerFor(mc: Machine): (BillboardGui, TextLabel, Frame)
+	local any = mc :: any
+	if any.timer then
+		return any.timer, any.timerText, any.timerFill
+	end
+	local TS = Config.thaw.timerSign
+	local cf, size = mc.model:GetBoundingBox()
+	local g = Instance.new("BillboardGui")
+	g.Name = "ThawTimer"
+	g.Adornee = mc.core
+	-- high over the machine, above its "Thaw a pet" prompt (QA 2026-11-16: at 1.6 the prompt covered it)
+	g.StudsOffsetWorldSpace = Vector3.new(0, cf.Position.Y + size.Y / 2 + Config.thaw.timerSign.lift - mc.core.Position.Y, 0)
+	g.Size = UDim2.fromScale(TS.size[1], TS.size[2])
+	g.LightInfluence = 0
+	g.AlwaysOnTop = false
+	g.MaxDistance = TS.drawDistance
+	g.Enabled = false
+	local back = Instance.new("Frame")
+	back.Size = UDim2.fromScale(1, 1)
+	back.BackgroundColor3 = Theme.alert.back
+	back.BorderSizePixel = 0
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0.5, 0)
+	c.Parent = back
+	local st = Instance.new("UIStroke")
+	st.Color = Theme.ink
+	st.Thickness = 3
+	st.Parent = back
+	back.Parent = g
+	-- the fill grows left to right as it thaws, in the machine's heat colour
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.BorderSizePixel = 0
+	fill.BackgroundTransparency = 0.15
+	fill.Size = UDim2.fromScale(0, 1)
+	local fc = Instance.new("UICorner")
+	fc.CornerRadius = UDim.new(0.5, 0)
+	fc.Parent = fill
+	fill.Parent = back
+	local txt = Instance.new("TextLabel")
+	txt.BackgroundTransparency = 1
+	txt.Size = UDim2.fromScale(0.9, 0.8)
+	txt.Position = UDim2.fromScale(0.05, 0.1)
+	txt.Font = Theme.font
+	txt.TextScaled = true
+	txt.TextColor3 = Theme.white
+	txt.ZIndex = 2
+	local ts = Instance.new("UIStroke")
+	ts.Color = Theme.ink
+	ts.Thickness = 2.5
+	ts.Parent = txt
+	txt.Parent = back
+	g.Parent = mc.core
+	any.timer, any.timerText, any.timerFill = g, txt, fill
+	return g, txt, fill
+end
+
 local function updateScreen(mc: Machine, active: boolean, p: number, left: number, lit: Color3, t: number)
+	local tg, tt, tf = timerFor(mc)
+	local showTimer = active and left > 0
+	put(tg, "Enabled", showTimer)
+	if showTimer then
+		local txt = Config.timeText(left)
+		if tt.Text ~= txt then
+			tt.Text = txt
+		end
+		put(tf, "Size", UDim2.fromScale(math.clamp(p, 0.08, 1), 1))
+		put(tf, "BackgroundColor3", lit)
+	end
 	local s = mc.screen
 	if not s then
 		return
@@ -492,10 +563,9 @@ local function updateScreen(mc: Machine, active: boolean, p: number, left: numbe
 		status, color, bar, barColor = "OUT!", R5.machineReady, 1, R5.machineReady
 		sub = `{mc.outName} is out!`
 	elseif active then
-		status, color, bar, barColor = `{math.floor(p * 100)}%`, lit, p, lit
-		local cube = mc.cube :: BasePart
-		local def = PetDefs.get(cube:GetAttribute("PetKey") :: string)
-		sub = `{if def then def.name else "Thawing"}  {Config.timeText(left)}`
+		-- the time left, big (owner 2026-11-16: no pet name and no "1 IN LINE" on the screen)
+		status, color, bar, barColor = Config.timeText(left), lit, p, lit
+		sub = `Thawing {math.floor(p * 100)}%`
 	else
 		status, color, bar, barColor = "READY", R5.machineReady, 0, R5.machineCold
 		sub = "Put a pet in!" -- you put frozen pets in yourself (owner 2026-11-09)
@@ -507,7 +577,7 @@ local function updateScreen(mc: Machine, active: boolean, p: number, left: numbe
 	if s.sub.Text ~= sub then
 		s.sub.Text = sub
 	end
-	local q = if mc.queue >= Config.thaw.queueShown then `{mc.queue}+ IN LINE` elseif mc.queue > 0 then `{mc.queue} IN LINE` else ""
+	local q = ""
 	if s.queue.Text ~= q then
 		s.queue.Text = q
 	end
@@ -662,6 +732,26 @@ function ThawMachines.Start()
 		local cam = workspace.CurrentCamera
 		local t = os.clock()
 		local reduced = SettingsController.get("reducedMotion") == true
+		-- the server moved a machine (one centred, two side by side): read its parts again from their new
+		-- spots before this frame writes the halo back at the old one
+		local moved: { Machine }? = nil
+		for _, mc in machines do
+			if (mc.core.Position - mc.coreAt).Magnitude > 0.05 then
+				moved = moved or {}
+				table.insert(moved :: { Machine }, mc)
+			end
+		end
+		if moved then
+			for _, mc in moved do
+				drop(mc)
+				if mc.model.Parent then
+					local fresh = setup(mc.model, mc.plot, mc.m)
+					if fresh then
+						machines[mc.model] = fresh
+					end
+				end
+			end
+		end
 		for _, mc in machines do
 			local far = not cam or (cam.CFrame.Position - mc.core.Position).Magnitude > FX.drawDistance
 			if far or hidden(mc) then

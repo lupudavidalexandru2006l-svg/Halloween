@@ -6,7 +6,7 @@
 -- HUD (5 at most): tile grid (left, centred), coins and Cold Power (bottom left, one block), the island
 -- banner (top centre, only while it shows), the hotbar (bottom centre, Round 5) and the banner (only
 -- while it shows).
--- Ranger Bo's tutorial card sits over the hotbar, for new players only, until the tutorial ends.
+-- The tutorial's goal pill sits top centre, for new players only, until the tutorial ends.
 
 local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
@@ -18,8 +18,6 @@ local Screen = {}
 local U = Config.ui
 local items: { [string]: GuiObject } = {}
 local tileCount = 0
--- the top buttons fill this share of Roblox's top bar height (its own buttons are 44 px in a 58 px bar)
-local BAR_FILL = 0.76
 
 Screen.hud = nil :: ScreenGui?
 Screen.popups = nil :: ScreenGui?
@@ -112,7 +110,13 @@ function Screen.layout()
 		if bar and GuiService.TopbarInset.Height > 0 and barSize.X > 0 and barSize.Y > 0 then
 			-- in pixels first (the bar is a strip of the screen), then Scale of the bar
 			local barW, barH = barSize.X, barSize.Y
-			local bh = math.min(barH - 4, math.max(barH * BAR_FILL, if touch then U.minTouchPx else 0))
+			-- owner 2026-11-13: "make the equipment and pan buttons bigger": taller than the bar (TB.barFill), hanging
+			-- from its top a little way down over the view (they were 76% of it, 44 px of 58)
+			-- owner 2026-11-13: "on my friend's laptop it's too big": the bar is the same 58 px on every screen,
+			-- so the height is also capped at a share of the screen's short side (TB.barShort), never under the
+			-- old size (TB.barMin of the bar) or a thumb on touch
+			local bh = math.min(barH * TB.barFill, short * TB.barShort)
+			bh = math.max(bh, barH * TB.barMin, if touch then U.minTouchPx else 0)
 			local bw = TB.size[1] * bh / TB.size[2]
 			local gap = TB.gap * bh / TB.size[2]
 			local rowW = bw * n + gap * (n - 1)
@@ -126,23 +130,53 @@ function Screen.layout()
 			if top.Parent ~= bar then
 				top.Parent = bar
 			end
-			top.Visible = want and not Screen.menuHidden
-			top.AnchorPoint = Vector2.new(0.5, 0.5)
+			top.Visible = want and not Screen.menuHidden and not Screen.menusLocked
+			top.AnchorPoint = Vector2.new(0.5, 0)
 			top.Size = UDim2.fromScale(rowW / barW, bh / barH)
-			top.Position = UDim2.fromScale(cx, 0.5)
+			top.Position = UDim2.fromScale(cx, TB.barTop)
+			-- the part hanging below the bar pushes the island banner and the message banner down with it
+			local overhang = barH * TB.barTop + bh - barH
+			if top.Visible and overhang > 0 then
+				topH = overhang / short
+			end
 		else
 			if top.Parent ~= main then
 				top.Parent = main
 			end
 			local bh = if touch then math.max(TB.size[2], U.minTouchPx / short) else TB.size[2]
 			local bw = TB.size[1] * bh / TB.size[2]
-			top.Visible = want
+			top.Visible = want and not Screen.menusLocked
 			top.AnchorPoint = Vector2.new(0.5, 0)
 			top.Size = UDim2.fromScale(math.min(0.96, sx(bw * n + TB.gap * (n - 1) * bh / TB.size[2])), sy(bh))
 			top.Position = UDim2.fromScale(0.5, sy(U.topInset))
 			if top.Visible then
 				topH = bh + U.tileGap
 			end
+		end
+	end
+	-- the tutorial's goal pill (TutorialGoal): top centre under the top buttons, for new players only;
+	-- everything below it at the top moves down by its height. Steps aside while a popup is open.
+	local goal = items.goal
+	if goal then
+		local GU = U.tutorialGoal
+		local size = if Screen.deviceClass() == "phone" then GU.phone else GU.wide
+		goal.Visible = goal:GetAttribute("Want") == true and not Screen.popupOpen
+		goal.AnchorPoint = Vector2.new(0.5, 0)
+		goal.Size = UDim2.fromScale(math.min(0.92, sx(size[1])), sy(size[2]))
+		goal.Position = UDim2.fromScale(0.5, sy(U.topInset + topH))
+		if goal.Visible then
+			topH += size[2] + U.tileGap
+		end
+	end
+	-- the Cold Power gain banner (HudController, Config.ui.gainBanner): top centre under the top buttons while you gain
+	local gain = items.gain
+	if gain then
+		local GB = U.gainBanner
+		gain.AnchorPoint = Vector2.new(0.5, 0)
+		gain.Size = UDim2.fromScale(math.min(0.8, sx(GB.size[1])), sy(GB.size[2]))
+		gain.Position = UDim2.fromScale(0.5, sy(U.topInset + topH + GB.y))
+		if gain.Visible then
+			topH += GB.size[2] + GB.y + U.tileGap
 		end
 	end
 	local IB = U.islandBanner
@@ -155,15 +189,33 @@ function Screen.layout()
 	end
 	local banner = items.banner
 	if banner then
-		-- under the island banner, so the two never overlap
+		-- the alerts (owner 2026-11-16: "put it under equipment and pan"): a stack of toasts right under the top
+		-- buttons (and under the island banner while that shows, so they never overlap)
+		local A = U.alerts
 		banner.AnchorPoint = Vector2.new(0.5, 0)
-		-- a phone's short side is small next to its width: at 50% of it long messages wrapped into two ~10 px lines
-		local bw = sx(U.bannerSize[1])
-		if Screen.deviceClass() == "phone" then
-			bw = math.max(bw, U.bannerPhoneWidth)
-		end
-		banner.Size = UDim2.fromScale(bw, sy(U.bannerSize[2]))
-		banner.Position = UDim2.fromScale(0.5, sy(U.topInset * 2 + IB.height + topH))
+		-- phones (2-player phone test 2026-11-16): taller toasts (28 px was too small to read) and narrower, so
+		-- they sit between the menu tiles on the left and the clocks on the right instead of under the tiles
+		local phone = Screen.deviceClass() == "phone"
+		local k = if phone then A.phoneScale else 1
+		local bw = if phone then A.phoneWidth else sx(A.size[1])
+		local stackH = (A.stack * A.size[2] + (A.stack - 1) * A.gap) * k
+		banner.Size = UDim2.fromScale(math.min(0.96, bw), sy(stackH))
+		-- on a phone there's no room to stack them under the island banner (they ran down onto the coins and the
+		-- hotbar): they stay under the top buttons and draw over the island banner instead
+		local below = if island and island.Visible and not phone then IB.height + U.topInset else 0
+		banner.Position = UDim2.fromScale(0.5, sy(U.topInset + topH + below))
+		banner.ZIndex = 5
+	end
+	-- the clocks (night, Secret, event): bottom right, over the jump button on touch screens
+	local clocks = items.clocks
+	if clocks then
+		local C = U.clocks
+		local n = 3
+		local ck = if Screen.deviceClass() == "phone" then C.phoneScale else 1 -- bigger on phones (24 px chips were too small)
+		clocks.Visible = not Screen.menusLocked
+		clocks.AnchorPoint = Vector2.new(1, 1)
+		clocks.Size = UDim2.fromScale(sx(C.size[1] * ck), sy((C.size[2] * n + C.gap * (n - 1)) * ck))
+		clocks.Position = UDim2.fromScale(1 - sx(U.sideInset), 1 - sy(U.sideInset + (if touch then U.stickClear else 0)))
 	end
 	-- the "you can now buy" card (UnlockAlert): top right, under the top buttons' row; bigger on a phone
 	-- so its words stay readable
@@ -188,52 +240,81 @@ function Screen.layout()
 		hotbar.Size = UDim2.fromScale(sx((H.size * n + H.gap * (n - 1)) * k), sy(slotSize * 1.45))
 		hotbar.Position = UDim2.fromScale(0.5, 1 - sy(H.bottomInset))
 	end
-	-- Ranger Bo's card (only during the tutorial): bottom centre, just above the hotbar
-	local tutorial = items.tutorial
-	if tutorial then
-		local H, TU = Config.hotbar, U.tutorial
-		local size = if Screen.deviceClass() == "phone" then TU.phone else TU.wide
-		tutorial.AnchorPoint = Vector2.new(0.5, 1)
-		tutorial.Size = UDim2.fromScale(math.min(0.96, sx(size[1])), sy(size[2]))
-		tutorial.Position = UDim2.fromScale(0.5, 1 - sy(H.bottomInset + slotSize * 1.45 + U.tileGap))
-	end
 	local tiles = items.tiles
 	if tiles then
-		local rows = math.ceil(tileCount / 2)
-		if tileSize > U.tileSize and rows > 0 then
+		tiles.Visible = not Screen.menusLocked
+		-- owner 2026-11-15: a "Wide" tile (Shop) takes a whole row of two on top, the rest pair up under it
+		local list: { GuiObject } = {}
+		for _, c in tiles:GetChildren() do
+			if c:IsA("GuiObject") then
+				table.insert(list, c)
+			end
+		end
+		table.sort(list, function(a, b)
+			return a.LayoutOrder < b.LayoutOrder
+		end)
+		local slots: { { obj: GuiObject, row: number, col: number, span: number } } = {}
+		local row, col = 0, 0
+		for _, c in list do
+			if c:GetAttribute("Wide") == true then
+				if col > 0 then
+					row, col = row + 1, 0
+				end
+				table.insert(slots, { obj = c, row = row, col = 0, span = 2 })
+				row += 1
+			else
+				table.insert(slots, { obj = c, row = row, col = col, span = 1 })
+				col += 1
+				if col == 2 then
+					row, col = row + 1, 0
+				end
+			end
+		end
+		local rows = row + (if col > 0 then 1 else 0)
+		if #list == 0 then
+			rows = math.ceil(tileCount / 2)
+		end
+		-- touch screens: the tiles stay above the thumbstick's corner (U.stickClear), since a tile under a thumb
+		-- would take the touch meant for the stick (the coins can sit under it: they're text, owner 2026-11-15)
+		local tilesFloor = if touch then math.min(coinsTop, 1 - sy(U.stickClear)) else coinsTop
+		if rows > 0 then
 			-- the touch floor only grows a tile as far as the room above the coins allows (a 338 px tall
-			-- phone had 46 px tiles running into the coin counter); never below the normal size
-			local room = (coinsTop - sy(U.topInset) - sy(U.tileGap)) * h / short -- in short-side units
+			-- phone had 46 px tiles running into the coin counter). An extra row (the Tester tile under the
+			-- wide Shop row) shrinks the tiles to fit too, never below U.tileMinFit
+			local room = (tilesFloor - sy(U.topInset) - sy(U.tileGap)) * h / short -- in short-side units
 			local fit = (room - U.tileGap * (rows - 1)) / rows
-			tileSize = math.max(U.tileSize, math.min(tileSize, fit))
+			tileSize = math.max(math.min(U.tileSize, U.tileMinFit), math.min(tileSize, fit))
 		end
 		local tw, th = sx(tileSize * 2 + U.tileGap), sy(tileSize * rows + U.tileGap * math.max(0, rows - 1))
 		-- centred on the screen's middle; pushed up only if it would touch the coins
 		local top = 0.5 - th / 2
 		local gap = sy(U.tileGap)
-		if top + th > coinsTop - gap then
-			top = math.max(sy(U.topInset), coinsTop - gap - th)
+		if top + th > tilesFloor - gap then
+			top = math.max(sy(U.topInset), tilesFloor - gap - th)
 		end
 		tiles.AnchorPoint = Vector2.new(0, 0)
 		tiles.Size = UDim2.fromScale(tw, th)
 		tiles.Position = UDim2.fromScale(sx(U.sideInset), top)
-		local grid = tiles:FindFirstChildOfClass("UIGridLayout")
-		if grid then
-			local cell = tileSize / (tileSize * 2 + U.tileGap)
-			grid.CellSize = UDim2.fromScale(cell, tileSize / (tileSize * rows + U.tileGap * math.max(0, rows - 1)))
-			grid.CellPadding = UDim2.fromScale(1 - cell * 2, if rows > 1 then U.tileGap / (tileSize * rows + U.tileGap * (rows - 1)) else 0)
+		-- placed by hand (a UIGridLayout can't span two columns): Scale of the tiles frame
+		local totalW = tileSize * 2 + U.tileGap
+		local totalH = math.max(1e-6, tileSize * rows + U.tileGap * math.max(0, rows - 1))
+		for _, s in slots do
+			local w = if s.span == 2 then totalW else tileSize
+			s.obj.AnchorPoint = Vector2.zero
+			s.obj.Size = UDim2.fromScale(w / totalW, tileSize / totalH)
+			s.obj.Position = UDim2.fromScale(s.col * (tileSize + U.tileGap) / totalW, s.row * (tileSize + U.tileGap) / totalH)
 		end
 	end
 end
 
--- name: "tiles" | "coins" | "power" | "island" | "banner" | "hotbar" | "tutorial" | "top" | "alert"; count = number of tiles for "tiles"
+-- name: "tiles" | "coins" | "power" | "island" | "banner" | "hotbar" | "goal" | "top" | "alert" | "gain" | "clocks"; count = number of tiles for "tiles"
 -- (the hotbar's slot count is its "Slots" attribute)
 function Screen.register(name: string, obj: GuiObject, count: number?)
 	items[name] = obj
 	if name == "tiles" then
 		tileCount = count or 0
 	end
-	obj.Parent = if name == "banner" then Screen.hud else main
+	obj.Parent = if name == "banner" or name == "gain" then Screen.hud else main
 	obj:GetPropertyChangedSignal("Visible"):Connect(Screen.layout) -- a piece appearing re-runs the layout
 	obj:GetAttributeChangedSignal("Slots"):Connect(Screen.layout)
 	obj:GetAttributeChangedSignal("Locked"):Connect(Screen.layout)
@@ -298,6 +379,30 @@ function Screen.popupFrame(big: boolean?, keepsHud: boolean?): Frame
 	aspect.Parent = f
 	f.Parent = Screen.popups
 	return f
+end
+
+-- Lesson 1 of the tutorial is running (TutorialController, Config.tutorial.lockMenus): the menu tiles and
+-- the top buttons wait, so a new player sees only the goal; when it ends they pop in
+Screen.menusLocked = false
+function Screen.lockMenus(on: boolean, reduced: boolean?)
+	if Screen.menusLocked == on then
+		return
+	end
+	Screen.menusLocked = on
+	Screen.layout()
+	if on then
+		return
+	end
+	for _, name in { "tiles", "top" } do
+		local g = items[name]
+		if g and not reduced then
+			local s = (g:FindFirstChild("UnlockPop") :: UIScale?) or Instance.new("UIScale")
+			s.Name = "UnlockPop"
+			s.Scale = 0.3
+			s.Parent = g
+			game:GetService("TweenService"):Create(s, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+		end
+	end
 end
 
 -- any popup is open (PopupController): on a phone the hotbar steps aside (see layout)

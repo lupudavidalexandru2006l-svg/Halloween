@@ -570,6 +570,160 @@ local SETS: { Builder } = {
 	end,
 }
 
+-- ---------- ground detail inside the tunnel (owner 2026-11-13: "make the map more detailed") ----------
+-- small themed things in clusters on the open ground beside the road: never on the road's middle, never
+-- on a tree's, sun patch's or lava pool's spot, walk-through (MapArt treats GroundDetail like Far)
+type Bit = (Instance, Vector3) -> ()
+
+local function tuft(color: Color3): Bit
+	return function(f, at)
+		local h = 0.9 + rng() * 0.6
+		for k = 0, 2 do
+			local a = k * 2.1 + rng()
+			block(Vector3.new(0.18, h * (0.7 + rng() * 0.5), 0.45), CFrame.new(at + Vector3.new(math.cos(a) * 0.25, h * 0.35, math.sin(a) * 0.25)) * CFrame.Angles(0, a, (rng() - 0.5) * 0.7), color, f)
+		end
+	end
+end
+
+local function flower(f: Instance, at: Vector3)
+	block(Vector3.new(0.12, 0.8, 0.12), CFrame.new(at + Vector3.new(0, 0.4, 0)), P.leaves[1], f)
+	ball(0.3, at + Vector3.new(0, 0.85, 0), P.flowers[1 + math.floor(rng() * #P.flowers)], f)
+	ball(0.12, at + Vector3.new(0, 0.9, -0.22), P.sunCore, f)
+end
+
+local function pebble(color: Color3): Bit
+	return function(f, at)
+		local s = 0.7 + rng() * 1.1
+		mesh("Rock", Vector3.new(s, s * 0.6, s * 0.8), CFrame.new(at + Vector3.new(0, s * 0.18, 0)) * CFrame.Angles(0, rng() * 6, 0), color, f)
+	end
+end
+
+local function miniShroom(glowing: boolean): Bit
+	return function(f, at)
+		local h = 0.6 + rng() * 0.5
+		cyl(0.14, h, CFrame.new(at + Vector3.new(0, h / 2, 0)), P.cream, f)
+		local cap = ellipsoid(Vector3.new(h * 1.3, h * 0.6, h * 1.3), CFrame.new(at + Vector3.new(0, h, 0)), P.caps[1 + math.floor(rng() * #P.caps)], f)
+		if glowing then
+			neon(cap, 0.1)
+		end
+	end
+end
+
+local function starfish(f: Instance, at: Vector3)
+	for k = 0, 4 do
+		local a = k * math.pi * 2 / 5 + rng()
+		block(Vector3.new(0.8, 0.14, 0.26), CFrame.new(at + Vector3.new(math.cos(a) * 0.38, 0.2, math.sin(a) * 0.38)) * CFrame.Angles(0, -a, 0), P.starfish, f)
+	end
+end
+
+local function shell(f: Instance, at: Vector3)
+	ellipsoid(Vector3.new(0.75, 0.35, 0.6), CFrame.new(at + Vector3.new(0, 0.2, 0)) * CFrame.Angles(0, rng() * 6, 0), P.shell, f)
+end
+
+local function crystal(colors: { Color3 }): Bit
+	return function(f, at)
+		local h = 0.9 + rng() * 0.9
+		neon(mesh("Octa", Vector3.new(h * 0.32, h, h * 0.32), CFrame.new(at + Vector3.new(0, h * 0.4, 0)) * CFrame.Angles((rng() - 0.5) * 0.6, rng() * 3, (rng() - 0.5) * 0.6), colors[1 + math.floor(rng() * #colors)], f), 0.05)
+	end
+end
+
+local function crack(color: Color3): Bit
+	return function(f, at)
+		local pos, a = at, rng() * 6
+		for _ = 1, 3 do
+			local len = 1.2 + rng() * 1.2
+			local dir = Vector3.new(math.cos(a), 0, math.sin(a))
+			neon(block(Vector3.new(len, 0.06, 0.2), CFrame.new(pos + dir * len / 2 + Vector3.new(0, 0.19, 0)) * CFrame.Angles(0, -a, 0), color, f), 0.05)
+			pos += dir * len
+			a += (rng() - 0.5) * 1.6
+		end
+	end
+end
+
+local function snowLump(f: Instance, at: Vector3)
+	ellipsoid(Vector3.new(1.4 + rng(), 0.55, 1.1 + rng() * 0.6), CFrame.new(at + Vector3.new(0, 0.18, 0)) * CFrame.Angles(0, rng() * 6, 0), P.white, f)
+end
+
+local function fern(f: Instance, at: Vector3)
+	for k = 0, 4 do
+		local a = k * math.pi * 2 / 5 + rng()
+		block(Vector3.new(0.4, 0.08, 1.4), CFrame.new(at + Vector3.new(math.cos(a) * 0.55, 0.4, math.sin(a) * 0.55)) * CFrame.Angles(0, -a + math.pi / 2, 0) * CFrame.Angles(0.5, 0, 0), P.palm[1 + k % #P.palm], f)
+	end
+end
+
+local function dryBush(f: Instance, at: Vector3)
+	for k = 0, 3 do
+		local a = k * 1.6 + rng()
+		block(Vector3.new(0.1, 0.9, 0.1), CFrame.new(at + Vector3.new(math.cos(a) * 0.2, 0.4, math.sin(a) * 0.2)) * CFrame.Angles(math.sin(a) * 0.5, 0, math.cos(a) * 0.5), P.dryBush, f)
+	end
+	ball(0.35, at + Vector3.new(0, 0.3, 0), P.dryBush, f)
+end
+
+-- what grows on each island's ground (a bit is picked at random per item, so repeats are common)
+local GROUND: { [string]: { Bit } } = {
+	meadow = { snowLump, snowLump, crystal({ P.ice }), pebble(P.white) },
+	forest = { tuft(P.leaves[2]), flower, fern, pebble(P.cliff), miniShroom(false) },
+	grove = { miniShroom(true), miniShroom(true), tuft(P.leavesPink[1]), flower },
+	beach = { shell, starfish, tuft(P.palm[1]), pebble(P.sandLight) },
+	jungle = { fern, fern, flower, tuft(P.leaves[1]), miniShroom(false) },
+	desert = { pebble(P.sand), dryBush, tuft(P.dryBush), pebble(P.cliff) },
+	canyon = { pebble(P.cliff), dryBush, crystal({ P.pink, P.nova }) },
+	volcano = { crack(P.lava), crack(P.lavaHot), pebble(P.volcanoDark), crystal({ P.lava }) },
+	lavalake = { crystal(P.crystal), crack(P.pink), pebble(P.obsidian) },
+	magma = { crack(P.lava), crack(P.lavaHot), crystal({ P.gold, P.lavaHot }), pebble(P.volcanoDark) },
+}
+
+function Spectacle.ground(tunnel: Instance)
+	meshes = ReplicatedStorage:FindFirstChild("SceneryMeshes")
+	rng = Scenery.rng(S.seed + 1)
+	front, dens = true, 1
+	local D = S.detail
+	local list = Scenery.get()
+	local half = W.tunnel.width / 2
+	local root = folder("GroundDetail", tunnel)
+	local function clearOf(x: number, z: number): boolean
+		for _, group in { list.trees, list.sun, list.lava } do
+			for _, s in group :: { any } do
+				if (s.x - x) ^ 2 + (s.z - z) ^ 2 < (s.r + D.clear) ^ 2 then
+					return false
+				end
+			end
+		end
+		return true
+	end
+	for _, zone in W.zones do
+		local bits = GROUND[zone.theme]
+		if not bits then
+			continue
+		end
+		local f = folder("Island" .. zone.id, root)
+		local n = math.round((zone.zMax - zone.zMin) * D.perStud)
+		for _ = 1, n do
+			local side = if rng() < 0.5 then -1 else 1
+			-- sqrt pushes more of them toward the cliffs (World Rules 9: calm middle, richer edges)
+			local x = side * (D.inner + math.sqrt(rng()) * (half - D.edgeMargin - D.inner))
+			local z = zone.zMin + 6 + rng() * (zone.zMax - zone.zMin - 12)
+			if clearOf(x, z) then
+				for _ = 1, 2 + math.floor(rng() * 2) do
+					local at = Vector3.new(x + (rng() - 0.5) * 4, 0, z + (rng() - 0.5) * 4)
+					-- built at toy size, then grown round its foot by D.scale so it reads from the camera
+					local tmp = Instance.new("Folder")
+					bits[1 + math.floor(rng() * #bits)](tmp, at)
+					for _, p in tmp:GetChildren() do
+						if p:IsA("BasePart") then
+							local cf = p.CFrame
+							p.Size *= D.scale
+							p.CFrame = cf.Rotation + (at + (cf.Position - at) * D.scale)
+							p.Parent = f
+						end
+					end
+					tmp:Destroy()
+				end
+			end
+		end
+	end
+end
+
 function Spectacle.build(far: Instance)
 	meshes = ReplicatedStorage:FindFirstChild("SceneryMeshes")
 	rng = Scenery.rng(S.seed)
@@ -591,10 +745,11 @@ function Spectacle.build(far: Instance)
 end
 
 -- the whole map's colours, more saturated (owner 2026-11-13: "brighter and more striking"). White and
--- grey stay as they are (no hue to push); the Spectacle's own colours are already full.
+-- grey stay as they are (no hue to push); the Spectacle's and GroundDetail's own colours are already
+-- full (pushed again, the desert's tan bushes turned lime).
 function Spectacle.vivid(map: Instance)
 	for _, d in map:GetDescendants() do
-		if d:IsA("BasePart") and d.Transparency < 1 and not d:FindFirstAncestor("Spectacle") then
+		if d:IsA("BasePart") and d.Transparency < 1 and not d:FindFirstAncestor("Spectacle") and not d:FindFirstAncestor("GroundDetail") then
 			local h, s, v = d.Color:ToHSV()
 			if s > S.vividMinSat then
 				d.Color = Color3.fromHSV(h, math.min(1, s * S.vividSaturation), math.min(1, v * S.vividValue))

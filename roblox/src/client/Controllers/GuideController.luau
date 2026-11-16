@@ -4,7 +4,14 @@
 --    home to your pen while you carry a cube (hidden once you're close)
 --  - a small diamond over the nearest pet you can't reach yet (hands free, arrow hidden)
 --  - a soft green light pillar over your pen while you carry
+--  - (2026-11-15, tutorial references) a trail of smaller chevrons flowing from the lead one to the
+--    target, and a big white chevron bobbing over the target itself, pointing down
 -- Everything is local; nothing here changes the game.
+-- 2026-11-16 (owner: "after you finish the tutorial the arrows still remain", "while training the arrows keep
+-- aiming at the pets", "after you put the pet in the thaw machine the arrows guide you to another pet"): the
+-- chevrons and the target arrow show only while the tutorial runs, and only toward the current step's own
+-- target (GuideController.focus). Outside it, only a short "go train" pointer after "Need more Cold Power".
+-- One deep blue everywhere (Theme.fx.guideArrow), not the island colours, which washed out on snow.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -17,13 +24,17 @@ local SettingsController = require(script.Parent.SettingsController)
 local Screen = require(script.Parent.Screen)
 
 local GuideController = {}
--- what the arrow points at this frame (TutorialController flies Captain Frost there and makes it glow):
--- kind = "pet" | "cube" | "machine" | "pan" | "train"; inst = the pet or cube part when there is one
+-- what the arrow points at this frame (TutorialController makes it glow):
+-- kind = "pet" | "cube" | "machine" | "pan" | "train" | "stand" | "gate"; inst = the pet or cube part when there is one
 export type Target = { kind: string, pos: Vector3, inst: Instance? }
 GuideController.target = nil :: Target?
 -- the tutorial is teaching the catch: point at pets even if you own plenty (a replay) and before a
 -- frozen pet waiting for the Thaw Machine
 GuideController.pointPets = false
+-- the tutorial is running (TutorialController): the arrows show only then; focus = the step's target kind
+-- ("pet" | "cube" | "pan" | "machine" | "stand" | "train" | "gate"), nil on a talk step = no arrow
+GuideController.tutorial = false
+GuideController.focus = nil :: string?
 -- the tutorial is showing something the arrow doesn't know (the Pan Upgrades stand): point there instead
 GuideController.extra = nil :: Target?
 local G = Config.guide
@@ -39,6 +50,8 @@ local function trainSpot(): Vector3?
 end
 local folder: Folder
 local arrow: Model
+local trail: { Model } = {}
+local targetArrow: Model
 local arrowZone = -1 -- the zone whose colour the arrow wears now
 local marker: BasePart
 local beacon: BasePart
@@ -58,14 +71,14 @@ local function part(size: Vector3, color: Color3, parent: Instance, class: strin
 end
 
 -- a flat chevron: a triangle tip (two wedges) on a short shaft, ink outline from a Highlight
-local function buildArrow(): Model
+local function buildArrow(color: Color3?): Model
 	local m = Instance.new("Model")
 	m.Name = "GuideArrow"
-	local shaft = part(Vector3.new(1.1, 0.35, 1.2), Theme.fx.arrow, m)
+	local shaft = part(Vector3.new(1.1, 0.35, 1.2), color or Theme.fx.guideArrow, m)
 	shaft.CFrame = CFrame.new(0, 0, 0.6)
 	for _, side in { -1, 1 } do
 		-- each wedge, laid on its side, is one half of the flat triangle; the tip points -Z
-		local w = part(Vector3.new(0.35, 1.4, 1.8), Theme.fx.arrow, m, "WedgePart")
+		local w = part(Vector3.new(0.35, 1.4, 1.8), color or Theme.fx.guideArrow, m, "WedgePart")
 		w.CFrame = CFrame.new(side * 0.7, 0, -0.9) * CFrame.Angles(0, 0, if side > 0 then -math.pi / 2 else math.pi / 2)
 	end
 	m.PrimaryPart = shaft
@@ -151,11 +164,40 @@ local function freeMachine(v: State.View): Vector3?
 	return nil
 end
 
+-- the machine my pet is thawing in right now (the tutorial's "wait for your pet": the arrow stays on it)
+local function busyMachine(v: State.View): Vector3?
+	if not v.plot then
+		return nil
+	end
+	for _, p in v.pets do
+		if p.thawM then
+			return GuideController.machineAt(v.plot :: number, p.thawM)
+		end
+	end
+	return nil
+end
+
+-- a pet done thawing and waiting for Claim: the arrow points at its machine (the READY sign says the
+-- rest; the first pet pops out by itself, so this is how Claim is taught, 2026-11-15)
+local function readyMachine(v: State.View): number?
+	if not Config.thaw.claimByHand then
+		return nil
+	end
+	local now = workspace:GetServerTimeNow()
+	for _, p in v.pets do
+		local at = (p :: any).thawAt
+		if p.thawM and typeof(at) == "number" and at <= now then
+			return p.thawM
+		end
+	end
+	return nil
+end
+
 -- where Thaw Machine m of a pan stands (same spot as PenService.machineSpot)
 function GuideController.machineAt(plot: number, m: number): Vector3
 	local T, P = Config.thaw, Config.world.pans
 	local spot = Config.world.plots[plot]
-	return Vector3.new(spot.x + T.machine.x + (m - 1) * T.machine.gap, 0, P.frontZ - P.length + T.machine.z)
+	return Vector3.new(spot.x + Config.thawMachineOffset(m, Config.machineCount(plot)), 0, P.frontZ - P.length + T.machine.z)
 end
 
 local function step()
@@ -175,55 +217,96 @@ local function step()
 		end
 	end
 	if not root or not v then
-		arrow.Parent, marker.Parent, beacon.Parent = nil, nil, nil
+		arrow.Parent, marker.Parent, beacon.Parent, targetArrow.Parent = nil, nil, nil, nil
+		for _, c in trail do
+			c.Parent = nil
+		end
 		GuideController.target = nil
 		return
 	end
 	local pos = root.Position
+	if (me:GetAttribute("TrainStation") or 0) ~= 0 then
+		needPowerUntil = 0 -- you found your trainer: the "go train" arrow has done its job
+	end
 	-- arrow
 	local goal: Vector3? = nil
 	local kind: string? = nil
 	local inst: Instance? = nil
-	local machine = freeMachine(v)
-	if holding and v.plot then
-		goal, kind = WorldRules.plotCenter(v.plot), "pan"
-	elseif waiting then
-		goal, kind, inst = waiting, "cube", waitingPart -- go back and pick it up
-	elseif GuideController.extra then
-		goal, kind = GuideController.extra.pos, GuideController.extra.kind
-	elseif t < needPowerUntil and (me:GetAttribute("TrainStation") or 0) == 0 and trainSpot() then
-		goal, kind = trainSpot(), "train" -- train there, then come back
-	elseif machine and not GuideController.pointPets then
-		goal, kind = machine, "machine" -- put your frozen pet in the Thaw Machine
-	elseif #v.pets < G.earlyPets or GuideController.pointPets then
-		local p = nearestPet(pos, 0, math.huge, 1)
-		if p then
-			goal, kind, inst = p.Position, "pet", p
+	local ready = if v.plot then readyMachine(v) else nil
+	local machine = if ready and v.plot then GuideController.machineAt(v.plot, ready) else freeMachine(v)
+	local focus = GuideController.focus
+	if GuideController.tutorial then
+		-- only the current step's own target (nothing on a talk step, nothing while you train on the pad)
+		if (focus == "pan" or focus == "cube") and holding and v.plot then
+			goal, kind = WorldRules.plotCenter(v.plot), "pan"
+		elseif (focus == "pan" or focus == "cube") and waiting then
+			goal, kind, inst = waiting, "cube", waitingPart -- go back and pick it up
+		elseif focus == "pet" then
+			local p = nearestPet(pos, 0, math.huge, 1)
+			if p then
+				goal, kind, inst = p.Position, "pet", p
+			end
+		elseif focus == "machine" then
+			local at = machine or busyMachine(v)
+			if at then
+				goal, kind = at, "machine" -- put it in, then wait by it
+			end
+		elseif GuideController.extra and GuideController.extra.kind == focus then
+			goal, kind = GuideController.extra.pos, GuideController.extra.kind
 		end
+	elseif t < needPowerUntil and (me:GetAttribute("TrainStation") or 0) == 0 and trainSpot() then
+		goal, kind = trainSpot(), "train" -- "Need more Cold Power": train there, then come back
 	end
 	GuideController.target = if goal and kind then { kind = kind, pos = goal, inst = inst } else nil
 	local flat = if goal then Vector3.new(goal.X - pos.X, 0, goal.Z - pos.Z) else Vector3.zero
 	-- a show is playing (Screen.showHidden): the arrow steps out of the shot (2026-11-12, it sat in the rebirth reveal)
 	local showArrow = goal ~= nil and flat.Magnitude > G.arrowHideNear and not Screen.showHidden
+	local shownTrail = 0
 	if showArrow then
 		local dir = flat.Unit
 		local bob = if still then 0.15 else math.abs(math.sin(t * G.arrowBobSpeed)) * G.arrowBob
-		local at = Vector3.new(pos.X, 0, pos.Z) + dir * G.arrowDistance + Vector3.new(0, G.arrowY + bob, 0)
+		local base = Vector3.new(pos.X, 0, pos.Z)
+		local at = base + dir * G.arrowDistance + Vector3.new(0, G.arrowY + bob, 0)
 		arrow:PivotTo(CFrame.lookAt(at, at + dir))
-		local zone = WorldRules.zoneAt(pos)
-		if zone ~= arrowZone then
-			arrowZone = zone
-			local def = if zone > 0 then Config.zone(zone) else nil
-			local color = Theme.placeColor[if def then def.theme else "hub"] or Theme.fx.arrow
-			for _, p in arrow:GetChildren() do
-				if p:IsA("BasePart") then
-					p.Color = color
-				end
+		arrow.Parent = folder
+		-- the trail: smaller chevrons flowing on from the lead one, stopping short of the target
+		local flow = if still then 0 else (t * G.trailFlow) % G.trailGap
+		local stopAt = flat.Magnitude - G.arrowHideNear * 0.5
+		for i, c in trail do
+			local d = G.arrowDistance + G.trailGap * i - G.trailGap + flow + G.trailGap * 0.5
+			if d < stopAt then
+				local p = base + dir * d + Vector3.new(0, G.arrowY * 0.6, 0)
+				c:PivotTo(CFrame.lookAt(p, p + dir))
+				c.Parent = folder
+				shownTrail = i
+			else
+				break
 			end
 		end
-		arrow.Parent = folder
 	else
 		arrow.Parent = nil
+	end
+	for i = shownTrail + 1, #trail do
+		trail[i].Parent = nil
+	end
+	-- the target arrow: a big white chevron over the target, pointing down at it, facing the camera
+	local near = if goal then flat.Magnitude < G.targetHideNear else true
+	if goal and kind and not near and not Screen.showHidden then
+		local top = goal.Y + (G.targetTop[kind] or 4)
+		if inst and inst:IsA("BasePart") then
+			top = inst.Position.Y + inst.Size.Y / 2
+		end
+		local bob = if still then 0 else math.abs(math.sin(t * G.targetBobSpeed)) * G.targetBob
+		local at = Vector3.new(goal.X, top + G.targetY + bob, goal.Z)
+		local cam = workspace.CurrentCamera
+		local toCam = if cam then cam.CFrame.Position - at else Vector3.zAxis
+		toCam = Vector3.new(toCam.X, 0, toCam.Z)
+		toCam = if toCam.Magnitude > 0.1 then toCam.Unit else Vector3.zAxis
+		-- lookAt makes -Z face the camera; tipping it -90 degrees round X points the tip (-Z) down
+		targetArrow:PivotTo(CFrame.lookAt(at, at + toCam) * CFrame.Angles(-math.pi / 2, 0, 0))
+		targetArrow.Parent = folder
+	else
+		targetArrow.Parent = nil
 	end
 	-- marker: the nearest pet just out of reach, while your hands are free
 	local mk = if not holding and not waiting and not showArrow then nearestPet(pos, Config.gun(me:GetAttribute("GunTier") :: number?).range, G.markerRange, nil) else nil -- just out of your gun's reach
@@ -255,6 +338,26 @@ end
 
 function GuideController.Start()
 	arrow = buildArrow()
+	for i = 1, G.trailCount do
+		local c = buildArrow()
+		c.Name = "GuideTrail" .. i
+		c:ScaleTo(G.trailScale)
+		local h = c:FindFirstChildOfClass("Highlight")
+		if h then
+			h:Destroy() -- Roblox draws at most 31 Highlights at once: the small trail goes without an outline
+		end
+		c.Parent = nil
+		trail[i] = c
+	end
+	targetArrow = buildArrow(Theme.fx.guideArrowTop)
+	targetArrow.Name = "TargetArrow"
+	targetArrow:ScaleTo(G.targetScale)
+	local th = targetArrow:FindFirstChildOfClass("Highlight")
+	if th then
+		th.OutlineColor = Theme.white -- a white rim round the deep blue reads over grass, snow and sky
+		th.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	end
+	targetArrow.Parent = nil
 	local meshes = ReplicatedStorage:FindFirstChild("SceneryMeshes")
 	local octa = meshes and meshes:FindFirstChild("Octa")
 	marker = if octa and octa:IsA("MeshPart") then octa:Clone() else Instance.new("Part")

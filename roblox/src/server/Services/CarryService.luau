@@ -41,7 +41,13 @@ function CarryService.count(player: Player): number
 	return if list then #list else 0
 end
 
--- carried plus waiting on the ground: what counts against your hands' room
+-- frozen pets of yours waiting on the ground for E
+function CarryService.groundCount(player: Player): number
+	local list = ground[player]
+	return if list then #list else 0
+end
+
+-- carried plus waiting on the ground (since 2026-11-16 only the carried ones block the ray: FreezeService)
 function CarryService.load(player: Player): number
 	local list = ground[player]
 	return CarryService.count(player) + (if list then #list else 0)
@@ -241,6 +247,12 @@ function CarryService.pickUp(player: Player, uid: string, auto: boolean?)
 		end
 	end
 	if not c then
+		return
+	end
+	-- hands full (owner 2026-11-16: "you shouldn't be able to carry more"): it stays on the ground
+	if CarryService.count(player) >= CarryService.capacity(player) then
+		table.insert(list :: { Cube }, c :: Cube)
+		Remotes.notYet(player, "Hands full! Take your pet home first", "pet")
 		return
 	end
 	local cube = c :: Cube

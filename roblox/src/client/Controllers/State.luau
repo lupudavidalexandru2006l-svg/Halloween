@@ -38,7 +38,7 @@ export type View = {
 	rebirths: number,
 	seenShows: { [string]: boolean }?, -- shows watched once (SKIP shows after that)
 	pan: { look: number, trainer: number? }?, -- the pan's Look (Round 4 phase 5; Slots = slots) and its Cold Power trainer level
-	tutorial: { step: number, done: boolean }?, -- Captain Frost's tutorial (TutorialService): the step you're on, or done
+	tutorial: { step: number, done: boolean }?, -- the tutorial (TutorialService): the step you're on, or done
 	tester: { mult: number, walk: number, instantFreeze: boolean, noMelt: boolean }?, -- only sent to testers
 }
 

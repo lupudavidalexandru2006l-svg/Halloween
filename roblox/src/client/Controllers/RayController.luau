@@ -348,8 +348,11 @@ local function send(force: boolean?)
 	end
 end
 
+-- owner 2026-11-16: "you shouldn't just press click and the pet will always freeze, you need to hold it": the
+-- ray fires only while the click, finger, E or R2 is held. Let go and the ice melts back (Config.aim.thawPerSecond).
+-- (`shot` still marks a running shot for the arm pose; it no longer keeps the ray firing.)
 local function aiming(): boolean
-	return (pointer ~= nil or autoAim or shot) and holdsRay(me)
+	return (pointer ~= nil or autoAim) and holdsRay(me)
 end
 
 local function updateAim()
@@ -1318,7 +1321,8 @@ function RayController.Start()
 			-- the shot takes it out by itself (QA 2026-11-08: pressing 1 hid the ray, then E did nothing). A
 			-- click or tap only does it when it was on a pet, so turning the camera never pulls the gun.
 			local meant = inReach or pickAny(screen)
-			if me:GetAttribute("Held") == "none" and not carryingAny() and not myGroundCube(false) and (screen == nil or meant ~= nil) then
+			-- frozen pets waiting on the ground no longer stop the next shot (owner 2026-11-16: freeze as many as you want)
+			if me:GetAttribute("Held") == "none" and not carryingAny() and (screen == nil or meant ~= nil) then
 				State.send("SetGear", "ray")
 			else
 				return -- no "Pick the Ice Ray first" / "Get closer!" hints (owner 2026-11-12: useless)

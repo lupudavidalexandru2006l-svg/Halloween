@@ -1,8 +1,9 @@
 --!strict
 -- TagService (Round 5, owner 2026-11-02): ray-tag. A player who carries a cube outside the hub can be
 -- shot like a pet: their meter fills (Config.tag.freezeSeconds / the shooter's gun power), and at 1
--- they tumble over for Config.tag.ragdollSeconds and their top cube pops out as a dazed pet anyone
--- can zap (CarryService.knockOff). Only cubes in hands; banked pets are never at risk.
+-- they tumble over for Config.tag.ragdollSeconds and their top cube pops out as a dazed pet only they
+-- can zap back (CarryService.knockOff, not open: design review 2026-11-15, a tag is a funny tumble, never
+-- a theft; a strong player could take a new player's Rare). Only cubes in hands; banked pets are never at risk.
 -- Safe: the hub; a new player's first Config.tag.shieldMinutes of play, across visits (saved as
 -- data.shieldLeft; a two-way shield: you can't tag anyone while you have it); a short shield after being tagged. Attributes every client reads:
 -- Player "Taggable", "Shielded", "ShieldUntil" (server time), "Tagged"; the victim's
@@ -113,7 +114,7 @@ local function tag(victim: Player, by: Player)
 	victims[victim] = nil
 	victim:SetAttribute("Tagged", true)
 	victim:SetAttribute("ShieldUntil", workspace:GetServerTimeNow() + T.ragdollSeconds + T.afterTagShield)
-	local key = CarryService.knockOff(victim, true)
+	local key = CarryService.knockOff(victim, false)
 	tumble(victim, true)
 	Remotes.fire(victim, "Notify", "tagged", { by = by.DisplayName, seconds = T.ragdollSeconds, key = key })
 	Remotes.fire(by, "Notify", "tagHit", { name = victim.DisplayName, key = key })

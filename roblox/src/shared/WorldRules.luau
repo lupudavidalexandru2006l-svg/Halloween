@@ -186,6 +186,41 @@ function WorldRules.skipTo(serverNow: number, offset: number, toNight: boolean):
 	return offset + (target - t) % cycle
 end
 
+-- seconds until the next night falls (the moment nightCycle turns `night`), 0 while it's night
+function WorldRules.nightIn(serverNow: number, offset: number): number
+	local N = Config.night
+	local cycle = N.daySeconds + N.fadeSeconds * 2 + N.nightSeconds
+	if WorldRules.nightCycle(serverNow, offset).night then
+		return 0
+	end
+	local t = (serverNow + offset) % cycle
+	local falls = N.daySeconds + N.fadeSeconds * N.nightAt
+	return (falls - t) % cycle
+end
+
+-- the Secret clock (Config.secretSpawn): seconds to the next one, and the slot number of the last one
+function WorldRules.secretIn(serverNow: number): (number, number)
+	local every = Config.secretSpawn.everySeconds
+	return every - serverNow % every, math.floor(serverNow / every)
+end
+
+-- the server event clock (Config.events): the event running now (nil = none), when it ends, the next one and
+-- the seconds to it. Unix time, so every server and every client agree without messages.
+-- (the workspace attribute EventOffset shifts it: the Studio tester's "next event" jump)
+function WorldRules.eventAt(serverNow: number): (Config.ServerEvent?, number, Config.ServerEvent, number)
+	local E = Config.events
+	local off = workspace:GetAttribute("EventOffset")
+	local shift = if typeof(off) == "number" then off else 0
+	local t = serverNow + shift
+	local slot = math.floor((t - E.offsetSeconds) / E.everySeconds)
+	local start = slot * E.everySeconds + E.offsetSeconds
+	local function at(n: number): Config.ServerEvent
+		return E.list[n % #E.list + 1]
+	end
+	local now: Config.ServerEvent? = if t < start + E.durationSeconds then at(slot) else nil
+	return now, start + E.durationSeconds - shift, at(slot + 1), start + E.everySeconds - t
+end
+
 -- calendar (UTC): the daily gift day and the weekly leaderboard week (fixed reset day)
 function WorldRules.dayId(unix: number): string
 	return os.date("!%Y-%m-%d", unix) :: string

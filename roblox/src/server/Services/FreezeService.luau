@@ -120,13 +120,21 @@ local function canFreeze(player: Player, pet: any, data: any, loud: boolean?): b
 			Remotes.fire(player, "Notify", "tooWarm", { id = pet.id })
 			Remotes.fire(player, "Notify", "needPower", { zone = pet.zone }) -- the client's arrow to the Frost Training Yard
 			Remotes.notYet(player, "Need more Cold Power", "pet")
+			TutorialService.did(player, "needPower") -- no step waits on it since Lesson 2 joined the main run (2026-11-15)
 		end
 		return false
 	end
-	if CarryService.load(player) >= CarryService.capacity(player) then
+	-- owner 2026-11-16: freeze as many as you want. Frozen pets waiting on the ground don't block the ray (they
+	-- thaw back out after a while, Config.carry.groundSeconds); only full hands do, and a sane cap on the ground
+	if CarryService.count(player) >= CarryService.capacity(player) then
 		if loud then -- owner 2026-11-13: say what to do, not "Backpack full"
-			Remotes.notYet(player, if CarryService.count(player) < CarryService.load(player)
-				then "Pick up the pet you froze!" else "Take your pet home first!", "pet")
+			Remotes.notYet(player, "Take your pet home first!", "pet")
+		end
+		return false
+	end
+	if CarryService.groundCount(player) >= Config.carry.groundMax then
+		if loud then
+			Remotes.notYet(player, "Pick up some frozen pets first!", "pet")
 		end
 		return false
 	end
@@ -141,7 +149,7 @@ end
 -- you aim at, so two shows never start at once.
 local function pickExtras(player: Player, main: any, data: any, gun: number): { string }
 	local extras: { string } = {}
-	local want = math.min(Config.gun(gun).beams - 1, CarryService.capacity(player) - CarryService.load(player) - 1)
+	local want = math.min(Config.gun(gun).beams - 1, Config.carry.groundMax - CarryService.groundCount(player) - 1)
 	local p = PlayerTracker.position(player)
 	if want <= 0 or not p then
 		return extras
@@ -181,6 +189,7 @@ local function freezeOne(player: Player, pet: any)
 	WildPetSpawner.remove(id)
 	-- the result is decided and stored before any show plays (Animation Rules 3)
 	local uid = CarryService.dropCube(player, info, at, if show then showSeconds(show) else 0) -- on the ground until it's picked up
+	local first = data ~= nil and data.stats.frozen == 0 and not dazed -- this save's very first freeze: a bigger snap (EffectsController)
 	DataService.mutate(player, function(d)
 		d.stats.frozen += 1
 		if not dazed and Config.tier(pet.def.tier).rank >= Config.challenges.rareRank then
@@ -201,6 +210,7 @@ local function freezeOne(player: Player, pet: any)
 	end
 	Remotes.fire(player, "Notify", "frozen", {
 		key = info.key, pose = pose, mut = mut, at = at, uid = uid, style = style, gun = gun, touch = touchFor(gun), show = show,
+		first = first or nil,
 	})
 	if show and (Config.show :: any)[show].shout then
 		Remotes.fireAll("Notify", "shoutout", { name = player.DisplayName, userId = player.UserId, key = info.key, tier = pet.def.tier })
@@ -220,8 +230,21 @@ end
 
 -- one tick of the ray on a pet (the main one or an extra beam's): "frozen" when its cube shut this
 -- tick, "pushed" when the ice rose, nil when it can't be frozen (or another beam already pushed it)
+-- Shared pets (the half-hour Secret, Commons): several players can have their beams on one pet. Each beam adds
+-- to that player's own share of the ice (pet.ice), the meter rises once a tick, and when the cube shuts it goes
+-- to whoever put the most ice on it, not to whoever the server happened to check first (2-player test 2026-11-16)
+local function winnerOf(pet: any, fallback: Player): Player
+	local best, most = fallback, -1
+	for p, share in (pet.ice or {}) :: { [Player]: number } do
+		if p.Parent and share > most then
+			best, most = p, share
+		end
+	end
+	return best
+end
+
 local function pushPet(player: Player, pet: any, data: any, gun: number, dt: number, pushed: { [any]: boolean }): string?
-	if pushed[pet] or not canFreeze(player, pet, data) then
+	if not canFreeze(player, pet, data) then
 		return nil
 	end
 	local asleep = pet.state == "wild" and pet.action == "sleep"
@@ -229,12 +252,19 @@ local function pushPet(player: Player, pet: any, data: any, gun: number, dt: num
 	if data.tester.instantFreeze then -- tester switch: freezes on the first touch of the ray
 		seconds = 0
 	end
+	local share = if seconds <= 0 then 1 else dt / seconds
+	pet.ice = pet.ice or {}
+	pet.ice[player] = (pet.ice[player] or 0) + share
+	if pushed[pet] then
+		return "pushed" -- another beam already moved the meter this tick; this one still counts toward its share
+	end
 	pushed[pet] = true
-	local meter = if seconds <= 0 then 1 else pet.meter + dt / seconds
+	local meter = if seconds <= 0 then 1 else pet.meter + share
 	WildPetSpawner.setMeter(pet, math.min(meter, 1), style, PlayerTracker.position(player), player)
 	if meter >= 1 then
-		freezeOne(player, pet) -- the pet leaves the world here, so it can only shut once
-		return "frozen"
+		local winner = winnerOf(pet, player)
+		freezeOne(winner, pet) -- the pet leaves the world here, so it can only shut once
+		return if winner == player then "frozen" else nil
 	end
 	return "pushed"
 end
@@ -322,7 +352,11 @@ local function tick(dt: number)
 	-- nobody aims at it: the ice melts back
 	for _, pet in WildPetSpawner.all() do
 		if pet.meter > 0 and not pushed[pet] then
-			WildPetSpawner.setMeter(pet, math.max(0, pet.meter - A.thawPerSecond * dt), nil, nil, nil)
+			local left = math.max(0, pet.meter - A.thawPerSecond * dt)
+			WildPetSpawner.setMeter(pet, left, nil, nil, nil)
+			if left <= 0 then
+				(pet :: any).ice = nil -- all melted: everyone's share starts again
+			end
 		end
 	end
 end
@@ -403,7 +437,7 @@ function FreezeService.Start()
 		while true do
 			task.wait(0.25)
 			for _, p in Players:GetPlayers() do
-				if GearService.isStowed(p) and CarryService.load(p) == 0 then
+				if GearService.isStowed(p) and CarryService.count(p) == 0 then
 					GearService.unstowRay(p)
 				end
 			end

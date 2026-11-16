@@ -440,7 +440,21 @@ local function gear(h: Helpers, body: Frame, v: State.View, o: any)
 	local gr = h.row(l, 0, 0, Config.ui.gearCardAspect)
 	gr.Name = "SlowGel"
 	local face: Instance = if h.card then h.card(gr) else gr
-	Ui.image(face, Config.images.icons.motion, UDim2.fromScale(0.2, 0.84), UDim2.fromScale(0.01, 0.08))
+	-- the same framed picture slot as every gear card under it (owner 2026-11-16: "this isn't centered": the gel
+	-- floated loose beside the boxed gear), the potion centred in it and a little bigger, popping out
+	local gelSlot = Instance.new("Frame")
+	gelSlot.Name = "Picture"
+	gelSlot.BackgroundColor3 = if owned then Theme.go else Theme.snowFar
+	gelSlot.Position = UDim2.fromScale(0.03, 0.1)
+	gelSlot.Size = UDim2.fromScale(0.16, 0.8)
+	local ga = Instance.new("UIAspectRatioConstraint")
+	ga.AspectRatio = 1
+	ga.Parent = gelSlot
+	Ui.corner(gelSlot)
+	Ui.stroke(gelSlot)
+	gelSlot.Parent = face
+	local gelImg = Ui.image(gelSlot, Config.gearIcons.gel or Config.images.icons.motion, UDim2.fromScale(1.1, 1.1), UDim2.fromScale(-0.05, -0.07))
+	gelImg.ZIndex = 2
 	local name = h.text(face, "Slow Gel", 0.2, 0.5)
 	textRole(h, name, "body")
 	name.Size = UDim2.fromScale(0.5, 0.45)
@@ -480,7 +494,13 @@ local function gear(h: Helpers, body: Frame, v: State.View, o: any)
 		a.Parent = slot
 		Ui.corner(slot)
 		Ui.stroke(slot)
-		for _, s in SHAPES[item.shape] or {} do
+		local art = Config.gearIcons[item.key]
+		if art then
+			-- the painted gear (owner 2026-11-15), a little bigger than its slot so it pops out of it
+			local img = Ui.image(slot, art, UDim2.fromScale(1.2, 1.2), UDim2.fromScale(-0.1, -0.12))
+			img.ZIndex = 2
+		end
+		for _, s in if art then {} else SHAPES[item.shape] or {} do
 			local p = Instance.new("Frame")
 			p.BackgroundColor3 = if mine then Theme.white else Theme.ink
 			p.BackgroundTransparency = 0.15

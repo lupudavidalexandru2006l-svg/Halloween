@@ -19,7 +19,7 @@ local NAMES = {
 	"BuyRobux", -- the Shop's Robux tab (MonetizationService shows Roblox's own prompt)
 	"ClaimPage", -- claim a full Index page's +10% (IndexService, 2026-11-09)
 	"ClaimChallenge", -- claim a finished daily challenge (ChallengeService, 2026-11-09)
-	"Tutorial", -- Captain Frost's tutorial: "next" on a talk step, "skip", "replay" (TutorialService, 2026-11-10)
+	"Tutorial", -- the tutorial: "next" on a talk step, "skip", "replay" (TutorialService, 2026-11-10)
 	"Train", -- one click shot at the training station you stand on (TrainingService, 2026-11-10)
 	"GetBoard", -- ask for a leaderboard's top 100 (LeaderboardService answers with "BoardRows", 2026-11-12)
 	"ClaimGift", -- the one-time Free Gift's Claim (PenService checks the community join, 2026-11-12)

@@ -187,7 +187,9 @@ local function gateSign(id: number, v: State.View)
 	local open = reachOf(v) >= id
 	local needRebirth = not open and zone.ready and v.rebirths < zone.gateRebirth
 	local ready = open or (zone.ready and not needRebirth and power >= need)
-	local color = if ready then Theme.go else Theme.info
+	-- an open island's sign wears the island's own colour (owner 2026-11-13: "thematic, not green");
+	-- green stays for READY TO OPEN only (green = go), blue for still locked
+	local color = if open then (Theme.placeColor[zone.theme] or Theme.info) elseif ready then Theme.go else Theme.info
 	label.Text = if open then string.upper(zone.name) elseif not zone.ready then "COMING SOON"
 		elseif needRebirth then `NEEDS REBIRTH {zone.gateRebirth}` elseif ready then "READY TO OPEN" else `NEEDS {Ui.price(need)} COLD POWER`
 	label.BackgroundColor3 = color

@@ -23,8 +23,9 @@ local SettingsController = require(script.Parent.SettingsController)
 
 local PromptController = {}
 local playerGui: Instance
--- key = the keycap's face; held = the key is down for a hold
-local shown: { [ProximityPrompt]: { gui: BillboardGui, bar: Frame, key: GuiObject, held: boolean, conns: { RBXScriptConnection } } } = {}
+-- key = the keycap's face; held = the key is down for a hold; lift = studs over its attachment
+local shown: { [ProximityPrompt]: { gui: Frame, bar: Frame, key: GuiObject, held: boolean, lift: number, conns: { RBXScriptConnection } } } = {}
+local layer: ScreenGui -- every world prompt, under the HUD (Hud = 1) and popups
 
 local P = Theme.prompt
 local K = Config.ui.promptKey
@@ -52,13 +53,15 @@ local function show(prompt: ProximityPrompt)
 	if shown[prompt] then
 		return
 	end
-	local gui = Instance.new("BillboardGui")
+	-- a screen frame pinned to its object every frame (stepPrompts), not a BillboardGui: in this place an
+	-- AlwaysOnTop billboard never draws at all (2026-11-12, checked again 2026-11-13 with every post
+	-- effect off), and a depth-tested one hid behind fences, awnings and your own body, where it also
+	-- couldn't be tapped (owner 2026-11-13: "you cannot see it in some places")
+	local gui = Instance.new("Frame")
 	gui.Name = "Prompt"
-	-- not AlwaysOnTop: in this place an AlwaysOnTop BillboardGui never draws at all (found 2026-11-12: a
-	-- magenta test box showed only with it off), which is why the gate's hold-E "couldn't be seen". The
-	-- prompts float in open space in front of their objects, so the depth test doesn't hide them
-	gui.AlwaysOnTop = false
-	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling -- children draw over their parent (Global hid the key's "E" under its badge)
+	gui.BackgroundTransparency = 1
+	gui.AnchorPoint = Vector2.new(0.5, 0.5)
+	gui.Visible = false -- until stepPrompts has put it on its object
 	-- a fixed screen size (a share of the short side), so it never fills the screen up close
 	local cam = workspace.CurrentCamera
 	local short = if cam then math.min(cam.ViewportSize.X, cam.ViewportSize.Y) else 720
@@ -72,14 +75,11 @@ local function show(prompt: ProximityPrompt)
 		k = math.max(k, floor / (ps[2] * short))
 	end
 	gui.Size = UDim2.fromOffset(ps[1] * short * k, ps[2] * short * k)
-	gui.StudsOffset = Vector3.new(0, Config.ui.promptLift, 0) -- on the pet, just over its head (it floated well above before)
+	local lift = Config.ui.promptLift -- studs over its attachment: over your head, not at chest height
 	if compact then
-		gui.StudsOffset = Vector3.zero
-		gui.SizeOffset = Vector2.new(0, 0.6) -- its bottom edge rests on the attachment (the top of a frozen pet's cube)
+		lift = 0
+		gui.AnchorPoint = Vector2.new(0.5, 1.1) -- its bottom edge rests on the attachment (the top of a frozen pet's cube)
 	end
-	gui.Adornee = prompt.Parent :: any
-	gui.Active = true
-	gui.ClipsDescendants = false
 	local reduced = SettingsController.get("reducedMotion") == true
 	-- everything in one holder, so the prompt pops in as one piece
 	local holder = Instance.new("Frame")
@@ -189,19 +189,18 @@ local function show(prompt: ProximityPrompt)
 	top.Size = UDim2.fromScale(1, 1)
 	top.ZIndex = 5
 	top.Parent = holder
-	gui.Enabled = not (Screen.menuHidden or Screen.showHidden) -- a shop is open or a show plays: the pill stays out of the way
-	gui.Parent = playerGui
+	gui.Parent = layer
 	if not reduced then
 		-- pops up (Animation Rules: pop, Back Out)
 		pop.Scale = 0.4
 		TweenService:Create(pop, TweenInfo.new(Config.motion.promptPop, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
 	end
-	local entry = { gui = gui, bar = bar, key = key.face, held = false, conns = {} :: { RBXScriptConnection } }
+	local entry = { gui = gui, bar = bar, key = key.face, held = false, lift = lift, conns = {} :: { RBXScriptConnection } }
 	if not reduced then
 		task.spawn(function()
 			while gui.Parent do
 				task.wait(K.tapEvery)
-				if gui.Parent and gui.Enabled and not entry.held then
+				if gui.Parent and gui.Visible and layer.Enabled and not entry.held then
 					keyDown(key.face, false)
 				end
 			end
@@ -297,6 +296,32 @@ end
 
 function PromptController.Init()
 	playerGui = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+	layer = Instance.new("ScreenGui")
+	layer.Name = "Prompts"
+	layer.ResetOnSpawn = false
+	layer.IgnoreGuiInset = true -- so a WorldToViewportPoint position lands where the object is drawn
+	layer.DisplayOrder = 0
+	layer.ZIndexBehavior = Enum.ZIndexBehavior.Sibling -- children draw over their parent (Global hid the key's "E" under its badge)
+	layer.Parent = playerGui
+end
+
+-- every frame: each prompt sits on its object's spot on screen; behind the camera = not drawn
+local function stepPrompts()
+	local cam = workspace.CurrentCamera
+	if not cam then
+		return
+	end
+	for prompt, s in shown do
+		local parent = prompt.Parent
+		local at = if parent and parent:IsA("Attachment") then parent.WorldPosition elseif parent and parent:IsA("BasePart") then parent.Position else nil
+		if at then
+			local v = cam:WorldToViewportPoint(at + Vector3.new(0, s.lift, 0))
+			s.gui.Visible = v.Z > 0
+			s.gui.Position = UDim2.fromOffset(math.round(v.X), math.round(v.Y))
+		else
+			s.gui.Visible = false
+		end
+	end
 end
 
 function PromptController.Start()
@@ -306,11 +331,11 @@ function PromptController.Start()
 		end
 	end)
 	ProximityPromptService.PromptHidden:Connect(hide)
+	game:GetService("RunService").RenderStepped:Connect(stepPrompts)
+	-- a shop is open or a show plays: the prompts stay out of the way
 	local function stepAside()
 		local hidden = Screen.menuHidden or Screen.showHidden
-		for _, s in shown do
-			s.gui.Enabled = not hidden
-		end
+		layer.Enabled = not hidden
 		-- the ProximityPrompt itself still listens for its key: a press with the shop open would reopen it
 		ProximityPromptService.Enabled = not hidden
 	end

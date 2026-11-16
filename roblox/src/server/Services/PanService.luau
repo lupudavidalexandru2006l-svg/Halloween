@@ -40,9 +40,6 @@ function PanService.level(d: Data, kind: string): number
 	if kind == "thaw" then
 		return d.pan.thaw
 	end
-	if kind == "speed" then
-		return d.upgrades.boots -- walk speed (PlayerTracker.updateSpeed)
-	end
 	return d.pan.look
 end
 
@@ -131,8 +128,6 @@ local function buy(player: Player, kind: any)
 			x.pan.trainer = old + 1 -- TrainingService rebuilds the pan's trainer from PanTrainer<i>
 		elseif kind == "thaw" then
 			x.pan.thaw = old + 1 -- every thaw started from now on is shorter
-		elseif kind == "speed" then
-			x.upgrades.boots = old + 1
 		else
 			x.pan.look = old + 1
 		end
@@ -141,16 +136,13 @@ local function buy(player: Player, kind: any)
 		return
 	end
 	AnalyticsSvc.funnel(player, "first_coins_spent")
-	if kind == "speed" then
-		PlayerTracker.updateSpeed(player)
-	end
 	publish(player)
 	-- the show plays first, then the save marks it seen (SKIP from the second upgrade on)
 	Remotes.fire(player, "Notify", "panUpgraded", { kind = kind, level = old + 1, old = old, price = paid, plot = WorldService.plotOf(player) })
 	DataService.mutate(player, function(x)
 		x.seenShows.panUpgrade = true
 	end)
-	TutorialService.did(player, "upgrade") -- Captain Frost's first-upgrade step (after the show's Notify, before the save waits on the DataStore)
+	TutorialService.did(player, "upgrade") -- the tutorial's first-upgrade step (after the show's Notify, before the save waits on the DataStore)
 	DataService.saveNow(player) -- a purchase is written at once
 end
 

@@ -306,6 +306,28 @@ end
 local function robuxTag(b: Ui.Block)
 	local mark = Ui.image(b.face, Config.images.icons.robux, UDim2.fromScale(0.3, 0.62), UDim2.fromScale(0, 0.19))
 	mark.ZIndex = 2
+	-- owner 2026-11-13 "make the robux more contoured": a thick ink contour round a white mark, like the
+	-- price's own outlined numbers. The slot stays empty; eight ink copies nudged round the white one draw it.
+	mark.ImageTransparency = 1
+	local o = Config.ui.shop.robuxOutline
+	for k = 0, 8 do
+		local a = k * math.pi / 4
+		local copy = Instance.new("ImageLabel")
+		copy.Name = if k == 8 then "Mark" else "Contour"
+		copy.BackgroundTransparency = 1
+		copy.Image = mark.Image
+		copy.ScaleType = Enum.ScaleType.Fit
+		copy.ImageColor3 = if k == 8 then Theme.white else Theme.ink
+		copy.AnchorPoint = Vector2.new(0.5, 0.5)
+		copy.Position = if k == 8 then UDim2.fromScale(0.5, 0.5) else UDim2.fromScale(0.5 + math.cos(a) * o, 0.5 + math.sin(a) * o)
+		copy.Size = UDim2.fromScale(1, 1)
+		copy.ZIndex = if k == 8 then 4 else 3
+		copy.Parent = mark
+	end
+	local stroke = b.text:FindFirstChildOfClass("UIStroke")
+	if stroke then
+		stroke.Thickness = Config.ui.floatingStroke -- the price wears the same firm outline
+	end
 	b.text.TextXAlignment = Enum.TextXAlignment.Left
 	local function place()
 		local w = math.max(1, b.face.AbsoluteSize.X)
@@ -318,6 +340,48 @@ local function robuxTag(b: Ui.Block)
 	end
 	task.defer(place)
 	b.face:GetPropertyChangedSignal("AbsoluteSize"):Connect(place)
+end
+
+-- the Shop's motion (owner 2026-11-13: "make some animations"): the rays behind a product turn, its
+-- picture rocks, and a light sweeps over its Buy button now and then. Looping tweens on the card's own
+-- instances, so they stop when the popup is rebuilt or closed. None with Reduced motion.
+local function shopMotion(order: number, sun: ImageLabel?, front: ImageLabel?, buy: Ui.Block?)
+	if SettingsController.get("reducedMotion") == true then
+		return
+	end
+	local M = Config.ui.shop.motion
+	if sun then
+		sun.Rotation = (order * 37) % 360
+		TweenService:Create(sun, TweenInfo.new(M.sunSpin, Enum.EasingStyle.Linear, Enum.EasingDirection.In, -1), { Rotation = sun.Rotation + 360 }):Play()
+	end
+	if front then
+		front.Rotation = -M.iconTilt
+		TweenService:Create(front, TweenInfo.new(M.iconSeconds, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true, (order % 3) * 0.2), { Rotation = M.iconTilt }):Play()
+	end
+	if buy then
+		local shine = Instance.new("Frame")
+		shine.Name = "Shine"
+		shine.BackgroundColor3 = Theme.white
+		shine.BorderSizePixel = 0
+		shine.Size = UDim2.fromScale(1, 1)
+		shine.ZIndex = 3
+		Ui.corner(shine)
+		local g = Instance.new("UIGradient")
+		g.Rotation = 25
+		g.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.42, 1), NumberSequenceKeypoint.new(0.5, M.shineAlpha),
+			NumberSequenceKeypoint.new(0.58, 1), NumberSequenceKeypoint.new(1, 1),
+		})
+		g.Offset = Vector2.new(-1, 0)
+		g.Parent = shine
+		shine.Parent = buy.face
+		TweenService:Create(g, TweenInfo.new(M.shineSeconds, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut, -1, false, M.shineEvery + order * M.shineStagger % M.shineEvery), { Offset = Vector2.new(1, 0) }):Play()
+	end
+end
+
+-- a product's own card colour (Theme.shopItemCards), its kind's colour if it has none
+local function productColour(item: Config.RobuxItem): Color3
+	return Theme.shopItemCards[item.id] or Theme.shopCards[if item.kind == "pass" and item.icon == "power" then "power" else item.kind] or Theme.info
 end
 
 -- ---------- contents ----------
@@ -373,7 +437,7 @@ local function cardInfo(v: State.View, item: Config.RobuxItem): CardInfo
 	local good = `<font color="#{Theme.shopBadge.bonus:ToHex()}">%s</font>`
 	if item.kind == "coins" then
 		local n = Config.robuxCoins(item, v.income)
-		return { big = Ui.short(n), name = name, chip = "= " .. string.format(good, hours(item.minutes or 0)) .. " of coins", amount = n }
+		return { big = Ui.short(n), name = name, chip = string.format(good, hours(item.minutes or 0)) .. " of coins", amount = n } -- no "= ": it drew as a small square
 	elseif item.kind == "power" then
 		local n = Config.powerPack(item, v.coldPower or 0)
 		local share = item.share or 0
@@ -662,12 +726,113 @@ local function shopFrame(o: Open, v: State.View)
 	end
 end
 
+-- round 3 (owner 2026-11-13: "the shop still needs improvements", the 2026-11-12 reference clips): every
+-- product sits in its own little world, like the reference cards. A pale moon up in the sky, two rows of
+-- hills along the bottom (dark ones far off, snowy ground in front) and the frame's stripes.
+-- Hills are opaque (see-through ones showed dark seams where they overlap); the CanvasGroup with the
+-- shared corner clips them to the card's rounded shape.
+local function scene(face: GuiObject, colour: Color3)
+	local S = Config.ui.shop.scene
+	local g = Instance.new("CanvasGroup")
+	g.Name = "Scene"
+	g.BackgroundTransparency = 1
+	g.Size = UDim2.fromScale(1, 1)
+	g.ZIndex = 0
+	Ui.corner(g)
+	g.Parent = face
+	local moon = Instance.new("Frame")
+	moon.Name = "Moon"
+	moon.BackgroundColor3 = Theme.white
+	moon.BackgroundTransparency = S.moonAlpha
+	moon.BorderSizePixel = 0
+	moon.AnchorPoint = Vector2.new(0.5, 0.5)
+	moon.Position = UDim2.fromScale(S.moon.x, S.moon.y)
+	moon.Size = UDim2.fromScale(S.moon.size, S.moon.size)
+	local a = Instance.new("UIAspectRatioConstraint")
+	a.AspectRatio = 1
+	a.Parent = moon
+	Ui.corner(moon, 1)
+	moon.Parent = g
+	for layer, hills in S.hills do
+		for _, h in hills.at do -- { centre x, width, height } as shares of the card
+			local hill = Instance.new("Frame")
+			hill.Name = "Hill" .. layer
+			hill.BackgroundColor3 = colour:Lerp(if hills.to == "white" then Theme.white else Theme.ink, hills.amount)
+			hill.BorderSizePixel = 0
+			hill.AnchorPoint = Vector2.new(0.5, 0)
+			hill.Position = UDim2.fromScale(h[1], 1 - h[3])
+			hill.Size = UDim2.fromScale(h[2], h[3] * 2)
+			Ui.corner(hill, 0.5)
+			hill.Parent = g
+		end
+	end
+	stripes(g, Config.ui.shop.cardStripeAlpha)
+end
+
+-- a card's title says what you get, the gain first in coin gold: "2x Coins", "+3.5M Coins", "x3 Super Freeze"
+local function cardTitle(item: Config.RobuxItem, info: CardInfo): string
+	local word = if item.kind == "coins" then "Coins" elseif item.kind == "power" then "Cold Power" else info.name
+	return `<font color="#{Theme.coin:ToHex()}">{info.big}</font> {word}`
+end
+
+-- the "+45% MORE" sticker on the top-right corner and the BEST VALUE ribbon over the top edge.
+-- wide = a landscape tile: its sizes are shares of a short card, so they are set from its height.
+local function stickers(c: Ui.Block, bonus: number, best: boolean, wide: boolean)
+	if bonus > 0 then
+		local s = Instance.new("Frame")
+		s.Name = "More"
+		s.BackgroundColor3 = Theme.shopBadge.more
+		s.BorderSizePixel = 0
+		s.AnchorPoint = Vector2.new(0.5, 0.5)
+		-- inside the card's right edge, so the list's scroll bar strip never cuts it (round 3)
+		s.Position = UDim2.fromScale(if wide then 0.93 else 0.84, if wide then 0.08 else 0.05)
+		s.Size = UDim2.fromScale(if wide then 0.42 else 0.36, if wide then 0.42 else 0.36)
+		s.SizeConstraint = if wide then Enum.SizeConstraint.RelativeYY else Enum.SizeConstraint.RelativeXY
+		s.Rotation = 12
+		s.ZIndex = 5
+		local a = Instance.new("UIAspectRatioConstraint")
+		a.AspectRatio = 1
+		a.Parent = s
+		Ui.corner(s, 1)
+		Ui.stroke(s)
+		local t = Ui.label(s, `+{math.round(bonus * 100)}%\nMORE`, UDim2.fromScale(0.8, 0.6), UDim2.fromScale(0.1, 0.2))
+		t.ZIndex = 6
+		sized(t, "small")
+		s.Parent = c.root
+	end
+	if best then
+		local r = Instance.new("Frame")
+		r.Name = "BestValue"
+		r.BackgroundColor3 = Theme.shopBadge.bestBack
+		r.BorderSizePixel = 0
+		if wide then
+			r.Position = UDim2.fromScale(0.04, -0.13) -- clear of the title under it
+			r.Size = UDim2.fromScale(0.34, 0.15)
+		else
+			r.Position = UDim2.fromScale(0.06, -0.045)
+			r.Size = UDim2.fromScale(0.56, 0.085) -- ends before the "+% MORE" sticker
+		end
+		r.ZIndex = 5
+		Ui.corner(r)
+		local st = Instance.new("UIStroke")
+		st.Color = Theme.shopBadge.bestText
+		st.Thickness = Config.ui.cardStroke
+		st.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		st.Parent = r
+		local t = Ui.inkLabel(r, "BEST VALUE", UDim2.fromScale(0.9, 0.76), UDim2.fromScale(0.05, 0.12))
+		t.TextColor3 = Theme.shopBadge.bestText
+		t.ZIndex = 6
+		sized(t, "small")
+		r.Parent = c.root
+	end
+end
+
 -- one product card: a Chunky Pop block in its kind's colour, the painted icon (stacked 1-3 deep for bigger
 -- packs), the big number, the name, the chip or bar, and a green Robux button. The whole card buys
 -- (mobile QA 2026-11-10); Roblox's own prompt still confirms, so a stray tap costs nothing.
 local function shopCard(o: Open, v: State.View, parent: Instance, item: Config.RobuxItem, info: CardInfo, bonus: number, best: boolean): (Ui.Block, Ui.Block)
 	local owned = ownsPass(v, item)
-	local colour = Theme.shopCards[if item.kind == "pass" and item.icon == "power" then "power" else item.kind] or Theme.info
+	local colour = productColour(item)
 	if owned then
 		colour = colour:Lerp(Theme.slot, 0.6)
 	end
@@ -676,16 +841,19 @@ local function shopCard(o: Open, v: State.View, parent: Instance, item: Config.R
 		State.send("BuyRobux", item.id)
 	end)
 	c.text.Visible = false
+	scene(c.face, colour)
 	-- the picture: copies of the icon fanned out behind the front one, the group centred on its box
 	local icon = Config.images.icons[item.icon] or Config.images.icons.coin
 	local stack = item.stack or 1
 	local ix, iy, iw, ih = 0.15, 0.05, 0.7, 0.34
 	local step = iw * 0.16
-	shopSun(c.face, 0.5, iy + ih / 2, ih * 1.5)
+	local sun = shopSun(c.face, 0.5, iy + ih / 2, ih * 1.5)
+	local front: ImageLabel? = nil
 	for k = stack, 1, -1 do
 		local dx = (k - 1) * step - (stack - 1) * step / 2
 		local img = Ui.image(c.face, icon, UDim2.fromScale(iw, ih), UDim2.fromScale(ix + dx, iy - (k - 1) * ih * 0.06))
 		img.ZIndex = 1 + stack - k
+		front = img
 	end
 	local big = Ui.label(c.face, info.big)
 	big.Name = "Big"
@@ -722,56 +890,19 @@ local function shopCard(o: Open, v: State.View, parent: Instance, item: Config.R
 	if not owned then
 		robuxTag(b)
 	end
-	-- the stickers sit on the card's corners, over its outline
-	if bonus > 0 then
-		local s = Instance.new("Frame")
-		s.Name = "More"
-		s.BackgroundColor3 = Theme.shopBadge.more
-		s.BorderSizePixel = 0
-		s.AnchorPoint = Vector2.new(0.5, 0.5)
-		s.Position = UDim2.fromScale(0.9, 0.05)
-		s.Size = UDim2.fromScale(0.36, 0.36)
-		s.Rotation = 12
-		s.ZIndex = 5
-		local a = Instance.new("UIAspectRatioConstraint")
-		a.AspectRatio = 1
-		a.Parent = s
-		Ui.corner(s, 1)
-		Ui.stroke(s)
-		local t = Ui.label(s, `+{math.round(bonus * 100)}%\nMORE`, UDim2.fromScale(0.8, 0.6), UDim2.fromScale(0.1, 0.2))
-		t.ZIndex = 6
-		sized(t, "small")
-		s.Parent = c.root
-	end
-	if best then
-		local r = Instance.new("Frame")
-		r.Name = "BestValue"
-		r.BackgroundColor3 = Theme.shopBadge.bestBack
-		r.BorderSizePixel = 0
-		r.Position = UDim2.fromScale(0.06, -0.045)
-		r.Size = UDim2.fromScale(0.56, 0.085) -- ends before the "+% MORE" sticker
-		r.ZIndex = 5
-		Ui.corner(r)
-		local st = Instance.new("UIStroke")
-		st.Color = Theme.shopBadge.bestText
-		st.Thickness = Config.ui.cardStroke
-		st.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-		st.Parent = r
-		local t = Ui.inkLabel(r, "BEST VALUE", UDim2.fromScale(0.9, 0.76), UDim2.fromScale(0.05, 0.12))
-		t.TextColor3 = Theme.shopBadge.bestText
-		t.ZIndex = 6
-		sized(t, "small")
-		r.Parent = c.root
-	end
+	shopMotion(table.find(Config.monetization.shop, item) or 1, sun, front, if owned then nil else b)
+	stickers(c, bonus, best, false)
 	return c, b
 end
 
--- a Forever pass as a wide banner (owner's reference 2026-11-12: wide cards for the permanent upgrades):
--- the picture on a soft light, the big "2x", its name and the value chip, and the green Robux button on
--- the right. The whole banner buys, like a card.
-local function shopBanner(v: State.View, parent: Instance, item: Config.RobuxItem, info: CardInfo): (Ui.Block, Ui.Block)
+-- a landscape product tile (round 3, the reference cards): the title across the top ("2x Coins", the gain
+-- in gold), the picture bottom-left on rays, the value chip (or a Cold Power bar) and a fat green Robux
+-- button bottom-right. wide = a full-width banner (an odd product out at the top of its section): the
+-- picture on the left, title and chip in the middle, the button on the right. The whole tile buys.
+-- Boxes are { x, y, w, h } shares of the tile (Config.ui.shop.tile / .wideTile).
+local function shopTile(v: State.View, parent: Instance, item: Config.RobuxItem, info: CardInfo, bonus: number, best: boolean, wide: boolean): (Ui.Block, Ui.Block)
 	local owned = ownsPass(v, item)
-	local colour = Theme.shopCards[if item.icon == "power" then "power" else item.kind] or Theme.info
+	local colour = productColour(item)
 	if owned then
 		colour = colour:Lerp(Theme.slot, 0.6)
 	end
@@ -779,37 +910,50 @@ local function shopBanner(v: State.View, parent: Instance, item: Config.RobuxIte
 		SoundController.play("click")
 		State.send("BuyRobux", item.id)
 	end)
-	c.root.Size = UDim2.fromScale(1, 1)
 	c.text.Visible = false
-	shopSun(c.face, 0.1, 0.5, 1.25) -- rays behind the picture (was a flat white disc)
+	scene(c.face, colour)
+	local L = if wide then Config.ui.shop.wideTile else Config.ui.shop.tile
+	local function place(g: GuiObject, at: { number })
+		box(g, at[1], at[2], at[3], at[4])
+	end
+	-- the picture: copies of the icon fanned out behind the front one, on soft rays
+	local ix, iy, iw, ih = L.icon[1], L.icon[2], L.icon[3], L.icon[4]
+	local sun = shopSun(c.face, ix + iw / 2, iy + ih / 2, ih * 1.6)
 	local icon = Config.images.icons[item.icon] or Config.images.icons.coin
 	local stack = item.stack or 1
-	local iw, ih = 0.16, 0.74
 	local step = iw * 0.2
+	local front: ImageLabel? = nil
 	for k = stack, 1, -1 do
 		local dx = (k - 1) * step - (stack - 1) * step / 2
-		local img = Ui.image(c.face, icon, UDim2.fromScale(iw, ih), UDim2.fromScale(0.02 + dx, 0.13 - (k - 1) * 0.03))
+		local img = Ui.image(c.face, icon, UDim2.fromScale(iw, ih), UDim2.fromScale(ix + dx, iy - (k - 1) * ih * 0.06))
 		img.ZIndex = 1 + stack - k
+		front = img
 	end
-	local big = Ui.label(c.face, info.big)
-	big.Name = "Big"
-	sized(big, "big")
-	box(big, 0.2, 0.14, 0.16, 0.72)
-	local name = Ui.label(c.face, info.name)
-	name.Name = "Name"
-	name.TextXAlignment = Enum.TextXAlignment.Left
-	sized(name, "body")
-	box(name, 0.38, 0.1, 0.34, 0.4)
-	if info.chip and info.chip ~= "" then
+	local title = Ui.label(c.face, cardTitle(item, info))
+	title.Name = "Title"
+	title.RichText = true
+	title.ZIndex = 2
+	sized(title, "title")
+	place(title, L.title)
+	if bonus > 0 then -- leave the top-right corner to the "+% MORE" sticker
+		title.Size = UDim2.fromScale(L.title[3] - Config.ui.shop.stickerRoom, L.title[4])
+	end
+	if info.bar then
+		local b = bar(c.face, L.chip[1], L.chip[2], L.chip[3], L.chip[4], info.bar, info.barText or "", Theme.training.power)
+		b.ZIndex = 2
+		sized(b:FindFirstChild("Count") :: TextLabel, "small")
+	elseif info.chip and info.chip ~= "" then
 		local chip = Instance.new("Frame")
 		chip.Name = "Chip"
 		chip.BackgroundColor3 = Theme.white
 		chip.BorderSizePixel = 0
-		box(chip, 0.38, 0.54, 0.33, 0.33)
+		chip.ZIndex = 2
+		place(chip, L.chip)
 		Ui.corner(chip, 0.5)
 		Ui.stroke(chip, Config.ui.cardStroke)
 		local t = Ui.inkLabel(chip, info.chip, UDim2.fromScale(0.9, 0.8), UDim2.fromScale(0.05, 0.1))
 		t.RichText = true
+		t.ZIndex = 2
 		sized(t, "small")
 		chip.Parent = c.face
 	end
@@ -819,10 +963,13 @@ local function shopBanner(v: State.View, parent: Instance, item: Config.RobuxIte
 		end
 	end)
 	b.root.Name = "Buy"
-	box(b.root, 0.745, 0.2, 0.235, 0.6)
+	b.root.ZIndex = 2
+	place(b.root, L.buy)
 	if not owned then
 		robuxTag(b)
 	end
+	shopMotion(table.find(Config.monetization.shop, item) or 1, sun, front, if owned then nil else b)
+	stickers(c, bonus, best, true)
 	return c, b
 end
 
@@ -928,7 +1075,9 @@ local function shop(o: Open, v: State.View)
 		ring.Parent = b.face
 		tabBlocks[t.id] = { block = b, ring = ring, colour = colour, y = y }
 	end
-	-- the sections, top to bottom
+	-- the sections, top to bottom. Phones get taller tiles and cards, so a Buy button is thumb-sized
+	-- (preview 2026-11-13: 32 px tall on a 338 px phone at the PC shape; a tablet's are 70+ px without it)
+	local touch = Screen.deviceClass() == "phone"
 	local order = 0
 	local passBuy: Ui.Block? = nil
 	local bestBuy: Ui.Block? = nil
@@ -941,10 +1090,12 @@ local function shop(o: Open, v: State.View)
 		heads[tab.id] = hr
 		-- the section's title as plain white words with its icon each side, straight on the well (round 2,
 		-- like the references: a coloured pill per section read as a button), and one short line under it
+		-- round 3: one slim line like the references' "Boost Upgrades", so more products fit on screen;
+		-- the short line under it gets its own thin row
 		local _ = colour
-		local title = Ui.label(hr, tab.title, UDim2.fromScale(0.7, 0.56), UDim2.fromScale(0.15, 0.06))
+		local title = Ui.label(hr, tab.title, UDim2.fromScale(0.7, 0.84), UDim2.fromScale(0.15, 0.08))
 		title.Name = "Title"
-		sized(title, "title")
+		sized(title, "body") -- quieter than the product titles under it
 		local tabIcon = Config.images.icons[tab.icon] or Config.images.icons.coin
 		local left = Ui.image(hr, tabIcon, UDim2.fromScale(0.1, S.headIcon), UDim2.fromScale(0, 0.03))
 		local right = Ui.image(hr, tabIcon, UDim2.fromScale(0.1, S.headIcon), UDim2.fromScale(0, 0.03))
@@ -952,9 +1103,8 @@ local function shop(o: Open, v: State.View)
 			local w = math.max(1, hr.AbsoluteSize.X)
 			local half = title.TextBounds.X / w / 2
 			local iw = left.AbsoluteSize.X / w
-			local y = 0.06 + 0.56 / 2
-			left.Position = UDim2.fromScale(0.5 - half - 0.015 - iw / 2, y)
-			right.Position = UDim2.fromScale(0.5 + half + 0.015 + iw / 2, y)
+			left.Position = UDim2.fromScale(0.5 - half - 0.015 - iw / 2, 0.5)
+			right.Position = UDim2.fromScale(0.5 + half + 0.015 + iw / 2, 0.5)
 		end)
 		local sub = tab.sub
 		if tab.kinds.power then
@@ -967,9 +1117,14 @@ local function shop(o: Open, v: State.View)
 			end
 			sub = `{isle or "Your next island"} needs {Config.powerText(need)} Cold Power`
 		end
-		local line = Ui.inkLabel(hr, sub, UDim2.fromScale(1, 0.3), UDim2.fromScale(0, 0.68))
-		line.TextColor3 = Theme.shopFrame.text -- light words on the dark well
-		sized(line, "small")
+		if sub ~= "" then
+			order += 1
+			local sr = row(sf, order, 1, S.subAspect)
+			sr.Name = "Sub_" .. tab.id
+			local line = Ui.inkLabel(sr, sub, UDim2.fromScale(1, 0.9), UDim2.fromScale(0, 0.05))
+			line.TextColor3 = Theme.shopFrame.text -- light words on the dark well
+			sized(line, "small")
+		end
 		-- its products: owned passes go last
 		local items = shopItems(tab)
 		table.sort(items, function(a, b)
@@ -983,21 +1138,49 @@ local function shop(o: Open, v: State.View)
 		for k, item in items do
 			infos[k] = cardInfo(v, item)
 		end
-		if tab.kinds.pass then
-			for k, item in items do
-				order += 1
-				local r = row(sf, order, 1, S.bannerAspect)
-				r.Name = "Banner_" .. item.id
-				local _, buy = shopBanner(v, r, item, infos[k])
-				if not passBuy and not ownsPass(v, item) then
+		if not tab.kinds.coins then
+			-- round 3: two landscape tiles a row, like the references; an odd one out leads as a full-width
+			-- banner (with owned passes sorted last, that's the first pass you don't have yet)
+			local bonus, best = shopBonuses(items, infos)
+			local function note(k: number, buy: Ui.Block)
+				local item = items[k]
+				firstBuy = firstBuy or buy
+				if item.kind == "pass" and not passBuy and not ownsPass(v, item) then
 					passBuy = buy
 				end
+				if k == best then
+					bestBuy = bestBuy or buy
+				end
+			end
+			local k = 1
+			if #items % 2 == 1 then
+				order += 1
+				local r = row(sf, order, 1, S.bannerAspect)
+				r.Name = "Banner_" .. items[1].id
+				local c, buy = shopTile(v, r, items[1], infos[1], bonus[1], best == 1, true)
+				c.root.Size = UDim2.fromScale(1, 1)
+				note(1, buy)
+				k = 2
+			end
+			while k <= #items do
+				order += 1
+				local r = row(sf, order, 1, if touch then S.tileRowAspectTouch else S.tileRowAspect)
+				r.Name = `Tiles_{tab.id}_{k}`
+				for j = 0, 1 do
+					local i = k + j
+					if items[i] then
+						local c, buy = shopTile(v, r, items[i], infos[i], bonus[i], best == i, false)
+						box(c.root, j * (0.5 + S.tileGap / 2), S.tileTop, 0.5 - S.tileGap / 2, 1 - S.tileTop)
+						note(i, buy)
+					end
+				end
+				k += 2
 			end
 		else
 			-- packs as cards, small to big, left to right
 			local bonus, best = shopBonuses(items, infos)
 			order += 1
-			local r = row(sf, order, 1, S.cardsAspect)
+			local r = row(sf, order, 1, if touch then S.cardsAspectTouch else S.cardsAspect)
 			r.Name = "Cards_" .. tab.id
 			local count = #items
 			local gap = 0.04
@@ -1349,6 +1532,7 @@ local function thaw(o: Open, v: State.View)
 		sized(b.text, "small")
 		if not o.first then
 			o.first = b.face
+			pulse(b.root) -- the best pet's Thaw is the one focal point (tutorial references: show the button to press)
 		end
 	end
 end
@@ -1483,6 +1667,34 @@ local function index(o: Open, v: State.View)
 			what.TextColor3 = if page.claimed then Theme.coin else Theme.white
 			sized(what, "small")
 		end
+		-- owner 2026-11-15: the island's own picture behind its pets, under a navy veil (Config.zoneArt)
+		local art = Config.zoneArt.images[page.zone]
+		if art then
+			local pic = Instance.new("ImageLabel")
+			pic.Name = "ZoneArt"
+			pic.BackgroundTransparency = 1
+			pic.Image = art
+			pic.ScaleType = Enum.ScaleType.Crop
+			pic.Position = UDim2.fromScale(0, 0)
+			pic.Size = UDim2.fromScale(1, 1) -- the whole card: under the slots the picture hardly showed (QA 2026-11-15)
+			head.BackgroundTransparency = Config.zoneArt.headSeeThrough
+			square.BackgroundTransparency = Config.zoneArt.headSeeThrough
+			pic.ZIndex = 0
+			Ui.corner(pic)
+			local veil = Instance.new("Frame")
+			veil.Name = "Veil"
+			veil.BackgroundColor3 = Theme.ink
+			veil.BorderSizePixel = 0
+			veil.Size = UDim2.fromScale(1, 1)
+			veil.ZIndex = 0
+			Ui.corner(veil)
+			local vg = Instance.new("UIGradient")
+			vg.Rotation = 90
+			vg.Transparency = NumberSequence.new(Config.zoneArt.shadeTop, Config.zoneArt.shadeBottom)
+			vg.Parent = veil
+			veil.Parent = pic
+			pic.Parent = c
+		end
 		local grid = Instance.new("Frame")
 		grid.Name = "Pets"
 		grid.BackgroundTransparency = 1
@@ -1505,6 +1717,11 @@ local function index(o: Open, v: State.View)
 				if found then def.name elseif secret then "?" else "", nil)
 			b.root.LayoutOrder = n
 			sized(b.text, "button")
+			if art then
+				-- QA 2026-11-15: solid slots hid the island picture; they let it show through a little
+				b.root.BackgroundTransparency = Config.zoneArt.slotSeeThrough
+				b.face.BackgroundTransparency = Config.zoneArt.slotSeeThrough
+			end
 			-- the painted pet, or its dark silhouette while it's still missing (the Secret stays a mystery)
 			if def.icon ~= "" and (found or not secret) then
 				Ui.image(b.face, def.icon, UDim2.fromScale(0.8, 0.66), UDim2.fromScale(0.1, 0.02), not found)
@@ -1576,7 +1793,9 @@ local function settings(o: Open)
 	-- the tutorial (2026-11-10): Ranger Bo walks you through a catch again. While it runs, the button rests.
 	local tut = settingRow(#rows + 1, rowH)
 	tut.Name = "Tutorial"
-	text(tut, "Tutorial with " .. Config.tutorial.name, 0.03, 0.66)
+	-- no guide character since 2026-11-15 (Config.tutorial.name is gone): the old "Tutorial with <name>" threw
+	-- here and the Tutorial and Codes rows never appeared (QA 2026-11-16)
+	text(tut, "Tutorial", 0.03, 0.66)
 	local running = v ~= nil and v.tutorial ~= nil and not v.tutorial.done
 	button(tut, if running then Theme.tutorial.skip else Theme.info, if running then "On now" else "Replay", 0.72, 0.26, function()
 		if not running then
@@ -2035,7 +2254,7 @@ local function tester(o: Open, v: State.View)
 		btn("Big Chill now", Theme.info, function()
 			send("chill")
 		end)
-		btn("Night / day", Theme.info, function()
+		btn("Night Reset now", Theme.info, function() -- the 10 s night that refreshes the islands (Config.night)
 			send("night")
 		end)
 		heading("Time away (welcome back)")
@@ -2480,6 +2699,98 @@ function PopupController.close()
 end
 
 -- rebuilt = the same popup drawn again for a new screen size (no "ShopOpened" twice)
+-- the Shop's opening (owner 2026-11-16: "add opening animations to the shop just like in the reference", the
+-- 2026-11-12 Halloween and Autumn shop clips in the vault): the screen washes over in the Shop's colour, the panel
+-- pops up from small, the title bar drops in, then each section title and card pops in one after another (a soft
+-- rising tink each), and last the island pets hop onto the corners. Numbers in Config.ui.shop.opening. Reduced
+-- motion: only the colour wash and a quick fade. Everything it adds goes with the popup.
+local function shopOpening(o: Open, panel: Ui.Block, header: Ui.Block)
+	local OP = Config.ui.shop.opening
+	local still = SettingsController.get("reducedMotion") == true
+	local frame = o.frame
+	-- the wash: a big soft sheet behind the panel in the Shop's colours (under the panel, over the world)
+	local wash = Instance.new("Frame")
+	wash.Name = "OpeningWash"
+	wash.AnchorPoint = Vector2.new(0.5, 0.5)
+	wash.Position = UDim2.fromScale(0.5, 0.5)
+	wash.Size = UDim2.fromScale(12, 12)
+	wash.BackgroundColor3 = Theme.white
+	wash.BackgroundTransparency = 1
+	wash.BorderSizePixel = 0
+	wash.ZIndex = 0
+	local wg = Instance.new("UIGradient")
+	wg.Rotation = 90
+	wg.Color = ColorSequence.new(Theme.shopFrame.top, Theme.shopFrame.bottom)
+	wg.Parent = wash
+	wash.Parent = frame
+	TweenService:Create(wash, TweenInfo.new(OP.washSeconds, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundTransparency = OP.washAlpha }):Play()
+	if still then
+		return
+	end
+	-- the panel pops up from small
+	local ps = Instance.new("UIScale")
+	ps.Scale = OP.panelFrom
+	ps.Parent = panel.root
+	TweenService:Create(ps, TweenInfo.new(OP.panelSeconds, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	-- the title bar drops in from above
+	local hp = header.root.Position
+	header.root.Position = UDim2.new(hp.X.Scale, hp.X.Offset, hp.Y.Scale - OP.headerDrop, hp.Y.Offset)
+	TweenService:Create(header.root, TweenInfo.new(OP.headerSeconds, Enum.EasingStyle.Back, Enum.EasingDirection.Out, 0, false, OP.panelSeconds * 0.5), { Position = hp }):Play()
+	-- the island pets on the corners start hidden and hop on at the end
+	local mascots: { GuiObject } = {}
+	for _, c in panel.root:GetChildren() do
+		if c:IsA("GuiObject") and string.sub(c.Name, 1, 7) == "Mascot_" then
+			local ms = Instance.new("UIScale")
+			ms.Scale = 0
+			ms.Parent = c
+			table.insert(mascots, c)
+		end
+	end
+	-- each row of the page (section titles, banners, card rows): hidden, then popped in one after another
+	task.defer(function()
+		local sf = o.body:FindFirstChildWhichIsA("ScrollingFrame", true)
+		local rows: { GuiObject } = {}
+		if sf then
+			for _, c in sf:GetChildren() do
+				if c:IsA("GuiObject") and c.Visible then
+					table.insert(rows, c)
+				end
+			end
+			table.sort(rows, function(a, b)
+				return a.LayoutOrder < b.LayoutOrder
+			end)
+		end
+		local scales: { UIScale } = {}
+		for _, r in rows do
+			local s = r:FindFirstChild("OpeningPop") :: UIScale? or Instance.new("UIScale")
+			s.Name = "OpeningPop"
+			s.Scale = 0.01
+			s.Parent = r
+			table.insert(scales, s)
+		end
+		task.wait(OP.panelSeconds * 0.6)
+		for i, s in scales do
+			if o.closed then
+				break
+			end
+			TweenService:Create(s, TweenInfo.new(OP.rowSeconds, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+			if i <= OP.tinks then
+				SoundController.play("tink", 1 + i * 0.08)
+			end
+			task.wait(OP.rowGap)
+		end
+		for _, s in scales do
+			s.Scale = 1 -- a row that was closed mid-way, or rows past the stagger, all end full size
+		end
+		for k, m in mascots do
+			local ms = m:FindFirstChildOfClass("UIScale")
+			if ms and not o.closed then
+				TweenService:Create(ms, TweenInfo.new(OP.mascotSeconds, Enum.EasingStyle.Back, Enum.EasingDirection.Out, 0, false, (k - 1) * 0.08), { Scale = 1 }):Play()
+			end
+		end
+	end)
+end
+
 function PopupController.open(name: string, data: any?, rebuilt: boolean?)
 	if name == "tester" and not (State.view and State.view.tester) then
 		return -- not a tester: the panel doesn't exist
@@ -2606,6 +2917,9 @@ function PopupController.open(name: string, data: any?, rebuilt: boolean?)
 		end)
 	end
 	fill(o)
+	if name == "shop" and not rebuilt then
+		shopOpening(o, panel, header)
+	end
 end
 
 function PopupController.Init() end

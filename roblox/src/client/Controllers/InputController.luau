@@ -33,6 +33,22 @@ end
 
 local forced = false -- Studio-only device QA: DevDevice pins the device (the phone emulator still reports a keyboard)
 
+-- a touch screen that is only touch, or phone-sized (Config.ui.phoneShortPx): a phone. Owner 2026-11-15 (2-player
+-- test log): each thumbstick touch switched to the touch layout (coins lifted over the stick, tiles smaller) and
+-- the next stray keyboard/mouse event (the emulator and some phones report a keyboard) switched it back, so the
+-- HUD jumped up and down while walking. On a phone the device stays "touch"; only a gamepad changes it.
+local function phone(): boolean
+	if not UserInputService.TouchEnabled then
+		return false
+	end
+	if not UserInputService.KeyboardEnabled and not UserInputService.MouseEnabled then
+		return true
+	end
+	local cam = workspace.CurrentCamera
+	local v = if cam then cam.ViewportSize else Vector2.zero
+	return v.X > 1 and math.min(v.X, v.Y) < Config.ui.phoneShortPx
+end
+
 local function fromInputType(t: Enum.UserInputType)
 	if forced then
 		return
@@ -41,6 +57,8 @@ local function fromInputType(t: Enum.UserInputType)
 		setDevice("touch")
 	elseif t.Name:find("Gamepad") then
 		setDevice("gamepad")
+	elseif device == "touch" and phone() then
+		return -- see phone(): stray keyboard / mouse input never leaves the touch layout on a phone
 	elseif t == Enum.UserInputType.Keyboard or t.Name:find("Mouse") then
 		setDevice("keyboard")
 	end
@@ -57,8 +75,8 @@ function InputController.keyHint(prompt: ProximityPrompt): string
 end
 
 function InputController.Init()
-	if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then
-		device = "touch"
+	if phone() or (UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled) then
+		device = "touch" -- a phone starts in the touch layout, so it never jumps on the first thumbstick touch
 	elseif UserInputService.GamepadEnabled and not UserInputService.KeyboardEnabled then
 		device = "gamepad"
 	end
@@ -66,6 +84,21 @@ end
 
 function InputController.Start()
 	UserInputService.LastInputTypeChanged:Connect(fromInputType)
+	-- the screen became phone-sized (a phone rotating, the Studio emulator switching device): touch layout now
+	local function checkPhone()
+		if not forced and device == "keyboard" and phone() then
+			setDevice("touch")
+		end
+	end
+	local function watchCam()
+		local cam = workspace.CurrentCamera
+		if cam then
+			cam:GetPropertyChangedSignal("ViewportSize"):Connect(checkPhone)
+		end
+		checkPhone()
+	end
+	workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(watchCam)
+	watchCam()
 	-- Studio-only test hook (device QA 2026-11-13): the player attribute DevDevice = "touch" | "gamepad" |
 	-- "keyboard" pins the device, "" lets input decide again. Off in live servers.
 	if game:GetService("RunService"):IsStudio() then

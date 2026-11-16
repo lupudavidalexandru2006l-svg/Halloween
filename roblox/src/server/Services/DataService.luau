@@ -55,7 +55,7 @@ export type Data = {
 	codes: { [string]: boolean }, -- codes already redeemed (Round 5)
 	shieldLeft: number, -- seconds of the new-player tag shield still to use (counts down only while playing)
 	daily: DailyState,
-	tutorial: { step: number, done: boolean, gift: boolean? }, -- Captain Frost's tutorial (TutorialService): the step you're on, or done; gift = his coins for the first upgrade were given
+	tutorial: { step: number, done: boolean, gift: boolean?, paid: { [string]: boolean }? }, -- the tutorial (TutorialService): the step you're on, or done; gift = his coins for the first upgrade were given; paid = the lesson rewards already given (by step id)
 	createdAt: number,
 	lock: { job: string, t: number }?,
 }
@@ -284,6 +284,12 @@ local function migrate(old: any): Data
 	for n = Config.pan.coldStart + 1, int(pa.cold, Config.pan.coldStart, 20, Config.pan.coldStart) do
 		refund += Config.pan.coldRefund[n] or 0
 	end
+	-- the Speed pan upgrade is gone too (owner 2026-11-15: speed comes from Gear): its coins come back
+	-- and the level goes back to 1, so this pays out once
+	for n = 1, d.upgrades.boots - 1 do
+		refund += Config.pan.speedRefund[n] or 0
+	end
+	d.upgrades.boots = 1
 	d.coins = math.min(d.coins + refund, 1e15)
 	d.coldRefund = math.min(num(old.coldRefund, 0, 1e15) + refund, 1e15)
 	d.pan.look = int(pa.look, 1, #Config.pan.looks, 1)
@@ -324,9 +330,22 @@ local function migrate(old: any): Data
 	-- new-player things are for new players only); they can still replay it from Settings
 	local tu = old.tutorial
 	if typeof(tu) == "table" then
-		d.tutorial = { step = int(tu.step, 1, #Config.tutorial.steps, 1), done = tu.done == true, gift = tu.gift == true }
+		local paid: { [string]: boolean } = {}
+		for _, s in Config.tutorial.steps do
+			if s.reward and typeof(tu.paid) == "table" and tu.paid[s.id] == true then
+				paid[s.id] = true
+			end
+		end
+		d.tutorial = { step = int(tu.step, 1, #Config.tutorial.steps, 1), done = tu.done == true, gift = tu.gift == true, paid = paid }
 	else
-		d.tutorial = { step = #Config.tutorial.steps, done = true }
+		-- nothing to earn on a replay: every lesson reward counts as given
+		local paid: { [string]: boolean } = {}
+		for _, s in Config.tutorial.steps do
+			if s.reward then
+				paid[s.id] = true
+			end
+		end
+		d.tutorial = { step = #Config.tutorial.steps, done = true, paid = paid }
 	end
 	d.createdAt = num(old.createdAt, 0, 1e12, os.time())
 	d.lastBest = if typeof(old.lastBest) == "string" and PetDefs.get(old.lastBest) then old.lastBest else nil
@@ -338,6 +357,10 @@ local function migrate(old: any): Data
 end
 
 local function keyFor(player: Player): string
+	local fresh = Config.dev.freshSave
+	if isQaStore and typeof(fresh) == "string" and fresh ~= "" then
+		return `u_{player.UserId}_{fresh}` -- Studio "play as a new player" (Config.dev.freshSave)
+	end
 	return "u_" .. player.UserId
 end
 
@@ -359,10 +382,12 @@ end
 local function load(player: Player)
 	local key = keyFor(player)
 	local loaded: Data? = nil
+	local newSave = false -- no save under this key yet (a new player, a wiped save, a new Config.dev.freshSave name)
 	for _ = 1, Config.data.retries do
 		local lockedByOther = false
 		local ok, err = withRetries(function()
 			return store:UpdateAsync(key, function(old: any)
+				newSave = typeof(old) ~= "table"
 				local d = migrate(old)
 				local lock = d.lock
 				if lock and lock.job ~= game.JobId and os.time() - lock.t < Config.data.lockStaleSeconds then
@@ -406,6 +431,12 @@ local function load(player: Player)
 	end
 	if not Config.isTester(player.UserId) then
 		(loaded :: Data).tester = testerDefaults() -- tester switches never apply to anyone else
+	end
+	-- the tutorial plays once, on a player's very first join (owner 2026-11-16: "make sure it only shows once when
+	-- players enter for the first time"): any save that already existed counts it done, even if they left halfway.
+	-- In Studio that means a brand-new or wiped save. Settings > Replay still starts it again.
+	if not newSave and not (loaded :: Data).tutorial.done then
+		(loaded :: Data).tutorial.done = true
 	end
 	sessions[player] = { data = loaded :: Data, saving = false, wiping = false }
 	loadedEvent:Fire(player, loaded)

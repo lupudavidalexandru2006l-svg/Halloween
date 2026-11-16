@@ -59,6 +59,7 @@ local respawnAt: { [Player]: { [number]: number } } = {}
 local nextId = 1
 local rng = Random.new()
 local folder: Folder
+local dawnWave = false -- the sunrise refill after a Night Reset: it may roll night-only mutations (Starry)
 
 local TIER_NAMES = {}
 for _, t in Config.tiers do
@@ -88,7 +89,9 @@ function WildPetSpawner.shownOdds(player: Player, zone: number): { [string]: num
 			boost = math.min(pc.maxBoost, 1 + math.max(0, (p[t.name] or 0) - grace) * pc.perMiss * (100 / t.odds) / 100)
 		end
 		local islandBoost = if zone <= early.upTo then early.mult[t.name] or 1 else 1
-		weights[t.name] = t.odds * boost * islandBoost
+		-- Lucky Rush (Config.events): Rare and up roll more often, and these shown odds include it
+		local eventBoost = if t.rank >= 3 then EventService.mult("luck") else 1
+		weights[t.name] = t.odds * boost * islandBoost * eventBoost
 		total += weights[t.name]
 	end
 	for k, v in weights do
@@ -167,10 +170,11 @@ end
 
 -- the server's roll for a new wild pet: rarest first, night-only ones only at night
 local function rollMutation(): string?
-	local night = EventService.isNight()
+	local night = EventService.isNight() or dawnWave
 	for _, name in Config.mutationRollOrder do
 		local m = Config.mutations[name]
-		if (night or not m.nightOnly) and rng:NextNumber() < m.chance then
+		local chance = m.chance * (if name == "Golden" then EventService.mult("golden") else 1) -- Golden Rush
+		if (night or not m.nightOnly) and rng:NextNumber() < chance then
 			return name
 		end
 	end
@@ -353,7 +357,7 @@ local function tick(dt: number)
 	for _, pet in pets do
 		-- night: wild pets curl up and sleep (easy to freeze); morning: back to their pose loop
 		local m = motionOf(pet)
-		local sleeps = m == nil or m.sleeps
+		local sleeps = Config.night.petsSleep and (m == nil or m.sleeps)
 		if pet.state == "wild" and (night and sleeps) ~= (pet.action == "sleep") and pet.meter < Config.aim.stuckAt then
 			setAction(pet, if night and sleeps then "sleep" else Config.poseLoop[pet.loopIdx])
 			pet.wanderTo = nil
@@ -457,8 +461,8 @@ local function tick(dt: number)
 		end
 	end
 	for _, z in Config.world.zones do
-		if not z.ready then
-			continue -- "Coming soon": no pets until the island's pets are approved (Round 4 phase 6)
+		if not z.ready or night then
+			continue -- "Coming soon": no pets until the island's pets are approved (Round 4 phase 6); nothing new in the Night Reset
 		end
 		local shared = 0
 		local personal: { [Player]: number } = {}
@@ -508,6 +512,64 @@ local function tick(dt: number)
 	end
 end
 
+-- the Secret clock (Config.secretSpawn, owner 2026-11-16): at each half hour ONE shared Secret appears on the whole
+-- map (owner: "only 1 in the whole map, not 1 per island"), on a ready island picked at random; anyone whose Cold
+-- Power and gun can freeze that island's pets may catch it, and the whole server hears where it is.
+-- It leaves after lifeSeconds unless someone has ice on it. lastSecretSlot = the half hour already done.
+local lastSecretSlot: number? = nil
+local secretBorn: { [string]: number } = {} -- pet id -> os.clock() it appeared
+
+function WildPetSpawner.spawnSecrets(): { string }
+	local names: { string } = {}
+	local choices: { Config.Zone } = {}
+	for _, z in Config.world.zones do
+		if z.ready and #PetDefs.inZone(z.id, "Secret") > 0 then
+			table.insert(choices, z)
+		end
+	end
+	if #choices == 0 then
+		return names
+	end
+	local z = choices[rng:NextInteger(1, #choices)]
+	local pool = PetDefs.inZone(z.id, "Secret")
+	local pet = WildPetSpawner.spawn(z.id, nil, pool[rng:NextInteger(1, #pool)].key, false, nil)
+	if pet then
+		secretBorn[pet.id] = os.clock()
+		pet.root:SetAttribute("ClockSecret", true)
+		table.insert(names, z.name)
+	end
+	return names
+end
+
+local function secretTick()
+	local S = Config.secretSpawn
+	local _, slot = WorldRules.secretIn(workspace:GetServerTimeNow())
+	if lastSecretSlot == nil then
+		lastSecretSlot = slot -- a server that starts mid-way waits for the next half hour
+	elseif slot ~= lastSecretSlot then
+		lastSecretSlot = slot
+		local names = WildPetSpawner.spawnSecrets()
+		if #names > 0 then
+			Remotes.fireAll("Notify", "secretSpawned", { islands = names, count = #names })
+		end
+	end
+	local out = 0
+	for id, born in secretBorn do
+		local pet = pets[id]
+		if not pet then
+			secretBorn[id] = nil
+		elseif os.clock() - born > S.lifeSeconds and pet.meter <= 0 then
+			secretBorn[id] = nil
+			WildPetSpawner.remove(id)
+		else
+			out += 1
+		end
+	end
+	if workspace:GetAttribute("SecretsOut") ~= out then
+		workspace:SetAttribute("SecretsOut", out) -- the HUD's Secret clock says "SECRET IS OUT!" while one is
+	end
+end
+
 -- dev command (Studio only): a personal pet of this tier right next to the player
 function WildPetSpawner.devSpawn(player: Player, tier: string): WildPet?
 	local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
@@ -546,24 +608,110 @@ function WildPetSpawner.Init()
 	folder = WorldService.petsFolder("WildPets")
 end
 
-function WildPetSpawner.Start()
+-- the islands' starting crowd: the near band, then shared Commons and Uncommons (rares come from the
+-- players' own rolls). Server start and every sunrise after a Night Reset.
+local function fillZones()
 	for _, z in Config.world.zones do
 		if not z.ready then
 			continue
 		end
-		for _ = 1, Config.spawner.nearCount do
-			WildPetSpawner.spawn(z.id, nil, nil, true)
+		local shared = 0
+		for _, p in pets do
+			if p.zone == z.id and not p.owner then
+				shared += 1
+			end
 		end
-		for _ = 1, Config.spawner.maxPerZone - 2 - Config.spawner.nearCount do
-			WildPetSpawner.spawn(z.id) -- shared Commons and Uncommons; rares come from the players' own rolls
+		for _ = nearCount(z.id) + 1, Config.spawner.nearCount do
+			if WildPetSpawner.spawn(z.id, nil, nil, true) then
+				shared += 1
+			end
+		end
+		for _ = shared + 1, Config.spawner.maxPerZone - 2 do
+			WildPetSpawner.spawn(z.id)
 		end
 	end
+end
+
+-- a Starry night (Config.night.starry): maybe one personal Starry pet near this player, on the island
+-- they stand on (island 1 from the hub), rolled with that island's odds and their own pity
+local function starryFor(player: Player)
+	local S = Config.night.starry
+	local data = DataService.get(player)
+	local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+	local at = if hrp and hrp:IsA("BasePart") then hrp.Position else nil
+	if not data or not at or rng:NextNumber() >= S.chance then
+		return
+	end
+	local zone = WorldRules.zoneAt(at)
+	if zone < 1 or zone > data.reach or not Config.zone(zone).ready then
+		zone = 1
+	end
+	local tier = pickTier(player, zone)
+	local pool = PetDefs.inZone(zone, tier)
+	if #pool == 0 then
+		return
+	end
+	local spot: Vector3? = nil
+	if WorldRules.zoneAt(at) == zone then
+		for _ = 1, 12 do
+			local a = rng:NextNumber() * math.pi * 2
+			local d = S.minStuds + rng:NextNumber() * (S.maxStuds - S.minStuds)
+			local p = Vector3.new(at.X + math.cos(a) * d, 0, at.Z + math.sin(a) * d)
+			if WorldRules.zoneAt(p) == zone and WorldRules.inTunnel(p, Config.spawner.wallMargin) then
+				spot = p
+				break
+			end
+		end
+	end
+	local pet = WildPetSpawner.spawn(zone, spot or randomSpot(zone, true, false), pool[rng:NextInteger(1, #pool)].key, false, player)
+	if pet then
+		commitPity(player, zone, tier)
+		pet.mut = "Starry"
+		pet.root:SetAttribute("Mut", "Starry")
+		Remotes.fire(player, "Notify", "starryNear", { zone = zone })
+	end
+end
+
+-- Night Reset (Config.night): night falls = the reset tiers go (never one with ice on it, a melted
+-- cube's dazed pet, or anyone's own pet: their Rare, the tutorial pet, a Starry); then maybe a Starry
+-- pet each (starryFor); sunrise = a fresh wave at once
+function WildPetSpawner.nightReset(night: boolean)
+	if night then
+		for id, pet in pets do
+			if Config.night.resetTiers[pet.def.tier] and pet.state == "wild" and pet.meter <= 0 and not pet.owner then
+				WildPetSpawner.remove(id)
+			end
+		end
+	else
+		dawnWave = true
+		local ok, err = pcall(fillZones)
+		dawnWave = false
+		if not ok then
+			warn("[WildPetSpawner] sunrise wave:", err)
+		end
+		-- the Starry pet comes at sunrise now (2026-11-16): the islands are closed while it's dark (Config.nightClose)
+		for _, player in Players:GetPlayers() do
+			local ok2, err2 = pcall(starryFor, player)
+			if not ok2 then
+				warn("[WildPetSpawner] starry sunrise:", err2)
+			end
+		end
+		for _, timers in respawnAt do
+			table.clear(timers) -- everyone's own rolls start again straight away
+		end
+	end
+end
+
+function WildPetSpawner.Start()
+	fillZones()
+	EventService.NightChanged:Connect(WildPetSpawner.nightReset)
 	-- first minute: a fluffy bunny next to the spawn, and a second and third pet right there
 	DataService.Loaded:Connect(function(player: Player, data: any)
 		if data.stats.frozen == 0 then
-			-- the hub is safe (no wild pets), so it waits just inside the tunnel mouth, straight ahead
+			-- the hub is safe (no wild pets), so it waits just inside the tunnel mouth, straight ahead. It's
+			-- theirs (2026-11-15): nobody else takes it, and the Night Reset leaves it alone
 			local s = Config.world.spawn
-			WildPetSpawner.spawn(1, Vector3.new(s.X + 4, 0, Config.world.hubZMax + Config.spawner.firstPetDistance), "snowbun")
+			WildPetSpawner.spawn(1, Vector3.new(s.X + 4, 0, Config.world.hubZMax + Config.spawner.firstPetDistance), "snowbun", false, player)
 		end
 		-- the near band is kept topped up for everyone (see nearCount), so nothing more is needed here
 	end)
@@ -591,6 +739,10 @@ function WildPetSpawner.Start()
 			local ok, err = pcall(tick, now - last) -- one bad tick never stops the pets for good
 			if not ok then
 				warn("[WildPetSpawner] tick:", err)
+			end
+			local ok2, err2 = pcall(secretTick)
+			if not ok2 then
+				warn("[WildPetSpawner] secret clock:", err2)
 			end
 			last = now
 		end

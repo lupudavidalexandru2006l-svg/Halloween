@@ -317,6 +317,11 @@ local Theme = {
 	-- effects and guides (prototype client.js)
 	fx = {
 		arrow = Color3.fromHex("3ccf6e"), beacon = Color3.fromHex("7dffb0"),
+		-- the guide chevrons and the arrow over the target (owner 2026-11-16: "you can't really see the arrows,
+		-- maybe a darker blue"): one deep blue on every island, so it stands out on snow, grass and sand
+		guideArrow = Color3.fromHex("1f4fd8"), guideArrowTop = Color3.fromHex("2c62ff"),
+		-- the night walls at the tunnel mouth (Config.nightClose): candy violet, never dark
+		nightWall = Color3.fromHex("9b7bff"),
 		beamCore = Color3.new(1, 1, 1), beamGlow = Color3.fromHex("7fe3ff"),
 		gunBody = Color3.fromHex("e9f6ff"), gunTip = Color3.fromHex("7fe3ff"),
 		star = Color3.fromHex("ffd34a"), shadow = Color3.fromHex("1b1433"), frost = Color3.fromHex("dff6ff"),
@@ -486,6 +491,15 @@ Theme.placeColor = {
 	beach = hex("1fbfe8"), jungle = hex("12c9b4"), desert = hex("ff9f1c"), canyon = hex("ff5a8a"),
 	volcano = hex("ff5a1f"), lavalake = hex("ff3d6a"), magma = hex("ffbf1f"), suntemple = hex("ffbf1f"),
 }
+
+-- alerts under the top buttons (Config.ui.alerts, owner 2026-11-16): a dark navy toast with a bright edge and an
+-- icon chip in the alert's own colour (red = no, green = go, yellow = coins, blue = info)
+Theme.alert = { back = hex("20264a"), backTop = hex("323a6e"), text = hex("ffffff") }
+-- the server events and the Secret clock (Config.events, Config.secretSpawn): each event's own colour
+Theme.events = { chill = hex("5fd0ff"), luck = hex("5dffb0"), coins = hex("ffc93c"), golden = hex("ffb21f"),
+	secret = hex("ff4fd8"), night = hex("9b7bff") }
+-- the Cold Power gain banner at the top (Config.ui.gainBanner): cyan to mint like the reference's box
+Theme.gainBanner = { from = hex("36e0ff"), to = hex("3cf0a0"), rays = hex("ffffff") }
 
 return Theme
 

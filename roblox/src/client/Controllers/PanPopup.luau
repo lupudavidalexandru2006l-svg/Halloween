@@ -21,8 +21,8 @@ local UpgradeMotion = require(script.Parent.UpgradeMotion)
 local PanPopup = {}
 local P = Config.pan
 local I = Config.images.icons
-local ICONS: { [string]: string } = { slots = I.pen, look = I.paint, trainer = I.power, thaw = I.temp, speed = I.boots }
-local TILES: { [string]: Color3 } = { slots = Theme.pen, look = Theme.grassFar, trainer = Theme.training.power, thaw = Theme.coin, speed = Theme.go }
+local ICONS: { [string]: string } = { slots = I.pen, look = I.paint, trainer = I.power, thaw = I.thaw }
+local TILES: { [string]: Color3 } = { slots = Theme.pen, look = Theme.grassFar, trainer = Theme.training.power, thaw = Theme.coin }
 local NAMES: { [string]: string } = P.names
 local PROGRESS_STEPS = 20 -- the "how close" bar redraws in 5% steps (the popup only rebuilds on a key change)
 
@@ -35,9 +35,6 @@ function PanPopup.level(v: State.View, kind: string): number
 	end
 	if kind == "thaw" then
 		return if v.pan and (v.pan :: any).thaw then (v.pan :: any).thaw else 1
-	end
-	if kind == "speed" then
-		return v.upgrades.boots or 1
 	end
 	return if v.pan then v.pan.look else 1
 end
@@ -69,12 +66,6 @@ local function values(kind: string, level: number, rebirths: number, canBuy: boo
 			return `-{math.round((1 - f ^ (l - 1)) * 100)}%`
 		end
 		return if level <= 1 then "0%" else pct(level), if canBuy then pct(level + 1) else nil, "wait"
-	end
-	if kind == "speed" then -- walk speed in studs a second
-		local function spd(l: number): string
-			return tostring(math.round(Config.player.walkSpeed * (1 + Config.upgrades.boots.speedBonus * (l - 1))))
-		end
-		return spd(level), if canBuy then spd(level + 1) else nil, "speed"
 	end
 	if kind == "trainer" then -- the Cold Power trainer in front of your pan: its xN
 		local cur, nxt = Config.training.stations[level], Config.training.stations[level + 1]
@@ -227,9 +218,53 @@ local function flatBox(parent: Instance, s: string, h: EquipmentPopup.Helpers)
 	f.Parent = parent
 end
 
+-- the tutorial's upgrade step (Config.tutorial, a step with focus "stand" and a gift): the card it asks
+-- for (nil = none, or any card when that one is at the top already)
+local function tutorialPick(v: State.View): string?
+	local tu = v.tutorial
+	local s = if tu and not tu.done then Config.tutorial.steps[tu.step] else nil
+	if not s or s.focus ~= "stand" or not s.gift then
+		return nil
+	end
+	if Config.panPrice(s.gift, PanPopup.level(v, s.gift), v.rebirths) == nil then
+		return nil
+	end
+	return s.gift
+end
+
+-- tutorial references (2026-11-15): in a menu the tutorial points at the one button to press and dims
+-- the rest. A wash over the other cards, and the painted green arrow bobbing at this card's Buy
+local function dim(face: GuiObject)
+	local f = Instance.new("Frame")
+	f.Name = "TutorialDim"
+	f.BackgroundColor3 = Theme.white
+	f.BackgroundTransparency = 0.35
+	f.Size = UDim2.fromScale(1, 1)
+	f.ZIndex = 20
+	f.Active = false
+	Ui.corner(f)
+	f.Parent = face
+end
+
+local function pointAt(face: GuiObject)
+	local a = Ui.image(face, Config.images.icons.arrow, UDim2.fromScale(0.13, 0.7), UDim2.fromScale(0.565, 0.15))
+	a.Name = "TutorialArrow"
+	a.ZIndex = 21
+	if SettingsController.get("reducedMotion") == true then
+		return
+	end
+	local home = a.Position
+	local tw = TweenService:Create(a, TweenInfo.new(0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Position = home + UDim2.fromScale(0.03, 0) })
+	tw:Play()
+	a.Destroying:Once(function()
+		tw:Cancel()
+	end)
+end
+
 function PanPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
-	local l = h.list(o.body, #P.order > 3) -- five cards (2026-11-13) scroll
+	local l = h.list(o.body, #P.order > 3) -- four cards (Speed left 2026-11-15) scroll
 	local pulsing = false
+	local pick = tutorialPick(v)
 	for i, kind in P.order do
 		local level = PanPopup.level(v, kind)
 		local r = h.row(l, i, 0, Config.ui.gearCardAspect) -- a scrolling list: rows sized by shape
@@ -263,6 +298,9 @@ function PanPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
 			word(stat, unit, Theme.tiers.Common:Lerp(Theme.ink, 0.35), "small", h, 4)
 		end
 		besideTile(face, { top, stat })
+		if pick and kind ~= pick then
+			dim(face)
+		end
 		if not price then
 			flatBox(face, "Max", h)
 			continue
@@ -282,7 +320,10 @@ function PanPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
 		if h.priceTag then
 			h.priceTag(b)
 		end
-		if afford and not pulsing then
+		if pick == kind then
+			pointAt(face)
+		end
+		if afford and not pulsing and (pick == nil or pick == kind) then
 			pulsing = true
 			pulse(b)
 		elseif not afford then

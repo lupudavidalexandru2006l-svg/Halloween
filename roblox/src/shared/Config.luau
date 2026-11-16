@@ -46,7 +46,7 @@ Config.data = {
 Config.player = {
 	-- owner 2026-11-10: 16 (Roblox's default) made the walk out "slow and boring". The pans' doors are 85-145
 	-- studs from the first meadow pets, so 32 gets you there in 3-5 s, and every later island in half the time.
-	-- Nothing sells speed (no Boots in the Shop), so this is everyone's speed for the whole game.
+	-- Nothing sells speed (owner 2026-11-15: speed comes from Gear only, Ice Skates), so this is everyone's base speed.
 	walkSpeed = 32,
 	respawnSeconds = 1, -- Game Design Rules 7: failure is gentle, quick respawn (Roblox's default is 5)
 	freezeRange = 10,
@@ -98,8 +98,9 @@ Config.upgrades = { -- baseCost = the price of level 2; each step costs x1.5 the
 	-- cube size: +12% a level for the first 4 levels (you can see it), then +2%
 	ray = { name = "Ice Ray", baseCost = 40, costGrowth = 1.5, maxLevel = 20, lifeBonus = 0.02, -- +2% cube life a level (owner 2026-10-30)
 		cubeSize = { early = 0.12, earlyLevels = 4, late = 0.02 } },
-	-- Speed (owner 2026-11-13: "speed boosts", sold again as a Pan Upgrade, kind "speed"): +10% walk speed a
-	-- level, 32 -> 61 studs/s at level 10, so the far islands stay quick. Prices: Config.pan.speedPrices
+	-- boots: the old walk Speed upgrade. owner 2026-11-15: "we shouldn't be able to buy speed from the pan
+	-- upgrades, gear was the idea behind speed". No longer sold or applied; DataService refunds old levels
+	-- (Config.pan.speedRefund) and keeps the saved level at 1. Kept here only because saves carry it.
 	boots = { name = "Speed", baseCost = 64, costGrowth = 1.5, maxLevel = 10, speedBonus = 0.1 },
 	backpack = { name = "Backpack", baseCost = 750, costGrowth = 1.5, maxLevel = 5, slowPerExtraCube = 0.08 },
 	-- owner 2026-11-05: 100 slots was "insane"; the pan tops out at 16 (10 to start, +1 a level, 7 levels).
@@ -145,6 +146,10 @@ Config.gatePrompt = { range = 22, hold = 0.6 }
 Config.gateCooldown = 0.4 -- seconds between two tries at the same player's gate (Round 4 phase 6)
 Config.gateGuardStuds = 3 -- PlayerTracker puts anyone this far past a gate they haven't opened back in front of it
 Config.shopOpenedCooldown = 2
+-- owner 2026-11-15: phones (PerformanceController). A touch device under autoLowFps on average over
+-- windowSeconds (after settleSeconds of loading) switches Low graphics on by itself, once per session.
+Config.performance = { autoLowFps = 40, windowSeconds = 6, settleSeconds = 12 }
+
 Config.settingsDefault = { music = true, sound = true, reducedMotion = false, lowGraphics = false, unit = "C" }
 -- Tester tools (Round 4 phase 1): only these accounts get the Tester panel ("T" tile / T key) and the
 -- "/dev" chat commands; every tester remote checks the caller's UserId on the server.
@@ -155,6 +160,10 @@ Config.testers = {
 	studioUserIds = { -1 },
 }
 Config.dev = {
+	-- "Play as a new player" (design review 2026-11-15): in Studio only (the QA store), a non-empty name gives
+	-- every save its own key u_<id>_<name>, so a play test starts from a brand-new save and nobody's own save
+	-- is touched. Change the name for another fresh start. Leave it "" normally. A live server ignores it.
+	freshSave = "owner_try1", -- owner's new-player run (2026-11-15); set back to "" after
 	maxCoins = 1e15, heatMax = 5, awayMax = 24 * 3600,
 	multMin = 0.1, multMax = 10000,
 	walkMin = 16, walkMax = 100,
@@ -237,8 +246,10 @@ Config.spawner = {
 	-- Wild pets nobody is after wander off after lifeSeconds, so a zone never clogs with uncaught Commons
 	-- (rolls only happen while it has room). Only when no player is within despawnClearStuds, so a pet
 	-- never vanishes in front of you; never while it has ice on it. Tiers not listed stay until caught.
-	lifeSeconds = { Common = 45, Uncommon = 60, Rare = 120 } :: { [string]: number },
-	despawnClearStuds = 30,
+	-- owner 2026-11-15 (Night Reset): Commons, Uncommons and Rares nobody is freezing go after a minute.
+	-- "Interacting" = ice on it; the stand-off guard is only right next to you now (it was 30 studs).
+	lifeSeconds = { Common = 60, Uncommon = 60, Rare = 60 } :: { [string]: number },
+	despawnClearStuds = 12,
 	-- the rarest pets are restless (owner 2026-11-12: "secrets should be harder to ice ray, they should move
 	-- quicker and more random"). Per tier: speed = x wanderSpeed, always on the move whatever their pose;
 	-- dart = seconds before they pick a new random spot (min, max) within dartRadius studs; flee = x
@@ -253,13 +264,57 @@ Config.spawner = {
 
 Config.bigChill = { everySeconds = 600, warnSeconds = 30, durationSeconds = 60 }
 
+-- Secret spawns (owner 2026-11-16: "a secret every 30 minutes"). On the clock, not from server start: every
+-- server agrees, a player who joins late isn't behind, and the HUD can say "Secret in 12:30" anywhere. At each
+-- half hour (Unix time, so :00 and :30) ONE Secret appears on the whole map, on a ready island picked at random
+-- (owner 2026-11-16: "only 1 in the whole map"), shared: anyone whose Cold Power and gun can freeze that
+-- island's pets may catch it. It stays lifeSeconds (or until frozen), visible
+-- from every island (PetVisuals), and the whole server gets an alert. Ice on it keeps it from leaving.
+Config.secretSpawn = { everySeconds = 1800, lifeSeconds = 300, warnSeconds = 60 }
+
+-- Server events (owner 2026-11-16: "an event every 30 mins, the current events are kinda shitty"): replaces the
+-- Big Chill's own 10-minute clock. Every everySeconds (Unix time, offsetSeconds after each half hour, so they
+-- never land on a Secret) one event runs for durationSeconds, the next in the list each time. Everyone gets the
+-- alert warnSeconds before. A bought Big Chill still works any time (EventService.startBought).
+--   chill  = the Big Chill: nothing melts, and every pet frozen in it is Frosty
+--   luck   = Lucky Rush: Rare and up roll luckMult x as often (the odds a player sees include it)
+--   coins  = Coin Rush: every pan earns coinMult x
+--   golden = Golden Rush: Golden pets spawn goldenMult x as often
+export type ServerEvent = { id: string, name: string, line: string, icon: string }
+Config.events = {
+	everySeconds = 1800, offsetSeconds = 900, durationSeconds = 300, warnSeconds = 30,
+	luckMult = 2, coinMult = 2, goldenMult = 5,
+	list = {
+		{ id = "chill", name = "BIG CHILL", line = "Nothing melts! Pets freeze Frosty", icon = "ray" },
+		{ id = "luck", name = "LUCKY RUSH", line = "Rare pets x2 more often!", icon = "gift" },
+		{ id = "coins", name = "COIN RUSH", line = "Your pets make x2 coins!", icon = "coin" },
+		{ id = "golden", name = "GOLDEN RUSH", line = "Golden pets x5 more often!", icon = "coin" },
+	} :: { ServerEvent },
+}
+
+-- the islands close at night (owner 2026-11-16, "just like in steal an egg"): as the Night Reset falls, glowing
+-- walls rise at the tunnel mouth and anyone out on the islands is brought home to their pan (cubes in hand come
+-- too, nothing is lost). They open again at sunrise. warnSeconds: "Night soon! Head home" this long before.
+Config.nightClose = { warnSeconds = 15, wallHeight = 40, wallZ = 1, homeDelay = 0.6 }
+
 -- Night (owner 2026-10-31): one 15-minute loop for the whole server, worked out from server time so
 -- every client agrees without messages. day -> sunset -> night -> sunrise. At night pets sleep (freeze
 -- in half the time, Sleeping pose), cubes melt slower (Config.melt.night) and Starry pets can spawn.
 -- Candy night, never scary: deep blue-purple, bright enough to play.
+-- Night Reset (owner 2026-11-15: "night is too easy, sleeping pets are free catches; make night a reset"):
+-- every 5 minutes a 10-second night falls. Its first moment clears the islands' Commons, Uncommons and
+-- Rares (resetTiers) with a snowy poof, unless someone has ice on them; nothing new spawns while it's dark;
+-- at sunrise a fresh wave pops in at once, and that wave can roll Starry. Epic and up stay through it.
+-- Pets no longer sleep at night (petsSleep), so the night is never a free catch.
 Config.night = {
-	daySeconds = 600, fadeSeconds = 60, nightSeconds = 180, -- cycle = day + fade + night + fade
-	sleepFreezeFactor = 0.5, -- a sleeping pet's Freeze hold is this much of the normal hold
+	daySeconds = 282, fadeSeconds = 4, nightSeconds = 10, -- cycle = day + fade + night + fade = 300 s
+	petsSleep = false,
+	resetTiers = { Common = true, Uncommon = true, Rare = true } :: { [string]: boolean }, -- never a personal pet (your own Rare, the tutorial pet)
+	-- Starry night (design review 2026-11-15: the night was 14 s with nothing to do): as night falls, each player
+	-- may get one personal Starry pet near them, on the island they stand on (from the hub: island 1). Rolled with
+	-- the island's normal odds and their pity, so it's a nice surprise, not a free Rare. Numbers: an owner call.
+	starry = { chance = 0.5, minStuds = 14, maxStuds = 26 },
+	sleepFreezeFactor = 0.5, -- a sleeping pet's Freeze hold is this much of the normal hold (only if petsSleep)
 	nightAt = 0.5, -- the blend (0 day, 1 night) at which the rules switch to night
 	day = { clock = 14, brightness = 2.2, ambient = Color3.fromRGB(95, 90, 85), outdoor = Color3.fromRGB(115, 115, 128), -- warm, bright day (2026-11-09)
 		tint = Color3.new(1, 1, 1), ccBrightness = 0, stars = 0, haze = 0 },
@@ -301,7 +356,7 @@ Config.challenges = {
 -- Only the community join can be checked (Player:IsInGroupAsync), so only it is required on the server;
 -- Like has no API, and Favorite opens Roblox's own prompt. groupId = 0: no community made yet (the step
 -- shows "Soon" and isn't checked). coins + power: a head start, power = half of Pine Forest's need.
-Config.freeGift = { coins = 2500, power = 250, -- power: half of Pine Forest's need (500 since 2026-11-12)
+Config.freeGift = { coins = 2500, power = 75, -- power: half of Pine Forest's need (150 since 2026-11-16)
 	 groupId = 552866458, claimRange = 30 } -- groupId: WolfDev (owner 2026-11-12)
 
 export type RobuxItem = {
@@ -408,6 +463,7 @@ Config.leaderboards = {
 	prompt = { offset = Vector3.new(0, -6, -8), range = 16 },
 	popup = { rowAspect = 9.5, footHeight = 0.13 },
 	nameBatch = 50, -- display names are asked of Roblox this many at a time
+	loadRange = 20, -- owner 2026-11-16 (performance): a board only draws while you stand this many studs from it
 }
 
 Config.analytics = {
@@ -418,9 +474,15 @@ Config.analytics = {
 		{ step = 3, name = "first_freeze" },
 		{ step = 4, name = "first_carry_home" },
 		{ step = 5, name = "first_bank" },
-		{ step = 6, name = "first_coins_spent" },
-		{ step = 7, name = "first_rare_pet" },
-		{ step = 8, name = "first_new_zone" },
+		{ step = 6, name = "first_thaw" }, -- Lesson 1's every step (2026-11-15, Tizzy: funnel each tutorial step)
+		{ step = 7, name = "first_pet_out" },
+		{ step = 8, name = "first_coins_spent" },
+		{ step = 9, name = "tutorial_done" },
+		{ step = 10, name = "first_rare_pet" },
+		{ step = 11, name = "lesson2_start" }, -- Tutorial Lesson 2, Cold Power (2026-11-15)
+		{ step = 12, name = "first_train" },
+		{ step = 13, name = "first_power_ready" },
+		{ step = 14, name = "first_new_zone" },
 	},
 	-- AnalyticsService:LogCustomEvent takes one number (value) and up to 3 string custom fields
 	events = {
@@ -506,6 +568,12 @@ Config.sounds = {
 
 Config.ui = {
 	tiles = { { id = "pets", label = "Pets" }, { id = "shop", label = "Shop" }, { id = "index", label = "Index" }, { id = "daily", label = "Daily" }, { id = "settings", label = "Settings" } },
+	-- owner 2026-11-15: this tile spans the whole top row of the tile grid (Screen.layout); its icon rocks gently
+	wideTile = "shop",
+	tileMinFit = 0.075,
+	phoneShortPx = 600, -- a touch screen whose short side is under this many px is a phone (InputController) -- a tile never shrinks below this share of the short side to fit above the coins
+	wideTileWiggle = { degrees = 6, seconds = 1.1 },
+	wideTileText = { 0.48, 0.42, 0.47, 0.29 }, -- SHOP on the wide tile: width, height, x, y (smaller, owner 2026-11-16: it didn't match the others)
 	-- touch screens (mobile QA 2026-11-10): no tap target under this many pixels (Apple asks 44). Tiles,
 	-- world prompts and the popup X use it; the hotbar slot has its own floor so its name stays readable
 	minTouchPx = 46, hotbarMinPx = 52,
@@ -540,7 +608,10 @@ Config.ui = {
 		wobble = { squash = 0.12, seconds = 0.28, shatterSeconds = 0.5 },
 		turnSpeed = 10,
 	},
-	topInset = 0.02, sideInset = 0.03, touchLift = 0.28, -- the coins sit above the thumbstick on touch screens
+	-- touchLift: how far the coins sit above the bottom on touch screens. Owner 2026-11-15: "put the coins under the
+	-- joystick": 0, they stay in the bottom-left corner under the thumbstick (they're text only, touches pass through)
+	topInset = 0.02, sideInset = 0.03, touchLift = 0,
+	stickClear = 0.36, -- touch: the menu tiles stay this far (share of the short side) above the bottom, clear of the thumbstick
 	-- the island banner (owner 2026-11-07, from a reference clip): walking onto an island drops a strip
 	-- in from above the top edge, top centre: the island's name in its colour, the thermometer and its
 	-- feel + degrees, then "Recommended: <gun>". It holds, then fades up and out. A dark see-through
@@ -564,6 +635,16 @@ Config.ui = {
 		totalHeight = 0.13, totalGap = 0.02, badgeFaint = 0.6 },
 	popupSize = { 0.8, 0.7 }, popupLift = 0.04, promptSize = { 0.27, 0.095 }, -- world prompts keep this screen size at any distance (owner: smaller)
 	bannerSeconds = 3, floatSeconds = 1.2, notYetSeconds = 1.6,
+	-- alerts (owner 2026-11-16: "I don't like the alerts UI ... put it under Equipment and Pan"): small toasts that
+	-- slide down under the top buttons, an icon chip on the left, at most `stack` at once (the oldest goes first).
+	-- size = a toast's width and height (shares of the screen's short side); gap between toasts
+	-- phoneWidth: a share of the screen's width (between the tiles and the clocks); phoneScale: every height x this
+	alerts = { stack = 3, size = { 0.62, 0.075 }, phoneWidth = 0.6, phoneScale = 1.45, gap = 0.012, slideSeconds = 0.22, outSeconds = 0.18 },
+	-- the gain banner at the top (owner 2026-11-16, from the speed-game reference): "+N" Cold Power in a bright
+	-- box with rays behind it, pulsing while you keep training; sums gains for sumSeconds
+	gainBanner = { size = { 0.36, 0.085 }, y = 0.012, sumSeconds = 1.6, holdSeconds = 1.2, pulse = 1.08 },
+	-- the clocks bottom right (night, Secret, event): "in 1m 41s" chips, like the reference
+	clocks = { size = { 0.3, 0.06 }, gap = 0.01, phoneScale = 1.4 },
 	-- the "+17.5K" beside the coin counter: shares of the coins block; a size under the number (0.62 tall)
 	gain = { height = 0.46, width = 1.2, y = 0.08, gap = 0.04, rise = 0.55, popSeconds = 0.25, holdSeconds = 0.45 },
 	pressDepth = 0.06, pressSeconds = 0.08, stroke = 3, corner = 0.18,
@@ -593,9 +674,9 @@ Config.ui = {
 	listInset = 0.015, -- scrolling lists keep this gap on every side so outlines and lips aren't clipped
 	-- a block face's dressing (Ui.block): white wash at the top, a shade toward the lip, a bevel line (transparencies)
 	face = { topLight = 0.75, bottomShade = 0.82, rimInset = 0.035, rimThickness = 2, rimTop = 0.35 },
-	-- the tutorial card (Captain Frost's lines): bottom centre, just above the hotbar. Shares of the screen's
-	-- short side: phone is wider (fewer pixels), PC and tablet use `wide`. text = the line's size, a share of the card's height
-	tutorial = { phone = { 1.08, 0.27 }, wide = { 0.82, 0.2 }, text = 0.17, goalText = 0.13 },
+	-- the tutorial's goal pill, top centre (shares of the short side): icon tile, goal words, a count bar on
+	-- counted steps, step dots under it, Skip at the right end
+	tutorialGoal = { wide = { 0.8, 0.12 }, phone = { 1.2, 0.16 }, dots = 0.022 },
 	settingsRow = 0.128, -- a Settings row's height (share of the list): 7 rows and their gaps fit
 	gamepadKeys = { close = Enum.KeyCode.ButtonB, superFreeze = Enum.KeyCode.ButtonY, menu = Enum.KeyCode.ButtonSelect, skip = Enum.KeyCode.ButtonA },
 	keys = { pets = Enum.KeyCode.P, shop = Enum.KeyCode.B, index = Enum.KeyCode.I, close = Enum.KeyCode.Backspace, superFreeze = Enum.KeyCode.F, tester = Enum.KeyCode.T, skip = Enum.KeyCode.Return }, -- Escape belongs to Roblox's own menu,
@@ -710,6 +791,8 @@ Config.world = {
 	hub = { xMin = -150, xMax = 150, zMin = 0, wallHeight = 16, colliderHeight = 60 },
 	spawn = Vector3.new(0, 3, -34),
 	spawnPadRadius = 6,
+	-- owner 2026-11-15: "spawn you in front of your pan": studs out from the pan's hub-side edge, facing it
+	panSpawnFront = 6,
 	-- the pans: fenced gardens a little deeper than wide, level with the ground round them, doors facing
 	-- the plaza, open walkable ground between them and backSpace of open ground behind them.
 	-- Sizes follow the owner's reference shots (2026-11-05), measured against the real avatar (5.8 studs
@@ -750,7 +833,7 @@ Config.world = {
 			landmark = "snowman", landmarkAt = { x = 66, z = 112 }, landmarkScale = 2.6, -- map pass 2026-11-10: the first landmark a new player sees, now well over the cliffs -- landmarks stand in the cliffs, tall enough to show over them (World Rules 9)
 			trees = { kind = "snowpine", count = 14, r = { 4, 6.5 } },
 			near = { 8, 34 }, farFrom = 60 },
-		{ key = "forest", name = "Pine Forest", feel = "Cold", open = true, ready = true, theme = "forest", length = 176, heat = 0.8, iceLife = 1, need = 500,
+		{ key = "forest", name = "Pine Forest", feel = "Cold", open = true, ready = true, theme = "forest", length = 176, heat = 0.8, iceLife = 1, need = 150, -- 150 (owner 2026-11-16: the tutorial's 500 took too long)
 			landmark = "mushroom", landmarkAt = { x = -66, z = 104 },
 			trees = { kind = "pine", count = 34, r = { 4.5, 7.5 } },
 			near = { 10, 42 }, farFrom = 10 },
@@ -817,7 +900,10 @@ Config.world = {
 	panUpgradeAction = "pan", -- the Pan Upgrades popup (Round 4 phase 5)
 	giftBox = Vector3.new(106, 0, -10), -- the outer slot, past Equipment
 	-- leaderboards on the hub's side walls, turned to face the plaza
-	boards = { Vector3.new(-146, 0, -46), Vector3.new(-146, 0, -24) }, -- both beside the Rebirth Booth (owner 2026-11-12)
+	-- owner 2026-11-15: "move the leaderboards here": side by side on the back wall, between the Rebirth
+	-- portal and the west wall, facing the pans (boardFacing)
+	boards = { Vector3.new(-139.6, 0, -2), Vector3.new(-120.4, 0, -2) },
+	boardFacing = Vector3.new(0, 0, -1),
 	-- filled in below from the lists above
 	zones = {} :: { Zone },
 	plots = {} :: { { x: number, z: number } },
@@ -885,7 +971,12 @@ Config.images = {
 		-- 2026-11-12, drawn (icons/arrow.png, icons/sunburst.png): the chunky go-green arrow (Rebirth banner and show)
 		-- and a soft white sunburst, tinted with ImageColor3 behind reveals
 		arrow = "rbxassetid://110202146195386", sunburst = "rbxassetid://78560668257766",
-		like = "rbxasset://textures/ui/Moments/Reactions/thumbs-up-large.png", -- Roblox's own thumbs-up: the Free Gift's "Like" step shows the button to press
+		-- owner 2026-11-15: a painted Chunky Pop thumbs-up for the Free Gift's "Like" step (was Roblox's flat one)
+		like = "rbxassetid://119807405342526",
+		-- owner 2026-11-15: the Shop tile is a red basket full of goodies (their reference picture)
+		basket = "rbxassetid://104654565423481",
+		-- owner 2026-11-15: the Thaw Speed card shows the Thaw Machine, not a thermometer (icons/thaw.png)
+		thaw = "rbxassetid://73836085521963",
 	} :: { [string]: string },
 	-- pets with no 3D model yet are drawn as these painted sprites, facing the camera (prototype)
 	pets = {
@@ -902,7 +993,7 @@ Config.images = {
 	} :: { [string]: string },
 }
 
-Config.ui.tileIcons = { pets = Config.images.pets.snowbun, shop = Config.images.icons.bag, index = Config.images.icons.book, settings = Config.images.icons.gear,
+Config.ui.tileIcons = { pets = Config.images.pets.snowbun, shop = Config.images.icons.basket, index = Config.images.icons.book, settings = Config.images.icons.gear,
 	daily = Config.images.icons.trophy }
 -- painted icons on the Shop and Settings rows
 local I = Config.images.icons
@@ -949,6 +1040,10 @@ Config.ui.shop = { rail = 0.19, gap = 0.035, cardMax = 0.3, bestGrow = 1.07, bon
 	-- light sweeps over each Buy button (shineSeconds, then a rest of shineEvery; staggered card to card).
 	-- None of it with Reduced motion. robuxOutline = the Robux mark's dark contour, a share of its size.
 	motion = { sunSpin = 16, iconTilt = 6, iconSeconds = 1.4, shineSeconds = 0.7, shineEvery = 2.8, shineStagger = 0.45, shineAlpha = 0.35 },
+	-- the opening (owner 2026-11-16, the vault's shop clips): the colour wash, the panel pop, the title bar drop, then
+	-- the rows one by one (rowGap apart, a rising tink on the first `tinks`), and the corner pets last. Seconds.
+	opening = { washSeconds = 0.25, washAlpha = 0.45, panelFrom = 0.55, panelSeconds = 0.32, headerDrop = 0.12, headerSeconds = 0.3,
+		rowSeconds = 0.28, rowGap = 0.06, tinks = 6, mascotSeconds = 0.35 },
 	robuxOutline = 0.075,
 	scene = { moonAlpha = 0.72, moon = { x = 0.84, y = 0.16, size = 0.5 },
 		hills = {
@@ -968,108 +1063,117 @@ Config.guide = {
 	arrowDistance = 6.5, arrowHideNear = 8, arrowY = 0.5, arrowBob = 0.35, arrowBobSpeed = 4,
 	markerRange = 45, markerY = 1, markerBob = 0.3, markerSpin = 1.5,
 	beaconRadius = 3.2, beaconHeight = 70, beaconTransparency = 0.78, beaconPulse = 0.06,
+	-- tutorial references 2026-11-15 (vault Research › Tutorial References): every top game draws a trail of
+	-- chevrons on the ground all the way to the target and a big bouncing arrow over the target itself.
+	-- trail: up to trailCount small chevrons every trailGap studs after the lead arrow, flowing forward at
+	-- trailFlow studs a second (still with reduced motion), each trailScale of the lead arrow
+	trailCount = 8, trailGap = 4, trailScale = 0.7, trailFlow = 3,
+	-- target arrow: a big chevron pointing down over the target, targetY studs over its top, bobbing
+	-- targetBob studs at targetBobSpeed; hidden when you're closer than targetHideNear (you're there)
+	targetScale = 1.6, targetY = 3, targetBob = 0.8, targetBobSpeed = 4, targetHideNear = 5,
+	-- how high the target's top is, by kind (pets and cubes use their own size)
+	targetTop = { pan = 9, machine = 7, stand = 6, train = 5, gate = 12 } :: { [string]: number },
 }
--- The tutorial (owner 2026-11-10): a guide only you can see walks a new player through one full catch.
--- Owner 2026-11-14: he's Captain Frost now, a pet-freezing pro (parka, goggles, a cryo tank on his back,
--- the top ice ray in his hand) who glides on frost jets, so he floats over fences instead of sliding
--- through them; and the tutorial ends with a first Pan Upgrade (Speed, on him).
--- The world still teaches (the green arrow, the glow on the next thing); he says one short line per
--- step and reacts to what you do (Game Design Rules 2: goal shown, not told).
--- on = what finishes a step: an action the server saw (TutorialService.did) or "next" (the Next
--- button, or by itself after autoNext seconds). A later step's action counts too, so a player who runs
--- ahead is never held back, except an `only` step, which counts only while it's the current one (an
--- upgrade bought before the catch must not skip the catch).
--- focus = what he flies to, points at and makes glow (GuideController's arrow target).
--- hints = said again if the step takes a while, worded for the player's device (or "all").
--- cheer = his line when that step is done (else a random praise).
--- gift = coins topped up to the price of this Pan Upgrade's next level when the step starts, once per save
--- (giftSay = the line when he hands them over; {coins} = how many).
--- Saved per player (DataService tutorial = { step, done, gift }); saves from before it existed count as done
--- (Lessons: new-player things are for new players only). Replay is in Settings.
+-- The tutorial (owner 2026-11-10; no guide character since 2026-11-15, owner: "get rid of captain frost").
+-- The world teaches: the goal pill at the top centre (TutorialGoal), the chevron trail and the arrow over
+-- the target (GuideController), the glow on the pet or cube, a dimmed popup with an arrow at the button.
+-- on = what finishes a step: an action the server saw (TutorialService.did) or "next" (by itself after
+-- autoNext seconds). A later step's action counts too, so a player who runs ahead is never held back,
+-- except an `only` step, which counts only while it's the current one (an upgrade bought before the catch
+-- must not skip the catch).
+-- focus = the arrow's target kind (and the glow); goal = the pill's words; icon = its painted icon.
+-- hints = shown in the pill if the step takes a while, worded for the player's device (or "all").
+-- cheer = shown in the pill when that step is done (else a random praise).
+-- gift = coins topped up to the price of this Pan Upgrade's next level when the step starts, once per save.
+-- Saved per player (DataService tutorial = { step, done, gift, paid }); saves from before it existed count
+-- as done (Lessons: new-player things are for new players only). Replay is in Settings.
 Config.tutorial = {
-	name = "Captain Frost",
-	modelName = "TutorialGuide", -- the server builds the guide here in ReplicatedStorage; each client clones it
+	-- 2026-11-15 (owner: "get rid of captain frost", and Cold Power training belongs in the tutorial): one run,
+	-- no guide character and no talk steps. The goal pill says each goal; cheers, hints and reactions show in
+	-- it for a moment. The whole loop: catch -> home -> thaw -> upgrade -> train -> open the next island.
 	steps = {
-		{ id = "hello", on = "next", say = "Captain Frost here! These pets run way too hot. Let's freeze one!" },
-		{ id = "zap", on = "zap", focus = "pet", say = "See that pet? Aim your ice ray at it!", goal = "Aim at a pet",
+		-- 2026-11-16 (owner: "you need to hold it"): the ray only fires while you hold, so the goal says hold
+		{ id = "zap", on = "zap", focus = "pet", icon = "pet", goal = "Hold the ray on a pet", say = "",
 			hints = { keyboard = "Hold click on the pet!", touch = "Hold your finger on the pet!", gamepad = "Aim at it and hold R2!" } },
-		{ id = "freeze", on = "freeze", focus = "pet", say = "Keep the beam on it till it's an ice cube!", goal = "Freeze the pet",
-			cheer = "BRRR! Textbook freeze!",
-			hints = { keyboard = "Don't let go yet!", touch = "Keep holding!", gamepad = "Keep holding R2!" } },
-		{ id = "pickup", on = "pickup", focus = "cube", say = "Grab that cube before it melts!", goal = "Pick up the cube",
+		{ id = "freeze", on = "freeze", focus = "pet", icon = "ray", goal = "Keep holding to freeze it", say = "",
+			cheer = "BRRR! Frozen solid!",
+			hints = { keyboard = "Keep holding click!", touch = "Keep holding!", gamepad = "Keep holding R2!" } },
+		{ id = "pickup", on = "pickup", focus = "cube", icon = "pet", goal = "Pick up your frozen pet", say = "",
 			hints = { keyboard = "Walk to the cube and press E!", touch = "Walk to the cube and tap Pick up!", gamepad = "Walk to the cube and press X!" } },
-		{ id = "carry", on = "bank", focus = "pan", say = "Now run it home to your pan. Follow the arrow!", goal = "Bring it to your pan",
-			hints = { all = "Walk into your pan with the cube on your back!" } },
-		{ id = "thaw", on = "thawStart", focus = "machine", say = "Pop it in your Thaw Machine!", goal = "Use the Thaw Machine",
+		{ id = "carry", on = "bank", focus = "pan", icon = "pen", goal = "Run it home to your pan!", say = "",
+			hints = { all = "Follow the arrows to your pan!" } },
+		{ id = "thaw", on = "thawStart", focus = "machine", icon = "thaw", goal = "Use the Thaw Machine", say = "",
 			hints = { keyboard = "Stand by the machine and press E!", touch = "Stand by the machine and tap its button!", gamepad = "Stand by the machine and press X!" } },
-		-- since 2026-11-13 a thawed pet waits for Claim (Config.thaw.claimByHand): say so, or players wait forever
-		{ id = "wait", on = "thawed", focus = "machine", say = "It's thawing! When it says READY, Claim it!", goal = "Claim your pet",
-			cheer = "Your first pet! It makes coins for you now.",
-			hints = { keyboard = "Press E at the machine, then Claim!", touch = "Tap the machine, then Claim!", gamepad = "Press X at the machine, then Claim!" } },
-		{ id = "upgrade", on = "upgrade", only = true, focus = "stand", gift = "speed",
-			say = "Pro tip: upgrades! Buy Speed at your Pan Upgrades stand!", goal = "Buy Speed",
-			giftSay = "Pro tip: upgrades! Here's {coins} coins on me. Buy Speed at your Pan Upgrades stand!",
-			-- a replay with Speed already at the top: any Pan Upgrade counts (TutorialService takes any kind)
-			maxedSay = "Pro tip: upgrades! Buy one at your Pan Upgrades stand!", maxedGoal = "Buy a Pan Upgrade",
-			cheer = "WHOOSH! Upgraded!",
-			hints = { keyboard = "Press E at the stand, then press Buy!", touch = "Tap the stand, then tap Buy!", gamepad = "Press X at the stand, then press Buy!" } },
-		{ id = "done", on = "next", say = "You're a natural! Freeze more pets, earn coins, upgrade. Go get 'em!" },
-	} :: { { id: string, on: string, say: string, focus: string?, goal: string?, hints: { [string]: string }?, cheer: string?, only: boolean?, gift: string?, giftSay: string?, maxedSay: string?, maxedGoal: string? } },
-	actions = { zap = true, freeze = true, pickup = true, bank = true, thawStart = true, thawed = true, upgrade = true } :: { [string]: boolean },
+		-- the very first pet pops out by itself with a little reveal (Config.thaw.firstPops)
+		{ id = "wait", on = "thawed", focus = "machine", icon = "thaw", goal = "Wait for your pet", say = "",
+			cheer = "Your first pet! It makes coins!" },
+		-- gift = coins topped up to the price of this Pan Upgrade's next level, once per save (giftSay is the
+		-- goal while they're new; {coins} = how many)
+		{ id = "upgrade", on = "upgrade", only = true, focus = "stand", icon = "pen", gift = "slots", say = "",
+			goal = "Buy Slots at your pan", giftSay = "+{coins} coins! Buy Slots at your pan",
+			-- a replay with Slots already at the top: any Pan Upgrade counts (TutorialService takes any kind)
+			maxedSay = "Buy any upgrade", maxedGoal = "Buy any upgrade at your pan",
+			cheer = "More room for pets!",
+			hints = { keyboard = "Press E at the stand, then Buy!", touch = "Tap the stand, then tap Buy!", gamepad = "Press X at the stand, then Buy!" } },
+		-- peek (reworked 2026-11-16, owner: "it's weird how it goes to that pet"): the camera looks at the next
+		-- island's gate and the bigger pets waiting behind it, while the pill says what opens it: Cold Power.
+		-- So the next step (train) has a reason (Config.tutorial.tease)
+		{ id = "peek", on = "next", tease = true, icon = "gate", say = "Island 2 opens at {need} Cold Power!" },
+		{ id = "train", on = "trainStart", only = true, focus = "train", icon = "power", goal = "Train on your Snowman", say = "",
+			hints = { keyboard = "Stand on the pad and press E!", touch = "Stand on the pad and tap Train!", gamepad = "Stand on the pad and press X!" } },
+		{ id = "power", on = "powerReady", only = true, focus = "train", icon = "power", count = "power", goal = "Click fast to fill your Cold Power", say = "",
+			cheer = "Full power!", hintOnce = true,
+			hints = { keyboard = "Click fast to zap faster!", touch = "Tap fast to zap faster!", gamepad = "Press R2 fast to zap faster!" } },
+		{ id = "gate", on = "gateOpen", only = true, focus = "gate", icon = "gate", goal = "Hop off and open the gate", say = "",
+			cheer = "A new island!",
+			hints = { keyboard = "Walk up to the gate and press E!", touch = "Walk up to the gate and tap its button!", gamepad = "Walk up to the gate and press X!" } },
+		-- reward = coins paid once per save as the tutorial ends, shown on the TUTORIAL COMPLETE card
+		{ id = "done", on = "next", icon = "trophy", say = "Tutorial complete!", reward = 900, rewardTitle = "TUTORIAL COMPLETE!" },
+	} :: { { id: string, on: string, say: string, focus: string?, goal: string?, hints: { [string]: string }?, cheer: string?, only: boolean?, gift: string?, giftSay: string?, maxedSay: string?, maxedGoal: string?, quiet: boolean?, hintOnce: boolean?, tease: boolean?, icon: string?, count: string?, reward: number?, rewardTitle: string? } },
+	-- the goal pill (references: one short goal at the top centre, always on, with step dots; nothing to
+	-- dismiss). icon = Config.images.icons key, or "pet" = the first island's Common sprite. A cheer, hint or
+	-- reaction replaces the goal for messageSeconds, then the goal comes back. Skip lives on the pill.
+	messageSeconds = 3.5,
+	petIcon = "snowbun",
+	-- the menus (the tiles and the top buttons) stay hidden up to and including this step, then pop in
+	-- (references: the HUD starts nearly empty and unlocks as it's taught)
+	lockMenus = true, lockUntil = "upgrade",
+	-- the TUTORIAL COMPLETE card: a trophy pops over a turning sunburst, the coins count up, confetti, a green OK
+	complete = { pop = 0.35, countSeconds = 0.9, confetti = 40, confettiReduced = 12, fall = { 1.4, 2.4 }, sunSpin = 20 },
+	actions = { zap = true, freeze = true, pickup = true, bank = true, thawStart = true, thawed = true, upgrade = true,
+		trainStart = true, powerReady = true, gateOpen = true } :: { [string]: boolean },
+	-- the peek (step "peek"): the camera flies to look over the next island's gate at one of its Rares, glowing
+	-- (a real pet of that island, shown as a picture of what lives there), holds, then flies back
+	-- high over the gate (the sign and the bars hide a low shot), the pet on the island's path (checked in Studio)
+	-- 2026-11-16: framed from the hub side, low and to one side, so the gate (with its Cold Power sign) is in
+	-- front and the pets stand just behind its bars; several pets, not one, so it reads "a new island"
+	tease = { fly = 0.9, hold = 2.6, back = 0.6, camBack = 40, camUp = 17, camSide = 12, lookUp = 9, petIn = 14, petSize = 4.5, pets = 3, petGap = 9, glow = true }, -- further back so the gate's sign fits (QA 2026-11-16)
 	praise = { "Nice!", "Great job!", "Ice cold!", "Perfect!", "Chill moves!" },
 	react = {
-		melted = "Oh no, it thawed out! Zap it again.",
-		tooWarm = "Too hot for your ray! Try a pet near the start.",
-		wrongWay = "Your pan is the other way! Follow the arrow.",
-		skipped = "No problem! Stay frosty out there.",
-		finished = "Stay frosty!",
+		melted = "It melted! Zap it again!",
+		tooWarm = "Too hot! Try a closer pet.",
+		wrongWay = "Home is the other way!",
 		skipConfirm = "Sure?",
 	},
 	-- timings (seconds) and distances (studs)
-	typeCps = 50, -- typewriter letters per second
-	praiseHold = 1.3, -- "Nice!" stays this long before the next step's line
-	autoNext = 8, -- a talk step moves on by itself after this (seconds after its line is fully shown)
-	hintAfter = 9, hintEvery = 14, -- a stuck player hears the step's hint after this, then again every hintEvery
-	reactCooldown = 8, -- at most one reaction line this often
+	praiseHold = 1.6, -- a cheer stays this long before the next goal
+	autoNext = 4, -- a talk step (the peek, the end) moves on by itself after this
+	hintAfter = 9, hintEvery = 14, -- a stuck player sees the step's hint after this, then again every hintEvery
+	reactCooldown = 8, -- at most one reaction this often
 	wrongWayStuds = 18, -- carrying home: this much farther from the pan than your closest = wrong way
 	skipConfirmSeconds = 3, -- Skip asks "Sure?"; a second press within this skips
 	nextCooldown = 0.5, -- the server ignores a second "next" sooner than this
-	leaveSeconds = 2.8, -- after the last line he waves, then jets up into the sky and is gone
-	popSeconds = 0.25, closeSeconds = 0.15, -- the card pops in and closes (Animation Rules: pop, close)
-	pulseSeconds = 0.6, pulseScale = 1.06, -- Next breathes (Animation Rules: pulse, 1.2 s a loop)
-	npc = {
-		-- he glides on frost jets: hovers a little while moving, rises over fences and props in his way
-		-- (owner 2026-11-14: he slid through fences and popped up onto their tops)
-		walkSpeed = 16, runSpeed = 40, runFrom = 14, -- flies fast to catch up when this far from where he wants to be
-		accel = 5, -- how fast he speeds up and slows down (share of the gap a second)
-		arrive = 1.5, teleport = 90, -- left this far behind (a gate, a respawn): a frost poof and he's there
-		retarget = 3.5, -- a new spot closer than this to where he's already going is ignored (no jitter after a wandering pet)
-		followGap = 9, followSide = 5, -- stands at your side; only moves when you get this far away
-		focusRange = 45, focusStand = 6, -- stands this far from the thing he's showing, on your side
-		leadAhead = 9, -- farther than focusRange: he flies this far ahead of you toward it, leading the way
-		turnRate = 10, groundRay = 80,
-		stepUp = 2.5, -- the ground ray starts this far over his feet: lower things (fences, posts) are flown over, not stood on
-		clearMax = 7, lookAhead = 2, -- while flying he rises over anything up to this tall, checked this far ahead
-		hoverWalk = 1, hoverRun = 2.2, -- how high he hovers while moving slow / fast
-		heightRate = 9, -- how fast his height follows (share of the gap a second): smooth, never a pop
-		lean = 14, -- degrees he leans into a fast flight
-		dropFrom = 28, dropRate = 3, -- he arrives from the sky: starts this high over the ground and lands (slower than heightRate)
-		leaveRise = 70, leaveRate = 2.2, -- leaving: he jets this high, this fast (share of the gap a second)
-		helloOffset = Vector3.new(4, 0, 9), -- from the spawn, toward the tunnel and the pets
-		pillY = 2.4, -- name pill height over his head (over the hat)
-		-- Roblox's own R15 animations: owned by Roblox, so they play in any game (Animation Rules 4)
-		anims = { idle = 507766388, wave = 507770239, point = 507770453, cheer = 507770677 } :: { [string]: number },
-		portraitFov = 30, portraitDistance = 3.6,
-		gun = "absolute_zero", gunScale = 1.2, -- the ice ray in his hand: ReplicatedStorage.GunModels.<gun>
-	},
-	sounds = { line = "click", praise = "coin", finish = "unlock", arrive = "island", leave = "bridge", gift = "gift" },
+	popSeconds = 0.25, -- the pill pops in (Animation Rules: pop)
+	sounds = { praise = "coin", finish = "unlock", gift = "gift", hint = "click" },
 }
 -- the ice ray: a small gun in every player's right hand, a beam while you hold Freeze
 Config.ray = { beamCore = 0.28, beamGlow = 0.84, armRaise = 90, tipSize = 0.76, sparkleRate = 20,
 	-- each gun tier: a wider beam, more sparkles along it and at the pet, a curl from tier 5 (beam colours: Theme.guns)
 	beamPerGun = 0.04, sparklePerGun = 4, sparkleSize = 0.3, sparkleSizePerGun = 0.03, curlFromGun = 5, curlAmount = 0.6,
 	tipLightRange = 5, tipLightBrightness = 2, -- a real gun model: a small light in its glow colour at each barrel tip
-	putAwayAfterFreeze = true, -- a freeze puts the ray away; it comes back when you carry nothing (owner 2026-11-05)
+	-- owner 2026-11-16: "you can freeze more": the ray stays out after a freeze, so you can freeze one pet after
+	-- another; they wait on the ground (Config.carry) while your hands still hold only what they can
+	putAwayAfterFreeze = false,
 -- the shot's body motion (owner 2026-11-05, from a freeze reference clip): a quick start (hips lead, the
 -- torso coils back, then everything snaps forward and the beam lands), a hold that leans in harder as the
 -- meter climbs, and a lock (the cube shut) or a cancel (let go early). Seconds; angles in degrees;
@@ -1203,7 +1307,10 @@ Config.carry = { scale = 0.62, handY = 0.4, front = 0.9, stackGap = 0.15, armRai
 	-- groundSeconds = 0 (owner 2026-11-10): it never wakes up; the frozen pet stays down until you pick it up.
 	-- owner 2026-11-13: a frozen pet nobody picks up is gone after 60 s (groundVanish: it poofs, no dazed pet);
 	-- the ice clears as the time runs out, so you can see it going
-	pickUpRange = 10, groundSeconds = 60, groundVanish = true,
+	-- owner 2026-11-16: "you can freeze more and they will unfreeze after a time": a frozen pet you leave on the
+	-- ground thaws back out after groundSeconds (dazed for a moment, only you can zap it again), it never poofs
+	pickUpRange = 10, groundSeconds = 45, groundVanish = false,
+	groundMax = 12, -- at most this many of your frozen pets wait on the ground at once (phones)
 	-- QA 2026-11-08 (Studio-side work): the cube flies into your hands by itself this many seconds after
 	-- the snap, no E. Restored 2026-11-09 after a sync overwrote Studio's Config: the delay is a guess.
 	-- Off again (owner 2026-11-10): the frozen pet stays on the ground until you pick it up with E
@@ -1313,6 +1420,8 @@ Config.show.freeze = {
 	flecks = { count = 5, size = 0.22, seconds = 0.3, band = { 0.1, 0.25 } }, -- band: heights above the rim, shares of the pet's height
 	-- the snap at 100% (EffectsController)
 	snapSeconds = 0.16, snapScale = 1.22, puffParts = 14, flashPuffParts = 22, flySeconds = 0.3,
+	-- a save's very first freeze (2026-11-15): longer hit-stop, a flash, rays and a big burst
+	firstHoldScale = 2.5, firstRays = 10, firstRaySeconds = 1.2, firstBurst = 60,
 	touchSeconds = 0.8, spikeCount = 6, spikeHeight = 1.6, starCount = 7, auroraBands = 3,
 	-- which tiers get a show instead of the plain snap (smaller for Legendary and Mythic)
 	shows = { Legendary = "legendaryFreeze", Mythic = "mythicFreeze", Secret = "secretFreeze" } :: { [string]: string },
@@ -1323,17 +1432,39 @@ Config.show.freeze = {
 -- Remade 2026-11-13 (owner: "the animations when catching a secret/mythic are very shit"): the luck roll
 -- (LuckReveal, Config.show.reveal) replaces the fat light pillar and the plain name. odds = "1 in N" climbs
 -- to the real odds while the name freezes in; title = rarity, name, sunburst, confetti, Continue.
+-- v3 (owner 2026-11-16: "improve the secret catching animation by miles", from the owner's reference clips):
+-- the neon stage, glowing pet outlines flicking past while the odds climb and landing on yours, a ring and a
+-- slash of light in the dark, a white-out, then the slam, rainbow ribbons, the reveal with a stat card
 Config.show.secretFreeze = {
 	beats = {
-		{ name = "push", time = 1.0 }, -- the camera pushes in from the far side
-		{ name = "odds", time = 3.4 }, -- 1 in 2 ... 1 in 20,000, the name freezing in (SKIP jumps to the end)
+		{ name = "push", time = 0.8 }, -- the camera pushes in from the far side
+		{ name = "blackout", time = 0.5 }, -- the neon night stage fades in over the world
+		{ name = "silhouettes", time = 4.2 }, -- "1 in N" climbs, outlines flick past and land on yours, the name fills in
+		{ name = "ring", time = 1.2 }, -- dark, a white ring pulses twice, a slash of light
+		{ name = "whiteout", time = 0.6, keepOnSkip = true }, -- white-out; the stage goes, the world is back
 		{ name = "slam", time = 0.35, keepOnSkip = true }, -- the ice slams shut
-		{ name = "burst", time = 0.55 }, -- a burst (one flash at most)
-		{ name = "title", time = 1.0, keepOnSkip = true }, -- the reveal, then Continue
+		{ name = "ribbons", time = 0.05, keepOnSkip = true }, -- rainbow ribbons start swirling round it
+		{ name = "burst", time = 0.55 }, -- a burst and rays (no second flash: the white-out was it)
+		{ name = "title", time = 1.0, keepOnSkip = true }, -- the reveal and the stat card, then Continue
 		{ name = "fly", time = 0.6, keepOnSkip = true }, -- the cube flies home, camera back
 	} :: { Beat },
-	pillar = false, camera = true, flash = true, shout = true, burstParts = 46, rays = 10, title = "SECRET!",
-	pushDistance = 11, pushHeight = 3.5, kick = 0.25, slamDrop = 7,
+	pillar = false, camera = true, flash = false, shout = true, burstParts = 46, rays = 12, title = "SECRET!", stats = true,
+	-- pushSide: degrees round to one side of the pet (you never block it); lookDrop: studs under the pet the camera
+	-- looks at, so the pet sits above the reveal's words
+	pushDistance = 9, pushHeight = 2.5, pushSide = 35, lookDrop = 2.4, kick = 0.25, slamDrop = 7,
+}
+-- the Secret show's stage and effects (Show: blackout, silhouettes, ring, whiteout, ribbons, statsCard)
+Config.show.secretCinema = {
+	skyTop = Color3.fromHex("3a1a8a"), skyBottom = Color3.fromHex("140c3c"), dark = Color3.fromHex("0c0820"),
+	orbs = 10, orbSize = { 0.05, 0.13 }, orbColors = { Color3.fromHex("ff4fd8"), Color3.fromHex("5fd0ff"), Color3.fromHex("9b7bff"), Color3.fromHex("5dffb0") },
+	flakes = 28, flakeMint = Color3.fromHex("7dffb0"),
+	-- the outlines: middle of the screen, a share of its height; outline = how far each glow copy is nudged
+	silY = 0.43, silSize = 0.42, outline = 0.022, silhouette = Color3.fromHex("0c0820"),
+	outlineColors = { Color3.fromHex("5fd0ff"), Color3.fromHex("ff4fd8"), Color3.fromHex("7dffb0"), Color3.fromHex("ffd34a") },
+	swapFrom = 0.08, swapTo = 0.5, landAt = 0.88, holdFinal = 0.45,
+	ringFrom = 0.03, ringTo = 0.1, softPeak = 0.55,
+	ribbons = 4, ribbonRadius = 3.5, ribbonArc = 200, ribbonRise = 1.1, ribbonWidth = 1.1, ribbonSpin = 1.8,
+	statsY = 0.045, statsSize = { 0.7, 0.115 },
 }
 Config.show.mythicFreeze = {
 	beats = {
@@ -1353,13 +1484,31 @@ Config.show.thawReveal = {
 	beats = {
 		{ name = "aim", time = 0.8 },
 		{ name = "charge", time = 1.2 },
-		{ name = "odds", time = 3.2 },
+		{ name = "blackout", time = 0.4 }, -- the same neon stage and outlines as the Secret catch (2026-11-16)
+		{ name = "silhouettes", time = 3.4 },
+		{ name = "whiteout", time = 0.5, keepOnSkip = true },
+		{ name = "ribbons", time = 0.05, keepOnSkip = true },
 		{ name = "burst", time = 0.5, keepOnSkip = true },
 		{ name = "title", time = 1.0, keepOnSkip = true },
 		{ name = "fly", time = 0.7, keepOnSkip = true },
 	} :: { Beat },
 	tiers = { Secret = true } :: { [string]: boolean },
-	camera = true, flash = true, burstParts = 50, rays = 10, chargePulses = 3,
+	camera = true, flash = false, burstParts = 50, rays = 10, chargePulses = 3, stats = true,
+	camBack = 15, camUp = 6, lookUp = 2,
+}
+-- your very first pet coming out (Config.thaw.firstPops; Tizzy: the first time is a wow): the thaw reveal,
+-- shorter, for any tier
+Config.show.firstReveal = {
+	beats = {
+		{ name = "aim", time = 0.6 },
+		{ name = "charge", time = 0.8 },
+		{ name = "odds", time = 1.6 },
+		{ name = "burst", time = 0.5, keepOnSkip = true },
+		{ name = "title", time = 0.8, keepOnSkip = true },
+		{ name = "fly", time = 0.6, keepOnSkip = true },
+	} :: { Beat },
+	tiers = {} :: { [string]: boolean },
+	camera = true, flash = true, burstParts = 40, rays = 8, chargePulses = 2,
 	camBack = 15, camUp = 6, lookUp = 2,
 }
 -- the luck roll's numbers (LuckReveal). words: shown once "1 in N" passes `from` (ice-themed, our own);
@@ -1453,7 +1602,7 @@ Config.guns = {
 	freezePerGun = 0.12, -- each gun after the first freezes 12% faster (Config.gunFreeze)
 	gridColumns = 2, gridGap = 0.03, phoneTileAspect = 2.3, -- phones: the gun grid scrolls, tiles this wide for their height
 	 -- the Equipment popup's gun tiles (owner 2026-11-09: bigger, themed, every price shown)
-	lockedGrey = 0.55, -- a gun you can't buy yet: its colour mixed this far toward grey
+	lockedGrey = 0.18, -- a gun you can't buy yet: its colour mixed this far toward grey (0.55 looked dull, owner 2026-11-16)
 	buyCooldown = 0.4, -- seconds between two buys (spam is dropped; a double charge can't happen anyway)
 	-- the gun's heat bar (0-1), kept on the server (GunService). Firing at a pet from an island one past the
 	-- gun's heat fills it in overSeconds (under a Mythic's 4.5 s floor, so a gun one step short can't finish
@@ -1560,6 +1709,57 @@ function Config.gearItem(key: string): GearItem?
 end
 
 -- this gear's number for a player (from the Gear_<key> attribute the server sets), or `off` without it
+-- owner 2026-11-15: Thaw Machines stand centred in the pan's back row: one in the middle, two side by side
+-- round the middle. count = the plot's "Machines" attribute (PenService); returns the X offset from the plot centre.
+-- owner 2026-11-15: "make insane models for the gear": painted Chunky Pop art per gear (prototype/
+-- ice-ray-for-pets/icons/gear_<shape>.png), shown on the Equipment > Gear cards and the hotbar
+Config.gearIcons = {
+	magnet_gloves = "rbxassetid://125482225182830", ice_skates = "rbxassetid://74729644563221",
+	frost_boots = "rbxassetid://137780570610075", cooling_vest = "rbxassetid://78634527461413",
+	cozy_hat = "rbxassetid://132801452561040", gel = "rbxassetid://92227942664230",
+} :: { [string]: string }
+
+-- owner 2026-11-15: "did you make actual models for the gear so you can see it on your character":
+-- GearWear (server) welds a chunky model of each owned gear onto the avatar, seen by everyone.
+-- Colours match the painted gear art. sparkle = particles per second on each piece (kept low for phones).
+Config.gearWear = {
+	sparkle = 3,
+	steel = Color3.fromRGB(205, 214, 228), steelDark = Color3.fromRGB(96, 104, 122), ice = Color3.fromRGB(110, 230, 255),
+	gold = Color3.fromRGB(255, 196, 46), fur = Color3.fromRGB(250, 248, 240),
+	gloves = { main = Color3.fromRGB(226, 38, 48), dark = Color3.fromRGB(150, 20, 34) },
+	skates = { main = Color3.fromRGB(34, 196, 214) },
+	boots = { main = Color3.fromRGB(92, 52, 170), fur = Color3.fromRGB(205, 210, 255) },
+	vest = { main = Color3.fromRGB(40, 132, 235), dark = Color3.fromRGB(24, 60, 140) },
+	hat = { main = Color3.fromRGB(255, 186, 30), cuff = Color3.fromRGB(232, 150, 20) },
+}
+
+-- owner 2026-11-15: each Index page shows a picture of its island behind the pets (Studio captures,
+-- prototype/ice-ray-for-pets/index-zones/zone<id>.jpg); shade = a navy veil so the slots stay the loudest thing
+Config.zoneArt = {
+	images = {
+		[1] = "rbxassetid://128742404878593", [2] = "rbxassetid://102683207719472", [3] = "rbxassetid://135606247453303",
+		[4] = "rbxassetid://134067032992963", [5] = "rbxassetid://114874239519537", [6] = "rbxassetid://135940420082087",
+		[7] = "rbxassetid://117806398354676", [8] = "rbxassetid://137792578962326", [9] = "rbxassetid://118928538142029",
+		[10] = "rbxassetid://127890747322861",
+	},
+	shadeTop = 0.75, -- veil transparency at the top of the picture (1 = no veil)
+	shadeBottom = 0.35,
+	slotSeeThrough = 0.45,
+	headSeeThrough = 0.3, -- the page's coloured name strip lets the island show through too -- the pet slots on a page are this see-through, so the island shows between and behind them
+}
+
+function Config.thawMachineOffset(m: number, count: number?): number
+	return if (count or 1) >= 2 then (m - 1.5) * Config.thaw.machine.gap else 0
+end
+
+-- the "Machines" attribute of plot i (1 when the map or the attribute isn't there yet)
+function Config.machineCount(plot: number): number
+	local map = workspace:FindFirstChild("Map")
+	local p = map and map:FindFirstChild("Plot" .. plot)
+	local v = p and p:GetAttribute("Machines")
+	return if typeof(v) == "number" then v else 1
+end
+
 function Config.gearValue(player: Player, key: string, field: string, off: number): number
 	local g = Config.gearItem(key)
 	return if g and player:GetAttribute("Gear_" .. key) == true then g[field] or off else off
@@ -1582,14 +1782,15 @@ Config.pan = {
 	-- coldRefund = what each level cost (island n's old gate coins); DataService pays it back on load,
 	-- once, for levels above coldStart.
 	-- trainer: your pan's Cold Power trainer (Config.training.stations). owner 2026-11-13: + Thaw (the Thaw
-	-- Machine's wait -10% a level) and Speed (walk speed, saved in upgrades.boots); rebirth keeps both
-	order = { "slots", "thaw", "speed", "trainer", "look" },
+	-- Machine's wait -10% a level); rebirth keeps it. Speed was sold here too until 2026-11-15 (now Gear only).
+	order = { "slots", "thaw", "trainer", "look" },
 	-- the price of level 2, 3 ... 10 (cheap at first: a buy every minute or two in the first half hour)
 	thawPrices = { 250, 1e3, 4e3, 15e3, 60e3, 400e3, 4e6, 40e6, 400e6 },
-	speedPrices = { 120, 500, 2e3, 7.5e3, 30e3, 200e3, 2e6, 20e6, 250e6 },
+	-- what Speed level 2, 3 ... 10 cost while it was sold: DataService pays these back once and resets the level
+	speedRefund = { 120, 500, 2e3, 7.5e3, 30e3, 200e3, 2e6, 20e6, 250e6 },
 	coldStart = 2,
 	coldRefund = { [3] = 7500, [4] = 2e6, [5] = 6e6, [6] = 30e6, [7] = 100e6, [8] = 250e6, [9] = 750e6, [10] = 3e9 } :: { [number]: number },
-	names = { slots = "Slots", look = "Look", trainer = "Trainer", thaw = "Thaw Speed", speed = "Speed" } :: { [string]: string },
+	names = { slots = "Slots", look = "Look", trainer = "Trainer", thaw = "Thaw Speed" } :: { [string]: string },
 	standRange = 16, -- studs from your own Pan Upgrades stand (the server's position)
 	buyCooldown = 0.4,
 	looks = {
@@ -1619,9 +1820,6 @@ function Config.panMax(kind: string): number
 	if kind == "thaw" then
 		return #Config.pan.thawPrices + 1
 	end
-	if kind == "speed" then
-		return math.min(Config.upgrades.boots.maxLevel, #Config.pan.speedPrices + 1)
-	end
 	return #Config.pan.looks
 end
 
@@ -1638,9 +1836,6 @@ function Config.panPrice(kind: string, level: number, rebirths: number?): number
 	end
 	if kind == "thaw" then
 		return Config.pan.thawPrices[level]
-	end
-	if kind == "speed" then
-		return Config.pan.speedPrices[level]
 	end
 	local look = Config.pan.looks[level + 1]
 	return if look then look.price else nil
@@ -1833,7 +2028,8 @@ Config.thaw = {
 	-- juicy first half hour (owner 2026-11-13, "like Throw Food for Pets"): the low tiers thaw fast
 	-- (was 15 / 30 / 60 / 180 / 360) so the catch -> thaw -> earn loop turns over every minute or so;
 	-- Mythic and Secret stay the long waits
-	seconds = { Common = 6, Uncommon = 12, Rare = 30, Epic = 90, Legendary = 240, Mythic = 720, Secret = 1800 } :: { [string]: number },
+	-- owner 2026-11-16 ("the pets unfreeze very hard"): about a third shorter again
+	seconds = { Common = 4, Uncommon = 8, Rare = 20, Epic = 60, Legendary = 150, Mythic = 480, Secret = 1200 } :: { [string]: number },
 	sizeFactor = { S = 0.85, M = 1, L = 1.2 } :: { [string]: number },
 	mutFactor = { Frosty = 1.2, Golden = 1.5, Starry = 2 } :: { [string]: number },
 	islandGrowth = 1.3, -- island 2 x1.3, island 3 x1.69, island 8 x6.3
@@ -1851,7 +2047,11 @@ Config.thaw = {
 	queueShown = 8, -- at most this many waiting cubes are drawn
 	-- owner 2026-11-13: a pet whose time is up waits in its machine until you press Claim there (a READY!
 	-- sign over the machine); a Secret gets the luck reveal (Config.show.reveal)
-	claimByHand = true, claimCooldown = 0.5, readySign = { y = 9.5, size = { 6, 2.2 }, bob = 0.35, bobSpeed = 2.4 },
+	firstPops = true, -- a player's very first pet comes out by itself, with Show.thawReveal (Config.show.firstReveal); Claim from the 2nd on
+	-- owner 2026-11-16 ("it doesn't really unfreeze ... not having to press E"): a pet whose time is up pops out by
+	-- itself again; a timer over each busy machine shows the time left (ThawMachines). true = the old Claim button
+	claimByHand = false, claimCooldown = 0.5,
+	timerSign = { lift = 5, size = { 5.2, 2 }, drawDistance = 90 }, -- lift: studs over the machine's top readySign = { y = 9.5, size = { 6, 2.2 }, bob = 0.35, bobSpeed = 2.4 },
 	-- Skip with Robux (owner 2026-11-12, at the machine only, never in the Shop): a small button beside OK
 	-- on a busy machine's popup. Waiting is always free. A developer product has one fixed price, so the
 	-- price steps with the time left: the first tier whose upTo (seconds) covers it. productId 0 = not
@@ -2132,7 +2332,7 @@ Config.training = {
 	clickMax = 5,
 	shatterHits = 12, shatterBonus = 5,
 	tickSeconds = 0.1,
-	arrowSeconds = 6, -- after "Need more Cold Power" the guide arrow points at your trainer this long
+	arrowSeconds = 45, -- after "Need more Cold Power" the guide arrow points at your trainer this long, or until you step on it (was 6: gone before a kid got there, review 2026-11-15)
 	-- lock mode (owner 2026-11-11, from reference clips): E at your trainer (prompt, below) snaps you to the stand
 	-- spot (standZ) facing the target and holds you there, training, until you jump (Space, the touch jump
 	-- button, gamepad A or B; no STOP button, owner 2026-11-11). Then you hop off the pad the way you're

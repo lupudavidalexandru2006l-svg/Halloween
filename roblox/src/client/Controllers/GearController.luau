@@ -29,7 +29,7 @@ local shieldPill: Frame
 local shieldText: TextLabel
 local coolUntil = 0
 
-local ICONS = { ray = Config.images.icons.ray, gel = Config.images.icons.motion } :: { [string]: string } -- gel: the snail (slow) until its own painted icon
+local ICONS = { ray = Config.images.icons.ray, gel = Config.gearIcons.gel or Config.images.icons.motion } :: { [string]: string } -- gel: its own painted flask (2026-11-15)
 
 local function held(): string
 	local h = me:GetAttribute("Held")
@@ -54,11 +54,19 @@ local function choose(id: string)
 	State.send("SetGear", if held() == id then "none" else id)
 end
 
+-- the cube is in your hands: true only once it has flown there (owner 2026-11-16: the HUD vanished half a
+-- second before the cube arrived and looked weird), so the hotbar steps aside as the cube lands
+local lockedAt = 0
+local function handsFull(): boolean
+	return me:GetAttribute("GunLocked") == true and os.clock() - lockedAt >= Config.show.freeze.flySeconds
+end
+GearController.handsFull = handsFull
+
 local function refresh()
 	local list = owned()
 	bar:SetAttribute("Slots", #list)
 	-- a cube in your hands: the whole hotbar goes away until it's home (GearService refuses it too)
-	bar:SetAttribute("Locked", me:GetAttribute("GunLocked") == true)
+	bar:SetAttribute("Locked", handsFull())
 	local n = #list
 	for _, s in H.slots do
 		local slot = slots[s.id]
@@ -101,18 +109,10 @@ local function makeSlot(s: { id: string, label: string, key: Enum.KeyCode })
 	slots[s.id] = { block = b, key = key, cool = cool }
 end
 
-local function shieldLeft(): number
-	local u = me:GetAttribute("ShieldUntil")
-	return if typeof(u) == "number" then u - workspace:GetServerTimeNow() else 0
-end
-
 local function step()
-	local left = shieldLeft()
-	shieldPill.Visible = left > 0
-	if left > 0 then
-		local m = math.floor(left / 60)
-		shieldText.Text = string.format("SAFE %d:%02d", m, math.floor(left % 60))
-	end
+	-- owner 2026-11-16 (QA IR-06): the SAFE countdown is hidden; it was one timer too many on a new player's
+	-- HUD. The shield still works, and "Your shield is off" still shows when it ends.
+	shieldPill.Visible = false
 	local gel = slots.gel
 	if gel then
 		local c = math.clamp((coolUntil - os.clock()) / Config.gel.cooldown, 0, 1)
@@ -178,9 +178,16 @@ function GearController.Start()
 	shieldPill.Visible = false
 	Screen.register("hotbar", bar)
 	refresh()
-	for _, attr in { "Held", "GearGel", "GunLocked" } do
+	for _, attr in { "Held", "GearGel" } do
 		me:GetAttributeChangedSignal(attr):Connect(refresh)
 	end
+	me:GetAttributeChangedSignal("GunLocked"):Connect(function()
+		if me:GetAttribute("GunLocked") == true then
+			lockedAt = os.clock()
+			task.delay(Config.show.freeze.flySeconds + 0.02, refresh)
+		end
+		refresh()
+	end)
 	InputController.DeviceChanged:Connect(refresh)
 	RunService.RenderStepped:Connect(step)
 	-- keys: 1 / 2 pick a slot; gamepad L1 / R1 step through them

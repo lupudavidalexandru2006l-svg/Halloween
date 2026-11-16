@@ -27,23 +27,289 @@ local powerRoot: Frame -- Cold Power: its icon and number, under the coins
 local powerText: TextLabel
 local powerScale: UIScale
 local lastPower: number? = nil
-local banner: Ui.Block
+local alertsFrame: Frame -- the alert toasts (Config.ui.alerts), placed by Screen under the top buttons
 local dailyDot: Frame? = nil -- a round dot on the Daily tile while a finished challenge waits to be claimed
 
-local bannerUntil = 0
+-- ---------- alerts (owner 2026-11-16: "the alerts UI is not really it ... put it under equipment and pan") ----------
+-- each alert is a small dark toast: an icon chip in the alert's colour (red no, green go, yellow coins, blue info),
+-- short white words. They slide in under the top buttons, stack (newest at the bottom), and fade out. The same
+-- words again only restart their timer. pulse = it throbs a few times (a melted cube, a Secret).
+type Toast = { root: CanvasGroup, text: string, untilAt: number, scale: UIScale }
+local toasts: { Toast } = {}
+local toastOrder = 0
 
-function HudController.banner(textValue: string, color: Color3?, seconds: number?)
-	banner.text.Text = textValue
-	banner.face.BackgroundColor3 = color or Theme.info
-	banner.root.BackgroundColor3 = Ui.darker(color or Theme.info)
-	banner.root.Visible = true
-	local untilAt = os.clock() + (seconds or Config.ui.bannerSeconds)
-	bannerUntil = untilAt
-	task.delay(seconds or Config.ui.bannerSeconds, function()
-		if bannerUntil == untilAt then
-			banner.root.Visible = false
+local function iconFor(color: Color3): string
+	if color == Theme.no then
+		return "lock"
+	elseif color == Theme.coin then
+		return "coin"
+	elseif color == Theme.go then
+		return "star"
+	end
+	return "ray"
+end
+
+local function reducedMotion(): boolean
+	return SettingsController.get("reducedMotion") == true
+end
+
+local function dropToast(t: Toast)
+	local i = table.find(toasts, t)
+	if not i then
+		return
+	end
+	table.remove(toasts, i)
+	local A = Config.ui.alerts
+	TweenService:Create(t.root, TweenInfo.new(A.outSeconds), { GroupTransparency = 1 }):Play()
+	task.delay(A.outSeconds, function()
+		t.root:Destroy()
+	end)
+end
+
+local function makeToast(textValue: string, color: Color3, icon: string): Toast
+	local A = Config.ui.alerts
+	local stackH = A.stack * A.size[2] + (A.stack - 1) * A.gap
+	local g = Instance.new("CanvasGroup")
+	g.Name = "Toast"
+	g.BackgroundTransparency = 1
+	g.Size = UDim2.fromScale(1, A.size[2] / stackH)
+	toastOrder += 1
+	g.LayoutOrder = toastOrder
+	g.GroupTransparency = 1
+	-- the pill: navy fading lighter at the top, one ink outline (inset so the group doesn't clip it)
+	local back = Instance.new("Frame")
+	back.Name = "Back"
+	back.AnchorPoint = Vector2.new(0.5, 0.5)
+	back.Position = UDim2.fromScale(0.5, 0.5)
+	back.Size = UDim2.new(1, -8, 1, -8)
+	back.BackgroundColor3 = Theme.alert.back
+	back.BorderSizePixel = 0
+	Ui.corner(back, 0.5)
+	Ui.stroke(back, 3)
+	local grad = Instance.new("UIGradient")
+	grad.Rotation = 90
+	grad.Color = ColorSequence.new(Theme.alert.backTop, Theme.alert.back)
+	grad.Parent = back
+	back.Parent = g
+	-- the coloured chip with the painted icon, at the left end
+	local chip = Instance.new("Frame")
+	chip.Name = "Chip"
+	chip.AnchorPoint = Vector2.new(0, 0.5)
+	chip.Position = UDim2.new(0, 3, 0.5, 0)
+	chip.Size = UDim2.new(1, -6, 1, -6)
+	chip.BackgroundColor3 = color
+	chip.BorderSizePixel = 0
+	local ca = Instance.new("UIAspectRatioConstraint")
+	ca.AspectRatio = 1
+	ca.DominantAxis = Enum.DominantAxis.Height
+	ca.Parent = chip
+	Ui.corner(chip, 0.5)
+	Ui.stroke(chip, 2.5)
+	chip.Parent = back
+	local img = Config.images.icons[icon] or Config.images.icons.ray
+	if img then
+		Ui.image(chip, img, UDim2.fromScale(0.8, 0.8), UDim2.fromScale(0.1, 0.1))
+	end
+	-- the words: white with an outline, left of centre after the chip
+	local label = Ui.label(back, textValue, UDim2.new(1, 0, 0.62, 0), UDim2.fromScale(0, 0.19))
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	local pad = Instance.new("UIPadding")
+	pad.PaddingLeft = UDim.new(0.13, 0)
+	pad.PaddingRight = UDim.new(0.05, 0)
+	pad.Parent = label
+	local s = Instance.new("UIScale")
+	s.Parent = g
+	g.Parent = alertsFrame
+	return { root = g, text = textValue, untilAt = 0, scale = s }
+end
+
+function HudController.banner(textValue: string, color: Color3?, seconds: number?, icon: string?, pulse: boolean?)
+	if not alertsFrame then
+		return
+	end
+	local A = Config.ui.alerts
+	local c = color or Theme.info
+	local hold = seconds or Config.ui.bannerSeconds
+	local still = reducedMotion()
+	local t: Toast? = nil
+	for _, o in toasts do
+		if o.text == textValue then
+			t = o -- the same words again: keep the toast, restart its timer, give it a nudge
+		end
+	end
+	if not t then
+		while #toasts >= A.stack do
+			dropToast(toasts[1])
+		end
+		local n = makeToast(textValue, c, icon or iconFor(c))
+		table.insert(toasts, n)
+		n.scale.Scale = if still then 1 else 0.8
+		TweenService:Create(n.root, TweenInfo.new(A.slideSeconds), { GroupTransparency = 0 }):Play()
+		t = n
+	end
+	local toast = t :: Toast
+	if not still then
+		toast.scale.Scale = math.min(toast.scale.Scale, 0.86)
+		TweenService:Create(toast.scale, TweenInfo.new(A.slideSeconds * 1.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+		if pulse then
+			TweenService:Create(toast.scale, TweenInfo.new(0.32, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, 3, true, A.slideSeconds * 1.6), { Scale = 1.07 }):Play()
+		end
+	end
+	local untilAt = os.clock() + hold
+	toast.untilAt = untilAt
+	task.delay(hold, function()
+		if toast.untilAt == untilAt then
+			dropToast(toast)
 		end
 	end)
+end
+
+-- ---------- the Cold Power gain banner (owner 2026-11-16, from the speed-game reference) ----------
+-- a bright cyan-to-mint box at the top with white rays behind it and "+N" with the Cold Power icon. It adds up
+-- the gains that come close together and throbs with each one, then goes once you stop training.
+local gainRoot: Frame
+local gainText: TextLabel
+local gainScale: UIScale
+local gainSum, gainLast = 0, 0
+local gainToken = 0
+
+local function buildGain()
+	local root = Instance.new("Frame")
+	root.Name = "GainBanner"
+	root.BackgroundTransparency = 1
+	root.Visible = false
+	local rays = Instance.new("ImageLabel")
+	rays.Name = "Rays"
+	rays.BackgroundTransparency = 1
+	rays.Image = Config.images.icons.sunburst or ""
+	rays.ImageColor3 = Theme.gainBanner.rays
+	rays.ImageTransparency = 0.25
+	rays.AnchorPoint = Vector2.new(0.5, 0.5)
+	rays.Position = UDim2.fromScale(0.5, 0.5)
+	rays.Size = UDim2.fromScale(0.75, 2.6)
+	rays.ZIndex = 0
+	rays.Parent = root
+	local box = Instance.new("Frame")
+	box.Name = "Box"
+	box.Size = UDim2.fromScale(1, 1)
+	box.BackgroundColor3 = Theme.white
+	box.BorderSizePixel = 0
+	box.ZIndex = 1
+	Ui.corner(box)
+	Ui.stroke(box, 3)
+	local grad = Instance.new("UIGradient")
+	grad.Color = ColorSequence.new(Theme.gainBanner.from, Theme.gainBanner.to)
+	grad.Parent = box
+	box.Parent = root
+	local icon = Ui.image(box, Config.images.icons.power, UDim2.fromScale(0.2, 0.92), UDim2.fromScale(0.05, 0.04))
+	icon.ZIndex = 2
+	gainText = Ui.label(box, "+0", UDim2.fromScale(0.66, 0.8), UDim2.fromScale(0.27, 0.1))
+	gainText.ZIndex = 2
+	;(gainText:FindFirstChildOfClass("UIStroke") :: UIStroke).Thickness = Config.ui.floatingStroke
+	gainScale = Instance.new("UIScale")
+	gainScale.Parent = root
+	if not reducedMotion() then
+		TweenService:Create(rays, TweenInfo.new(8, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), { Rotation = 360 }):Play()
+	end
+	gainRoot = root
+	Screen.register("gain", root)
+end
+
+local function showGain(amount: number)
+	local GB = Config.ui.gainBanner
+	local now = os.clock()
+	if now - gainLast > GB.sumSeconds then
+		gainSum = 0
+	end
+	gainSum += amount
+	gainLast = now
+	gainText.Text = `+{Config.powerText(gainSum)}`
+	gainRoot.Visible = true
+	if not reducedMotion() then
+		gainScale.Scale = GB.pulse
+		TweenService:Create(gainScale, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	end
+	gainToken += 1
+	local my = gainToken
+	task.delay(GB.sumSeconds + GB.holdSeconds, function()
+		if gainToken == my then
+			gainRoot.Visible = false
+		end
+	end)
+end
+
+-- ---------- the clocks (owner 2026-11-16: Secret every 30 min, an event every 30 min, the night) ----------
+-- three small chips bottom right, like the reference's "in 1m 41s": the event now (or the next one), the next
+-- Secret, the next night. From the Unix clock (WorldRules), so they agree with the server without messages.
+type Clock = { root: Frame, text: TextLabel, chip: Frame, icon: ImageLabel }
+local clocks: { [string]: Clock } = {}
+
+local function clockChip(parent: Frame, order: number, color: Color3, icon: string): Clock
+	local C = Config.ui.clocks
+	local n = 3
+	local totalH = C.size[2] * n + C.gap * (n - 1)
+	local f = Instance.new("Frame")
+	f.Name = "Clock"
+	f.LayoutOrder = order
+	f.BackgroundColor3 = Theme.alert.back
+	f.BackgroundTransparency = 0.15
+	f.BorderSizePixel = 0
+	f.Size = UDim2.fromScale(1, C.size[2] / totalH)
+	Ui.corner(f, 0.5)
+	Ui.stroke(f, 2.5)
+	local chip = Instance.new("Frame")
+	chip.BackgroundColor3 = color
+	chip.BorderSizePixel = 0
+	chip.Position = UDim2.new(0, 2, 0, 2)
+	chip.Size = UDim2.new(1, -4, 1, -4)
+	local a = Instance.new("UIAspectRatioConstraint")
+	a.AspectRatio = 1
+	a.DominantAxis = Enum.DominantAxis.Height
+	a.Parent = chip
+	Ui.corner(chip, 0.5)
+	chip.Parent = f
+	local img = Ui.image(chip, Config.images.icons[icon] or Config.images.icons.star, UDim2.fromScale(0.78, 0.78), UDim2.fromScale(0.11, 0.11))
+	local t = Ui.label(f, "", UDim2.new(1, 0, 0.66, 0), UDim2.fromScale(0, 0.17))
+	t.TextXAlignment = Enum.TextXAlignment.Right
+	local pad = Instance.new("UIPadding")
+	pad.PaddingLeft = UDim.new(0.2, 0)
+	pad.PaddingRight = UDim.new(0.07, 0)
+	pad.Parent = t
+	f.Parent = parent
+	return { root = f, text = t, chip = chip, icon = img }
+end
+
+local function buildClocks()
+	local C = Config.ui.clocks
+	local f = Instance.new("Frame")
+	f.Name = "Clocks"
+	f.BackgroundTransparency = 1
+	local l = Instance.new("UIListLayout")
+	l.SortOrder = Enum.SortOrder.LayoutOrder
+	l.VerticalAlignment = Enum.VerticalAlignment.Bottom
+	l.HorizontalAlignment = Enum.HorizontalAlignment.Right
+	l.Padding = UDim.new(C.gap / (C.size[2] * 3 + C.gap * 2), 0)
+	l.Parent = f
+	clocks.event = clockChip(f, 1, Theme.events.chill, "ray")
+	clocks.secret = clockChip(f, 2, Theme.events.secret, "trophy")
+	clocks.night = clockChip(f, 3, Theme.events.night, "star")
+	Screen.register("clocks", f)
+end
+
+local function tickClocks()
+	local now = workspace:GetServerTimeNow()
+	local cur, ends, nextE, nextIn = WorldRules.eventAt(now)
+	local ev = clocks.event
+	local shown = cur or nextE
+	ev.chip.BackgroundColor3 = Theme.events[shown.id] or Theme.info
+	ev.icon.Image = Config.images.icons[shown.icon] or Config.images.icons.star
+	ev.text.Text = if cur then `{cur.name} {Config.timeText(ends - now)}` else `{nextE.name} in {Config.timeText(nextIn)}`
+	local secretIn = WorldRules.secretIn(now)
+	local out = ((workspace:GetAttribute("SecretsOut") or 0) :: number) > 0 -- the server's own count
+	clocks.secret.text.Text = if out then "SECRET IS OUT!" else `Secret in {Config.timeText(secretIn)}`
+	local offset = (workspace:GetAttribute("NightOffset") or 0) :: number
+	local nightIn = WorldRules.nightIn(now, offset)
+	clocks.night.text.Text = if nightIn <= 0 then "Night!" else `Night in {Config.timeText(nightIn)}`
 end
 
 -- gain text appears beside the coin counter, never on a HUD item. It wears the counter's own look
@@ -138,6 +404,7 @@ local function render(v: State.View)
 	powerText.Text = Config.powerText(power)
 	if lastPower and power > lastPower then
 		floatGain(power - lastPower, true)
+		showGain(power - lastPower)
 		if SettingsController.get("reducedMotion") ~= true then
 			local P = Config.ui.powerPop
 			powerScale.Scale = P.scale
@@ -374,10 +641,7 @@ function HudController.Start()
 	-- tiles
 	local tiles = Instance.new("Frame")
 	tiles.Name = "Tiles"
-	tiles.BackgroundTransparency = 1
-	local grid = Instance.new("UIGridLayout")
-	grid.SortOrder = Enum.SortOrder.LayoutOrder
-	grid.Parent = tiles
+	tiles.BackgroundTransparency = 1 -- Screen places each tile (the Wide one spans the top row)
 	tilesFrame = tiles
 	for i, t in Config.ui.tiles do
 		local b = Ui.block(tiles, t.id, Theme.tiles[t.id] or Theme.info, t.label, function()
@@ -386,7 +650,27 @@ function HudController.Start()
 		b.root.LayoutOrder = i
 		-- the painted icon on top, the name small underneath (prototype tiles)
 		local icon = Config.ui.tileIcons[t.id]
-		if icon then
+		if icon and t.id == Config.ui.wideTile then
+			-- owner 2026-11-15: the Shop takes a whole row on top (two slots): the basket on the left, a big
+			-- SHOP on the right, and the basket bobs gently (the one animated tile: the money screen is a focal point)
+			b.root.LayoutOrder = 0
+			b.root:SetAttribute("Wide", true)
+			local img = Ui.image(b.face, icon, UDim2.fromScale(0.44, 1.12), UDim2.fromScale(0.0, -0.1))
+			img.ZIndex = 1
+			-- smaller than before (owner 2026-11-16: the big SHOP didn't match the other tiles' names)
+			local WT = Config.ui.wideTileText
+			b.text.Text = string.upper(t.label)
+			b.text.Size = UDim2.fromScale(WT[1], WT[2])
+			b.text.Position = UDim2.fromScale(WT[3], WT[4])
+			b.text.ZIndex = 2
+			local ts = b.text:FindFirstChildOfClass("UIStroke") :: UIStroke
+			ts.Thickness = Config.ui.floatingStroke
+			if SettingsController.get("reducedMotion") ~= true then
+				local W = Config.ui.wideTileWiggle
+				TweenService:Create(img, TweenInfo.new(W.seconds, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Rotation = W.degrees }):Play()
+				img.Rotation = -W.degrees
+			end
+		elseif icon then
 			-- a big centred icon filling the tile, the name sitting on the tile's bottom edge in a bold
 			-- outline (simulator-style menu tiles; owner 2026-10-31)
 			local img = Ui.image(b.face, icon, UDim2.fromScale(0.92, 0.8), UDim2.fromScale(0.04, 0))
@@ -459,10 +743,29 @@ function HudController.Start()
 	powerScale.Parent = powerText
 	Screen.register("power", powerRoot)
 	buildIsland()
-	-- banner
-	banner = Ui.block(Screen.hud :: ScreenGui, "Banner", Theme.info, "", nil)
-	banner.root.Visible = false
-	Screen.register("banner", banner.root)
+	-- alerts: a transparent stack the toasts slide into (Screen places it under the top buttons)
+	local af = Instance.new("Frame")
+	af.Name = "Alerts"
+	af.BackgroundTransparency = 1
+	local al = Instance.new("UIListLayout")
+	al.SortOrder = Enum.SortOrder.LayoutOrder
+	al.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	local A = Config.ui.alerts
+	al.Padding = UDim.new(A.gap / (A.stack * A.size[2] + (A.stack - 1) * A.gap), 0)
+	al.Parent = af
+	alertsFrame = af
+	Screen.register("banner", af)
+	buildGain()
+	buildClocks()
+	task.spawn(function()
+		while true do
+			local ok, err = pcall(tickClocks)
+			if not ok then
+				warn("[HudController] clocks:", err)
+			end
+			task.wait(0.5)
+		end
+	end)
 
 	State.Changed:Connect(render)
 	if State.view then
@@ -473,6 +776,24 @@ function HudController.Start()
 			HudController.banner(tostring(data.reason), Theme.no, Config.ui.notYetSeconds)
 		elseif kind == "chillWarn" then
 			HudController.banner(`Big Chill in {data.inSeconds} s!`, Theme.info)
+		elseif kind == "eventWarn" then
+			HudController.banner(`{data.name} in {data.inSeconds}s!`, Theme.events[data.id] or Theme.info, 4, nil, true)
+		elseif kind == "eventStart" then
+			HudController.banner(`{data.name}! {data.line}`, Theme.events[data.id] or Theme.info, 6, nil, true)
+			SoundController.play("unlock")
+		elseif kind == "eventEnd" then
+			HudController.banner("The event is over. Next one soon!", Theme.info)
+		elseif kind == "secretSpawned" then
+			-- the server-wide alert (owner 2026-11-16): one Secret on the whole map, and where it is
+			local where = if typeof(data.islands) == "table" and typeof(data.islands[1]) == "string" then data.islands[1] else "an island"
+			HudController.banner(`A SECRET pet appeared on {where}!`, Theme.events.secret, 8, "trophy", true)
+			SoundController.play("unlock")
+		elseif kind == "nightWarn" then
+			HudController.banner(`Night in {data.inSeconds}s! The islands close`, Theme.events.night, 4, "star")
+		elseif kind == "nightHome" then
+			HudController.banner("Night! Back home until sunrise", Theme.events.night, 4, "star")
+		elseif kind == "chillStart" and data.quiet then
+			-- the Big Chill as a server event: eventStart already says it
 		elseif kind == "chillStart" then
 			if typeof(data.by) == "string" then
 				HudController.banner(`{data.by} started a Big Chill for everyone!`, Theme.info, data.seconds)
@@ -480,9 +801,12 @@ function HudController.Start()
 				HudController.banner("Big Chill! Nothing melts", Theme.info, data.seconds)
 			end
 		elseif kind == "nightStart" then
-			HudController.banner("Night time! Pets are sleeping", Theme.info)
+			-- the Night Reset (Config.night) and the closed islands (Config.nightClose): one message for both
+			HudController.banner("Night! Back home until sunrise", Theme.events.night, 4, "star")
+		elseif kind == "starryNear" then
+			HudController.banner("Sunrise! A Starry pet came out for you", Theme.events.night, 4, "star", true) -- your own (Config.night.starry)
 		elseif kind == "nightEnd" then
-			HudController.banner("Good morning!", Theme.info)
+			HudController.banner("Good morning! New pets are here", Theme.go)
 		elseif kind == "bigWin" then
 			-- only other players' big wins (owner 2026-11-13: no alert for your own Epic and up)
 			local def = PetDefs.get(data.key)
@@ -502,8 +826,8 @@ function HudController.Start()
 			local z = Config.zone(if typeof(data.zone) == "number" then data.zone else 2)
 			HudController.banner(`{if z then z.name else "The next island"} is open!`, Theme.go)
 		elseif kind == "refund" and typeof(data) == "table" and typeof(data.coins) == "number" then
-			-- the pan's Cold Level was removed (Cold Power, 2026-11-10): what you spent on it is back
-			HudController.banner(`Cold Level is gone. +{Ui.commas(data.coins)} coins back`, Theme.coin, Config.ui.bannerSeconds * 2)
+			-- a removed upgrade (the pan's Cold Level 2026-11-10, Speed 2026-11-15): what you spent on it is back
+			HudController.banner(`Upgrades changed! +{Ui.commas(data.coins)} coins back`, Theme.coin, Config.ui.bannerSeconds * 2)
 		elseif kind == "comingSoon" then
 			HudController.banner(`{tostring(data.label)}: coming soon!`, Theme.info)
 		elseif kind == "upgraded" then
@@ -512,7 +836,7 @@ function HudController.Start()
 		elseif kind == "welcomeCollected" or kind == "giftClaimed" then
 			floatGain(data.coins)
 		elseif kind == "melted" then
-			HudController.banner("It melted! Zap it again", Theme.info)
+			HudController.banner("It melted! Zap it again", Theme.info, 3.5, "ray", true)
 		elseif kind == "chargeSaved" then
 			HudController.banner("Super Freeze saved for next time", Theme.info)
 		elseif kind == "skipKept" then
@@ -549,9 +873,9 @@ function HudController.Start()
 		elseif kind == "critterCaught" then
 			HudController.banner("A Heat Critter grabbed your cube! Zap it back", Theme.round5.critter)
 		elseif kind == "tagged" then
-			HudController.banner(`{data.by} knocked your cube loose!`, Theme.round5.reticlePlayer)
+			HudController.banner(`{data.by} knocked your cube loose! Zap it back`, Theme.round5.reticlePlayer)
 		elseif kind == "tagHit" then
-			HudController.banner("Cube knocked loose! Zap it", Theme.round5.reticlePlayer)
+			HudController.banner("Tagged! Their cube popped loose", Theme.round5.reticlePlayer) -- only its owner can zap it back (2026-11-15)
 		elseif kind == "shieldOff" then
 			HudController.banner("Your shield is off: keep your cubes safe!", Theme.round5.shield)
 		elseif kind == "friendJoined" then

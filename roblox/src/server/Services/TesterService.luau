@@ -475,7 +475,22 @@ function TesterService.Start()
 					coins = d.coins, coldPower = d.coldPower, reach = d.reach, rebirths = d.rebirths,
 					gunBest = d.guns.best, gunEquipped = d.guns.equipped, panLook = d.pan.look, slots = d.upgrades.pen,
 					pets = #d.pets, frozen = d.stats.frozen, banked = d.stats.banked,
+					tutorialStep = d.tutorial.step, tutorialDone = d.tutorial.done,
 				}
+			elseif action == "tutorialDid" and typeof(a) == "string" then
+				require(script.Parent.TutorialService).did(player, a) -- drive a tutorial step from a play test
+				return true
+			elseif action == "secretNow" then
+				-- the half-hour Secret wave, now (2026-11-16 QA)
+				local names = require(script.Parent.WildPetSpawner).spawnSecrets()
+				Remotes.fireAll("Notify", "secretSpawned", { islands = names, count = #names })
+				return names
+			elseif action == "eventNext" then
+				-- jump the event clock to the start of the next server event (2026-11-16 QA)
+				local off = (workspace:GetAttribute("EventOffset") or 0) :: number
+				local _, _, nextE, nextIn = require(game.ReplicatedStorage.Shared.WorldRules).eventAt(workspace:GetServerTimeNow())
+				workspace:SetAttribute("EventOffset", off + nextIn + 0.5)
+				return nextE.id
 			end
 			TesterService.run(player, action, a, b)
 			return true
