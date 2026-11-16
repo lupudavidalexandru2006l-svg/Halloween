@@ -29,6 +29,7 @@ local Theme = {
 	pen = Color3.fromHex("f7e3b0"),
 	sunPatch = Color3.fromHex("fff3a0"),
 	gift = Color3.fromHex("ff5a8a"),
+	skipAll = Color3.fromHex("aa50e6"), -- the Pets list's Skip all bar: the premium royal purple of the 2x Coins card
 	-- the Robux shop's cards, one colour per kind: the 2x Coins pass (premium purple), coin packs
 	-- (coin gold), Super Freeze packs (ice blue). Buy buttons are always go-green.
 	shopCards = {

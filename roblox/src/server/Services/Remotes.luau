@@ -24,6 +24,7 @@ local NAMES = {
 	"GetBoard", -- ask for a leaderboard's top 100 (LeaderboardService answers with "BoardRows", 2026-11-12)
 	"ClaimGift", -- the one-time Free Gift's Claim (PenService checks the community join, 2026-11-12)
 	"SkipThaw", -- skip a Thaw Machine's wait with Robux (MonetizationService, 2026-11-12)
+	"SkipThawAll", -- thaw every frozen pet at once with Robux (MonetizationService, owner 2026-11-16)
 	"ClaimThaw", -- take a thawed pet out of its machine (PenService, owner 2026-11-13)
 	"Teleport", -- the top buttons: to the Equipment Booth or your pan (TravelService, 2026-11-12)
 	-- server -> client (what happened)

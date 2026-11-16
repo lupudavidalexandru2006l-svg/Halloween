@@ -368,7 +368,7 @@ export type RobuxItem = {
 }
 Config.monetization = {
 	-- Owner items: create the developer product in the Creator Dashboard and paste its id here.
-	superFreeze = { productId = 0, robux = 15, minTier = "Rare", walkAwayStuds = 18 },
+	superFreeze = { productId = 3732434839, robux = 15, minTier = "Rare", walkAwayStuds = 18 },
 	passCheck = { tries = 5, seconds = 4 }, -- after a pass purchase: ask Roblox this many times, this far apart, before giving up
 	-- the Robux tab of the Shop, top to bottom (owner 2026-11-05). An id of 0 = not made yet: hidden in
 	-- live servers, given free in Studio so it can be tested. Coin packs are minutes of your own income
@@ -377,22 +377,22 @@ Config.monetization = {
 	-- Steal a Brainrot's 2x Money is 299), and a bigger pack is better value: 1 hour, 3 hours, 8 hours of
 	-- income. The real price is set on the product in the Creator Dashboard: keep both the same.
 	shop = {
-		{ id = "doubleCoins", kind = "pass", passId = 0, robux = 199, mult = 2, name = "2x Coins", text = "Your pan earns double, forever", icon = "coin", stack = 2 },
-		{ id = "coinsSmall", kind = "coins", productId = 0, robux = 49, minutes = 60, floor = 2500, name = "Coin Bag", text = "", icon = "coin", stack = 1 },
-		{ id = "coinsMedium", kind = "coins", productId = 0, robux = 99, minutes = 180, floor = 10e3, name = "Coin Chest", text = "", icon = "coin", stack = 2 },
-		{ id = "coinsBig", kind = "coins", productId = 0, robux = 199, minutes = 480, floor = 25e3, name = "Coin Vault", text = "", icon = "coin", stack = 3 },
-		{ id = "superFreeze3", kind = "charges", productId = 0, robux = 39, charges = 3, name = "Super Freeze", text = "3 for rare pets", icon = "ray", stack = 1, chip = "Rare+ pets, instantly" },
+		{ id = "doubleCoins", kind = "pass", passId = 2088197425, robux = 199, mult = 2, name = "2x Coins", text = "Your pan earns double, forever", icon = "coin", stack = 2 },
+		{ id = "coinsSmall", kind = "coins", productId = 3732434676, robux = 49, minutes = 60, floor = 2500, name = "Coin Bag", text = "", icon = "coin", stack = 1 },
+		{ id = "coinsMedium", kind = "coins", productId = 3732434699, robux = 99, minutes = 180, floor = 10e3, name = "Coin Chest", text = "", icon = "coin", stack = 2 },
+		{ id = "coinsBig", kind = "coins", productId = 3732434725, robux = 199, minutes = 480, floor = 25e3, name = "Coin Vault", text = "", icon = "coin", stack = 3 },
+		{ id = "superFreeze3", kind = "charges", productId = 3732434800, robux = 39, charges = 3, name = "Super Freeze", text = "3 for rare pets", icon = "ray", stack = 1, chip = "Rare+ pets, instantly" },
 		-- a Big Chill for the whole server, with "<name> started a Big Chill for everyone!" (2026-11-10,
 		-- Game Design Rules 10: server-wide events). Everyone gets it; it never moves the free Chill's clock.
-		{ id = "bigChill", kind = "chill", productId = 0, robux = 49, name = "Big Chill", text = "60 s for everyone", icon = "temp", stack = 1, big = "60s", chip = "For everyone" },
+		{ id = "bigChill", kind = "chill", productId = 3732434823, robux = 49, name = "Big Chill", text = "60 s for everyone", icon = "temp", stack = 1, big = "60s", chip = "For everyone" },
 		-- Cold Power (2026-11-10; starting prices, the owner sets the real ones). Never needed to progress:
 		-- standing on a training station shoots by itself for free (Config.training.autoEvery), the pass
 		-- only makes those shots faster, and clicking on top is always the best rate.
 		-- A pack is a share of your next island's need (Config.powerPack), so it's worth the same at every stage.
-		{ id = "autoTrain", kind = "pass", passId = 0, robux = 149, name = "Full-Speed Auto-Train", text = "Your gun trains 4x faster on its own", icon = "power", stack = 1 },
-		{ id = "doublePower", kind = "pass", passId = 0, robux = 199, mult = 2, name = "2x Cold Power", text = "Double Cold Power, forever", icon = "power", stack = 2 },
-		{ id = "powerSmall", kind = "power", productId = 0, robux = 49, share = 0.25, name = "Cold Power Pack", text = "", icon = "power", stack = 1 },
-		{ id = "powerBig", kind = "power", productId = 0, robux = 149, share = 1, name = "Big Cold Power Pack", text = "", icon = "power", stack = 3 },
+		{ id = "autoTrain", kind = "pass", passId = 2089625470, robux = 149, name = "Full-Speed Auto-Train", text = "Your gun trains 4x faster on its own", icon = "power", stack = 1 },
+		{ id = "doublePower", kind = "pass", passId = 2088923504, robux = 199, mult = 2, name = "2x Cold Power", text = "Double Cold Power, forever", icon = "power", stack = 2 },
+		{ id = "powerSmall", kind = "power", productId = 3732434754, robux = 49, share = 0.25, name = "Cold Power Pack", text = "", icon = "power", stack = 1 },
+		{ id = "powerBig", kind = "power", productId = 3732434775, robux = 149, share = 1, name = "Big Cold Power Pack", text = "", icon = "power", stack = 3 },
 	} :: { RobuxItem },
 	-- the Shop's tabs (shop v2, 2026-11-10: mobile-store layout), top to bottom on the left rail.
 	-- kinds = the items each tab shows; colour = Theme.shopCards[colour]. The shop opens on Forever
@@ -583,6 +583,9 @@ Config.ui = {
 	phoneSmallPopup = 1, bannerPhoneWidth = 0.62,
 	touchTextFloor = { title = 18, body = 14, button = 14, small = 12, tiny = 11 } :: { [string]: number }, -- popup text caps never go under these on touch screens (px)
 	touchRowAspect = 0.8, -- phones and tablets: long list rows (Pets, Thaw, Tester) are this much less wide-for-their-height
+	-- the Pets list's Skip all bar (owner 2026-11-16): its row's width-for-height, and the gaps (share of
+	-- the bar) between "Skip all" and the Robux mark, and between the mark and the price
+	skipAll = { aspect = 6.2, wordGap = 0.04, markGap = 0.012 },
 	-- sizes are fractions of the screen's short side (Scale only, UI Rules); the Screen module places them
 	-- owner 2026-10-31: smaller side tiles (still over 10% of the short side for small fingers);
 	-- owner 2026-11-07: the goal bar and temperature chip are gone; the island banner (below) took their place
@@ -2059,13 +2062,17 @@ Config.thaw = {
 	-- is kept as a free skip for later (thawSkips), so Robux is never lost. minLeft: no button under this.
 	skip = {
 		tiers = {
-			{ upTo = 120, robux = 5, productId = 0 },
-			{ upTo = 600, robux = 15, productId = 0 },
-			{ upTo = 3600, robux = 29, productId = 0 },
-			{ upTo = math.huge, robux = 49, productId = 0 },
+			{ upTo = 120, robux = 5, productId = 3732434857 },
+			{ upTo = 600, robux = 15, productId = 3732434877 },
+			{ upTo = 3600, robux = 29, productId = 3732434893 },
+			{ upTo = math.huge, robux = 49, productId = 3732434908 },
 		} :: { { upTo: number, robux: number, productId: number } },
 		minLeft = 10,
 		cooldown = 1,
+		-- Skip all (owner 2026-11-16, like the reference's SKIP ALL bar): one product thaws every pet still
+		-- in its cube at once, in a machine or waiting in your Pets. The bar sits under those pets in Pets
+		-- once minPets are frozen. Bought with nothing left frozen = kept for later (thawSkipAlls).
+		all = { robux = 199, productId = 0, minPets = 2 },
 	},
 	wander = { speed = 2.4, pause = { 1.5, 4.5 }, margin = 2.5 }, -- thawed pets stroll around the pan (drawn on each client)
 	-- the machine coming to life on each client (ThawMachines): idle it breathes in ice blue; thawing,

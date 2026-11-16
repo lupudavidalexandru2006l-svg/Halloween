@@ -901,6 +901,7 @@ local function view(player: Player, d: Data): { [string]: any }
 		settings = d.settings,
 		superFreezeCharges = d.superFreezeCharges,
 		thawSkips = d.thawSkips, -- paid Thaw Machine skips kept for later (MonetizationService)
+		thawSkipAlls = d.thawSkipAlls, -- paid Skip alls kept for later
 		doubleCoins = doubled[d] == true,
 		stats = d.stats,
 		plot = WorldService.plotOf(player),

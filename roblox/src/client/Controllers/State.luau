@@ -32,6 +32,7 @@ export type View = {
 	settings: { music: boolean, sound: boolean, reducedMotion: boolean, lowGraphics: boolean, unit: string },
 	superFreezeCharges: number,
 	thawSkips: number?, -- paid Thaw Machine skips kept for later (used free on the next Skip)
+	thawSkipAlls: number?, -- paid Skip alls kept for later (used free on the next Skip all)
 	doubleCoins: boolean?, -- owns the 2x Coins game pass (the server checks it with Roblox)
 	stats: { frozen: number, banked: number, melts: number, coinsEarned: number },
 	plot: number?,

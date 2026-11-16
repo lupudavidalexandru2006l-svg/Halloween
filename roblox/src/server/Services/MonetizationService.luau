@@ -198,6 +198,77 @@ local function requestSkip(player: Player, m: any)
 	end
 end
 
+-- ---------- Skip all (owner 2026-11-16): one product thaws every frozen pet at once ----------
+-- a pet still in its cube: thawing in a machine, or waiting in your Pets for one
+local function stillFrozen(p: any, now: number): boolean
+	return p.frozen == true and (not p.thawM or (p.thawEnd or 0) > now)
+end
+
+local function frozenCount(d: any): number
+	local n, now = 0, os.time()
+	for _, p in d.pets do
+		if stillFrozen(p, now) then
+			n += 1
+		end
+	end
+	return n
+end
+
+-- inside a data change: every frozen pet's time is up, so the next machine tick (PenService) lets them
+-- all out, a pet that was waiting in your Pets through machine 1. Nothing left frozen = kept for later.
+local function applySkipAll(x: any): string
+	local now, n = os.time(), 0
+	for _, p in x.pets do
+		if stillFrozen(p, now) then
+			p.thawM = p.thawM or 1
+			p.thawTotal = p.thawTotal or 1
+			p.thawEnd = now
+			n += 1
+		end
+	end
+	if n > 0 then
+		return "done"
+	end
+	x.thawSkipAlls = math.min(x.thawSkipAlls + 1, 99)
+	return "kept"
+end
+
+local skipAllAt: { [Player]: number } = {}
+local function requestSkipAll(player: Player)
+	local d = DataService.get(player)
+	if not d then
+		return
+	end
+	local now = os.clock()
+	if now - (skipAllAt[player] or -math.huge) < Config.thaw.skip.cooldown then
+		return
+	end
+	skipAllAt[player] = now
+	local A = Config.thaw.skip.all
+	local kept = d.thawSkipAlls > 0
+	if frozenCount(d) < (if kept then 1 else A.minPets) then
+		return
+	end
+	if kept then -- one bought earlier: used with a tap, no purchase
+		DataService.mutate(player, function(x)
+			if x.thawSkipAlls > 0 and frozenCount(x) > 0 then
+				x.thawSkipAlls -= 1
+				applySkipAll(x)
+			end
+		end)
+		DataService.saveNow(player)
+	elseif A.productId ~= 0 then
+		MarketplaceService:PromptProductPurchase(player, A.productId)
+	elseif RunService:IsStudio() then
+		DataService.mutate(player, function(x) -- Studio test until the owner makes the product
+			applySkipAll(x)
+		end)
+		DataService.saveNow(player)
+	else
+		Remotes.notYet(player, "Not available yet", "pets")
+	end
+end
+
 -- ---------- the Shop's Robux tab ----------
 local function productItem(productId: number): Config.RobuxItem?
 	if productId == 0 then
@@ -295,6 +366,25 @@ local function processReceipt(receipt: { [string]: any }): Enum.ProductPurchaseD
 		-- first try may have failed to save, and "granted" would then end Roblox's retries with nothing stored)
 		return if DataService.saveNow(player) then Enum.ProductPurchaseDecision.PurchaseGranted else Enum.ProductPurchaseDecision.NotProcessedYet
 	end
+	local all = Config.thaw.skip.all
+	if all.productId ~= 0 and receipt.ProductId == all.productId then
+		local result = "kept"
+		DataService.mutate(player, function(x)
+			result = applySkipAll(x)
+			table.insert(x.receipts, purchaseId)
+			while #x.receipts > Config.data.receiptsKept do
+				table.remove(x.receipts, 1)
+			end
+		end)
+		if not DataService.saveNow(player) then
+			return Enum.ProductPurchaseDecision.NotProcessedYet -- not saved: Roblox asks again, the receipt id stops a double grant
+		end
+		if result == "kept" then
+			Remotes.fire(player, "Notify", "skipAllKept", {})
+		end
+		AnalyticsSvc.event(player, "offer_bought", { offer = "thaw_skip_all", robux = all.robux })
+		return Enum.ProductPurchaseDecision.PurchaseGranted
+	end
 	local skipRobux = skipTierRobux(receipt.ProductId)
 	if skipRobux then
 		local asked = skipAsked[player]
@@ -356,6 +446,7 @@ function MonetizationService.Start()
 	Remotes.on("RequestSuperFreeze", requestSuperFreeze)
 	Remotes.on("BuyRobux", buyRobux)
 	Remotes.on("SkipThaw", requestSkip)
+	Remotes.on("SkipThawAll", requestSkipAll)
 	Players.PlayerAdded:Connect(loadPolicy)
 	for _, p in Players:GetPlayers() do
 		task.spawn(loadPolicy, p)
@@ -401,6 +492,7 @@ function MonetizationService.Start()
 		randomItemsOk[p] = nil
 		passes[p] = nil
 		skipAsked[p] = nil
+		skipAllAt[p] = nil
 	end)
 end
 

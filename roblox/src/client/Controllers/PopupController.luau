@@ -48,6 +48,7 @@ local function shownData(name: string, v: State.View): string?
 	local parts: { string } = {}
 	if name == "pets" then
 		table.insert(parts, tostring(v.slots))
+		table.insert(parts, tostring(v.thawSkipAlls or 0)) -- the Skip all bar turns free / paid
 		for _, p in v.pets do
 			table.insert(parts, `{p.id},{p.key},{p.pose},{p.mut},{p.eq},{p.income},{p.frozen},{p.thawM}`)
 		end
@@ -303,8 +304,8 @@ end
 
 -- the Robux mark and the price on a Robux button (Child Safety: every purchase shows the Robux icon),
 -- centred together by their visible width (UI Rules: centre the visible shape)
-local function robuxTag(b: Ui.Block)
-	local mark = Ui.image(b.face, Config.images.icons.robux, UDim2.fromScale(0.3, 0.62), UDim2.fromScale(0, 0.19))
+local function robuxMark(face: GuiObject): ImageLabel
+	local mark = Ui.image(face, Config.images.icons.robux, UDim2.fromScale(0.3, 0.62), UDim2.fromScale(0, 0.19))
 	mark.ZIndex = 2
 	-- owner 2026-11-13 "make the robux more contoured": a thick ink contour round a white mark, like the
 	-- price's own outlined numbers. The slot stays empty; eight ink copies nudged round the white one draw it.
@@ -324,6 +325,11 @@ local function robuxTag(b: Ui.Block)
 		copy.ZIndex = if k == 8 then 4 else 3
 		copy.Parent = mark
 	end
+	return mark
+end
+
+local function robuxTag(b: Ui.Block)
+	local mark = robuxMark(b.face)
 	local stroke = b.text:FindFirstChildOfClass("UIStroke")
 	if stroke then
 		stroke.Thickness = Config.ui.floatingStroke -- the price wears the same firm outline
@@ -1537,6 +1543,50 @@ local function thaw(o: Open, v: State.View)
 	end
 end
 
+-- Skip all (owner 2026-11-16, from a reference's SKIP ALL bar): a wide royal-purple bar under the pets
+-- still in their cubes, "Skip all", the Robux mark and the price centred together. One tap thaws them
+-- all (MonetizationService; Roblox's own prompt confirms). It never pulses: waiting is always free.
+-- A Skip all kept from before shows as a free one.
+local function skipAllBar(l: GuiObject, order: number, free: boolean)
+	local S = Config.ui.skipAll
+	local r = row(l, order, 0, S.aspect)
+	r.Name = "SkipAll"
+	local b = button(r, Theme.skipAll, if free then "Skip all free" else "Skip all", 0.01, 0.98, function()
+		State.send("SkipThawAll")
+	end)
+	b.root.Name = "SkipAllButton"
+	sized(b.text, "title")
+	if free then
+		return
+	end
+	local stroke = b.text:FindFirstChildOfClass("UIStroke")
+	if stroke then
+		stroke.Thickness = Config.ui.floatingStroke -- the firm outline of every Robux price
+	end
+	b.text.TextXAlignment = Enum.TextXAlignment.Left
+	local price = b.text:Clone()
+	price.Name = "Price"
+	price.Text = tostring(Config.thaw.skip.all.robux)
+	price.Parent = b.face
+	local mark = robuxMark(b.face)
+	local function place()
+		local w = math.max(1, b.face.AbsoluteSize.X)
+		local wordsW = math.min(b.text.TextBounds.X / w, 0.5)
+		local markW = mark.AbsoluteSize.X / w
+		local priceW = math.min(price.TextBounds.X / w, 0.3)
+		local x = 0.5 - (wordsW + S.wordGap + markW + S.markGap + priceW) / 2
+		b.text.Position = UDim2.fromScale(x, b.text.Position.Y.Scale)
+		b.text.Size = UDim2.fromScale(wordsW + 0.05, b.text.Size.Y.Scale)
+		x += wordsW + S.wordGap
+		mark.Position = UDim2.fromScale(x + markW / 2, 0.5)
+		x += markW + S.markGap
+		price.Position = UDim2.fromScale(x, price.Position.Y.Scale)
+		price.Size = UDim2.fromScale(priceW + 0.05, price.Size.Y.Scale)
+	end
+	task.defer(place)
+	b.face:GetPropertyChangedSignal("AbsoluteSize"):Connect(place)
+end
+
 local function pets(o: Open, v: State.View)
 	local pen, ice = 0, 0
 	for _, p in v.pets do
@@ -1575,12 +1625,32 @@ local function pets(o: Open, v: State.View)
 	if #sorted == 0 then
 		text(row(l, 1, 0, 9), "Freeze a pet and carry it to your pan!", 0.02, 0.96)
 	end
+	-- the pets still in their cubes come first (thawing, then frozen); the Skip all bar goes right under
+	-- them, so every row after it moves down one
+	local now = workspace:GetServerTimeNow()
+	local cubes = 0
+	for _, p in sorted do
+		if p.frozen and (not p.thawM or (p.thawAt or 0) > now) then
+			cubes += 1
+		end
+	end
+	local lastCube = 0
+	for i, p in sorted do
+		if group(p) <= 1 then
+			lastCube = i
+		end
+	end
+	local freeAll = (v.thawSkipAlls or 0) > 0
+	local barAt = if cubes >= (if freeAll then 1 else Config.thaw.skip.all.minPets) then lastCube + 1 else nil
+	if barAt then
+		skipAllBar(l, barAt, freeAll)
+	end
 	for i, p in sorted do
 		local def = PetDefs.get(p.key)
 		if not def then
 			continue
 		end
-		local r = card(row(l, i, 0, 7.5))
+		local r = card(row(l, if barAt and i >= barAt then i + 1 else i, 0, 7.5))
 		petInfo(r, p, def)
 		Ui.image(r, Config.images.icons.coin, UDim2.fromScale(0.07, 0.6), UDim2.fromScale(0.52, 0.2))
 		text(r, `{Ui.short(p.income)}/s`, 0.585, 0.13)

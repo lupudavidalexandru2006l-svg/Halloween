@@ -841,6 +841,8 @@ function HudController.Start()
 			HudController.banner("Super Freeze saved for next time", Theme.info)
 		elseif kind == "skipKept" then
 			HudController.banner("Your pet was already out! Skip saved for next time", Theme.info)
+		elseif kind == "skipAllKept" then
+			HudController.banner("Your pets were already out! Skip all saved for next time", Theme.info)
 		elseif kind == "robuxBought" then
 			-- a Robux shop item arrived (saved first, MonetizationService)
 			if data.chill then
