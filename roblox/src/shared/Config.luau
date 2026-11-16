@@ -1587,7 +1587,8 @@ Config.guns = {
 	list = {
 		{ key = "frost_popper", name = "Frost Popper", training = 1, range = 10, heat = 2, beams = 1, price = 0, rebirths = 0 },
 		-- balance pass 2026-11-12: each Heat gun lands just before the island that needs it, the rest fill saves
-		-- pacing pass 2026-11-16 (PACING-2026-11-16.md): guns 3-10 repriced for the ~12 h curve
+		-- pacing pass 2026-11-16 (PACING-2026-11-16.md): guns 3-10 repriced for the ~12 h curve;
+		-- each gun lands within about 25 min of its island (gun 8 25B -> 7.5B, gun 10 1.5T -> 200B)
 		-- 2026-11-13: 20K -> 7.5K, the first gun lands ~8 min in (guns now also freeze faster: Config.gunFreeze)
 		{ key = "snowball_blaster", name = "Snowball Blaster", training = 2, range = 11, heat = 2, beams = 1, price = 7.5e3, rebirths = 0 },
 		{ key = "icicle_repeater", name = "Icicle Repeater", training = 3, range = 12, heat = 4, beams = 1, price = 500e3, rebirths = 0 },
@@ -1595,9 +1596,9 @@ Config.guns = {
 		{ key = "blizzard_beam", name = "Blizzard Beam", training = 8, range = 14, heat = 6, beams = 2, price = 15e6, rebirths = 0 },
 		{ key = "aurora_ray", name = "Aurora Ray", training = 12, range = 15, heat = 6, beams = 2, price = 100e6, rebirths = 0 },
 		{ key = "cryo_lance", name = "Cryo Lance", training = 20, range = 16, heat = 8, beams = 3, price = 2e9, rebirths = 0 },
-		{ key = "polar_vortex", name = "Polar Vortex", training = 30, range = 17, heat = 8, beams = 3, price = 25e9, rebirths = 0 },
+		{ key = "polar_vortex", name = "Polar Vortex", training = 30, range = 17, heat = 8, beams = 3, price = 7.5e9, rebirths = 0 },
 		{ key = "absolute_zero", name = "Absolute Zero", training = 50, range = 18, heat = 10, beams = 3, price = 75e9, rebirths = 0 },
-		{ key = "starfrost_nova", name = "Starfrost Nova", training = 100, range = 19, heat = 10, beams = 4, price = 1.5e12, rebirths = 0 },
+		{ key = "starfrost_nova", name = "Starfrost Nova", training = 100, range = 19, heat = 10, beams = 4, price = 200e9, rebirths = 0 },
 		-- owner 2026-11-09: every gun shows a coin price (the free rebirth guns read "Rebirth 2" on only some
 		-- rows and looked odd), so all guns are bought with coins in order; rebirth gates islands, not guns
 	} :: { Gun },
@@ -1660,7 +1661,7 @@ Config.rebirth = {
 	-- GrindBot, typical player: island 2 in 11 min, Rebirth 1 in 35 min, everything in about 4.4 h
 	-- balance pass 2026-11-12 (BALANCE-2026-11-12.md): Rebirth 1 at ~36 min, Rebirth 2 at ~67 min, then about one an hour
 	-- pacing pass 2026-11-16 (PACING-2026-11-16.md): Rebirth 1 at ~33 min, Rebirth 2 at ~66 min, then one every
-	-- 1-1.5 h; island 10 at ~8 h and the last buy at ~12 h for a typical kid (was everything in ~4.5 h)
+	-- 1-1.5 h; island 10 at ~8 h and the last buy at ~10.5 h for a typical kid (was everything in ~4.5 h)
 	costs = { 1e6, 20e6, 600e6, 4e9, 40e9, 100e9, 2e12 }, -- Rebirth 1, 2, 3 ...
 	costGrowth = 3,
 	fullAt = 7,

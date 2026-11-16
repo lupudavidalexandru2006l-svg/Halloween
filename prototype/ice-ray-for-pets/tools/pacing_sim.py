@@ -175,7 +175,7 @@ def report(P, kid=KID, seeds=range(1, 9), hours=14, detail=False):
 # the prices in roblox/src/shared/Config.luau after the pacing pass of 2026-11-16
 FINAL = dict(
     needs=[0, 150, 5e3, 300e3, 4e6, 75e6, 150e6, 15e9, 200e9, 4e12],
-    guns=[0, 7.5e3, 500e3, 3e6, 15e6, 100e6, 2e9, 25e9, 75e9, 1.5e12],
+    guns=[0, 7.5e3, 500e3, 3e6, 15e6, 100e6, 2e9, 7.5e9, 75e9, 200e9],
     trainer=[0, 4e3, 300e3, 40e6, 750e6, 3e9, 25e9, 75e9, 600e9, 5e12],
     thaw=[0, 250, 1e3, 4e3, 30e3, 200e3, 1e6, 40e6, 1e9, 12e9],
     looks=[0, 150e3, 7.5e6, 1.5e9, 750e9],
