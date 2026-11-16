@@ -72,6 +72,19 @@ if "island" in OPTS:
     bmesh.ops.delete(bm, geom=[v for v in bm.verts if part[v.index] in drop], context="VERTS")
     bm.to_mesh(obj.data); bm.free()
     print("ISLANDS dropped", len(drop), "of", n, "pieces:", sorted(sizes[p] for p in drop))
+# floor=<frac>: delete every face that lies wholly in the bottom <frac> of the height. TRELLIS sometimes builds
+# a thin square plate under the feet, welded to them (Scarabit 2026-11-16, 0.012 thick); the feet lose
+# only their soles, which nobody sees.
+if "floor" in OPTS:
+    import bmesh
+    bm = bmesh.new(); bm.from_mesh(obj.data)
+    z0 = min(v.co.z for v in bm.verts); z1 = max(v.co.z for v in bm.verts)
+    cut = z0 + float(OPTS["floor"] or 0.015) * (z1 - z0)
+    gone = [f for f in bm.faces if all(v.co.z < cut for v in f.verts)]
+    bmesh.ops.delete(bm, geom=gone, context="FACES")
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context="VERTS")
+    bm.to_mesh(obj.data); bm.free()
+    print("FLOOR removed", len(gone), "faces")
 if "fill" in OPTS:
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.mesh.select_all(action="SELECT")
@@ -251,8 +264,34 @@ if any(k in OPTS for k in ("hue", "sat", "val")):
         px[:, :3] = rgb2
         img.pixels[:] = px.ravel()
         img.pack()
+# whitefill=<rrggbb>: paint big pale-white patches with that colour. TRELLIS leaves the parts it can't see
+# in the painting white (Scarabit 2026-11-16: underside and legs under its shell). Small white spots (eye
+# highlights) don't survive an erosion of 6 px, so they stay.
+if "whitefill" in OPTS:
+    import numpy as np
+    c = OPTS["whitefill"]
+    tgt = np.array([int(c[i:i + 2], 16) / 255.0 for i in (0, 2, 4)], dtype=np.float32)  # pixels are the stored sRGB bytes / 255
+    for img in {n.image for m in obj.data.materials if m and m.use_nodes
+                for n in m.node_tree.nodes if n.type == "TEX_IMAGE" and n.image}:
+        W, H = img.size
+        px = np.array(img.pixels[:], dtype=np.float32).reshape(H, W, 4)
+        rgb = px[..., :3]
+        mx, mn = rgb.max(2), rgb.min(2)
+        pale = (mx > 0.35) & ((mx - mn) / np.maximum(mx, 1e-6) < float(OPTS.get("whitesat", 0.25)))
+        big = pale.copy()
+        for _ in range(6):  # erode
+            big[1:] &= big[:-1].copy(); big[:-1] &= big[1:].copy(); big[:, 1:] &= big[:, :-1].copy(); big[:, :-1] &= big[:, 1:].copy()
+        for _ in range(9):  # grow back, a bit past the edge, but only over pale pixels
+            g = big.copy(); g[1:] |= big[:-1]; g[:-1] |= big[1:]; g[:, 1:] |= big[:, :-1]; g[:, :-1] |= big[:, 1:]
+            big = g & pale
+        shade = np.clip(mx / max(float(np.percentile(mx[pale], 90)), 1e-6), 0.55, 1.0)
+        rgb[big] = tgt[None, :] * shade[big][:, None]
+        px[..., :3] = rgb
+        img.pixels[:] = px.ravel()
+        img.pack()
+        print("WHITEFILL", int(big.sum()), "of", int(pale.sum()), "pale pixels")
 
-tris = sum(len(p.vertices) - 2 for p in obj.data.polygons)
+tris =sum(len(p.vertices) - 2 for p in obj.data.polygons)
 if tris > MAX_TRIS:
     dec = obj.modifiers.new("Reduce", "DECIMATE")
     dec.ratio = MAX_TRIS / tris * 0.98

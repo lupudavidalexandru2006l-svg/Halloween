@@ -72,7 +72,18 @@ for n, p in parts do
 		p:SetAttribute("Hang", HANG and n:match("^Ear") ~= nil)
 		local inner = c.X - side * s.X * 0.42
 		p:SetAttribute("Pivot", Vector3.new(inner, if n:match("^Frill") then headC.Y else c.Y - s.Y * 0.25, c.Z))
-	elseif n == "Tail" then
+	elseif n:match("^Wing") then
+		-- wings flap up and out together round the edge nearest the body, and don't turn with the head
+		local side = if n:sub(-1) == "L" then -1 else 1
+		p:SetAttribute("Role", "wing")
+		p:SetAttribute("Side", side)
+		p:SetAttribute("Pivot", Vector3.new(c.X - side * s.X * 0.45, c.Y, c.Z))
+	elseif n:match("^Gem") then
+		-- a small piece on the head (Solaris Sphinx's sun gem): rides on the head, no twitch of its own
+		p:SetAttribute("Role", "ear")
+		p:SetAttribute("Side", 0)
+		p:SetAttribute("Pivot", c)
+	elseif n:match("^Tail") then
 		p:SetAttribute("Role", "tail")
 		p:SetAttribute("Pivot", Vector3.new(c.X, c.Y + s.Y * 0.2, c.Z - s.Z * 0.45)) -- the root, at the body
 	end

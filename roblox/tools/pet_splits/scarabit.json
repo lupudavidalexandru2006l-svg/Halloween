@@ -1,0 +1,7 @@
+{"parts": [
+  ["BallGlow", "y < -0.36 and z < 0.47 and (abs(x) < 0.13 or (abs(x) < 0.2 and (h < 45 or h > 330) and s > 0.45))"],
+  ["Head", "z > 0.46 and y < -0.15"],
+  ["LegFL", "z < 0.2 and y < -0.05 and x > 0"],
+  ["LegFR", "z < 0.2 and y < -0.05"],
+  ["LegBL", "z < 0.2 and x > 0"],
+  ["LegBR", "z < 0.2"]]}

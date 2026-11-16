@@ -702,17 +702,19 @@ local function animate(root: BasePart, d: Drawn, dt: number, now: number, cam: C
 					-- e.g. the cap's underside: inside the head at rest, only shown while the hat is off
 					part.part.LocalTransparencyModifier = if hatLift > A.parts.hatShowAt * h then 0 else 1
 				end
-			elseif role == "ear" and part.pivot then
+			elseif (role == "ear" or role == "wing") and part.pivot then
 				-- twitch outward (an upright ear tips out with -side, a hanging one with +side), flop with the steps,
-				-- and flap on the side being scratched; ears ride on the head
+				-- and flap on the side being scratched; ears ride on the head. Wings flap the same way, both at
+				-- once, and stay on the body when the head turns.
 				local pv = part.pivot
 				local base = CFrame.new(pv.X * sx, feet + (pv.Y - feet) * sy, pv.Z * sx)
 				local outward = if part.hang then part.side else -part.side
-				local twitch = if part.side == 0 or part.side == earWhich then earTwitch else 0
+				local twitch = if part.side == 0 or part.side == earWhich or role == "wing" then earTwitch else 0
 				local flap = if part.side == scratchSide then A.scratch.earFlap * scratch * (0.5 + 0.5 * rub) else 0
 				local roll = outward * (A.parts.earTwitch * twitch + flap)
 				local pitch = if part.hang then earFlop else earFlop * 0.3
-				place = headTurn * base * CFrame.Angles(pitch, 0, roll) * base:Inverse() * place
+				place = (if role == "wing" then CFrame.identity else headTurn) * base * CFrame.Angles(pitch, 0, roll)
+					* base:Inverse() * place
 			elseif role == "tail" and part.pivot then
 				local pv = part.pivot
 				local base = CFrame.new(pv.X * sx, feet + (pv.Y - feet) * sy, pv.Z * sx)
@@ -830,6 +832,10 @@ local function removePet(root: Instance)
 	local d = drawn[root :: BasePart]
 	if d then
 		clearFreeze(d)
+		-- the Night Reset takes the wild pets away: a snowy poof where each one stood, not a blink
+		if workspace:GetAttribute("NightReset") == true and d.model.Parent and d.model:IsA("PVInstance") then
+			puffAt((d.model :: PVInstance):GetPivot(), d.height, 4)
+		end
 		d.model:Destroy()
 		if d.offer then
 			d.offer:Destroy()
@@ -1173,7 +1179,7 @@ end
 
 -- a pet's model (or painted sprite) on its own, for other controllers (Heat Critters wear a pet's art)
 -- the model drawn for a wild or pen pet's root (the root itself is an invisible part): the tutorial
--- makes the pet Captain Frost is showing glow
+-- makes the pet the tutorial is showing glow
 function PetVisuals.drawnModel(root: Instance): PVInstance?
 	local d = if root:IsA("BasePart") then drawn[root] else nil
 	return if d then d.model else nil
@@ -1255,7 +1261,11 @@ local function step(dt: number)
 		end
 		if d.box then
 			local z = root:GetAttribute("Zone")
+			-- owner 2026-11-16 ("the pets disappear after not being in the zone, so you cannot see if a secret spawned"):
+			-- your island and the ones either side of it show, and a Secret shows from anywhere
 			local show = z == myZone or (myZone == 0 and z == 1)
+				or (typeof(z) == "number" and myZone > 0 and math.abs(z - myZone) <= 1)
+				or root:GetAttribute("Tier") == "Secret"
 			if show ~= d.shown then
 				d.shown = show
 				d.box.Parent = if show then folder else nil
@@ -1315,8 +1325,11 @@ local function step(dt: number)
 				d.model:PivotTo(at)
 			end
 			local shimmer = math.sin(t * PC.shimmerSpeed * math.pi * 2 + b.phase * 2)
-			root.Transparency = math.min(0.95, 0.5 + shimmer * PC.shimmerAmount * amp + 0.4 * (1 - thawLeft))
-			b.edges.Transparency = P.edgeTransparency - shimmer * 0.2 * amp
+			-- in the machine the ice clears away round the pet as its time runs out (owner 2026-11-16: "you should see
+			-- how your pet unfreezes"): the block fades to a faint glass and its edges melt off
+			local melted = 1 - thawLeft
+			root.Transparency = math.min(0.97, 0.5 + shimmer * PC.shimmerAmount * amp * thawLeft + 0.47 * melted)
+			b.edges.Transparency = math.min(1, P.edgeTransparency - shimmer * 0.2 * amp + (1 - P.edgeTransparency) * melted)
 			local u = ((t + b.phase) % PC.coinEvery) / PC.coinEvery
 			b.coin.StudsOffset = Vector3.new(0, root.Size.Y / 2 + math.min(1, u * 2) * PC.coinRise, 0)
 			b.coinImg.ImageTransparency = if u < 0.5 then u * 2 else 1

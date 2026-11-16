@@ -1,0 +1,10 @@
+{"parts": [
+  ["WingL", "0.27 < z < 0.58 and -0.06 < y < 0.24 and x > 0.22"],
+  ["WingR", "0.27 < z < 0.58 and -0.06 < y < 0.24 and x < -0.22"],
+  ["TailGlow", "y > 0.24 and z < 0.52"],
+  ["GemGlow", "z > 0.74 and abs(x + 0.03) < 0.09 and y < -0.1 and v > 0.85 and s < 0.55"],
+  ["Head", "z > 0.44 and y < 0.24"],
+  ["LegFL", "z < 0.15 and y < -0.08 and x > 0"],
+  ["LegFR", "z < 0.15 and y < -0.08"],
+  ["LegBL", "z < 0.15 and x > 0"],
+  ["LegBR", "z < 0.15"]]}
