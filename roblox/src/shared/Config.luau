@@ -163,7 +163,7 @@ Config.dev = {
 	-- "Play as a new player" (design review 2026-11-15): in Studio only (the QA store), a non-empty name gives
 	-- every save its own key u_<id>_<name>, so a play test starts from a brand-new save and nobody's own save
 	-- is touched. Change the name for another fresh start. Leave it "" normally. A live server ignores it.
-	freshSave = "owner_try1", -- owner's new-player run (2026-11-15); set back to "" after
+	freshSave = "",
 	maxCoins = 1e15, heatMax = 5, awayMax = 24 * 3600,
 	multMin = 0.1, multMax = 10000,
 	walkMin = 16, walkMax = 100,
@@ -494,6 +494,7 @@ Config.analytics = {
 		offer_bought = { value = "robux", fields = { "offer" } },
 		session_end = { value = "sessionSeconds", fields = { "zone", "lastAction", "carryingCube" } },
 		train_session = { value = "gain", fields = { "station", "level" } }, -- someone stepped off a training station
+		rebirth = { value = "rebirths", fields = {} }, -- RebirthService (QA IR-13: it was dropped, not on this list)
 	} :: { [string]: { value: string?, fields: { string } } },
 	lastActions = { "zapping", "carrying", "in_pen", "in_menu", "exploring" },
 }
@@ -583,8 +584,8 @@ Config.ui = {
 	phoneSmallPopup = 1, bannerPhoneWidth = 0.62,
 	touchTextFloor = { title = 18, body = 14, button = 14, small = 12, tiny = 11 } :: { [string]: number }, -- popup text caps never go under these on touch screens (px)
 	touchRowAspect = 0.8, -- phones and tablets: long list rows (Pets, Thaw, Tester) are this much less wide-for-their-height
-	-- the Pets list's Skip all bar (owner 2026-11-16): its row's width-for-height, and the gaps (share of
-	-- the bar) between "Skip all" and the Robux mark, and between the mark and the price
+	-- the purple Robux bars (owner 2026-11-16: the Thaw Machine's Skip, Pets' Unfreeze all): the row's
+	-- width-for-height, and the gaps (share of the bar) between the words and the Robux mark, and the mark and the price
 	skipAll = { aspect = 6.2, wordGap = 0.04, markGap = 0.012 },
 	-- sizes are fractions of the screen's short side (Scale only, UI Rules); the Screen module places them
 	-- owner 2026-10-31: smaller side tiles (still over 10% of the short side for small fingers);
@@ -788,7 +789,7 @@ export type RayCue = { at: number, sound: string?, fx: string?, kick: string? }
 
 Config.world = {
 	maxPlayers = 6, -- one pan per server slot. Owner item: Server Size 6 in Game Settings > Places
-	mapVersion = 26, -- 26 = at most 3 lava pools per island, each in its own stretch (owner 2026-11-13), 25 = vivid colours and the giant outside decor per island (MapSpectacle, owner 2026-11-13), 24 = solid scenery (MapArt.solidify: everything you can see blocks you), 23 = smaller outside (MapArt farScenery: ground and peaks only as big as the camera needs), 22 = pan fence walls only fence-high, so you can jump them, 21 = solid pan fences (invisible PanFence walls; the gate is the only way in), 20 = Cold Power trainers in every pan (TrainingService builds them; the rink door, its beacon and the right flower box are gone, Equipment back by the tunnel mouth), 19 = open plaza: no fountain, no paved boulevard, no spawn pad, 18 = the Sell and Equipment booths no longer run into the village wall, 17 = map pass 2026-11-10 (rink door in front, its beacon, bigger snowman and waterfall), 16 = the Training Rink's door. Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges, 6 = bigger square pans, 7 = pans measured against the real avatar, 8 = open gaps, open ground behind, level pans, 9 = no flush overlapping surfaces, 10 = booth details: sign bulbs, log ends, scalloped awnings, chalk coin, 11 = wide tunnel and big entrance for big pets, a clean road, 12 = booths shaped like what they do: treasure chest, gear workshop, ring portal, 13 = the detailed sci-fi Thaw Machine, 14 = each world's own gate towers, 15 = never-visible buried parts left out (PERF-AUDIT-2026-11-09))
+	mapVersion = 27, -- 27 = the fall catcher in tiles, so the hub and the end of Magma Core are covered too (QA IR-05), 26 = at most 3 lava pools per island, each in its own stretch (owner 2026-11-13), 25 = vivid colours and the giant outside decor per island (MapSpectacle, owner 2026-11-13), 24 = solid scenery (MapArt.solidify: everything you can see blocks you), 23 = smaller outside (MapArt farScenery: ground and peaks only as big as the camera needs), 22 = pan fence walls only fence-high, so you can jump them, 21 = solid pan fences (invisible PanFence walls; the gate is the only way in), 20 = Cold Power trainers in every pan (TrainingService builds them; the rink door, its beacon and the right flower box are gone, Equipment back by the tunnel mouth), 19 = open plaza: no fountain, no paved boulevard, no spawn pad, 18 = the Sell and Equipment booths no longer run into the village wall, 17 = map pass 2026-11-10 (rink door in front, its beacon, bigger snowman and waterfall), 16 = the Training Rink's door. Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges, 6 = bigger square pans, 7 = pans measured against the real avatar, 8 = open gaps, open ground behind, level pans, 9 = no flush overlapping surfaces, 10 = booth details: sign bulbs, log ends, scalloped awnings, chalk coin, 11 = wide tunnel and big entrance for big pets, a clean road, 12 = booths shaped like what they do: treasure chest, gear workshop, ring portal, 13 = the detailed sci-fi Thaw Machine, 14 = each world's own gate towers, 15 = never-visible buried parts left out (PERF-AUDIT-2026-11-09))
 	hubZMax = 0, -- the tunnel mouth: the hub is z < 0 (no wild pets, no heat)
 	-- wide enough for the row of six pans plus 10 studs at each end; zMin is worked out below (behind the pans' backSpace)
 	hub = { xMin = -150, xMax = 150, zMin = 0, wallHeight = 16, colliderHeight = 60 },
@@ -1096,7 +1097,9 @@ Config.tutorial = {
 	-- it for a moment. The whole loop: catch -> home -> thaw -> upgrade -> train -> open the next island.
 	steps = {
 		-- 2026-11-16 (owner: "you need to hold it"): the ray only fires while you hold, so the goal says hold
+		-- goals = the goal worded for a device (touch, gamepad), else `goal` (QA IR-09: "Click" on a phone)
 		{ id = "zap", on = "zap", focus = "pet", icon = "pet", goal = "Hold the ray on a pet", say = "",
+			goals = { touch = "Hold your finger on a pet", gamepad = "Aim at a pet and hold R2" },
 			hints = { keyboard = "Hold click on the pet!", touch = "Hold your finger on the pet!", gamepad = "Aim at it and hold R2!" } },
 		{ id = "freeze", on = "freeze", focus = "pet", icon = "ray", goal = "Keep holding to freeze it", say = "",
 			cheer = "BRRR! Frozen solid!",
@@ -1125,6 +1128,7 @@ Config.tutorial = {
 		{ id = "train", on = "trainStart", only = true, focus = "train", icon = "power", goal = "Train on your Snowman", say = "",
 			hints = { keyboard = "Stand on the pad and press E!", touch = "Stand on the pad and tap Train!", gamepad = "Stand on the pad and press X!" } },
 		{ id = "power", on = "powerReady", only = true, focus = "train", icon = "power", count = "power", goal = "Click fast to fill your Cold Power", say = "",
+			goals = { touch = "Tap fast to fill your Cold Power", gamepad = "Press R2 fast to fill your Cold Power" },
 			cheer = "Full power!", hintOnce = true,
 			hints = { keyboard = "Click fast to zap faster!", touch = "Tap fast to zap faster!", gamepad = "Press R2 fast to zap faster!" } },
 		{ id = "gate", on = "gateOpen", only = true, focus = "gate", icon = "gate", goal = "Hop off and open the gate", say = "",
@@ -1132,7 +1136,7 @@ Config.tutorial = {
 			hints = { keyboard = "Walk up to the gate and press E!", touch = "Walk up to the gate and tap its button!", gamepad = "Walk up to the gate and press X!" } },
 		-- reward = coins paid once per save as the tutorial ends, shown on the TUTORIAL COMPLETE card
 		{ id = "done", on = "next", icon = "trophy", say = "Tutorial complete!", reward = 900, rewardTitle = "TUTORIAL COMPLETE!" },
-	} :: { { id: string, on: string, say: string, focus: string?, goal: string?, hints: { [string]: string }?, cheer: string?, only: boolean?, gift: string?, giftSay: string?, maxedSay: string?, maxedGoal: string?, quiet: boolean?, hintOnce: boolean?, tease: boolean?, icon: string?, count: string?, reward: number?, rewardTitle: string? } },
+	} :: { { id: string, on: string, say: string, focus: string?, goal: string?, goals: { [string]: string }?, hints: { [string]: string }?, cheer: string?, only: boolean?, gift: string?, giftSay: string?, maxedSay: string?, maxedGoal: string?, quiet: boolean?, hintOnce: boolean?, tease: boolean?, icon: string?, count: string?, reward: number?, rewardTitle: string? } },
 	-- the goal pill (references: one short goal at the top centre, always on, with step dots; nothing to
 	-- dismiss). icon = Config.images.icons key, or "pet" = the first island's Common sprite. A cheer, hint or
 	-- reaction replaces the goal for messageSeconds, then the goal comes back. Skip lives on the pill.
@@ -2055,24 +2059,23 @@ Config.thaw = {
 	-- itself again; a timer over each busy machine shows the time left (ThawMachines). true = the old Claim button
 	claimByHand = false, claimCooldown = 0.5,
 	timerSign = { lift = 5, size = { 5.2, 2 }, drawDistance = 90 }, -- lift: studs over the machine's top readySign = { y = 9.5, size = { 6, 2.2 }, bob = 0.35, bobSpeed = 2.4 },
-	-- Skip with Robux (owner 2026-11-12, at the machine only, never in the Shop): a small button beside OK
-	-- on a busy machine's popup. Waiting is always free. A developer product has one fixed price, so the
-	-- price steps with the time left: the first tier whose upTo (seconds) covers it. productId 0 = not
-	-- made yet (free in Studio, hidden in live servers). A skip bought just as the pet came out by itself
-	-- is kept as a free skip for later (thawSkips), so Robux is never lost. minLeft: no button under this.
+	-- Skip with Robux (owner 2026-11-12, at the machine only, never in the Shop): a big purple Skip bar under
+	-- the pet in a busy machine's popup. Waiting is always free. One price (owner 2026-11-16: "make the skip
+	-- in the thaw for like 99"; it was 5/15/29/49 stepped by the time left): the first tier whose upTo covers
+	-- the time left. productId 0 = not made yet (free in Studio, "Not available yet" live). A skip bought just
+	-- as the pet came out by itself is kept as a free skip (thawSkips), so Robux is never lost. minLeft: no
+	-- bar under this. retired: the old stepped products, still granted if a purchase of one arrives late.
 	skip = {
 		tiers = {
-			{ upTo = 120, robux = 5, productId = 3732434857 },
-			{ upTo = 600, robux = 15, productId = 3732434877 },
-			{ upTo = 3600, robux = 29, productId = 3732434893 },
-			{ upTo = math.huge, robux = 49, productId = 3732434908 },
+			{ upTo = math.huge, robux = 99, productId = 0 },
 		} :: { { upTo: number, robux: number, productId: number } },
+		retired = { [3732434857] = 5, [3732434877] = 15, [3732434893] = 29, [3732434908] = 49 } :: { [number]: number },
 		minLeft = 10,
 		cooldown = 1,
-		-- Skip all (owner 2026-11-16, like the reference's SKIP ALL bar): one product thaws every pet still
-		-- in its cube at once, in a machine or waiting in your Pets. The bar sits under those pets in Pets
-		-- once minPets are frozen. Bought with nothing left frozen = kept for later (thawSkipAlls).
-		all = { robux = 199, productId = 0, minPets = 2 },
+		-- Unfreeze all (owner 2026-11-16, like the reference's SKIP ALL bar; in Pets only): one product thaws
+		-- every pet still in its cube at once, in a machine or waiting in your Pets. The bar sits under those
+		-- pets once minPets are frozen. Bought with nothing left frozen = kept for later (thawSkipAlls).
+		all = { robux = 199, productId = 0, minPets = 1 },
 	},
 	wander = { speed = 2.4, pause = { 1.5, 4.5 }, margin = 2.5 }, -- thawed pets stroll around the pan (drawn on each client)
 	-- the machine coming to life on each client (ThawMachines): idle it breathes in ice blue; thawing,

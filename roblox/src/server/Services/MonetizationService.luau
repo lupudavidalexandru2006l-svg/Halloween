@@ -146,7 +146,7 @@ local function skipTierRobux(productId: number): number?
 			return t.robux
 		end
 	end
-	return nil
+	return Config.thaw.skip.retired[productId]
 end
 
 -- inside a data change: the pet in machine m comes out on the next machine tick (PenService), or the

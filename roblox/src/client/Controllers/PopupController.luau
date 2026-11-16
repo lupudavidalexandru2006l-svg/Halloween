@@ -48,13 +48,14 @@ local function shownData(name: string, v: State.View): string?
 	local parts: { string } = {}
 	if name == "pets" then
 		table.insert(parts, tostring(v.slots))
-		table.insert(parts, tostring(v.thawSkipAlls or 0)) -- the Skip all bar turns free / paid
+		table.insert(parts, tostring(v.thawSkipAlls or 0)) -- the Unfreeze all bar turns free / paid
 		for _, p in v.pets do
 			table.insert(parts, `{p.id},{p.key},{p.pose},{p.mut},{p.eq},{p.income},{p.frozen},{p.thawM}`)
 		end
 	elseif name == "thaw" then
 		table.insert(parts, tostring(v.machines))
 		table.insert(parts, tostring(v.thawSkips or 0))
+		table.insert(parts, tostring(v.thawSkipAlls or 0))
 		for _, p in v.pets do
 			if p.frozen then
 				table.insert(parts, `{p.id},{p.thawM}`)
@@ -447,8 +448,17 @@ local function cardInfo(v: State.View, item: Config.RobuxItem): CardInfo
 	elseif item.kind == "power" then
 		local n = Config.powerPack(item, v.coldPower or 0)
 		local share = item.share or 0
+		-- islands 3/5/7/9 also need rebirths: only promise the island when Cold Power is all it's missing
+		local need = Config.nextNeed(v.coldPower or 0)
+		local opens = false -- past the last island the goals go on, but no island opens
+		for _, z in Config.world.zones do
+			if z.need == need then
+				opens = (v.rebirths or 0) >= (z.gateRebirth or 0)
+			end
+		end
 		return { big = "+" .. Config.powerText(n), name = name, bar = math.min(share, 1), amount = n,
-			barText = if share >= 1 then "Opens the next island!" else `{math.round(share * 100)}% of the way` }
+			barText = if share < 1 then `{math.round(share * 100)}% of the way`
+				elseif opens then "Opens the next island!" else "Fills your Cold Power goal!" }
 	elseif item.kind == "pass" then
 		if item.id == "doubleCoins" then
 			local base = if ownsPass(v, item) then v.income / (item.mult or 2) else v.income
@@ -1419,13 +1429,76 @@ local function thawTime(v: State.View, p: State.PetView, def: PetDefs.PetDef): n
 end
 
 -- an ice-blue tag on the right of a pet card for a frozen pet: its thaw time, or the live time left in
--- a machine. Not a button: thawing happens at the machine.
+-- a machine. Not a button: thawing happens at the machine, so it's a flat pale chip with the thaw icon
+-- (like a challenge's reward chip), never a raised block that looks tappable (QA IR-08)
 local function iceTag(r: Frame, s: string): TextLabel
-	local tag = Ui.block(r, "Ice", Theme.ice, s, nil) -- white words with the ink outline, like every block
-	tag.root.Position = UDim2.fromScale(0.78, 0.2)
-	tag.root.Size = UDim2.fromScale(0.19, 0.6)
-	sized(tag.text, "button")
-	return tag.text
+	local tag = Instance.new("Frame")
+	tag.Name = "Ice"
+	tag.BackgroundColor3 = Theme.ice:Lerp(Theme.white, 0.6)
+	tag.BorderSizePixel = 0
+	tag.Position = UDim2.fromScale(0.78, 0.24)
+	tag.Size = UDim2.fromScale(0.19, 0.52)
+	Ui.corner(tag, 0.5)
+	Ui.stroke(tag, Config.ui.cardStroke)
+	tag.Parent = r
+	Ui.image(tag, Config.images.icons.thaw, UDim2.fromScale(0.26, 0.84), UDim2.fromScale(0.04, 0.08))
+	local label = Ui.inkLabel(tag, s, UDim2.fromScale(0.64, 0.7), UDim2.fromScale(0.31, 0.15))
+	sized(label, "button")
+	return label
+end
+
+-- a wide royal-purple Robux bar (owner 2026-11-16, from a reference's SKIP ALL bar): the words, the Robux
+-- mark and the price centred together. The Thaw Machine's "Skip" 99 and Pets' "Unfreeze all" 199. Roblox's
+-- own prompt confirms. It never pulses: waiting is always free. One kept from before shows as a free one.
+local function robuxBar(l: GuiObject, order: number, name: string, words: string, robux: number, free: boolean, onPress: () -> ())
+	local S = Config.ui.skipAll
+	local r = row(l, order, 0, S.aspect)
+	r.Name = name
+	local b = button(r, Theme.skipAll, if free then words .. " free" else words, 0.01, 0.98, onPress)
+	b.root.Name = name .. "Button"
+	sized(b.text, "title")
+	if free then
+		return
+	end
+	local stroke = b.text:FindFirstChildOfClass("UIStroke")
+	if stroke then
+		stroke.Thickness = Config.ui.floatingStroke -- the firm outline of every Robux price
+	end
+	b.text.TextXAlignment = Enum.TextXAlignment.Left
+	local price = b.text:Clone()
+	price.Name = "Price"
+	price.Text = tostring(robux)
+	price.Parent = b.face
+	local mark = robuxMark(b.face)
+	local function place()
+		local w = math.max(1, b.face.AbsoluteSize.X)
+		local wordsW = math.min(b.text.TextBounds.X / w, 0.5)
+		local markW = mark.AbsoluteSize.X / w
+		local priceW = math.min(price.TextBounds.X / w, 0.3)
+		local x = 0.5 - (wordsW + S.wordGap + markW + S.markGap + priceW) / 2
+		b.text.Position = UDim2.fromScale(x, b.text.Position.Y.Scale)
+		b.text.Size = UDim2.fromScale(wordsW + 0.05, b.text.Size.Y.Scale)
+		x += wordsW + S.wordGap
+		mark.Position = UDim2.fromScale(x + markW / 2, 0.5)
+		x += markW + S.markGap
+		price.Position = UDim2.fromScale(x, price.Position.Y.Scale)
+		price.Size = UDim2.fromScale(priceW + 0.05, price.Size.Y.Scale)
+	end
+	task.defer(place)
+	b.face:GetPropertyChangedSignal("AbsoluteSize"):Connect(place)
+end
+
+-- does Pets' Unfreeze all bar show (a pet still in its cube: thawing or waiting), and is it a free one?
+local function skipAllState(v: State.View): (boolean, boolean)
+	local now = workspace:GetServerTimeNow()
+	local cubes = 0
+	for _, p in v.pets do
+		if p.frozen and (not p.thawM or (p.thawAt or 0) > now) then
+			cubes += 1
+		end
+	end
+	local free = (v.thawSkipAlls or 0) > 0
+	return cubes >= (if free then 1 else Config.thaw.skip.all.minPets), free
 end
 
 -- the Thaw Machine (owner 2026-11-09): pick a frozen pet from your Pets to put in this machine. A busy
@@ -1483,29 +1556,16 @@ local function thaw(o: Open, v: State.View)
 		end
 		local r2 = row(l, 2, 0.2)
 		local left = if inside and inside.thawAt then inside.thawAt - workspace:GetServerTimeNow() else 0
-		local canSkip = left > Config.thaw.skip.minLeft
-		-- OK stays the big green focal point; the paid skip is the small button beside it (never a
-		-- pop-up, waiting is always free). A skip kept from before shows as a free one.
-		local ok = button(r2, Theme.go, "OK", if canSkip then 0.12 else 0.3, 0.4, function()
+		-- OK stays the green focal point; the paid Skip is the purple bar under it (never a pop-up,
+		-- waiting is always free). A skip kept from before shows as a free one.
+		local ok = button(r2, Theme.go, "OK", 0.3, 0.4, function()
 			PopupController.close()
 		end)
 		o.first = ok.face
-		if canSkip then
-			local free = (v.thawSkips or 0) > 0
-			local tier = Config.thawSkipTier(left)
-			local sk = button(r2, Theme.coin, if free then "Skip free" else tostring(tier.robux), 0.58, 0.3, function()
+		if left > Config.thaw.skip.minLeft then
+			robuxBar(l, 3, "Skip", "Skip", Config.thawSkipTier(left).robux, (v.thawSkips or 0) > 0, function()
 				State.send("SkipThaw", m)
 			end)
-			sk.root.Name = "Skip"
-			sk.root.Position = UDim2.fromScale(0.58, 0.2)
-			sk.root.Size = UDim2.fromScale(0.3, 0.6)
-			if not free then
-				robuxTag(sk)
-				local word = text(r2, "Skip", 0.58, 0.3, nil, "small")
-				word.TextXAlignment = Enum.TextXAlignment.Center
-				word.Position = UDim2.fromScale(0.58, -0.08)
-				word.Size = UDim2.fromScale(0.3, 0.28)
-			end
 		end
 		return
 	end
@@ -1541,50 +1601,6 @@ local function thaw(o: Open, v: State.View)
 			pulse(b.root) -- the best pet's Thaw is the one focal point (tutorial references: show the button to press)
 		end
 	end
-end
-
--- Skip all (owner 2026-11-16, from a reference's SKIP ALL bar): a wide royal-purple bar under the pets
--- still in their cubes, "Skip all", the Robux mark and the price centred together. One tap thaws them
--- all (MonetizationService; Roblox's own prompt confirms). It never pulses: waiting is always free.
--- A Skip all kept from before shows as a free one.
-local function skipAllBar(l: GuiObject, order: number, free: boolean)
-	local S = Config.ui.skipAll
-	local r = row(l, order, 0, S.aspect)
-	r.Name = "SkipAll"
-	local b = button(r, Theme.skipAll, if free then "Skip all free" else "Skip all", 0.01, 0.98, function()
-		State.send("SkipThawAll")
-	end)
-	b.root.Name = "SkipAllButton"
-	sized(b.text, "title")
-	if free then
-		return
-	end
-	local stroke = b.text:FindFirstChildOfClass("UIStroke")
-	if stroke then
-		stroke.Thickness = Config.ui.floatingStroke -- the firm outline of every Robux price
-	end
-	b.text.TextXAlignment = Enum.TextXAlignment.Left
-	local price = b.text:Clone()
-	price.Name = "Price"
-	price.Text = tostring(Config.thaw.skip.all.robux)
-	price.Parent = b.face
-	local mark = robuxMark(b.face)
-	local function place()
-		local w = math.max(1, b.face.AbsoluteSize.X)
-		local wordsW = math.min(b.text.TextBounds.X / w, 0.5)
-		local markW = mark.AbsoluteSize.X / w
-		local priceW = math.min(price.TextBounds.X / w, 0.3)
-		local x = 0.5 - (wordsW + S.wordGap + markW + S.markGap + priceW) / 2
-		b.text.Position = UDim2.fromScale(x, b.text.Position.Y.Scale)
-		b.text.Size = UDim2.fromScale(wordsW + 0.05, b.text.Size.Y.Scale)
-		x += wordsW + S.wordGap
-		mark.Position = UDim2.fromScale(x + markW / 2, 0.5)
-		x += markW + S.markGap
-		price.Position = UDim2.fromScale(x, price.Position.Y.Scale)
-		price.Size = UDim2.fromScale(priceW + 0.05, price.Size.Y.Scale)
-	end
-	task.defer(place)
-	b.face:GetPropertyChangedSignal("AbsoluteSize"):Connect(place)
 end
 
 local function pets(o: Open, v: State.View)
@@ -1625,25 +1641,20 @@ local function pets(o: Open, v: State.View)
 	if #sorted == 0 then
 		text(row(l, 1, 0, 9), "Freeze a pet and carry it to your pan!", 0.02, 0.96)
 	end
-	-- the pets still in their cubes come first (thawing, then frozen); the Skip all bar goes right under
+	-- the pets still in their cubes come first (thawing, then frozen); the Unfreeze all bar goes right under
 	-- them, so every row after it moves down one
-	local now = workspace:GetServerTimeNow()
-	local cubes = 0
-	for _, p in sorted do
-		if p.frozen and (not p.thawM or (p.thawAt or 0) > now) then
-			cubes += 1
-		end
-	end
 	local lastCube = 0
 	for i, p in sorted do
 		if group(p) <= 1 then
 			lastCube = i
 		end
 	end
-	local freeAll = (v.thawSkipAlls or 0) > 0
-	local barAt = if cubes >= (if freeAll then 1 else Config.thaw.skip.all.minPets) then lastCube + 1 else nil
+	local showAll, freeAll = skipAllState(v)
+	local barAt = if showAll then lastCube + 1 else nil
 	if barAt then
-		skipAllBar(l, barAt, freeAll)
+		robuxBar(l, barAt, "UnfreezeAll", "Unfreeze all", Config.thaw.skip.all.robux, freeAll, function()
+			State.send("SkipThawAll")
+		end)
 	end
 	for i, p in sorted do
 		local def = PetDefs.get(p.key)
@@ -2483,9 +2494,24 @@ local function giftTag(a: Frame, s: string, color: Color3)
 	t.TextXAlignment = Enum.TextXAlignment.Center
 end
 
+local giftAsking = false
 local function freeGift(o: Open, v: State.View)
 	local G = v.gift
 	local me = Players.LocalPlayer
+	-- Claim is green only once it can work (QA IR-11): ask once whether they're in the group already
+	if G.groupId ~= 0 and giftJoined == nil and not giftAsking then
+		giftAsking = true
+		task.spawn(function()
+			local ok, yes = pcall(function()
+				return (me :: any):IsInGroupAsync(G.groupId)
+			end)
+			giftJoined = ok and yes == true
+			giftAsking = false
+			PopupController.refresh()
+		end)
+	end
+	local ready = G.groupId == 0 or giftJoined == true
+	local joinButton: Ui.Block? = nil
 	-- what you get: the coin and the Cold Power with their amounts, centred together
 	local head = text(o.body, "One-time free reward", 0, 1, Theme.gift, "small")
 	head.TextXAlignment = Enum.TextXAlignment.Center
@@ -2561,6 +2587,7 @@ local function freeGift(o: Open, v: State.View)
 				end)
 			end)
 			b.root.Name = "JoinButton"
+			joinButton = b
 		end
 	end)
 	-- the one focal point
@@ -2570,14 +2597,15 @@ local function freeGift(o: Open, v: State.View)
 	foot.Position = UDim2.fromScale(0, 0.79)
 	foot.Size = UDim2.fromScale(1, 0.21)
 	foot.Parent = o.body
-	local claim = button(foot, Theme.go, "Claim!", 0.28, 0.44, function()
-		State.send("ClaimGift")
+	local claim = button(foot, if ready then Theme.go else Theme.tiers.Common, "Claim!", 0.28, 0.44, function()
+		State.send("ClaimGift") -- not ready: the server answers "Join the group first"
 	end)
 	claim.root.Name = "ClaimButton"
 	claim.root.Position = UDim2.fromScale(0.28, 0.05)
 	claim.root.Size = UDim2.fromScale(0.44, 0.9)
-	pulse(claim.root)
-	o.first = claim.face
+	local focus = if ready or not joinButton then claim else joinButton :: Ui.Block
+	pulse(focus.root)
+	o.first = focus.face
 end
 
 -- A leaderboard's top 100 (owner 2026-11-12: press E at a board): a scrolling list of rank, face, name

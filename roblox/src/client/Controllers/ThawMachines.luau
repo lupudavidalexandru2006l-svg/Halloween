@@ -331,6 +331,10 @@ local function drop(mc: Machine)
 	for _, e in mc.stacks do
 		e:Destroy()
 	end
+	local timer = (mc :: any).timer -- lives on the core, which stays: a moved machine makes a fresh one
+	if timer then
+		timer:Destroy()
+	end
 	machines[mc.model] = nil
 end
 
@@ -496,7 +500,10 @@ local function timerFor(mc: Machine): (BillboardGui, TextLabel, Frame)
 	g.Name = "ThawTimer"
 	g.Adornee = mc.core
 	-- high over the machine, above its "Thaw a pet" prompt (QA 2026-11-16: at 1.6 the prompt covered it)
-	g.StudsOffsetWorldSpace = Vector3.new(0, cf.Position.Y + size.Y / 2 + Config.thaw.timerSign.lift - mc.core.Position.Y, 0)
+	-- Roblox turns this offset with the adornee, and the core is a cylinder lying on its side (owner 2026-11-16:
+	-- the timer floated to the left of the machine), so "up" is given in the core's own axes
+	local up = cf.Position.Y + size.Y / 2 + Config.thaw.timerSign.lift - mc.core.Position.Y
+	g.StudsOffsetWorldSpace = mc.core.CFrame:VectorToObjectSpace(Vector3.new(0, up, 0))
 	g.Size = UDim2.fromScale(TS.size[1], TS.size[2])
 	g.LightInfluence = 0
 	g.AlwaysOnTop = false

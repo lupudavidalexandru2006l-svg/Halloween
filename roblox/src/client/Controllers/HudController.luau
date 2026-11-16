@@ -5,6 +5,7 @@
 -- temperature chip are gone; the island banner shows each island's heat as you arrive.
 
 local Players = game:GetService("Players")
+local ProximityPromptService = game:GetService("ProximityPromptService")
 local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
@@ -438,6 +439,7 @@ local islandToken = 0
 local islandShowing = false
 local lastZone = -1 -- -1 = not checked yet, 0 = the hub
 local lastShown: { [number]: number } = {}
+local gatePromptUp = false -- a gate's Open prompt is on screen: the banner steps aside (QA IR-07, it covered it on phones)
 
 local function row(y: number, h: number): Frame
 	local f = Instance.new("Frame")
@@ -613,7 +615,7 @@ local function watchIsland()
 	if not root then
 		return
 	end
-	if PopupController.isOpen() then
+	if PopupController.isOpen() or gatePromptUp then
 		hideIsland(true)
 		return
 	end
@@ -786,7 +788,19 @@ function HudController.Start()
 		elseif kind == "secretSpawned" then
 			-- the server-wide alert (owner 2026-11-16): one Secret on the whole map, and where it is
 			local where = if typeof(data.islands) == "table" and typeof(data.islands[1]) == "string" then data.islands[1] else "an island"
-			HudController.banner(`A SECRET pet appeared on {where}!`, Theme.events.secret, 8, "trophy", true)
+			-- an island you can't reach yet: don't send a new player off toward it (QA IR-15)
+			local reach = if State.view then State.view.reach or 1 else 1
+			local far = false
+			for _, z in Config.world.zones do
+				if z.name == where and z.id > reach then
+					far = true
+				end
+			end
+			if far then
+				HudController.banner(`A SECRET pet is on {where}! Keep opening islands`, Theme.events.secret, 5, "trophy")
+			else
+				HudController.banner(`A SECRET pet appeared on {where}!`, Theme.events.secret, 8, "trophy", true)
+			end
 			SoundController.play("unlock")
 		elseif kind == "nightWarn" then
 			HudController.banner(`Night in {data.inSeconds}s! The islands close`, Theme.events.night, 4, "star")
@@ -842,7 +856,7 @@ function HudController.Start()
 		elseif kind == "skipKept" then
 			HudController.banner("Your pet was already out! Skip saved for next time", Theme.info)
 		elseif kind == "skipAllKept" then
-			HudController.banner("Your pets were already out! Skip all saved for next time", Theme.info)
+			HudController.banner("Your pets were already out! Unfreeze all saved for next time", Theme.info)
 		elseif kind == "robuxBought" then
 			-- a Robux shop item arrived (saved first, MonetizationService)
 			if data.chill then
@@ -891,6 +905,20 @@ function HudController.Start()
 				HudController.banner(`Yesterday's challenges paid +{Ui.short(data.coins)}`, Theme.coin)
 			end
 			floatGain(data.coins)
+		end
+	end)
+	local function isGate(p: ProximityPrompt): boolean
+		local spot = p:FindFirstAncestorWhichIsA("BasePart") -- the prompt sits on an Attachment in GatePromptSpotN
+		return spot ~= nil and string.sub(spot.Name, 1, 14) == "GatePromptSpot"
+	end
+	ProximityPromptService.PromptShown:Connect(function(p)
+		if isGate(p) then
+			gatePromptUp = true
+		end
+	end)
+	ProximityPromptService.PromptHidden:Connect(function(p)
+		if isGate(p) then
+			gatePromptUp = false
 		end
 	end)
 	task.spawn(function()
