@@ -42,6 +42,7 @@ export type Data = {
 	coldRefund: number, -- coins paid back for the removed pan Cold Level, not yet shown to the player (PenService tells them once)
 	superFreezeCharges: number,
 	thawSkips: number, -- paid Thaw Machine skips not used yet (a skip bought just as the pet came out is kept for later)
+	thawSkipAlls: number, -- paid Skip alls not used yet (bought just as every pet came out: kept for later)
 	superCubes: { { key: string, pose: string, mut: string? } }, -- bought Super Freeze cubes not yet banked (back on your back after a rejoin)
 	lastBest: string?, -- best pet banked last session, shown in the welcome back (end on a high, on the return)
 	receipts: { string },
@@ -99,6 +100,7 @@ local function defaults(): Data
 		coldRefund = 0,
 		superFreezeCharges = 0,
 		thawSkips = 0,
+		thawSkipAlls = 0,
 		superCubes = {},
 		lastBest = nil,
 		receipts = {},
@@ -252,6 +254,7 @@ local function migrate(old: any): Data
 	d.coldPower = if typeof(old.coldPower) == "number" then num(old.coldPower, 0, Config.coldPower.max) else Config.need(d.reach)
 	d.superFreezeCharges = int(old.superFreezeCharges, 0, 999)
 	d.thawSkips = int(old.thawSkips, 0, 999)
+	d.thawSkipAlls = int(old.thawSkipAlls, 0, 99)
 	for _, c in tbl(old.superCubes) do
 		if #d.superCubes < 5 and typeof(c) == "table" and typeof(c.key) == "string" and PetDefs.get(c.key) then
 			table.insert(d.superCubes, { key = c.key, pose = knownPose(c.pose), mut = knownMut(c.mut) })
@@ -382,12 +385,10 @@ end
 local function load(player: Player)
 	local key = keyFor(player)
 	local loaded: Data? = nil
-	local newSave = false -- no save under this key yet (a new player, a wiped save, a new Config.dev.freshSave name)
 	for _ = 1, Config.data.retries do
 		local lockedByOther = false
 		local ok, err = withRetries(function()
 			return store:UpdateAsync(key, function(old: any)
-				newSave = typeof(old) ~= "table"
 				local d = migrate(old)
 				local lock = d.lock
 				if lock and lock.job ~= game.JobId and os.time() - lock.t < Config.data.lockStaleSeconds then
@@ -432,11 +433,12 @@ local function load(player: Player)
 	if not Config.isTester(player.UserId) then
 		(loaded :: Data).tester = testerDefaults() -- tester switches never apply to anyone else
 	end
-	-- the tutorial plays once, on a player's very first join (owner 2026-11-16: "make sure it only shows once when
-	-- players enter for the first time"): any save that already existed counts it done, even if they left halfway.
-	-- In Studio that means a brand-new or wiped save. Settings > Replay still starts it again.
-	if not newSave and not (loaded :: Data).tutorial.done then
-		(loaded :: Data).tutorial.done = true
+	-- the tutorial carries on where a player left it (owner 2026-11-16: "still show the tutorial for people who
+	-- left mid tutorial"); only Skip or finishing ends it. Its last step is the "Tutorial complete!" line (the
+	-- reward is already paid there): a save left on it counts as finished, so it doesn't show again on a rejoin.
+	local tu = (loaded :: Data).tutorial
+	if not tu.done and tu.step >= #Config.tutorial.steps then
+		tu.done = true
 	end
 	sessions[player] = { data = loaded :: Data, saving = false, wiping = false }
 	loadedEvent:Fire(player, loaded)
