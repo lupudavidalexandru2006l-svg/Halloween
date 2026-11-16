@@ -1,0 +1,7 @@
+{"parts": [
+  ["Head", "z > 0.8"],
+  ["WingGlowL", "x > 0.21 and abs(x) < 0.44 and z > 0.2 and v > 0.62 and s > 0.35 and (35 < h < 70 or 160 < h < 210)"],
+  ["WingGlowR", "x < -0.21 and abs(x) < 0.44 and z > 0.2 and v > 0.62 and s > 0.35 and (35 < h < 70 or 160 < h < 210)"],
+  ["WingL", "x > 0.21 and z > 0.2"],
+  ["WingR", "x < -0.21 and z > 0.2"],
+  ["Tail", "z < 0.22"]]}

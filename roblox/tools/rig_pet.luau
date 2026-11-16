@@ -77,7 +77,10 @@ for n, p in parts do
 		local side = if n:sub(-1) == "L" then -1 else 1
 		p:SetAttribute("Role", "wing")
 		p:SetAttribute("Side", side)
-		p:SetAttribute("Pivot", Vector3.new(c.X - side * s.X * 0.45, c.Y, c.Z))
+		-- pieces riding on a wing (WingGlowL: Mirage Manta's beads) turn round that wing's own hinge
+		local wing = parts["Wing" .. n:sub(-1)]
+		local wc, ws = if wing then box(wing) else c, if wing then wing.Size else s
+		p:SetAttribute("Pivot", Vector3.new(wc.X - side * ws.X * 0.45, wc.Y, wc.Z))
 	elseif n:match("^Gem") then
 		-- a small piece on the head (Solaris Sphinx's sun gem): rides on the head, no twitch of its own
 		p:SetAttribute("Role", "ear")

@@ -138,6 +138,10 @@ local PetEyes: { [string]: Spec } = {
 	scarabit = { part = "Head", lid = Color3.fromRGB(80, 50, 134), eyes = {
 		eye(0.1642, 0.1106, -0.3777, -0.377, 0.239, -0.895, 0.0536),
 		eye(-0.1730, 0.1028, -0.3807, 0.210, 0.215, -0.954, 0.0645) } },
+	-- the face is on the Body (its Head is only the antennae)
+	mirage_manta = { part = "Body", lid = Color3.fromRGB(196, 196, 150), eyes = {
+		eye(0.1118, 0.1142, -0.1474, 0.230, 0.178, -0.957, 0.0600),
+		eye(-0.1138, 0.1146, -0.1473, -0.319, 0.118, -0.940, 0.0596) } },
 }
 
 return PetEyes
