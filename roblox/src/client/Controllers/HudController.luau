@@ -817,8 +817,6 @@ function HudController.Start()
 		elseif kind == "nightStart" then
 			-- the Night Reset (Config.night) and the closed islands (Config.nightClose): one message for both
 			HudController.banner("Night! Back home until sunrise", Theme.events.night, 4, "star")
-		elseif kind == "starryNear" then
-			HudController.banner("Sunrise! A Starry pet came out for you", Theme.events.night, 4, "star", true) -- your own (Config.night.starry)
 		elseif kind == "nightEnd" then
 			HudController.banner("Good morning! New pets are here", Theme.go)
 		elseif kind == "bigWin" then
