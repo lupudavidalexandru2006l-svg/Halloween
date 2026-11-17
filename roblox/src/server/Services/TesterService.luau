@@ -475,8 +475,12 @@ function TesterService.Start()
 					coins = d.coins, coldPower = d.coldPower, reach = d.reach, rebirths = d.rebirths,
 					gunBest = d.guns.best, gunEquipped = d.guns.equipped, panLook = d.pan.look, slots = d.upgrades.pen,
 					pets = #d.pets, frozen = d.stats.frozen, banked = d.stats.banked,
-					tutorialStep = d.tutorial.step, tutorialDone = d.tutorial.done,
+					tutorialStep = d.tutorial.step, tutorialDone = d.tutorial.done, noMelt = d.tester.noMelt,
 				}
+			elseif action == "carry" and typeof(a) == "string" then
+				-- a fresh cube of this pet straight into your hands, as if just picked up (melt tests, 2026-11-17)
+				local def = PetDefs.get(a)
+				return def and CarryService.addCube(player, { key = a, zone = def.zone, pose = "idle" })
 			elseif action == "tutorialDid" and typeof(a) == "string" then
 				require(script.Parent.TutorialService).did(player, a) -- drive a tutorial step from a play test
 				return true

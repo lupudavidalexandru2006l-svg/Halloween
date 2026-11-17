@@ -868,9 +868,9 @@ local function drawBeams()
 end
 
 -- ---------- the aim ring ----------
+-- the ray only fires while held, so the ring says HOLD, like the tutorial's goal (QA IR-09)
 local function hintText(): string
-	local d = InputController.device()
-	return if d == "touch" then "TAP" elseif d == "gamepad" then "R2" else "CLICK"
+	return if InputController.device() == "gamepad" then "R2" else "HOLD"
 end
 
 local function makeReticle(): { gui: BillboardGui, ring: Frame, fill: Frame, hint: TextLabel }

@@ -239,8 +239,17 @@ function SellPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
 		end
 	end
 	if not picked then
-		picked = list[1]
-		o.data.pick = list[1].id
+		-- the safe first pick (QA IR-12): the least valuable pets, ones in Storage before ones in the pan
+		-- (the list is rarest first, so walk it from the end)
+		local first = list[#list]
+		for n = #list, 1, -1 do
+			if #list[n].ids > list[n].inPan then
+				first = list[n]
+				break
+			end
+		end
+		picked = first
+		o.data.pick = first.id
 		o.data.ask = nil
 	end
 	local left = Instance.new("Frame")

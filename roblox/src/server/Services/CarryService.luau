@@ -398,7 +398,7 @@ function CarryService.knockOff(player: Player, open: boolean): string?
 	local half = Config.world.tunnel.width / 2 - Config.spawner.wallMargin
 	local z = math.clamp(pos.Z + math.sin(angle) * 4, Config.world.hubZMax + 2, Config.world.tunnelEnd - 2) -- never in the safe hub
 	local at = Vector3.new(math.clamp(pos.X + math.cos(angle) * 4, -half, half), 0, z)
-	WildPetSpawner.spawnDazed({ key = cube.key, zone = cube.zone, pose = cube.pose, mut = cube.mut, superUsed = cube.superUsed, offered = true }, at, player, false, open)
+	WildPetSpawner.spawnDazed({ key = cube.key, zone = cube.zone, pose = cube.pose, mut = cube.mut, superUsed = cube.superUsed, offered = true }, at, player, false, open, not open)
 	return cube.key
 end
 

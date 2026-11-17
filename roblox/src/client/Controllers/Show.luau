@@ -785,6 +785,12 @@ local function finish(ctx: Ctx)
 		ctx.cam = nil
 		CameraController.giveBack()
 	end
+	for _, d in ((ctx :: any).hiddenSelf or {}) :: { Instance } do
+		if d.Parent then
+			(d :: any).LocalTransparencyModifier = 0
+		end
+	end
+	;(ctx :: any).hiddenSelf = nil
 	local c = ctx.controls
 	if c then
 		ctx.controls = nil
@@ -943,6 +949,16 @@ function Show.thawReveal(data: any)
 			hum.WalkSpeed, hum.JumpPower, hum.JumpHeight, hum.AutoRotate = 0, 0, 0, false
 		end
 		ctx.cam = CameraController.borrow()
+		-- you stand between the camera and your machine: your avatar steps out of the shot so it never
+		-- hides the new pet (QA IR-18); finish() brings it back
+		local hiddenSelf: { Instance } = {}
+		for _, d in (if me.Character then me.Character:GetDescendants() else {}) do
+			if d:IsA("BasePart") or d:IsA("Decal") then
+				d.LocalTransparencyModifier = 1
+				table.insert(hiddenSelf, d)
+			end
+		end
+		;(ctx :: any).hiddenSelf = hiddenSelf
 		local scale = if ctx.reduced then 0.5 else 1
 		for _, beat in cfg.beats do
 			if ctx.finished then
@@ -2438,7 +2454,10 @@ REBIRTH_BEATS.reveal = function(ctx, seconds, keep)
 	for id, need in Config.world.rebirthGates do
 		local isl = Config.world.islands[id]
 		if need == d.rebirths and isl and isl.ready then
-			table.insert(extras, `New island: {isl.name}`)
+			-- the gate also needs its Cold Power, and a rebirth always resets Cold Power to 0 (RebirthService),
+			-- so the show says what's still missing instead of "New island" (QA IR-19)
+			local cp = Config.need(id)
+			table.insert(extras, if cp <= 0 then `New island: {isl.name}` else `{isl.name} opens at {Config.powerText(cp)} Cold Power`)
 		end
 	end
 	local extraRow: Frame? = nil

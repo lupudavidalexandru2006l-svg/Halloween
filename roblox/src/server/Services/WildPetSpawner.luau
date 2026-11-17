@@ -50,6 +50,7 @@ export type WildPet = {
 	swerve: number,
 	swerveAt: number,
 	bornAt: number, -- os.clock() at spawn (untouched pets wander off after Config.spawner.lifeSeconds)
+	knocked: boolean?, -- knocked out of its carrier's hands: theirs (any tier), but it still wanders off
 }
 
 local WildPetSpawner = {}
@@ -232,15 +233,19 @@ function WildPetSpawner.spawn(zone: number, at: Vector3?, forcedKey: string?, ne
 end
 
 -- a melted cube's pet: dazed for a while, only its carrier can refreeze it, then it's wild again.
--- open (Round 5 ray-tag): a cube knocked out of someone's hands is anyone's to zap, so it isn't personal
-function WildPetSpawner.spawnDazed(info: { key: string, zone: number, pose: string, mut: string?, superUsed: boolean, offered: boolean }, pos: Vector3, owner: Player, offer: boolean, open: boolean?): WildPet?
+-- open (Round 5 ray-tag): a cube knocked out of someone's hands is anyone's to zap, so it isn't personal.
+-- knocked (tag or critter, not open): personal to the carrier at any tier, so a tagger can't take it
+-- once the daze ends (QA IR-20)
+function WildPetSpawner.spawnDazed(info: { key: string, zone: number, pose: string, mut: string?, superUsed: boolean, offered: boolean }, pos: Vector3, owner: Player, offer: boolean, open: boolean?, knocked: boolean?): WildPet?
 	local def = PetDefs.get(info.key)
-	local personal = def ~= nil and Config.tier(def.tier).rank >= 3 and Config.spawner.personalRares and not open
+	local personal = def ~= nil and Config.spawner.personalRares and not open
+		and (Config.tier(def.tier).rank >= 3 or knocked == true)
 	local pet = WildPetSpawner.spawn(info.zone, pos, info.key, false, if personal then owner else nil)
 	if not pet then
 		return nil
 	end
 	pet.state = "dazed"
+	pet.knocked = knocked
 	pet.dazedUntil = os.clock() + Config.dazedSeconds
 	pet.pose = info.pose
 	pet.mut = info.mut
@@ -437,7 +442,8 @@ local function tick(dt: number)
 		end
 	end
 	local sp = Config.spawner
-	-- pets nobody is after wander off, so the zone has room and keeps rolling (it never clogs with Commons)
+	-- pets nobody is after wander off, so the zone has room and keeps rolling (it never clogs with Commons).
+	-- Never anyone's own pet (tutorial pet, personal Rare, Starry): it waits for them, capped per player
 	local roots: { Vector3 } = {}
 	for _, player in Players:GetPlayers() do
 		local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
@@ -447,7 +453,7 @@ local function tick(dt: number)
 	end
 	for id, pet in pets do
 		local life = sp.lifeSeconds[pet.def.tier]
-		if life and pet.state == "wild" and pet.meter <= 0 and now - pet.bornAt > life then
+		if life and pet.state == "wild" and pet.meter <= 0 and (not pet.owner or pet.knocked) and now - pet.bornAt > life then
 			local seen = false
 			for _, at in roots do
 				if (at - pet.root.Position).Magnitude < sp.despawnClearStuds then

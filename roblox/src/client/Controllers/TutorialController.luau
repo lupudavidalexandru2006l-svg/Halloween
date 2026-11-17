@@ -38,7 +38,7 @@ local TutorialController = {}
 local T = Config.tutorial
 local me = Players.LocalPlayer
 
-type Step = { id: string, on: string, say: string, focus: string?, goal: string?, hints: { [string]: string }?, cheer: string?,
+type Step = { id: string, on: string, say: string, focus: string?, goal: string?, goals: { [string]: string }?, hints: { [string]: string }?, cheer: string?,
 	gift: string?, giftSay: string?, maxedSay: string?, maxedGoal: string?, quiet: boolean?, hintOnce: boolean?, tease: boolean?,
 	icon: string?, count: string?, reward: number?, rewardTitle: string? }
 
@@ -244,7 +244,7 @@ local function showStep(i: number, done: Step?)
 	Screen.lockMenus(T.lockMenus and i <= indexOf(T.lockUntil), reduced())
 	local given = gift
 	gift = 0
-	local text = s.goal or s.say
+	local text = (s.goals and s.goals[InputController.device()]) or s.goal or s.say -- worded for the device in hand (QA IR-09)
 	if given > 0 and s.giftSay then
 		text = (s.giftSay:gsub("{coins}", Config.coinText(given)))
 	elseif s.gift and s.maxedGoal and isMaxed(s.gift) then

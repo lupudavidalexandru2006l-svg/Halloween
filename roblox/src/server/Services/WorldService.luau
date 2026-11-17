@@ -276,9 +276,15 @@ local function buildMap()
 	buildHub()
 	buildTunnel()
 	local W = Config.world
-	local catcher = part("FallCatcher", Vector3.new(W.hub.xMax - W.hub.xMin + 200, 2, W.tunnelEnd - W.hub.zMin + 200), CFrame.new(0, -40, (W.hub.zMin + W.tunnelEnd) / 2), Theme.snow, map,
-		{ Transparency = 1, CanCollide = false, CanQuery = false })
-	hookCatcher(catcher)
+	-- a part is at most 2048 studs long, so the catcher is laid in tiles from behind the hub to past the end (QA IR-05)
+	local z0, z1 = W.hub.zMin - 100, W.tunnelEnd + 100
+	local tiles = math.ceil((z1 - z0) / 2000)
+	local len = (z1 - z0) / tiles
+	for i = 1, tiles do
+		local catcher = part("FallCatcher", Vector3.new(W.hub.xMax - W.hub.xMin + 200, 2, len + 4), CFrame.new(0, -40, z0 + len * (i - 0.5)), Theme.snow, map,
+			{ Transparency = 1, CanCollide = false, CanQuery = false })
+		hookCatcher(catcher)
+	end
 	-- shade (under each tree) and sun patches: Shared/Scenery's list, so the spots that melt slower or
 	-- faster are exactly where MapArt draws the trees and glowing patches.
 	-- Floor layers (tops), never flush, or overlapping ones flicker: path and edge strips 0.15, puddles
@@ -320,9 +326,10 @@ local function findExisting(): boolean
 	end
 	map = existing :: Folder
 	-- a saved map skips buildMap, so hook its live parts here too
-	local catcher = map:FindFirstChild("FallCatcher") :: BasePart?
-	if catcher then
-		hookCatcher(catcher)
+	for _, c in map:GetChildren() do
+		if c.Name == "FallCatcher" and c:IsA("BasePart") then
+			hookCatcher(c)
+		end
 	end
 	local gift = map:FindFirstChild("GiftBox", true)
 	WorldService.giftPrompt = gift and gift:FindFirstChildWhichIsA("ProximityPrompt", true)

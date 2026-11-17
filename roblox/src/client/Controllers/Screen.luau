@@ -21,6 +21,9 @@ local tileCount = 0
 
 Screen.hud = nil :: ScreenGui?
 Screen.popups = nil :: ScreenGui?
+-- the alert toasts get their own layer just above the popups: in the HUD they were drawn under an open
+-- popup, so on a phone a "not yet" answer ("Join the group first") was never seen (2-player phone test 2026-11-16)
+Screen.alerts = nil :: ScreenGui?
 -- the free strip of Roblox's top bar (between its own buttons): the top buttons live here
 Screen.topbar = nil :: ScreenGui?
 -- every HUD piece but the banner sits in this full-screen frame, so a shop can hide them together
@@ -314,7 +317,7 @@ function Screen.register(name: string, obj: GuiObject, count: number?)
 	if name == "tiles" then
 		tileCount = count or 0
 	end
-	obj.Parent = if name == "banner" or name == "gain" then Screen.hud else main
+	obj.Parent = if name == "banner" then Screen.alerts elseif name == "gain" then Screen.hud else main
 	obj:GetPropertyChangedSignal("Visible"):Connect(Screen.layout) -- a piece appearing re-runs the layout
 	obj:GetAttributeChangedSignal("Slots"):Connect(Screen.layout)
 	obj:GetAttributeChangedSignal("Locked"):Connect(Screen.layout)
@@ -429,7 +432,7 @@ end
 
 -- shows hide the HUD and any popup while they play (Animation Rules 3) and show them again in their cleanup
 function Screen.setHidden(hidden: boolean)
-	for _, g in { Screen.hud, Screen.popups, Screen.topbar } do
+	for _, g in { Screen.hud, Screen.popups, Screen.topbar, Screen.alerts } do
 		if g then
 			g.Enabled = not hidden
 		end
@@ -443,6 +446,7 @@ end
 function Screen.Init()
 	Screen.hud = gui("Hud", 1)
 	Screen.popups = gui("Popups", 5)
+	Screen.alerts = gui("Alerts", 6) -- same insets as the Hud, so the layout's Scale numbers are unchanged
 	local bar = gui("TopBar", 2)
 	bar.ScreenInsets = Enum.ScreenInsets.TopbarSafeInsets
 	Screen.topbar = bar
