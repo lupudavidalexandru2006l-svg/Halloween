@@ -33,12 +33,12 @@ export const Config = {
   tiers: [
     // odds are percentages; cubeLife in seconds before heat; income is coins per second in zone 1
     { name: 'Common',    odds: 59.995, cubeLife: 90, income: 1,   rank: 1 }, // 60% minus the Secret's share, so odds add to 100
-    { name: 'Uncommon',  odds: 25,    cubeLife: 70, income: 3,    rank: 2 },
-    { name: 'Rare',      odds: 10,    cubeLife: 30, income: 10,   rank: 3 }, // owner 2026-10-30: Rare+ cubes 60% of the old life so rare runs are tense,
-    { name: 'Epic',      odds: 4,     cubeLife: 22, income: 30,   rank: 4 }, // steep on purpose: Commons easy, Secrets hard (owner)
-    { name: 'Legendary', odds: 0.9,   cubeLife: 16, income: 100,  rank: 5 },
-    { name: 'Mythic',    odds: 0.1,   cubeLife: 12, income: 400,  rank: 6 },
-    { name: 'Secret',    odds: 0.005, cubeLife: 8, income: 1500, rank: 7 }, // 1 in 20,000, every zone
+    { name: 'Uncommon',  odds: 25,    cubeLife: 70, income: 4,    rank: 2 },
+    { name: 'Rare',      odds: 10,    cubeLife: 30, income: 20,   rank: 3 }, // owner 2026-10-30: Rare+ cubes 60% of the old life so rare runs are tense,
+    { name: 'Epic',      odds: 4,     cubeLife: 22, income: 100,  rank: 4 }, // steep on purpose: Commons easy, Secrets hard (owner)
+    { name: 'Legendary', odds: 0.9,   cubeLife: 16, income: 500,  rank: 5 },
+    { name: 'Mythic',    odds: 0.1,   cubeLife: 12, income: 2500, rank: 6 },
+    { name: 'Secret',    odds: 0.005, cubeLife: 8, income: 25000, rank: 7 }, // 1 in 20,000, every zone
   ],
   incomeZoneMultiplier: 4,  // a zone-2 pet earns 4x its zone-1 tier income
 

@@ -109,10 +109,12 @@ def sim(P, hours=12, seed=1, kid=KID, stop=None, dt=1.0):
                 walk = 2 * d / kid['walk'] * kid['slow'] / (1.08 if S['gear'] >= 2 else 1) / (1.05 if S['gear'] >= 3 else 1)
                 need = max(P['needs'][z - 1], 50)
                 speed = min(5, max(1, math.sqrt(max(S['power'], 1) / need))) * (1 + 0.12 * (S['gun'] - 1))
-                w = [o * (EARLY.get(i, 1) if z <= 4 else 1) for i, (_, o, *_r) in enumerate(TIERS)]
+                odds = P.get('odds') or [t[1] for t in TIERS]
+                w = [o * (EARLY.get(i, 1) if z <= 4 else 1) for i, o in enumerate(odds)]
                 for _ in range(cap):
                     best = max(rnd.choices(range(7), weights=w)[0] for _k in range(kid['pick_k']))
                     name, _, inc, ths, fz = TIERS[best]
+                    inc = (P.get('income') or [t[2] for t in TIERS])[best]
                     pinc = inc * 4 ** (z - 1) * rnd.choice([1, 1, 1, 1.2, 1.2, 1.5]) * (2 if rnd.random() < 1 / 40 else 1)
                     if (z, best) not in species:
                         species.add((z, best)); ev('newpet')
@@ -135,6 +137,14 @@ def sim(P, hours=12, seed=1, kid=KID, stop=None, dt=1.0):
             machines.append((th, inc))
         pan.sort(reverse=True); del pan[16:]
         S['coins'] += income() * dt
+        # the server Secret every 30 min (Config.secretSpawn): on a random island of 10; this kid gets it
+        # if it can freeze there and wins the race against the other players (about half the time)
+        if S['t'] > 0 and S['t'] % 1800 < dt and kid.get('secrets', True):
+            zr = rnd.randint(1, 10)
+            if zr <= farm and rnd.random() < 0.5:
+                sinc = (P.get('income') or [t[2] for t in TIERS])[6] * 4 ** (zr - 1)
+                queue.append((sinc, max(1, 1200 * 1.3 ** (zr - 1) * 0.9 ** (S['thaw'] - 1) / 1.33 ** (S['slots'] - 1))))
+                ev('secret')
         if S['t'] >= nextlog:
             incomes.append((S['t'], income())); nextlog += 60
         S['t'] += dt
@@ -151,7 +161,7 @@ def report(P, kid=KID, seeds=range(1, 9), hours=14, detail=False):
     keys = []
     for ev in allev:
         for t, k in ev:
-            if k != 'newpet' and k not in keys: keys.append(k)
+            if k not in ('newpet', 'secret') and k not in keys: keys.append(k)
     rows = []
     for k in keys:
         ts = [first(ev, k) for ev in allev]
@@ -167,21 +177,22 @@ def report(P, kid=KID, seeds=range(1, 9), hours=14, detail=False):
     for h in range(hours):
         per_hour.append(st.median([sum(1 for t, k in ev if h * 3600 <= t < (h + 1) * 3600) for ev in allev]))
     gaps10 = st.median([max(b - a for a, b in zip([0] + [t for t, _ in ev], [t for t, _ in ev]) if a < 600) for ev in allev])
-    done = st.median([max(t for t, k in ev if k != 'newpet') / 3600 for ev in allev])
+    done = st.median([max(t for t, k in ev if k not in ('newpet', 'secret')) / 3600 for ev in allev])
     key = {k: m for m, k, n in rows}
     print(f"first buy {key.get('slots2',0)*60:.0f}s, longest wait in first 10 min {gaps10:.0f}s, island2 {key.get('island2',0):.1f}m, R1 {key.get('rebirth1',0):.1f}m, R2 {key.get('rebirth2',0):.1f}m, island10 {key.get('island10',0)/60:.1f}h, last buy {done:.1f}h")
     print("new things per hour (incl. new pets):", [int(x) for x in per_hour])
 
-# the prices in roblox/src/shared/Config.luau after the pacing pass of 2026-11-16
+# the prices in roblox/src/shared/Config.luau after the rarity pass of 2026-11-17 (Steal an Egg's steps, tamed)
 FINAL = dict(
-    needs=[0, 150, 5e3, 300e3, 4e6, 75e6, 150e6, 15e9, 200e9, 4e12],
-    guns=[0, 7.5e3, 500e3, 3e6, 15e6, 100e6, 2e9, 7.5e9, 75e9, 200e9],
-    trainer=[0, 4e3, 300e3, 40e6, 750e6, 3e9, 25e9, 75e9, 600e9, 5e12],
-    thaw=[0, 250, 1e3, 4e3, 30e3, 200e3, 1e6, 40e6, 1e9, 12e9],
-    looks=[0, 150e3, 7.5e6, 1.5e9, 750e9],
-    gear=[75e3, 400e3, 4e6, 200e6, 75e9],
-    gel=250e3, slots_base=50, slots_growth=2.5, slots_rgrowth=15,
-    rebirth=[1e6, 20e6, 600e6, 4e9, 40e9, 100e9, 2e12])
+    odds=[59.995, 25, 10, 4, 0.9, 0.1, 0.005], income=[1, 4, 20, 100, 500, 2500, 25000],
+    needs=[0, 150, 1e3, 300e3, 4e6, 75e6, 250e6, 15e9, 150e9, 4e12],
+    guns=[0, 40e3, 2.5e6, 15e6, 100e6, 400e6, 15e9, 40e9, 1.5e12, 3e12],
+    trainer=[0, 15e3, 1.2e6, 200e6, 2.5e9, 20e9, 300e9, 2e12, 4e12, 40e12],
+    thaw=[0, 250, 1e3, 4e3, 200e3, 1e6, 5e6, 200e6, 2.5e9, 75e9],
+    looks=[0, 500e3, 30e6, 7.5e9, 6e12],
+    gear=[250e3, 1.5e6, 25e6, 400e6, 1e12],
+    gel=1e6, slots_base=50, slots_growth=2.5, slots_rgrowth=15,
+    rebirth=[5e6, 200e6, 1.5e9, 25e9, 400e9, 750e9, 15e12])
 
 if __name__ == '__main__':
     # Keep FINAL in step with Config.luau, then: python pacing_sim.py
@@ -189,4 +200,4 @@ if __name__ == '__main__':
     for name, k in [('fast kid', dict(KID, slow=1.25, overhead=4, clicks=4, train_eff=0.85)),
                     ('slow kid', dict(KID, slow=2.0, overhead=9, clicks=1.8, pick_k=2, sell=0.3, train_eff=0.6))]:
         print('---', name); report(FINAL, kid=k)
-    print('--- before the pass'); report(CURRENT)
+    print('--- before the pacing pass (old rarities)'); report(CURRENT)
