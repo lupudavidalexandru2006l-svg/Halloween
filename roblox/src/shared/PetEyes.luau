@@ -142,6 +142,16 @@ local PetEyes: { [string]: Spec } = {
 	mirage_manta = { part = "Body", lid = Color3.fromRGB(196, 196, 150), eyes = {
 		eye(0.1118, 0.1142, -0.1474, 0.230, 0.178, -0.957, 0.0600),
 		eye(-0.1138, 0.1146, -0.1473, -0.319, 0.118, -0.940, 0.0596) } },
+	emberpup = { part = "Head", lid = Color3.fromRGB(200, 88, 8), eyes = {
+		eye(0.1271, 0.1186, -0.3088, 0.029, 0.066, -0.997, 0.0561),
+		eye(-0.1279, 0.1191, -0.3088, -0.107, 0.118, -0.987, 0.0558) } },
+	-- black eyes on a black face: picked by hand (find_pet_eyes px=211,206,22;382,206,22); lids a shade lighter
+	obby = { part = "Head", lid = Color3.fromRGB(46, 42, 56), eyes = {
+		eye(0.1622, 0.1714, -0.3617, 0.305, 0.119, -0.945, 0.0444),
+		eye(-0.1513, 0.1714, -0.3673, -0.240, 0.096, -0.966, 0.0444) } },
+	flarechick = { part = "Head", lid = Color3.fromRGB(190, 31, 110), eyes = {
+		eye(0.1421, 0.0261, -0.2697, -0.140, 0.183, -0.973, 0.0587),
+		eye(-0.1335, 0.0243, -0.2691, 0.075, -0.010, -0.997, 0.0581) } },
 }
 
 return PetEyes

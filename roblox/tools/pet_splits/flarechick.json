@@ -1,0 +1,8 @@
+{"parts": [
+  ["GemGlow", "z > 0.78 and (h < 62 or h > 345) and s > 0.45"],
+  ["Head", "z > 0.37"],
+  ["WingL", "abs(x) > 0.21 and 0.12 < z < 0.38 and x > 0"],
+  ["WingR", "abs(x) > 0.21 and 0.12 < z < 0.38"],
+  ["Tail", "y > 0.18 and z < 0.45"],
+  ["LegFL", "z < 0.05 and x > 0"],
+  ["LegFR", "z < 0.05"]]}
