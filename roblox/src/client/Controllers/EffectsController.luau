@@ -250,7 +250,7 @@ local function pickUp(data: any)
 		return
 	end
 	local real = EffectsController.realCube(data.uid)
-	local size = if real then real.Size.X else PetDefs.cubeSize[def.size] * Config.carry.scale
+	local size = if real then real.Size.X else PetDefs.cube(def, data.sz, true) * Config.carry.scale
 	local model = PetVisuals.frozenCube(data.key, size)
 	if not model then
 		return
@@ -284,7 +284,7 @@ end
 -- where a cube that shut at a pet's spot sits (its bottom on the pet's ground)
 function EffectsController.cubeAt(data: any, size: number): CFrame
 	local def = PetDefs.get(data.key)
-	local h = if def then PetDefs.sizeHeight[def.size] else 3
+	local h = if def then PetDefs.height(def, data.sz) else 3
 	local at: Vector3 = data.at
 	return CFrame.new(at - Vector3.new(0, h / 2, 0) + Vector3.new(0, size / 2, 0))
 end
@@ -296,7 +296,7 @@ local function snap(data: any)
 	if not def then
 		return
 	end
-	local size = if real then real.Size.X else PetDefs.cubeSize[def.size] * Config.carry.scale
+	local size = if real then real.Size.X else PetDefs.cube(def, data.sz, true) * Config.carry.scale
 	if real then
 		real:SetAttribute("ShowHidden", true)
 	end
@@ -397,7 +397,7 @@ local function tally(data: any)
 		for k = 1, n do
 			local def = PetDefs.get(data.banked[k].key)
 			if def then
-				local size = PetDefs.cubeSize[def.size] * Config.carry.scale
+				local size = PetDefs.cube(def, data.banked[k].sz, true) * Config.carry.scale
 				local model = PetVisuals.frozenCube(def.key, size)
 				if model then
 					local from = (root.CFrame * CFrame.new(0, T.startUp, -T.startFront)).Position

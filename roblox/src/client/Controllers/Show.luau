@@ -701,6 +701,9 @@ function Show.statsCard(ctx: Ctx, gui: ScreenGui, def: PetDefs.PetDef)
 	list.Parent = card
 	local mut = if ctx.data and typeof(ctx.data.mut) == "string" then ctx.data.mut else nil
 	local bonus = if mut and Config.mutations[mut] then Config.mutations[mut].bonus else 1
+	local sz = if ctx.data and Config.size(ctx.data.sz) then ctx.data.sz :: string else nil -- Big / Giant / Huge
+	local big = Config.size(sz)
+	bonus *= if big then big.bonus else 1
 	local tier = Config.tier(def.tier)
 	local income = (tier.income or 0) * Config.incomeZoneMultiplier ^ math.max(0, def.zone - 1) * bonus
 	local zone = Config.zone(def.zone)
@@ -710,12 +713,16 @@ function Show.statsCard(ctx: Ctx, gui: ScreenGui, def: PetDefs.PetDef)
 		{ head = "EARNS", value = `+{Ui.short(income)}/s`, color = Theme.coin },
 		{ head = "ISLAND", value = if zone then zone.name else "?", color = Theme.ice },
 	}
+	if sz then -- a sized pet gets a fifth cell after its rarity, and every cell gets narrower to fit
+		table.insert(cells, 2, { head = "SIZE", value = string.upper(sz), color = Theme.sizes[sz] or Theme.white })
+	end
+	local cellW = (0.96 - 0.02 * (#cells - 1)) / #cells -- 4 cells: 0.225 each, as before
 	for i, c in cells do
 		local cell = Instance.new("Frame")
 		cell.BackgroundColor3 = Theme.ink
 		cell.BackgroundTransparency = 0.35
 		cell.BorderSizePixel = 0
-		cell.Size = UDim2.fromScale(0.225, 0.8)
+		cell.Size = UDim2.fromScale(cellW, 0.8)
 		cell.LayoutOrder = i
 		cell.ZIndex = 7
 		Ui.corner(cell, 0.25)
@@ -844,7 +851,7 @@ function Show.play(name: string, data: any)
 	if running then
 		finish(running) -- one show at a time; the newer one plays
 	end
-	local size = if real then real.Size.X else PetDefs.cubeSize[def.size] * Config.carry.scale
+	local size = if real then real.Size.X else PetDefs.cube(def, data.sz, true) * Config.carry.scale
 	local ctx: Ctx = {
 		name = name, cfg = cfg, data = data, def = def, reduced = SettingsController.get("reducedMotion") == true,
 		skipped = false, finished = false, model = nil, cube = nil, real = real, at = CFrame.new(), size = size,

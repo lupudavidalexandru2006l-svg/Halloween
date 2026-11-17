@@ -345,6 +345,13 @@ local Theme = {
 		Starry = { tint = Color3.fromHex("2b2a8f"), sparkle = Color3.fromHex("fffbe0"), fill = 0.35 },
 	} :: { [string]: { tint: Color3, sparkle: Color3, fill: number } },
 
+	-- sizes (Config.sizes): the word's colour on name tags, the Pets list and the reveal card; none is a tier colour
+	sizes = {
+		Big = Color3.fromHex("1fb5a8"),
+		Giant = Color3.fromHex("ff7a1a"),
+		Huge = Color3.fromHex("ff3b30"),
+	} :: { [string]: Color3 },
+
 	-- the freeze shows' light pillars and titles: the tier colour, but one that glows (Secret's dark
 	-- grey can't glow, so its light is violet with the dark tier colour as the title outline)
 	-- a pan's Look (Round 4 phase 5, Config.pan.looks): fence posts, rails and the floor, each with

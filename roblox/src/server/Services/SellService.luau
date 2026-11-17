@@ -38,7 +38,7 @@ end
 -- counts on sales too (Round 4 prompt 1); SellPopup works it out the same way, per pet.
 function SellService.value(p: DataService.PetEntry, mult: number): number?
 	local def = PetDefs.get(p.key)
-	return if def then Config.sellValue(PetDefs.income(def, p.pose, p.mut), mult) else nil
+	return if def then Config.sellValue(PetDefs.income(def, p.pose, p.mut, p.sz), mult) else nil
 end
 
 local function sell(player: Player, ids: any, confirmed: any)

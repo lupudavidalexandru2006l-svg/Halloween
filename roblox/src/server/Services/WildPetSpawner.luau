@@ -37,6 +37,7 @@ export type WildPet = {
 	dazedUntil: number,
 	pose: string?,
 	mut: string?,
+	sz: string?, -- Big / Giant / Huge (Config.sizes), nil = normal
 	offerFor: Player?,
 	dazedOwner: Player?,
 	superUsed: boolean,
@@ -153,8 +154,8 @@ local function randomSpot(zone: number, near: boolean, rare: boolean): Vector3?
 	return nil
 end
 
-local function makeRoot(def: PetDefs.PetDef, pos: Vector3): Part
-	local h = PetDefs.sizeHeight[def.size]
+local function makeRoot(def: PetDefs.PetDef, pos: Vector3, sz: string?): Part
+	local h = PetDefs.height(def, sz)
 	local root = Instance.new("Part")
 	root.Name = "PetRoot"
 	root.Size = Vector3.new(h, h, h)
@@ -176,6 +177,16 @@ local function rollMutation(): string?
 		local m = Config.mutations[name]
 		local chance = m.chance * (if name == "Golden" then EventService.mult("golden") else 1) -- Golden Rush
 		if (night or not m.nightOnly) and rng:NextNumber() < chance then
+			return name
+		end
+	end
+	return nil
+end
+
+-- the server's size roll for a new wild pet (Config.sizes): rarest first, nil = a normal pet
+local function rollSize(): string?
+	for _, name in Config.sizeRollOrder do
+		if rng:NextNumber() < Config.sizes[name].chance then
 			return name
 		end
 	end
@@ -209,7 +220,8 @@ function WildPetSpawner.spawn(zone: number, at: Vector3?, forcedKey: string?, ne
 	end
 	local id = "p" .. nextId
 	nextId += 1
-	local root = makeRoot(def, pos)
+	local sz = rollSize()
+	local root = makeRoot(def, pos, sz)
 	root:SetAttribute("PetId", id)
 	root:SetAttribute("PetKey", def.key)
 	root:SetAttribute("Tier", def.tier)
@@ -218,10 +230,11 @@ function WildPetSpawner.spawn(zone: number, at: Vector3?, forcedKey: string?, ne
 	root:SetAttribute("OwnerUserId", if owner then owner.UserId else 0) -- clients hide others' personal rares
 	local mut = rollMutation()
 	root:SetAttribute("Mut", mut)
+	root:SetAttribute("Size", sz)
 	local pet: WildPet = {
 		id = id, def = def, zone = zone, root = root, state = "wild",
 		loopIdx = rng:NextInteger(1, #Config.poseLoop), action = "idle", actionEnd = 0,
-		wanderTo = nil, dazedUntil = 0, pose = nil, mut = mut, offerFor = nil, dazedOwner = nil, superUsed = false,
+		wanderTo = nil, dazedUntil = 0, pose = nil, mut = mut, sz = sz, offerFor = nil, dazedOwner = nil, superUsed = false,
 		offered = false, meter = 0, fleeFrom = nil, shownMeter = 0, owner = owner,
 		dartAt = 0, swerve = 0, swerveAt = 0, bornAt = os.clock(),
 	}
@@ -236,7 +249,7 @@ end
 -- open (Round 5 ray-tag): a cube knocked out of someone's hands is anyone's to zap, so it isn't personal.
 -- knocked (tag or critter, not open): personal to the carrier at any tier, so a tagger can't take it
 -- once the daze ends (QA IR-20)
-function WildPetSpawner.spawnDazed(info: { key: string, zone: number, pose: string, mut: string?, superUsed: boolean, offered: boolean }, pos: Vector3, owner: Player, offer: boolean, open: boolean?, knocked: boolean?): WildPet?
+function WildPetSpawner.spawnDazed(info: { key: string, zone: number, pose: string, mut: string?, sz: string?, superUsed: boolean, offered: boolean }, pos: Vector3, owner: Player, offer: boolean, open: boolean?, knocked: boolean?): WildPet?
 	local def = PetDefs.get(info.key)
 	local personal = def ~= nil and Config.spawner.personalRares and not open
 		and (Config.tier(def.tier).rank >= 3 or knocked == true)
@@ -249,6 +262,16 @@ function WildPetSpawner.spawnDazed(info: { key: string, zone: number, pose: stri
 	pet.dazedUntil = os.clock() + Config.dazedSeconds
 	pet.pose = info.pose
 	pet.mut = info.mut
+	if pet.sz ~= info.sz and pet.def then
+		-- it keeps the size it was frozen with: redo the fresh roll's root, bottom on the same ground
+		pet.sz = info.sz
+		local h = PetDefs.height(pet.def, info.sz)
+		local r = pet.root
+		local bottom = r.Position.Y - r.Size.Y / 2
+		r.Size = Vector3.new(h, h, h)
+		r.CFrame = CFrame.new(r.Position.X, bottom + h / 2, r.Position.Z)
+	end
+	pet.root:SetAttribute("Size", info.sz)
 	pet.superUsed = info.superUsed
 	pet.offered = info.offered or offer
 	pet.dazedOwner = if open then nil else owner

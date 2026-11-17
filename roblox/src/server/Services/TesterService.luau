@@ -240,13 +240,14 @@ ACTIONS.storeAll = function(player)
 	end)
 end
 
-ACTIONS.givePet = function(player, key, mut)
+ACTIONS.givePet = function(player, key, mut, sz)
 	if typeof(key) ~= "string" or not PetDefs.get(key) then
 		return
 	end
 	local m = if typeof(mut) == "string" and Config.mutations[mut] then mut else nil
+	local size = if Config.size(sz) then sz else nil -- Big / Giant / Huge (Config.sizes)
 	change(player, function(d)
-		if not PenService.addPet(d, key, "idle", m) then
+		if not PenService.addPet(d, key, "idle", m, nil, size) then
 			Remotes.notYet(player, "Storage full", "pets")
 		end
 	end)

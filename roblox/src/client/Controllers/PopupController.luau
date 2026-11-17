@@ -50,7 +50,7 @@ local function shownData(name: string, v: State.View): string?
 		table.insert(parts, tostring(v.slots))
 		table.insert(parts, tostring(v.thawSkipAlls or 0)) -- the Unfreeze all bar turns free / paid
 		for _, p in v.pets do
-			table.insert(parts, `{p.id},{p.key},{p.pose},{p.mut},{p.eq},{p.income},{p.frozen},{p.thawM}`)
+			table.insert(parts, `{p.id},{p.key},{p.pose},{p.mut},{p.sz},{p.eq},{p.income},{p.frozen},{p.thawM}`)
 		end
 	elseif name == "thaw" then
 		table.insert(parts, tostring(v.machines))
@@ -1259,6 +1259,9 @@ local function petInfo(r: Frame, p: State.PetView, def: PetDefs.PetDef)
 		return `<font color="#{c:ToHex()}">{s}</font>`
 	end
 	local tags = { word(def.tier, Ui.darker(tierColor(def.tier))) }
+	if p.sz and Theme.sizes[p.sz] then -- Big / Giant / Huge (Config.sizes)
+		table.insert(tags, word(p.sz, Ui.darker(Theme.sizes[p.sz])))
+	end
 	local look = if p.mut then Theme.mut[p.mut] else nil
 	if p.mut then
 		table.insert(tags, word(p.mut, if look then Ui.darker(look.tint) else Theme.infoDeep))
@@ -1425,7 +1428,7 @@ local function daily(o: Open, v: State.View)
 end
 
 local function thawTime(v: State.View, p: State.PetView, def: PetDefs.PetDef): number
-	return Config.thawSeconds(def.tier, def.size, def.zone, p.mut, v.upgrades.pen or 1, if v.pan then (v.pan :: any).thaw else 1)
+	return Config.thawSeconds(def.tier, def.size, def.zone, p.mut, v.upgrades.pen or 1, if v.pan then (v.pan :: any).thaw else 1, p.sz)
 end
 
 -- an ice-blue tag on the right of a pet card for a frozen pet: its thaw time, or the live time left in

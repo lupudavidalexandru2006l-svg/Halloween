@@ -241,10 +241,15 @@ end
 
 -- the name as a pill in the tier's colour (a Golden or Starry pet wears its mutation colour and name),
 -- only up close so a crowd of pets doesn't stack labels on top of each other
-local function nameTag(parent: Instance, def: PetDefs.PetDef, height: number, mut: any)
+-- "Huge Golden Snowbun": the size word, the mutation, the name; the pill takes the mutation's tint, else the
+-- size's colour (Theme.sizes), else the tier's
+local function nameTag(parent: Instance, def: PetDefs.PetDef, height: number, mut: any, sz: any)
 	local look = if typeof(mut) == "string" then Theme.mut[mut] else nil
+	local big = if Config.size(sz) then sz :: string else nil
 	local T = Config.worldText.tag
-	local g = Ui.pill(if look then `{mut} {def.name}` else def.name, if look then look.tint else (Theme.tiers[def.tier] or Theme.info), T)
+	local text = (if big then big .. " " else "") .. (if look then `{mut} ` else "") .. def.name
+	local color = if look then look.tint elseif big then Theme.sizes[big] else (Theme.tiers[def.tier] or Theme.info)
+	local g = Ui.pill(text, color, T)
 	g.Name = "NameTag"
 	g.StudsOffset = Vector3.new(0, height / 2 + T.offset, 0)
 	g.Parent = parent
@@ -758,7 +763,7 @@ local function addPet(root: Instance)
 	-- it, a bit smaller. Thawed ("out"), it's a normal pet strolling round the pan (Round 5).
 	local penPet = root:GetAttribute("Banked") == true
 	local banked = penPet and root:GetAttribute("Thaw") ~= "out"
-	local h = if banked then (root :: BasePart).Size.Y * 0.62 else PetDefs.sizeHeight[def.size]
+	local h = if banked then (root :: BasePart).Size.Y * 0.62 else PetDefs.height(def, root:GetAttribute("Size") :: string?) -- Big / Giant / Huge stand taller
 	local wild = root:GetAttribute("PenOwner") == nil
 	-- a wild pet's parts all live in its own box, so step() can hide it while you're on another island
 	-- (owner 2026-11-13: no glowing pets seen through the gates and walls)
@@ -773,7 +778,7 @@ local function addPet(root: Instance)
 	local model, img = standIn(def, h)
 	model.Parent = home
 	if not banked and not penPet then
-		nameTag(model, def, h, root:GetAttribute("Mut"))
+		nameTag(model, def, h, root:GetAttribute("Mut"), root:GetAttribute("Size"))
 	end
 	-- prototype syncWild: a soft shadow, a glowing ring in the tier's colour (wild pets only),
 	-- dazed stars, sparkles round Rare and up, snowflakes round Frosty pets

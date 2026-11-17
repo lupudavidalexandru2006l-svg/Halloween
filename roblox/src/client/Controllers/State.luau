@@ -6,7 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- frozen = still in its cube, waiting in your Pets for the Thaw Machine; thawM = the machine it's in,
 -- thawAt = when it comes out (workspace:GetServerTimeNow() clock)
-export type PetView = { id: string, key: string, pose: string, mut: string?, eq: boolean, income: number,
+export type PetView = { id: string, key: string, pose: string, mut: string?, sz: string?, eq: boolean, income: number,
 	frozen: boolean?, thawM: number?, thawAt: number? }
 export type Page = { zone: number, found: number, total: number, complete: boolean, secretFound: boolean, claimed: boolean }
 -- text has "{n}" where the goal goes; coins = what one claim pays; resetsAt on the server clock

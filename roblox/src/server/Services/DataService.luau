@@ -14,7 +14,7 @@ local PetDefs = require(ReplicatedStorage.Shared.PetDefs)
 -- eq = in the pen (earning); else in Storage. frozen = still in its ice cube (owner 2026-11-09): it
 -- waits in your Pets until you put it in a Thaw Machine; thawM / thawEnd (os.time) / thawTotal = the
 -- machine it's in and when it comes out. A frozen pet is never eq and earns nothing.
-export type PetEntry = { id: string, key: string, pose: string, mut: string?, at: number, eq: boolean,
+export type PetEntry = { id: string, key: string, pose: string, mut: string?, sz: string?, at: number, eq: boolean,
 	frozen: boolean?, thawM: number?, thawEnd: number?, thawTotal: number? }
 export type Settings = { music: boolean, sound: boolean, reducedMotion: boolean, lowGraphics: boolean, unit: string }
 -- tester switches, saved per tester; reset to these defaults on load for everyone else
@@ -43,7 +43,7 @@ export type Data = {
 	superFreezeCharges: number,
 	thawSkips: number, -- paid Thaw Machine skips not used yet (a skip bought just as the pet came out is kept for later)
 	thawSkipAlls: number, -- paid Skip alls not used yet (bought just as every pet came out: kept for later)
-	superCubes: { { key: string, pose: string, mut: string? } }, -- bought Super Freeze cubes not yet banked (back on your back after a rejoin)
+	superCubes: { { key: string, pose: string, mut: string?, sz: string? } }, -- bought Super Freeze cubes not yet banked (back on your back after a rejoin)
 	lastBest: string?, -- best pet banked last session, shown in the welcome back (end on a high, on the return)
 	receipts: { string },
 	settings: Settings,
@@ -143,6 +143,10 @@ end
 local function knownMut(v: any): string?
 	return if typeof(v) == "string" and Config.mutations[v] then v else nil
 end
+-- Big / Giant / Huge (Config.sizes); anything else (and every pet saved before sizes) is a normal pet
+local function knownSize(v: any): string?
+	return if Config.size(v) then v else nil
+end
 
 local function migrate(old: any): Data
 	local d = defaults()
@@ -174,7 +178,7 @@ local function migrate(old: any): Data
 			if eq then
 				inPen += 1
 			end
-			local entry: PetEntry = { id = id :: string, key = p.key, pose = knownPose(p.pose), mut = knownMut(p.mut), at = num(p.at, 0, 1e12), eq = eq }
+			local entry: PetEntry = { id = id :: string, key = p.key, pose = knownPose(p.pose), mut = knownMut(p.mut), sz = knownSize(p.sz), at = num(p.at, 0, 1e12), eq = eq }
 			if frozen then
 				entry.frozen = true
 				local m = int(p.thawM, 0, 2, 0)
@@ -196,7 +200,7 @@ local function migrate(old: any): Data
 		end
 		table.sort(sorted, function(a, b)
 			local da, db = PetDefs.get(a.key), PetDefs.get(b.key)
-			return PetDefs.income(da :: any, a.pose, a.mut) > PetDefs.income(db :: any, b.pose, b.mut)
+			return PetDefs.income(da :: any, a.pose, a.mut, a.sz) > PetDefs.income(db :: any, b.pose, b.mut, b.sz)
 		end)
 		for i, p in sorted do
 			p.eq = i <= slots
@@ -257,7 +261,7 @@ local function migrate(old: any): Data
 	d.thawSkipAlls = int(old.thawSkipAlls, 0, 99)
 	for _, c in tbl(old.superCubes) do
 		if #d.superCubes < 5 and typeof(c) == "table" and typeof(c.key) == "string" and PetDefs.get(c.key) then
-			table.insert(d.superCubes, { key = c.key, pose = knownPose(c.pose), mut = knownMut(c.mut) })
+			table.insert(d.superCubes, { key = c.key, pose = knownPose(c.pose), mut = knownMut(c.mut), sz = knownSize(c.sz) })
 		end
 	end
 	for _, r in tbl(old.receipts) do

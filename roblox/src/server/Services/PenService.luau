@@ -117,7 +117,9 @@ local function drawPen(player: Player, d: Data)
 		local st: string?, k = if p.thawM then "machine" else nil, p.thawM or 0
 		keep[p.id] = true
 		local def = PetDefs.get(p.key)
-		local s = if def then math.min(PetDefs.cubeSize[def.size], Config.panCubes.maxSize) else 0
+		-- a Big / Giant / Huge pet's cube is bigger too, up to Config.carrySizeMax x the usual cap so the grid stays clear
+		local big = Config.size(p.sz)
+		local s = if def then math.min(PetDefs.cube(def, p.sz), Config.panCubes.maxSize * (if big then math.min(big.scale, Config.carrySizeMax) else 1)) else 0
 		local at
 		if st == "machine" then
 			at = PenService.machineSpot(plot, k)
@@ -144,6 +146,7 @@ local function drawPen(player: Player, d: Data)
 			cube:SetAttribute("PetId", p.id) -- the owner's client finds this pet's income for its coin pops
 			cube:SetAttribute("PenOwner", player.UserId)
 			cube:SetAttribute("Mut", p.mut)
+			cube:SetAttribute("Size", p.sz)
 			cube:SetAttribute("Action", if p.pose == "sleep" then "sleep" else nil) -- frozen asleep, it naps in your pen
 			cube:SetAttribute("Banked", true)
 			cube.Parent = folder
@@ -179,7 +182,7 @@ end
 
 local function earn(p: PetEntry): number
 	local def = PetDefs.get(p.key)
-	return if def then PetDefs.income(def, p.pose, p.mut) else 0
+	return if def then PetDefs.income(def, p.pose, p.mut, p.sz) else 0
 end
 
 function PenService.slots(d: Data): number
@@ -317,12 +320,12 @@ end
 
 -- tester tool: a pet straight into the pen (or Storage when the pen is full); false when Storage is full.
 -- frozen = into your Pets still in its cube, for the Thaw Machine (a pet kept when leaving mid-show)
-function PenService.addPet(d: Data, key: string, pose: string, mut: string?, frozen: boolean?): boolean
+function PenService.addPet(d: Data, key: string, pose: string, mut: string?, frozen: boolean?, sz: string?): boolean
 	if not PetDefs.get(key) or #d.pets >= Config.pen.storageMax then
 		return false
 	end
 	local eq = not frozen and PenService.equippedCount(d) < PenService.slots(d)
-	table.insert(d.pets, { id = "q" .. d.nextPetId, key = key, pose = pose, mut = mut, at = os.time(), eq = eq, frozen = if frozen then true else nil })
+	table.insert(d.pets, { id = "q" .. d.nextPetId, key = key, pose = pose, mut = mut, sz = if Config.size(sz) then sz else nil, at = os.time(), eq = eq, frozen = if frozen then true else nil })
 	d.nextPetId += 1
 	d.found[key] = true
 	return true
@@ -493,7 +496,7 @@ local function bank(player: Player)
 		DataService.mutate(player, function(x)
 			local id = "q" .. x.nextPetId
 			-- into your Pets, still frozen: you put it in a Thaw Machine yourself (owner 2026-11-09)
-			table.insert(x.pets, { id = id, key = c.key, pose = c.pose, mut = c.mut, at = os.time(), eq = false, frozen = true })
+			table.insert(x.pets, { id = id, key = c.key, pose = c.pose, mut = c.mut, sz = c.sz, at = os.time(), eq = false, frozen = true })
 			x.nextPetId += 1
 			x.found[c.key] = true
 			x.stats.banked += 1
@@ -518,12 +521,12 @@ local function bank(player: Player)
 			-- others' wins: a banner for everyone else (owner 2026-11-13: no alert for your own, no light pillar)
 			Remotes.fireAll("Notify", "bigWin", { name = player.DisplayName, userId = player.UserId, key = c.key, tier = def.tier, plot = WorldService.plotOf(player) })
 		end
-		table.insert(banked, { key = c.key, pose = c.pose, mut = c.mut, income = PetDefs.income(def, c.pose, c.mut), firstTime = firstTime, frozen = true,
-			thawSeconds = Config.thawSeconds(def.tier, def.size, def.zone, c.mut, d.upgrades.pen, d.pan.thaw) })
+		table.insert(banked, { key = c.key, pose = c.pose, mut = c.mut, sz = c.sz, income = PetDefs.income(def, c.pose, c.mut, c.sz), firstTime = firstTime, frozen = true,
+			thawSeconds = Config.thawSeconds(def.tier, def.size, def.zone, c.mut, d.upgrades.pen, d.pan.thaw, c.sz) })
 	end
 	for _, c in handBack do
 		-- nothing is lost: cubes that don't fit go back on your back (paid ones back into the save)
-		CarryService.addCube(player, { key = c.key, zone = c.zone, pose = c.pose, mut = c.mut, superFrozen = c.superFrozen, superUsed = c.superUsed, offered = c.offered })
+		CarryService.addCube(player, { key = c.key, zone = c.zone, pose = c.pose, mut = c.mut, sz = c.sz, superFrozen = c.superFrozen, superUsed = c.superUsed, offered = c.offered })
 	end
 	if #handBack > 0 then
 		Remotes.notYet(player, "Storage full", "pets")
@@ -604,7 +607,7 @@ local function thawPet(player: Player, id: any, m: any)
 			if p.id == id and p.frozen and not p.thawM then
 				local def = PetDefs.get(p.key)
 				if def then
-					local secs = Config.thawSeconds(def.tier, def.size, def.zone, p.mut, x.upgrades.pen, x.pan.thaw)
+					local secs = Config.thawSeconds(def.tier, def.size, def.zone, p.mut, x.upgrades.pen, x.pan.thaw, p.sz)
 					p.thawM, p.thawEnd, p.thawTotal = m, os.time() + secs, secs
 					started = p
 				end
@@ -678,7 +681,7 @@ local function releaseThawed(player: Player, d: Data, onlyM: number?)
 	for _, o in out do
 		local def = PetDefs.get(o.p.key)
 		Remotes.fire(player, "Notify", "thawed", { key = o.p.key, income = earn(o.p), plot = WorldService.plotOf(player), machine = o.m, stored = not o.p.eq, replaced = o.replaced,
-			tier = if def then def.tier else nil, mut = o.p.mut, at = PenService.machineSpot(WorldService.plotOf(player) or 1, o.m), first = first or nil })
+			tier = if def then def.tier else nil, mut = o.p.mut, sz = o.p.sz, at = PenService.machineSpot(WorldService.plotOf(player) or 1, o.m), first = first or nil })
 		first = false -- two at once: only the first gets the reveal
 		AnalyticsSvc.funnel(player, "first_pet_out")
 		TutorialService.did(player, "thawed")
@@ -877,7 +880,7 @@ local function view(player: Player, d: Data): { [string]: any }
 	local pets = {}
 	local now, serverNow = os.time(), workspace:GetServerTimeNow()
 	for _, p in d.pets do
-		table.insert(pets, { id = p.id, key = p.key, pose = p.pose, mut = p.mut, eq = p.eq, income = earn(p),
+		table.insert(pets, { id = p.id, key = p.key, pose = p.pose, mut = p.mut, sz = p.sz, eq = p.eq, income = earn(p),
 			frozen = p.frozen == true, thawM = p.thawM, -- thawAt: when it comes out, on the clients' server clock
 			thawAt = if p.thawEnd then serverNow + (p.thawEnd - now) else nil })
 	end

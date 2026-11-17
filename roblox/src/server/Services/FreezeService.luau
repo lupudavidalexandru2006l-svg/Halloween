@@ -40,7 +40,7 @@ local HB = Config.guns.heatBar
 -- froze = this shot has shut at least one cube; the ray goes away once every beam of it is done
 type Aim = { kind: string, id: string, extras: { string }, froze: boolean? }
 local aims: { [Player]: Aim } = {} -- what each player shoots at right now
-type Shown = { show: string, key: string, pose: string, mut: string? }
+type Shown = { show: string, key: string, pose: string, mut: string?, sz: string? }
 local shows: { [Player]: { [string]: Shown } } = {} -- cube uid -> the show still playing for it
 
 -- other kinds of target (Heat Critters, players): where it is, can this player freeze it, and one tick of aiming
@@ -82,8 +82,8 @@ end
 -- how long this freeze takes with the ray on it the whole time, and how it looks: flash (quick snap),
 -- normal, or layered (slow, cracks). A sleeping one freezes faster. A dazed pet (its cube melted) takes the
 -- normal time again (owner 2026-11-12: zapping it back took about a second)
-function FreezeService.plan(def: PetDefs.PetDef, power: number, dazed: boolean, asleep: boolean?, gun: number?): (number, string)
-	local seconds = Config.freezeSeconds(def.tier, def.size, power, def.zone, asleep, gun)
+function FreezeService.plan(def: PetDefs.PetDef, power: number, dazed: boolean, asleep: boolean?, gun: number?, sz: string?): (number, string)
+	local seconds = Config.freezeSeconds(def.tier, def.size, power, def.zone, asleep, gun, sz)
 	return seconds, FreezeService.styleFor(seconds / A.timeScale)
 end
 
@@ -179,11 +179,11 @@ local function freezeOne(player: Player, pet: any)
 	if not dazed and EventService.isChill() and (not mut or Config.mutations[mut].bonus < Config.mutations.Frosty.bonus) then
 		mut = "Frosty"
 	end
-	local info = { key = pet.def.key, zone = pet.zone, pose = pose, mut = mut, superFrozen = false, superUsed = pet.superUsed, offered = pet.offered }
+	local info = { key = pet.def.key, zone = pet.zone, pose = pose, mut = mut, sz = pet.sz, superFrozen = false, superUsed = pet.superUsed, offered = pet.offered }
 	local at = pet.root.Position
 	local gun = FreezeService.gunTier(player)
 	local data = DataService.get(player)
-	local _, style = FreezeService.plan(pet.def, if data then data.coldPower else 0, dazed, nil, gun)
+	local _, style = FreezeService.plan(pet.def, if data then data.coldPower else 0, dazed, nil, gun, pet.sz)
 	-- a show only for a first freeze (zapping a melted pet back is quick and plain)
 	local show = if dazed then nil else F.shows[pet.def.tier]
 	WildPetSpawner.remove(id)
@@ -201,7 +201,7 @@ local function freezeOne(player: Player, pet: any)
 	if show and uid then
 		local list = shows[player] or {}
 		shows[player] = list
-		list[uid] = { show = show, key = info.key, pose = pose, mut = mut }
+		list[uid] = { show = show, key = info.key, pose = pose, mut = mut, sz = pet.sz }
 		task.delay(showSeconds(show), function()
 			if shows[player] then
 				shows[player][uid] = nil
@@ -209,7 +209,7 @@ local function freezeOne(player: Player, pet: any)
 		end)
 	end
 	Remotes.fire(player, "Notify", "frozen", {
-		key = info.key, pose = pose, mut = mut, at = at, uid = uid, style = style, gun = gun, touch = touchFor(gun), show = show,
+		key = info.key, pose = pose, mut = mut, sz = pet.sz, at = at, uid = uid, style = style, gun = gun, touch = touchFor(gun), show = show,
 		first = first or nil,
 	})
 	if show and (Config.show :: any)[show].shout then
@@ -248,7 +248,7 @@ local function pushPet(player: Player, pet: any, data: any, gun: number, dt: num
 		return nil
 	end
 	local asleep = pet.state == "wild" and pet.action == "sleep"
-	local seconds, style = FreezeService.plan(pet.def, data.coldPower, pet.state == "dazed", asleep, gun)
+	local seconds, style = FreezeService.plan(pet.def, data.coldPower, pet.state == "dazed", asleep, gun, pet.sz)
 	if data.tester.instantFreeze then -- tester switch: freezes on the first touch of the ray
 		seconds = 0
 	end
@@ -451,7 +451,7 @@ function FreezeService.Start()
 		end
 		list[c.uid] = nil
 		DataService.mutate(player, function(d)
-			PenService.addPet(d, c.key, c.pose, c.mut, true)
+			PenService.addPet(d, c.key, c.pose, c.mut, true, c.sz)
 			d.stats.banked += 1
 		end)
 	end)

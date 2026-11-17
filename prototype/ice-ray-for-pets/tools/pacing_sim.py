@@ -112,9 +112,20 @@ def sim(P, hours=12, seed=1, kid=KID, stop=None, dt=1.0):
                 odds = P.get('odds') or [t[1] for t in TIERS]
                 w = [o * (EARLY.get(i, 1) if z <= 4 else 1) for i, o in enumerate(odds)]
                 for _ in range(cap):
-                    best = max(rnd.choices(range(7), weights=w)[0] for _k in range(kid['pick_k']))
+                    incs = P.get('income') or [t[2] for t in TIERS]
+                    def size_roll():
+                        # Config.sizes: (chance, income x, thaw x), rarest first; none = Normal
+                        for ch, im, tm in P.get('sizes', []):
+                            if rnd.random() < ch: return im, tm
+                        return 1, 1
+                    seen = []
+                    for _k in range(kid['pick_k']):
+                        ti = rnd.choices(range(7), weights=w)[0]
+                        seen.append((ti, size_roll()))
+                    best, (smult, sthaw) = max(seen, key=lambda x: incs[x[0]] * x[1][0])
                     name, _, inc, ths, fz = TIERS[best]
-                    inc = (P.get('income') or [t[2] for t in TIERS])[best]
+                    inc = incs[best] * smult
+                    ths *= sthaw
                     pinc = inc * 4 ** (z - 1) * rnd.choice([1, 1, 1, 1.2, 1.2, 1.5]) * (2 if rnd.random() < 1 / 40 else 1)
                     if (z, best) not in species:
                         species.add((z, best)); ev('newpet')
@@ -192,7 +203,9 @@ FINAL = dict(
     looks=[0, 500e3, 30e6, 7.5e9, 6e12],
     gear=[250e3, 1.5e6, 25e6, 400e6, 1e12],
     gel=1e6, slots_base=50, slots_growth=2.5, slots_rgrowth=15,
-    rebirth=[5e6, 200e6, 1.5e9, 25e9, 400e9, 750e9, 15e12])
+    rebirth=[5e6, 200e6, 1.5e9, 25e9, 400e9, 750e9, 15e12],
+    # Config.sizes (2026-11-17), rarest first: (chance, income x, thaw x) for Huge, Giant, Big
+    sizes=[(1 / 1000, 5, 2), (1 / 100, 3, 1.6), (1 / 20, 1.5, 1.25)])
 
 if __name__ == '__main__':
     # Keep FINAL in step with Config.luau, then: python pacing_sim.py

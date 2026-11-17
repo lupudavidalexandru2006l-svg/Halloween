@@ -25,7 +25,7 @@ local SellPopup = {}
 local S = Config.sell
 local lastSale: { coins: number, count: number, at: number }? = nil
 
-type Group = { id: string, def: PetDefs.PetDef, pose: string, mut: string?, ids: { string }, inPan: number, value: number, rank: number }
+type Group = { id: string, def: PetDefs.PetDef, pose: string, mut: string?, sz: string?, ids: { string }, inPan: number, value: number, rank: number }
 
 -- identical pets in one group; within a group the Storage ones come first (sold first)
 local function groups(v: State.View): { Group }
@@ -39,10 +39,10 @@ local function groups(v: State.View): { Group }
 	for _, p in sorted do
 		local def = PetDefs.get(p.key)
 		if def and not p.thawM then -- a pet in a Thaw Machine can't be sold until it's out
-			local gid = `{p.key}|{p.pose}|{p.mut or ""}`
+			local gid = `{p.key}|{p.pose}|{p.mut or ""}|{p.sz or ""}`
 			local g = byId[gid]
 			if not g then
-				g = { id = gid, def = def, pose = p.pose, mut = p.mut, ids = {}, inPan = 0, value = Config.sellValue(p.income, mult), rank = Config.tier(def.tier).rank }
+				g = { id = gid, def = def, pose = p.pose, mut = p.mut, sz = p.sz, ids = {}, inPan = 0, value = Config.sellValue(p.income, mult), rank = Config.tier(def.tier).rank }
 				byId[gid] = g
 				table.insert(out, g)
 			end
@@ -69,9 +69,9 @@ function SellPopup.shownKey(v: State.View): string
 	return table.concat(parts, ",") .. (if lastSale then tostring(lastSale.at) else "")
 end
 
-local function label(def: PetDefs.PetDef, pose: string, mut: string?): string
+local function label(def: PetDefs.PetDef, pose: string, mut: string?, sz: string?): string
 	local ps = Config.poses[pose]
-	return def.name .. (if ps and pose ~= "idle" then " " .. ps.label else "") .. (if mut then " " .. mut else "")
+	return (if sz then sz .. " " else "") .. def.name .. (if ps and pose ~= "idle" then " " .. ps.label else "") .. (if mut then " " .. mut else "")
 end
 
 local function role(h: EquipmentPopup.Helpers, t: TextLabel, r: string)
@@ -125,7 +125,7 @@ local function groupTile(h: EquipmentPopup.Helpers, parent: Instance, k: number,
 	if g.def.icon ~= "" then
 		Ui.image(tile.face, g.def.icon, UDim2.fromScale(0.8, 0.5), UDim2.fromScale(0.1, 0.06))
 	end
-	local name = Ui.label(tile.face, label(g.def, g.pose, g.mut), UDim2.fromScale(0.92, 0.18), UDim2.fromScale(0.04, 0.56))
+	local name = Ui.label(tile.face, label(g.def, g.pose, g.mut, g.sz), UDim2.fromScale(0.92, 0.18), UDim2.fromScale(0.04, 0.56))
 	role(h, name, "tiny") -- one size for every tile's name (short names grew huge on "small")
 	pill(h, tile.face, `x{#g.ids}`, false, 0.62, 0.03, 0.34, 0.15)
 	pill(h, tile.face, Ui.short(g.value), true, 0.1, 0.78, 0.8, 0.18)
@@ -172,7 +172,7 @@ local function card(h: EquipmentPopup.Helpers, holder: Frame, g: Group, o: any)
 	local tt = Ui.label(tierChip, string.upper(g.def.tier), UDim2.fromScale(0.9, 0.8), UDim2.fromScale(0.05, 0.1))
 	role(h, tt, "small")
 	tierChip.Parent = tierRow
-	local nm = Ui.label(h.row(l, 2, 0.1), label(g.def, g.pose, g.mut), UDim2.fromScale(1, 0.9), UDim2.fromScale(0, 0.05))
+	local nm = Ui.label(h.row(l, 2, 0.1), label(g.def, g.pose, g.mut, g.sz), UDim2.fromScale(1, 0.9), UDim2.fromScale(0, 0.05))
 	role(h, nm, "title")
 	line(h, l, 3, `You have {#g.ids}` .. (if g.inPan > 0 then `  ({g.inPan} in your pan)` else ""), nil, "small")
 	local ask = o.data.ask

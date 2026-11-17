@@ -97,6 +97,28 @@ Config.mutations = {
 } :: { [string]: { bonus: number, chance: number, nightOnly: boolean? } }
 Config.mutationRollOrder = { "Starry", "Golden" } -- rarest first
 
+-- Sizes (owner 2026-11-17, from Steal an Egg: a pet's weight is rolled apart from its mutation, and a heavier
+-- pet earns more, about weight^(37/60), and hatches slower; its fans call x3 "Giant" and x5 "Huge"). Every wild
+-- pet rolls one when it spawns, rarest first; none = a normal pet. Rare on purpose: Big 1 in 20, Giant 1 in 100,
+-- Huge 1 in 1,000 (a Huge Secret is a 1 in 20 million story). It stacks with the mutation.
+--   bonus  = coins x (Steal an Egg's weight curve: x1.5 = about 2x the weight, x3 = 6x, x5 = 13x)
+--   scale  = how much bigger the pet and its ice cube are drawn (Pet Rules 4: Giant at most 2.5x, never hiding you)
+--   thaw   = the Thaw Machine takes this much longer; freeze = the ray takes this much longer
+-- PACING-2026-11-16.md section 7: with these the pacing barely moves (the longer thaws eat the extra coins).
+Config.sizes = {
+	Big = { chance = 1 / 20, bonus = 1.5, scale = 1.25, thaw = 1.25, freeze = 1.1 },
+	Giant = { chance = 1 / 100, bonus = 3, scale = 1.6, thaw = 1.6, freeze = 1.25 },
+	Huge = { chance = 1 / 1000, bonus = 5, scale = 2, thaw = 2, freeze = 1.5 },
+} :: { [string]: { chance: number, bonus: number, scale: number, thaw: number, freeze: number } }
+Config.sizeRollOrder = { "Huge", "Giant", "Big" } -- rarest first
+-- a carried cube grows with its pet's size only this far, so a stack of Huge cubes never hides you
+Config.carrySizeMax = 1.4
+
+-- a pet's size entry (nil = normal, or a size this version doesn't know)
+function Config.size(sz: any): { chance: number, bonus: number, scale: number, thaw: number, freeze: number }?
+	return if typeof(sz) == "string" then Config.sizes[sz] else nil
+end
+
 Config.upgrades = { -- baseCost = the price of level 2; each step costs x1.5 the last (Game Plan 11)
 	-- cube size: +12% a level for the first 4 levels (you can see it), then +2%
 	ray = { name = "Ice Ray", baseCost = 40, costGrowth = 1.5, maxLevel = 20, lifeBonus = 0.02, -- +2% cube life a level (owner 2026-10-30)
@@ -2265,9 +2287,10 @@ end
 
 -- how long a pet takes in the Thaw Machine (seconds); panLevel = the pan's Slots level (upgrades.pen),
 -- thawLevel = the Thaw Speed upgrade (pan.thaw): each level x upgradeFactor (-10%)
-function Config.thawSeconds(tier: string, size: string, zone: number, mut: string?, panLevel: number, thawLevel: number?): number
+function Config.thawSeconds(tier: string, size: string, zone: number, mut: string?, panLevel: number, thawLevel: number?, sz: string?): number
 	local T = Config.thaw
-	local base = (T.seconds[tier] or 15) * (T.sizeFactor[size] or 1) * (if mut then T.mutFactor[mut] or 1 else 1)
+	local big = Config.size(sz) -- Big / Giant / Huge thaw slower (Config.sizes)
+	local base = (T.seconds[tier] or 15) * (T.sizeFactor[size] or 1) * (if mut then T.mutFactor[mut] or 1 else 1) * (if big then big.thaw else 1)
 	local far = T.islandGrowth ^ math.max(0, zone - 1)
 	local upgrade = T.upgradeFactor ^ math.max(0, (thawLevel or 1) - 1)
 	return math.max(1, math.round(base * far * upgrade / (T.perLevel ^ math.max(0, panLevel - 1))))
@@ -2477,9 +2500,10 @@ function Config.gunFreeze(gun: number?): number
 	return 1 + Config.guns.freezePerGun * (math.clamp(math.floor(tonumber(gun) or 1), 1, #Config.guns.list) - 1)
 end
 
-function Config.freezeSeconds(tier: string, size: string, power: number, zoneId: number, asleep: boolean?, gun: number?): number
+function Config.freezeSeconds(tier: string, size: string, power: number, zoneId: number, asleep: boolean?, gun: number?, sz: string?): number
 	local F = Config.show.freeze
-	local raw = (F.tierSeconds[tier] or 1) * (F.sizeFactor[size] or 1) * Config.aim.timeScale / Config.freezeSpeed(power, zoneId)
+	local big = Config.size(sz) -- Big / Giant / Huge take longer to freeze (Config.sizes)
+	local raw = (F.tierSeconds[tier] or 1) * (F.sizeFactor[size] or 1) * (if big then big.freeze else 1) * Config.aim.timeScale / Config.freezeSpeed(power, zoneId)
 		/ Config.gunFreeze(gun)
 	if asleep then
 		raw *= Config.night.sleepFreezeFactor

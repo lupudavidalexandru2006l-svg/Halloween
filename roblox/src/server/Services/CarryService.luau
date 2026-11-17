@@ -24,7 +24,7 @@ local WildPetSpawner = require(script.Parent.WildPetSpawner)
 local EventService = require(script.Parent.EventService)
 local GearService = require(script.Parent.GearService)
 
-export type CubeInfo = { key: string, zone: number, pose: string, mut: string?, superFrozen: boolean, superUsed: boolean, offered: boolean }
+export type CubeInfo = { key: string, zone: number, pose: string, mut: string?, sz: string?, superFrozen: boolean, superUsed: boolean, offered: boolean }
 export type Cube = CubeInfo & { uid: string, life: number, lifeMax: number, since: number, part: Part? , shownFrac: number,
 	graceUntil: number } -- no melting before this (os.clock): the freeze show for this cube is still playing
 
@@ -64,10 +64,10 @@ function CarryService.capacity(player: Player): number
 	return math.max(data.upgrades.backpack, Config.gun(data.guns.equipped).beams)
 end
 
-local function cubeSize(player: Player, def: PetDefs.PetDef): number
+local function cubeSize(player: Player, def: PetDefs.PetDef, sz: string?): number
 	local data = DataService.get(player)
 	local ray = if data then data.upgrades.ray else 1
-	return PetDefs.cubeSize[def.size] * Config.cubeSizeFactor(ray) * Config.carry.scale -- carried cubes are smaller, so the stack never hides you
+	return PetDefs.cube(def, sz, true) * Config.cubeSizeFactor(ray) * Config.carry.scale -- carried cubes are smaller, so the stack never hides you
 end
 
 -- where a body joint holds its second part on its first, standing still: a Motor6D (classic rigs) or an
@@ -128,7 +128,7 @@ end
 
 local function makePart(player: Player, c: Cube): Part
 	local def = PetDefs.get(c.key) :: PetDefs.PetDef
-	local s = cubeSize(player, def)
+	local s = cubeSize(player, def, c.sz)
 	local p = Instance.new("Part")
 	p.Name = "Cube"
 	p.Size = Vector3.new(s, s, s)
@@ -144,6 +144,7 @@ local function makePart(player: Player, c: Cube): Part
 	p:SetAttribute("PetKey", c.key)
 	p:SetAttribute("Pose", c.pose)
 	p:SetAttribute("Mut", c.mut)
+	p:SetAttribute("Size", c.sz)
 	p:SetAttribute("SuperFrozen", c.superFrozen)
 	p:SetAttribute("LifeFrac", 1)
 	p:SetAttribute("OwnerUserId", player.UserId)
@@ -154,7 +155,7 @@ local function newCube(def: PetDefs.PetDef, data: any, info: CubeInfo, graceSeco
 	-- worked out from the trip home (Config.cubeLife, owner 2026-11-12), so every island is a fair run
 	local lifeMax = Config.cubeLife(def.tier, def.zone) * (1 + Config.upgrades.ray.lifeBonus * (data.upgrades.ray - 1))
 	local c: Cube = {
-		key = info.key, zone = info.zone, pose = info.pose, mut = info.mut, superFrozen = info.superFrozen, superUsed = info.superUsed, offered = info.offered,
+		key = info.key, zone = info.zone, pose = info.pose, mut = info.mut, sz = info.sz, superFrozen = info.superFrozen, superUsed = info.superUsed, offered = info.offered,
 		uid = "c" .. nextUid, life = lifeMax, lifeMax = lifeMax, since = os.clock(), part = nil, shownFrac = 1,
 		graceUntil = os.clock() + (graceSeconds or 0),
 	}
@@ -179,7 +180,7 @@ function CarryService.addCube(player: Player, info: CubeInfo, restoring: boolean
 		-- a paid cube lives in the save until it's banked, so leaving or a crash never loses it (CA-03).
 		-- MonetizationService saves right after this, before returning PurchaseGranted.
 		DataService.mutate(player, function(d)
-			table.insert(d.superCubes, { key = info.key, pose = info.pose, mut = info.mut })
+			table.insert(d.superCubes, { key = info.key, pose = info.pose, mut = info.mut, sz = info.sz })
 		end)
 	end
 	local c = newCube(def, data, info, graceSeconds)
@@ -203,7 +204,7 @@ function CarryService.dropCube(player: Player, info: CubeInfo, petAt: Vector3, g
 	local p = makePart(player, c)
 	local s = p.Size.Y
 	-- the same spot the client's snap draws it at (EffectsController.cubeAt)
-	p.CFrame = CFrame.new(petAt - Vector3.new(0, PetDefs.sizeHeight[def.size] / 2, 0) + Vector3.new(0, s / 2, 0))
+	p.CFrame = CFrame.new(petAt - Vector3.new(0, PetDefs.height(def, info.sz) / 2, 0) + Vector3.new(0, s / 2, 0))
 	p.Anchored = true
 	local a = Instance.new("Attachment")
 	a.Position = Vector3.new(0, s / 2 + 0.15, 0) -- the top of the cube: the compact pill rests here, the pet stays in view
@@ -287,7 +288,7 @@ local function thawOnGround(player: Player, c: Cube)
 		changed(player)
 		return
 	end
-	WildPetSpawner.spawnDazed({ key = c.key, zone = c.zone, pose = c.pose, mut = c.mut, superUsed = c.superUsed, offered = c.offered },
+	WildPetSpawner.spawnDazed({ key = c.key, zone = c.zone, pose = c.pose, mut = c.mut, sz = c.sz, superUsed = c.superUsed, offered = c.offered },
 		Vector3.new(at.X, 0, at.Z), player, false)
 	Remotes.fire(player, "Notify", "melted", { key = c.key, offer = false })
 end
@@ -316,7 +317,7 @@ function CarryService.takeAll(player: Player): { Cube }
 		for _, c in list do
 			if c.superFrozen then -- leaves the save as it leaves your back; PenService hands back any it can't bank with addCube
 				for i, r in d.superCubes do
-					if r.key == c.key and r.pose == c.pose and r.mut == c.mut then
+					if r.key == c.key and r.pose == c.pose and r.mut == c.mut and r.sz == c.sz then
 						table.remove(d.superCubes, i)
 						break
 					end
@@ -353,7 +354,7 @@ local function melt(player: Player, c: Cube)
 	local at = Vector3.new(math.clamp(pos.X + math.cos(angle) * 3, -half, half), 0, pos.Z + math.sin(angle) * 3)
 	-- Rare and up, never after a Super Freeze, and at most once per run (the flag rides along through a free re-freeze)
 	local offer = Config.tier(def.tier).rank >= Config.tier(Config.monetization.superFreeze.minTier).rank and not c.superUsed and not c.offered
-	WildPetSpawner.spawnDazed({ key = c.key, zone = c.zone, pose = c.pose, mut = c.mut, superUsed = c.superUsed, offered = c.offered }, at, player, offer)
+	WildPetSpawner.spawnDazed({ key = c.key, zone = c.zone, pose = c.pose, mut = c.mut, sz = c.sz, superUsed = c.superUsed, offered = c.offered }, at, player, offer)
 	DataService.mutate(player, function(d)
 		d.stats.melts += 1
 	end)
@@ -398,7 +399,7 @@ function CarryService.knockOff(player: Player, open: boolean): string?
 	local half = Config.world.tunnel.width / 2 - Config.spawner.wallMargin
 	local z = math.clamp(pos.Z + math.sin(angle) * 4, Config.world.hubZMax + 2, Config.world.tunnelEnd - 2) -- never in the safe hub
 	local at = Vector3.new(math.clamp(pos.X + math.cos(angle) * 4, -half, half), 0, z)
-	WildPetSpawner.spawnDazed({ key = cube.key, zone = cube.zone, pose = cube.pose, mut = cube.mut, superUsed = cube.superUsed, offered = true }, at, player, false, open, not open)
+	WildPetSpawner.spawnDazed({ key = cube.key, zone = cube.zone, pose = cube.pose, mut = cube.mut, sz = cube.sz, superUsed = cube.superUsed, offered = true }, at, player, false, open, not open)
 	return cube.key
 end
 
@@ -422,7 +423,7 @@ function CarryService.superFreezeOffer(player: Player): boolean
 		if root:GetAttribute("OfferUserId") == player.UserId then
 			local pet = WildPetSpawner.get(root:GetAttribute("PetId") :: string)
 			if pet and CarryService.load(player) < CarryService.capacity(player) then
-				local info = { key = pet.def.key, zone = pet.zone, pose = pet.pose or "idle", mut = pet.mut, superFrozen = true, superUsed = true, offered = true }
+				local info = { key = pet.def.key, zone = pet.zone, pose = pet.pose or "idle", mut = pet.mut, sz = pet.sz, superFrozen = true, superUsed = true, offered = true }
 				WildPetSpawner.remove(pet.id)
 				CarryService.addCube(player, info)
 				return true
@@ -490,7 +491,7 @@ function CarryService.Start()
 		for _, r in data.superCubes do
 			local def = PetDefs.get(r.key)
 			if def then
-				CarryService.addCube(player, { key = r.key, zone = def.zone, pose = r.pose, mut = r.mut, superFrozen = true, superUsed = true, offered = true }, true)
+				CarryService.addCube(player, { key = r.key, zone = def.zone, pose = r.pose, mut = r.mut, sz = r.sz, superFrozen = true, superUsed = true, offered = true }, true)
 			end
 		end
 	end)

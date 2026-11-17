@@ -177,10 +177,25 @@ function M.inZone(zone: number, tier: string?): { PetDef }
 	return out
 end
 
-function M.income(def: PetDef, pose: string, mutation: string?): number
+-- sz = the pet's size (Config.sizes: Big / Giant / Huge, nil = normal)
+function M.income(def: PetDef, pose: string, mutation: string?, sz: string?): number
 	local p = Config.poses[pose]
 	local m = if mutation then Config.mutations[mutation] else nil
-	return def.income * (if p then p.bonus else 1) * (if m then m.bonus else 1)
+	local s = Config.size(sz)
+	return def.income * (if p then p.bonus else 1) * (if m then m.bonus else 1) * (if s then s.bonus else 1)
+end
+
+-- how tall a pet stands with its size (studs)
+function M.height(def: PetDef, sz: string?): number
+	local s = Config.size(sz)
+	return M.sizeHeight[def.size] * (if s then s.scale else 1)
+end
+
+-- a pet's ice cube edge with its size (studs, before the carry scale); carried = capped at Config.carrySizeMax
+function M.cube(def: PetDef, sz: string?, carried: boolean?): number
+	local s = Config.size(sz)
+	local k = if s then s.scale else 1
+	return M.cubeSize[def.size] * (if carried then math.min(k, Config.carrySizeMax) else k)
 end
 
 return M
