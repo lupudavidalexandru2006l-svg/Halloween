@@ -43,7 +43,10 @@ type FreezeLook = { shell: Part, highlight: Highlight?, crystals: { BasePart }, 
 	rim: { BasePart }, flecks: { Fleck }, mist: BasePart?, mistFx: ParticleEmitter? } -- the ice front (owner 2026-11-05)
 type Drawn = { model: PVInstance, height: number, offer: BillboardGui?, img: ImageLabel?, born: number, fx: Fx, banked: Banked?,
 	clock: number, freeze: FreezeLook?, zzz: BillboardGui, anim: Anim, box: Folder?, shown: boolean? } -- box: a wild pet's own folder (hidden off your island) -- clock: the pet's own animation time (it slows while held and freezing)
-type CubeLook = { model: PVInstance, edges: SelectionBox, cracks: { { part: BasePart, offset: CFrame } }, onGround: boolean } -- onGround: frozen, waiting for E
+-- onGround: frozen, waiting for E. ice / line / drips: the drawn ice that melts from the top down
+-- (Config.petFx.melt); shown = its drawn height share; lastFrac / meltAt: when LifeFrac last went down
+type CubeLook = { model: PVInstance, edges: SelectionBox, cracks: { { part: BasePart, offset: CFrame } }, onGround: boolean,
+	ice: BasePart, line: BasePart, drips: ParticleEmitter, shown: number, lastFrac: number, meltAt: number }
 local drawn: { [BasePart]: Drawn } = {}
 local cubes: { [BasePart]: CubeLook } = {}
 local folder: Folder
@@ -904,15 +907,40 @@ local function addCube(part: Instance)
 	local model, img = standIn(def, part.Size.Y * 0.6, part:GetAttribute("Pose") == "sleep") -- frozen asleep: eyes shut
 	model.Parent = folder
 	mutationLook(model, img, part, part:GetAttribute("Mut"))
-	-- white ice edges (prototype frame lines)
+	-- the ice we draw (the server's cube is hidden on this screen): it melts from the top down
+	local M = P.melt
+	local ice = fxPart(part.Size, Theme.ice, folder)
+	ice.Name = "MeltIce"
+	ice.Material = Enum.Material.SmoothPlastic -- not Glass: the pet inside would vanish (World Rules)
+	ice.Transparency = 0.45
+	local line = fxPart(Vector3.new(part.Size.X * (1 + M.line.grow), M.line.thick, part.Size.Z * (1 + M.line.grow)), Theme.ice, folder)
+	line.Name = "MeltLine"
+	line.Material = Enum.Material.Neon
+	line.Transparency = 1
+	local drips = Instance.new("ParticleEmitter")
+	drips.Color = ColorSequence.new(Theme.ice)
+	drips.LightEmission = 0.4
+	drips.Rate = 0
+	drips.EmissionDirection = Enum.NormalId.Top
+	drips.Speed = NumberRange.new(M.drips.speed[1], M.drips.speed[2])
+	drips.SpreadAngle = Vector2.new(70, 70)
+	drips.Acceleration = Vector3.new(0, -M.drips.fall, 0)
+	drips.Lifetime = NumberRange.new(M.drips.life[1], M.drips.life[2])
+	drips.Size = NumberSequence.new(M.drips.size, M.drips.size * 0.6)
+	drips.Transparency = NumberSequence.new(0.1, 0.6)
+	drips.Parent = line
+	-- white ice edges (prototype frame lines), round the ice that's left
 	local edges = Instance.new("SelectionBox")
-	edges.Adornee = part
+	edges.Adornee = ice
 	edges.Color3 = Theme.white
 	edges.LineThickness = 0.04
 	edges.Transparency = P.edgeTransparency
 	edges.SurfaceTransparency = 1
 	edges.Parent = folder
-	cubes[part] = { model = model, edges = edges, cracks = makeCracks(part), onGround = onGround }
+	local frac = part:GetAttribute("LifeFrac")
+	local start = if typeof(frac) == "number" then frac else 1
+	cubes[part] = { model = model, edges = edges, cracks = makeCracks(part), onGround = onGround,
+		ice = ice, line = line, drips = drips, shown = start, lastFrac = start, meltAt = -math.huge }
 end
 
 local function removeCube(part: Instance)
@@ -920,6 +948,8 @@ local function removeCube(part: Instance)
 	if c then
 		c.model:Destroy()
 		c.edges:Destroy()
+		c.ice:Destroy()
+		c.line:Destroy() -- its drips go with it
 		for _, k in c.cracks do
 			k.part:Destroy()
 		end
@@ -1406,28 +1436,62 @@ local function step(dt: number)
 		end
 		-- hidden on this screen while its snap or show plays at the pet's spot (a local attribute)
 		local hidden = part:GetAttribute("ShowHidden") == true
-		part.LocalTransparencyModifier = if hidden then 1 else 0
+		part.LocalTransparencyModifier = 1 -- its ice is drawn here (c.ice), melting from the top down
 		c.edges.Visible = not hidden
 		if hidden then
 			c.model:PivotTo(part.CFrame * CFrame.new(0, -500, 0))
+			c.ice.Transparency = 1
+			c.line.Transparency = 1
+			c.drips.Rate = 0
+			for _, k in c.cracks do
+				k.part.Transparency = 1
+			end
 			continue
 		end
 		c.model:PivotTo(part.CFrame)
-		-- the cube shows time left: it clears up as it melts, cracks, then flashes near the end (no timer)
+		-- the cube shows time left (no timer): the ice melts away from the top down, so the pet comes free
+		-- head first, with a wet water line and drips at the melt edge; it cracks low down, then flashes
+		local M = P.melt
 		local frac = part:GetAttribute("LifeFrac")
 		local superFrozen = part:GetAttribute("SuperFrozen") == true
-		local cracked = typeof(frac) == "number" and frac < P.crackBelow and not superFrozen
-		if superFrozen then
-			part.Color = Theme.fx.superFrozen
-		elseif typeof(frac) == "number" then
-			local flash = frac < 0.25 and math.sin(t * 12) > 0
-			part.Transparency = 0.45 + (1 - frac) * 0.35
-			part.Color = if flash then Theme.no else Theme.ice
+		-- back in the safe hub it freezes solid again (owner 2026-11-17: "so it looks right on the thaw
+		-- machine"). Only the look: the server's life is unchanged, so out on an island again it shows
+		-- the real ice left
+		local safe = WorldRules.inHub(part.Position)
+		local life = if typeof(frac) == "number" and not superFrozen and not safe then math.clamp(frac, 0, 1) else 1
+		if life < c.lastFrac - 1e-4 then
+			c.meltAt = t -- it's melting right now (in the hub or a Big Chill it stops)
 		end
+		c.lastFrac = life
+		-- LifeFrac comes in 1% steps: glide between them; refreezing in the hub is a slower, visible grow
+		c.shown += (life - c.shown) * math.min(1, dt * (if life > c.shown then M.refreeze else M.follow))
+		local share = math.max(M.floor, c.shown)
+		local size = part.Size
+		local h = size.Y * share
+		local bottom = part.CFrame * CFrame.new(0, -size.Y / 2, 0)
+		c.ice.Size = Vector3.new(size.X, h, size.Z)
+		c.ice.CFrame = bottom * CFrame.new(0, h / 2, 0)
+		if superFrozen then
+			c.ice.Color = Theme.fx.superFrozen
+			c.ice.Transparency = 0.45
+		else
+			local flash = life < 0.25 and math.sin(t * 12) > 0
+			c.ice.Transparency = 0.45 + (1 - life) * M.fade
+			c.ice.Color = if flash then Theme.no else Theme.ice
+		end
+		c.line.CFrame = bottom * CFrame.new(0, h, 0)
+		c.line.Transparency = if share < 0.995 then M.line.transparency else 1
+		local melting = share < 0.995 and t - c.meltAt < M.drips.meltingFor
+		c.drips.Rate = if melting then M.drips.rate * (if reduced then 0.5 else 1) else 0
+		-- cracks: the top face's ride down on the ice's top, the sides' show only below the melt line
+		local cracked = life < P.crackBelow and not superFrozen
 		for _, k in c.cracks do
-			k.part.Transparency = if cracked then 0.1 else 1
-			if cracked then
-				k.part.CFrame = part.CFrame * k.offset
+			local y = k.offset.Position.Y
+			local onTop = y > size.Y * 0.45
+			local show = cracked and (onTop or y < h - size.Y / 2)
+			k.part.Transparency = if show then 0.1 else 1
+			if show then
+				k.part.CFrame = part.CFrame * (if onTop then CFrame.new(0, h - size.Y, 0) * k.offset else k.offset)
 			end
 		end
 	end

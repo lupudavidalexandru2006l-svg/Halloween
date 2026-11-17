@@ -1217,6 +1217,19 @@ Config.petFx = {
 	mutSparkleRate = 5, mutOutline = 0.35, -- Golden / Starry pets (colours in Theme.mut)
 	mutSparkleSize = { Golden = 0.3, Starry = 0.6 } :: { [string]: number }, -- Starry's twinkles are big enough to read on a phone
 	sleepTilt = 0.4, -- radians a sleeping pet leans over onto its side
+	-- a cube's ice melts away from the top down as its life runs out (owner 2026-11-17: "slowly unfreeze it
+	-- like from up to bottom"): the ice block's height = its life left, sitting on the cube's bottom, so the
+	-- pet comes free head first. follow: how fast the drawn height catches up with the server's LifeFrac (per
+	-- second; it arrives in 1% steps). floor: the ice never draws lower than this share of the cube.
+	-- fade: extra see-through as it melts. line: the wet, bright water line on the ice's top (studs thick,
+	-- share wider than the cube). drips: water drops off the melt line while it is melting (stops when it
+	-- isn't: hub, Big Chill), rate a second, half with reduced motion.
+	melt = {
+		-- refreeze: how fast the ice grows back to full once you're in the safe hub (per second, ~1 s)
+		follow = 6, refreeze = 2.5, floor = 0.06, fade = 0.15,
+		line = { thick = 0.05, grow = 0.04, transparency = 0.6 }, -- 0.3 white read as a snow lid in play (2026-11-17)
+		drips = { rate = 12, size = 0.14, speed = { 0.4, 1.2 }, life = { 0.45, 0.75 }, fall = 28, meltingFor = 3 },
+	},
 }
 -- pet motion (PetVisuals): no rigs yet, so each action is squash, stretch, lean, hop and turn on the whole
 -- pet around its feet. Heights, steps and sways are fractions of the pet's height (PetDefs.sizeHeight);
