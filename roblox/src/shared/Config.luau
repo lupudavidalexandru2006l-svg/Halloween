@@ -1211,6 +1211,18 @@ Config.ray = { beamCore = 0.28, beamGlow = 0.84, armRaise = 90, tipSize = 0.76, 
 	-- owner 2026-11-16: "you can freeze more": the ray stays out after a freeze, so you can freeze one pet after
 	-- another; they wait on the ground (Config.carry) while your hands still hold only what they can
 	putAwayAfterFreeze = false,
+	-- the laser in detail (owner 2026-11-17: "make the shooting better and the lasers more detailed"):
+	-- travel: seconds the beam's head takes to race from the muzzle to the target. haze: a wide soft glow
+	-- round it (studs, transparency). pulses: bright packets running down the glow layer toward the target
+	-- (count, beam lengths a second, width as a share of the beam). strands: two thin frost threads that
+	-- twist round the core (studs wide, curve, turns a second). motes: frost dust drifting off the beam (per
+	-- stud a second). impact: a frost ring at the target (studs, turns a second), a spray of ice flakes
+	-- bouncing off it (a second) and a burst when the head lands. muzzle: a pulsing glow ball and light.
+	-- Reduced motion: no travel, no pulses, still strands. Low graphics: no strands or motes, half the spray.
+	beam = { travel = 0.08, haze = 2.2, hazeTransparency = 0.84, pulses = 3, pulseSpeed = 2.2, pulseWidth = 0.07,
+		pulseBase = 0.6, pulseBright = 0.15, strand = 0.1, strandCurve = 1.2, strandTurns = 1.6, motes = 3,
+		impactSize = 1.3, impactSpin = 3, spray = 22, landBurst = 14, muzzleGlow = 0.6, muzzleHz = 9,
+		lightRange = 8, lightBrightness = 2.5 },
 -- the shot's body motion (owner 2026-11-05, from a freeze reference clip): a quick start (hips lead, the
 -- torso coils back, then everything snaps forward and the beam lands), a hold that leans in harder as the
 -- meter climbs, and a lock (the cube shut) or a cancel (let go early). Seconds; angles in degrees;
@@ -1232,7 +1244,10 @@ anim = {
 	cancelCues = { { at = 0, sound = "ray_fizz" } } :: { RayCue },
 	humPitch = { 1.0, 1.2 }, -- the hold's hum rises with the meter
 	fx = { mist = 8, eject = 5, vent = 10, flashSize = 0.9, flashSeconds = 0.07, flashGap = 0.34, -- flashGap: at most 3 flashes a second
-		beamOut = 0.06, beamIn = 0.1 }, -- the beam pulls back: the muzzle end first, then the target end
+		beamOut = 0.06, beamIn = 0.1, -- the beam pulls back: the muzzle end first, then the target end
+		-- 2026-11-17: the charge pulls a ring into the muzzle (studs wide, from -> to); the fire blasts a
+		-- shock ring out of the barrel (studs wide, studs ahead it travels)
+		chargeRing = { 1.6, 0.2 }, chargeSeconds = 0.12, shockRing = { 0.5, 2.6 }, shockAhead = 1.6, shockSeconds = 0.18 },
 } }
 -- extra pet looks (prototype syncWild / makeCube)
 Config.petFx = {
@@ -1468,8 +1483,27 @@ Config.show.freeze = {
 	mist = { rate = 14, untilMeter = 0.5 }, -- per second at the feet, fading out by this meter
 	rim = { thick = 0.1, transparency = 0.2 }, -- a thin bright line round the top edge of the ice
 	flecks = { count = 5, size = 0.22, seconds = 0.3, band = { 0.1, 0.25 } }, -- band: heights above the rim, shares of the pet's height
+	-- realism pass (owner 2026-11-17: "more detailed and more realistic"). The ice grows in layers: each band
+	-- pops out a little as the front reaches it (pop: share of the band), sits a bit crooked (turn, radians;
+	-- jitter, share wider), the lower ones are thicker (baseThick) and older ice turns cloudier (clear: newest
+	-- see-through .. oldest). Frost spreads over the ground from the feet first (reach: disc width in shares of
+	-- the ice width; fingers reach out of it, length in pet heights). Frost feathers grow on the ice faces as the
+	-- front passes (size in pet heights). Glints twinkle on the ice (per second at full ice). Low graphics
+	-- halves the fingers and feathers.
+	-- clear: first play-test (2026-11-17) at 0.78 .. 0.5 hid the pet behind the stacked walls
+	bands = { count = 4, jitter = 0.05, turn = 0.07, pop = 0.35, baseThick = 0.07, clear = { 0.82, 0.64 }, cloud = 0.15 },
+	groundFrost = { reach = 2.1, fingers = 8, fingerLength = 0.55, transparency = 0.3 },
+	ferns = { count = 6, size = 0.26, thick = 0.035, from = 0.12, transparency = 0.3 }, -- 0.4 studs read as twigs
+	iceGlints = { rate = 7 },
 	-- the snap at 100% (EffectsController)
 	snapSeconds = 0.16, snapScale = 1.22, puffParts = 14, flashPuffParts = 22, flySeconds = 0.3,
+	-- realism pass for the snap: ice shards burst off and bounce on the ground (speed / up in studs a second,
+	-- size in studs), a frost ring races out over the ground and a frost patch lingers, the cube is frosted
+	-- white for a moment and clears from the bottom up (coat), star glints wink on its corners, then it sits
+	-- for settleSeconds before flying home. Cubes hold a few frozen air bubbles near their walls.
+	shards = { count = 10, speed = { 6, 12 }, up = { 7, 12 }, size = { 0.18, 0.42 }, seconds = 0.75, gravity = 48, bounce = 0.35 },
+	frostRing = { reach = 3.4, seconds = 0.4, linger = 1.4 },
+	coatSeconds = 0.45, glints = 3, glintSeconds = 0.3, glintSize = 0.9, settleSeconds = 0.22, bubbles = 6,
 	-- a save's very first freeze (2026-11-15): longer hit-stop, a flash, rays and a big burst
 	firstHoldScale = 2.5, firstRays = 10, firstRaySeconds = 1.2, firstBurst = 60,
 	touchSeconds = 0.8, spikeCount = 6, spikeHeight = 1.6, starCount = 7, auroraBands = 3,

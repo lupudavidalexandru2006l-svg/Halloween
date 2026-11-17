@@ -289,6 +289,165 @@ function EffectsController.cubeAt(data: any, size: number): CFrame
 	return CFrame.new(at - Vector3.new(0, h / 2, 0) + Vector3.new(0, size / 2, 0))
 end
 
+-- ---------- the snap in detail (2026-11-17 realism pass, Config.show.freeze) ----------
+-- ice shards burst off the new cube, spin, fall and bounce on the ground, then fade
+function EffectsController.shards(center: Vector3, size: number, groundY: number)
+	local S = F.shards
+	local n = amount(S.count)
+	local r = Random.new()
+	local list: { { part: BasePart, vel: Vector3, spin: Vector3 } } = {}
+	for i = 1, n do
+		local w = Instance.new("WedgePart")
+		local s = r:NextNumber(S.size[1], S.size[2])
+		w.Size = Vector3.new(s * 0.5, s, s * 1.4)
+		w.Color = if i % 3 == 0 then Theme.white else Theme.ice
+		w.Material = Enum.Material.SmoothPlastic
+		w.Transparency = 0.2
+		w.Anchored = true
+		w.CanCollide = false
+		w.CanQuery = false
+		w.CanTouch = false
+		w.CastShadow = false
+		local a = (i + r:NextNumber(-0.3, 0.3)) * (2 * math.pi / n)
+		local out = Vector3.new(math.cos(a), 0, math.sin(a))
+		w.CFrame = CFrame.new(center + out * size * 0.45 + Vector3.new(0, r:NextNumber(-0.2, 0.4) * size, 0))
+			* CFrame.Angles(r:NextNumber(0, 6), r:NextNumber(0, 6), 0)
+		w.Parent = workspace
+		local speed = r:NextNumber(S.speed[1], S.speed[2])
+		table.insert(list, { part = w, vel = out * speed + Vector3.new(0, r:NextNumber(S.up[1], S.up[2]), 0),
+			spin = Vector3.new(r:NextNumber(-14, 14), r:NextNumber(-14, 14), r:NextNumber(-14, 14)) })
+	end
+	local life = EffectsController.time(S.seconds)
+	local t0 = os.clock()
+	local last = t0
+	local conn: RBXScriptConnection
+	conn = RunService.RenderStepped:Connect(function()
+		local now = os.clock()
+		local dt = math.min(0.05, now - last)
+		last = now
+		local u = (now - t0) / life
+		for _, s in list do
+			s.vel -= Vector3.new(0, S.gravity * dt, 0)
+			local cf = s.part.CFrame + s.vel * dt
+			local low = groundY + s.part.Size.Y * 0.3
+			if cf.Position.Y < low then -- bounce on the ground, losing most of the speed
+				cf = cf + Vector3.new(0, low - cf.Position.Y, 0)
+				s.vel = Vector3.new(s.vel.X * 0.6, math.abs(s.vel.Y) * S.bounce, s.vel.Z * 0.6)
+				s.spin *= 0.5
+			end
+			s.part.CFrame = cf * CFrame.Angles(s.spin.X * dt, s.spin.Y * dt, s.spin.Z * dt)
+			s.part.Transparency = 0.2 + 0.8 * math.clamp((u - 0.55) / 0.45, 0, 1)
+		end
+		if u >= 1 then
+			conn:Disconnect()
+			for _, s in list do
+				s.part:Destroy()
+			end
+		end
+	end)
+end
+
+-- a frost ring races out over the ground and a snowy patch lingers where the cube shut
+function EffectsController.frostRing(groundAt: Vector3, size: number)
+	local R = F.frostRing
+	local patch = glow(Vector3.new(0.05, size, size), Theme.fx.frost, nil)
+	patch.Shape = Enum.PartType.Cylinder
+	patch.Material = Enum.Material.Snow
+	patch.Transparency = 0.25
+	patch.CFrame = CFrame.new(groundAt + Vector3.new(0, 0.04, 0)) * CFrame.Angles(0, 0, math.pi / 2)
+	local reach = size * R.reach
+	local linger = EffectsController.time(R.linger)
+	TweenService:Create(patch, TweenInfo.new(EffectsController.time(R.seconds), Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+		{ Size = Vector3.new(0.05, reach * 0.8, reach * 0.8) }):Play()
+	TweenService:Create(patch, TweenInfo.new(linger, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Transparency = 1 }):Play()
+	local ring = glow(Vector3.new(size, 0.1, size), Theme.white, "Ring")
+	ring.Transparency = if reduced() then 0.7 else 0.3
+	ring.CFrame = CFrame.new(groundAt + Vector3.new(0, 0.08, 0))
+	if not ring:IsA("MeshPart") then -- no ring mesh: a thin flat disc
+		ring.Size = Vector3.new(size, 0.04, size)
+	end
+	local rt = EffectsController.time(R.seconds)
+	TweenService:Create(ring, TweenInfo.new(rt, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+		{ Size = Vector3.new(reach, ring.Size.Y, reach), Transparency = 1 }):Play()
+	task.delay(math.max(linger, rt), function()
+		patch:Destroy()
+		ring:Destroy()
+	end)
+end
+
+-- a freshly shut cube is frosted white and clears from the bottom up; star glints wink on its corners.
+-- Everything rides on the cube's model, so it moves with it if it flies home early.
+local function frostOver(model: Model, cube: BasePart, size: number)
+	local coat = Instance.new("Part")
+	coat.Anchored = true
+	coat.CanCollide = false
+	coat.CanQuery = false
+	coat.CanTouch = false
+	coat.CastShadow = false
+	coat.Material = Enum.Material.Snow
+	coat.Color = Theme.fx.frost
+	coat.Transparency = 0.05
+	coat.Parent = model
+	local glints: { { parts: { BasePart }, corner: Vector3, at: number } } = {}
+	local r = Random.new()
+	for i = 1, F.glints do
+		local parts = {}
+		for k = 1, 2 do -- a four-point star: two thin bars crossed
+			local bar = glow(Vector3.new(0.06, 0.06, 0.06), Theme.white, nil)
+			bar.Parent = model
+			bar.Transparency = 1
+			parts[k] = bar
+		end
+		local corner = Vector3.new(if r:NextNumber() < 0.5 then -1 else 1, 1, if r:NextNumber() < 0.5 then -1 else 1) * size * 0.5
+		table.insert(glints, { parts = parts, corner = corner, at = (i - 1) / math.max(1, F.glints) * 0.6 })
+	end
+	local coatTime = EffectsController.time(F.coatSeconds)
+	local glintTime = EffectsController.time(F.glintSeconds)
+	local total = math.max(coatTime, coatTime * 0.6 + glintTime)
+	local t0 = os.clock()
+	local crackled = false
+	local conn: RBXScriptConnection
+	conn = RunService.RenderStepped:Connect(function()
+		if not model.Parent or not cube.Parent then
+			conn:Disconnect()
+			return
+		end
+		local e = os.clock() - t0
+		-- the coat's bottom edge rises: frosty white above it, clear ice below
+		local u = math.clamp(e / coatTime, 0, 1)
+		local lo = -size / 2 + size * u
+		local hgt = math.max(0.02, size / 2 - lo)
+		coat.Size = Vector3.new(size * 1.03, hgt * 1.0 + 0.02, size * 1.03)
+		coat.CFrame = cube.CFrame * CFrame.new(0, (lo + size / 2) / 2, 0)
+		coat.Transparency = if u >= 1 then 1 else 0.05 + 0.4 * u
+		if not crackled and u > 0.1 then
+			crackled = true
+			SoundController.play("ray_crackle", 1.1) -- the ice settling
+		end
+		-- glints: each star pops up and shrinks away on its corner, one after another
+		for _, g in glints do
+			local v = (e - coatTime * g.at) / glintTime
+			local s = if v > 0 and v < 1 then math.sin(v * math.pi) * F.glintSize else 0
+			local at = cube.CFrame * CFrame.new(g.corner) * CFrame.Angles(0, 0, if reduced() then 0 else v * 1.2)
+			g.parts[1].Size = Vector3.new(0.07, math.max(0.05, s), 0.07)
+			g.parts[2].Size = Vector3.new(math.max(0.05, s), 0.07, 0.07)
+			for _, bar in g.parts do
+				bar.CFrame = at
+				bar.Transparency = if s > 0.06 then 0.05 else 1
+			end
+		end
+		if e >= total then
+			conn:Disconnect()
+			coat:Destroy()
+			for _, g in glints do
+				for _, bar in g.parts do
+					bar:Destroy()
+				end
+			end
+		end
+	end)
+end
+
 -- the plain snap at 100% (every freeze without a show)
 local function snap(data: any)
 	local real = EffectsController.realCube(data.uid)
@@ -335,6 +494,11 @@ local function snap(data: any)
 	local snapTime = EffectsController.time(F.snapSeconds)
 	TweenService:Create(cube, TweenInfo.new(snapTime, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Size = Vector3.one * size, Transparency = 0.45 }):Play()
 	puff(at.Position, if flash then F.flashPuffParts else F.puffParts)
+	-- the realism pass: shards burst off and bounce, frost races over the ground, the cube clears bottom-up
+	local groundAt = at.Position - Vector3.new(0, size / 2, 0)
+	EffectsController.shards(at.Position, size, groundAt.Y)
+	EffectsController.frostRing(groundAt, size)
+	frostOver(model, cube, size)
 	-- the lock: one quick white glow as the ice shuts (owner 2026-11-05); a flash-freeze's is brighter
 	-- and adds a light "tink"
 	local g = glow(Vector3.one * size * 1.3, Theme.fx.flash, nil)
@@ -359,7 +523,7 @@ local function snap(data: any)
 	if typeof(data.touch) == "string" then
 		EffectsController.touch(data.touch, at, size)
 	end
-	task.wait(snapTime + EffectsController.time(0.12))
+	task.wait(snapTime + EffectsController.time(0.12 + F.settleSeconds)) -- it sits a beat so the clearing ice reads
 	EffectsController.flyHome(model, real, EffectsController.time(F.flySeconds))
 end
 

@@ -39,14 +39,18 @@ type Anim = { key: string, start: any, t: number, clock: number, from: Pose?, bl
 	lids: { BasePart }, shut: boolean, awake: number } -- lids: closed eyelids (shown while shut); awake: 1 awake, 0 asleep (head, ears and tail fade still)
 type Banked = { edges: SelectionBox, coin: BillboardGui, coinImg: ImageLabel, phase: number, ready: BillboardGui? } -- ready: the READY! sign over a finished thaw
 type Fleck = { part: BasePart, round: number, angle: number, y: number, reach: number }
-type FreezeLook = { shell: Part, highlight: Highlight?, crystals: { BasePart }, cracks: { { part: BasePart, face: number, u: number, v: number, turn: number } }, nextChip: number, style: string, cracked: number,
-	rim: { BasePart }, flecks: { Fleck }, mist: BasePart?, mistFx: ParticleEmitter? } -- the ice front (owner 2026-11-05)
+type FreezeLook = { bands: { { part: BasePart, jitter: number, turn: number } }, highlight: Highlight?, crystals: { BasePart }, cracks: { { part: BasePart, face: number, u: number, v: number, turn: number } }, nextChip: number, style: string, cracked: number,
+	rim: { BasePart }, flecks: { Fleck }, mist: BasePart?, mistFx: ParticleEmitter?, -- the ice front (owner 2026-11-05)
+	-- realism pass (2026-11-17): frost on the ground (patch + fingers), frost feathers on the faces, glints
+	patch: BasePart?, fingers: { { part: BasePart, angle: number, len: number } },
+	ferns: { { parts: { BasePart }, face: number, u: number, v: number, tilt: number } }, glintBox: BasePart?, glintFx: ParticleEmitter? }
 type Drawn = { model: PVInstance, height: number, offer: BillboardGui?, img: ImageLabel?, born: number, fx: Fx, banked: Banked?,
 	clock: number, freeze: FreezeLook?, zzz: BillboardGui, anim: Anim, box: Folder?, shown: boolean? } -- box: a wild pet's own folder (hidden off your island) -- clock: the pet's own animation time (it slows while held and freezing)
 -- onGround: frozen, waiting for E. ice / line / drips: the drawn ice that melts from the top down
 -- (Config.petFx.melt); shown = its drawn height share; lastFrac / meltAt: when LifeFrac last went down
 type CubeLook = { model: PVInstance, edges: SelectionBox, cracks: { { part: BasePart, offset: CFrame } }, onGround: boolean,
-	ice: BasePart, line: BasePart, drips: ParticleEmitter, shown: number, lastFrac: number, meltAt: number }
+	ice: BasePart, line: BasePart, drips: ParticleEmitter, shown: number, lastFrac: number, meltAt: number,
+	bubbles: { { part: BasePart, offset: CFrame } } } -- frozen air bubbles near the walls (they go as the ice melts past them)
 local drawn: { [BasePart]: Drawn } = {}
 local cubes: { [BasePart]: CubeLook } = {}
 local folder: Folder
@@ -870,6 +874,28 @@ local function removePet(root: Instance)
 	end
 end
 
+-- frozen air bubbles (2026-11-17 realism pass): a few small pale balls just inside the cube's walls, where
+-- the pet in the middle doesn't hide them. Offsets from the cube's middle.
+local function bubbleSpots(size: number): { CFrame }
+	local r = Random.new()
+	local out = {}
+	for i = 1, FZ.bubbles do
+		local v = { r:NextNumber(-0.4, 0.4), r:NextNumber(-0.4, 0.4), r:NextNumber(-0.4, 0.4) }
+		local axis = (i - 1) % 3 + 1
+		v[axis] = (if r:NextNumber() < 0.5 then -1 else 1) * r:NextNumber(0.33, 0.44) -- pushed out to a wall
+		table.insert(out, CFrame.new(v[1] * size, v[2] * size, v[3] * size))
+	end
+	return out
+end
+
+local function bubble(size: number, parent: Instance): BasePart
+	local b = fxPart(Vector3.one * size * (0.03 + 0.03 * math.random()), Theme.white, parent)
+	b.Shape = Enum.PartType.Ball
+	b.Material = Enum.Material.SmoothPlastic
+	b.Transparency = 0.5
+	return b
+end
+
 -- prototype crackGeo: a few zig-zag cracks on three faces, shown when the cube is nearly gone
 local function makeCracks(part: BasePart): { { part: BasePart, offset: CFrame } }
 	local out = {}
@@ -944,8 +970,12 @@ local function addCube(part: Instance)
 	edges.Parent = folder
 	local frac = part:GetAttribute("LifeFrac")
 	local start = if typeof(frac) == "number" then frac else 1
+	local bubbles = {}
+	for _, off in bubbleSpots(part.Size.X) do
+		table.insert(bubbles, { part = bubble(part.Size.X, folder), offset = off })
+	end
 	cubes[part] = { model = model, edges = edges, cracks = makeCracks(part), onGround = onGround,
-		ice = ice, line = line, drips = drips, shown = start, lastFrac = start, meltAt = -math.huge }
+		ice = ice, line = line, drips = drips, shown = start, lastFrac = start, meltAt = -math.huge, bubbles = bubbles }
 end
 
 local function removeCube(part: Instance)
@@ -957,6 +987,9 @@ local function removeCube(part: Instance)
 		c.line:Destroy() -- its drips go with it
 		for _, k in c.cracks do
 			k.part:Destroy()
+		end
+		for _, b in c.bubbles do
+			b.part:Destroy()
 		end
 		cubes[part :: BasePart] = nil
 	end
@@ -970,9 +1003,16 @@ end
 -- fast and slows near the top, with a bright rim on it and crystal flecks flickering just above.
 local function newFreeze(root: BasePart, d: Drawn, style: string): FreezeLook
 	local h = d.height
-	local shell = fxPart(Vector3.new(h, 0.05, h), Theme.ice, folder) :: Part
-	shell.Material = Enum.Material.SmoothPlastic -- not Glass: it would hide a sprite pet inside (World Rules)
-	shell.Transparency = 0.6
+	-- the ice grows in layers (Config.show.freeze.bands): each band a little crooked and a little wider or narrower
+	local B = FZ.bands
+	local rb = Random.new()
+	local bands = {}
+	for _ = 1, (if style == "flash" then 1 else B.count) do
+		local band = fxPart(Vector3.new(h, 0.05, h), Theme.ice, folder)
+		band.Material = Enum.Material.SmoothPlastic -- not Glass: it would hide a sprite pet inside (World Rules)
+		band.Transparency = 1
+		table.insert(bands, { part = band, jitter = rb:NextNumber(-B.jitter, B.jitter), turn = rb:NextNumber(-B.turn, B.turn) })
+	end
 	local hl: Highlight? = nil
 	if not d.img then -- a 3D model gets a frost overlay; a sprite's colour is tinted instead
 		local x = Instance.new("Highlight")
@@ -1040,8 +1080,57 @@ local function newFreeze(root: BasePart, d: Drawn, style: string): FreezeLook
 		e.Parent = m
 		mist, mistFx = m, e
 	end
-	return { shell = shell, highlight = hl, crystals = crystals, cracks = cracks, nextChip = os.clock() + FZ.chipEvery, style = style, cracked = 0,
-		rim = rim, flecks = flecks, mist = mist, mistFx = mistFx }
+	-- frost spreading over the ground from the feet (a snowy patch with fingers reaching out of it), frost
+	-- feathers growing on the ice faces and glints twinkling on the ice (not on a flash-freeze: too quick)
+	local patch: BasePart? = nil
+	local fingers = {}
+	local ferns = {}
+	local glintBox: BasePart? = nil
+	local glintFx: ParticleEmitter? = nil
+	if style ~= "flash" then
+		local low = SettingsController.get("lowGraphics") == true
+		local G = FZ.groundFrost
+		local pt = fxPart(Vector3.new(0.05, h, h), Theme.fx.frost, folder)
+		pt.Shape = Enum.PartType.Cylinder
+		pt.Material = Enum.Material.Snow
+		pt.Transparency = 1
+		patch = pt
+		local nf = if low then math.ceil(G.fingers / 2) else G.fingers
+		for i = 1, nf do
+			local f = fxPart(Vector3.new(0.08, 0.04, 0.1), Theme.fx.frost, folder)
+			f.Material = Enum.Material.Neon
+			f.Transparency = 1
+			table.insert(fingers, { part = f, angle = (i + rb:NextNumber(-0.35, 0.35)) * (2 * math.pi / nf), len = rb:NextNumber(0.6, 1) })
+		end
+		local FN = FZ.ferns
+		local nn = if low then math.ceil(FN.count / 2) else FN.count
+		for i = 1, nn do
+			local parts = {}
+			for _ = 1, 3 do -- a stem and a pair of side branches
+				local s = fxPart(Vector3.new(0.05, 0.1, 0.05), Theme.fx.crack, folder)
+				s.Material = Enum.Material.Neon
+				s.Transparency = 1
+				table.insert(parts, s)
+			end
+			table.insert(ferns, { parts = parts, face = (i - 1) % 4, u = rb:NextNumber(-0.3, 0.3), v = rb:NextNumber(FN.from, 0.7), tilt = rb:NextNumber(-0.5, 0.5) })
+		end
+		local gb = fxPart(Vector3.one, Theme.ice, folder)
+		gb.Transparency = 1
+		local ge = Instance.new("ParticleEmitter")
+		ge.Color = ColorSequence.new(Theme.white)
+		ge.LightEmission = 1
+		ge.Shape = Enum.ParticleEmitterShape.Box
+		ge.ShapeStyle = Enum.ParticleEmitterShapeStyle.Surface
+		ge.Speed = NumberRange.new(0)
+		ge.Lifetime = NumberRange.new(0.15, 0.3)
+		ge.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.4, 0.22), NumberSequenceKeypoint.new(1, 0) })
+		ge.Rotation = NumberRange.new(0, 90)
+		ge.Rate = 0
+		ge.Parent = gb
+		glintBox, glintFx = gb, ge
+	end
+	return { bands = bands, highlight = hl, crystals = crystals, cracks = cracks, nextChip = os.clock() + FZ.chipEvery, style = style, cracked = 0,
+		rim = rim, flecks = flecks, mist = mist, mistFx = mistFx, patch = patch, fingers = fingers, ferns = ferns, glintBox = glintBox, glintFx = glintFx }
 end
 
 clearFreeze = function(d: Drawn)
@@ -1049,7 +1138,23 @@ clearFreeze = function(d: Drawn)
 	if not f then
 		return
 	end
-	f.shell:Destroy()
+	for _, b in f.bands do
+		b.part:Destroy()
+	end
+	for _, x in f.fingers do
+		x.part:Destroy()
+	end
+	for _, fern in f.ferns do
+		for _, s in fern.parts do
+			s:Destroy()
+		end
+	end
+	if f.patch then
+		f.patch:Destroy()
+	end
+	if f.glintBox then
+		f.glintBox:Destroy()
+	end
 	if f.highlight then
 		f.highlight:Destroy()
 	end
@@ -1104,9 +1209,68 @@ local function drawFreeze(root: BasePart, d: Drawn, fz: RayController.Freeze, t:
 	-- the front climbs fast, then slows near the top; the frost colour (from p) trails behind it
 	local front = easeOut(math.clamp(p, 0, 1))
 	local iceH = math.max(0.05, front * h * 1.05)
-	f.shell.Size = Vector3.new(w, iceH, w)
-	f.shell.CFrame = CFrame.new(ground + Vector3.new(0, iceH / 2, 0)) * root.CFrame.Rotation
-	f.shell.Transparency = 0.72 - 0.17 * p -- glassy enough to see the pet inside
+	-- the ice in layers: each band fills as the front climbs through it, pops out a touch as it forms, sits a
+	-- little crooked; the lower bands are thicker and older ice turns cloudier (still glassy enough to see the pet)
+	local B = FZ.bands
+	local nb = #f.bands
+	local full = h * 1.05
+	local outer = w * (1 + B.jitter + B.baseThick) -- the widest the ice gets (feathers and cracks sit on it)
+	for i, b in f.bands do
+		local lo, hi = (i - 1) / nb * full, i / nb * full
+		local filled = math.clamp(iceH - lo, 0, hi - lo)
+		if filled <= 0.01 then
+			b.part.Transparency = 1
+			continue
+		end
+		local k = filled / (hi - lo)
+		local pop = 0.86 + 0.14 * backOut(math.min(1, k / B.pop))
+		local bw = w * (1 + b.jitter + B.baseThick * (1 - (i - 1) / math.max(1, nb - 1))) * pop
+		b.part.Size = Vector3.new(bw, filled, bw)
+		b.part.CFrame = CFrame.new(ground + Vector3.new(0, lo + filled / 2, 0)) * root.CFrame.Rotation * CFrame.Angles(0, b.turn, 0)
+		local age = seg(front, i / nb, i / nb + 0.35)
+		b.part.Transparency = B.clear[1] + (B.clear[2] - B.clear[1]) * age
+		b.part.Color = Theme.ice:Lerp(Theme.white, B.cloud * age)
+	end
+	-- frost on the ground first: a snowy patch spreads from the feet, fingers of frost reach out of it
+	local G = FZ.groundFrost
+	local spread = easeOut(seg(p, 0, 0.6))
+	if f.patch then
+		local dia = outer * (0.6 + (G.reach - 0.6) * spread)
+		f.patch.Size = Vector3.new(0.05, dia, dia)
+		f.patch.CFrame = CFrame.new(ground + Vector3.new(0, 0.03, 0)) * CFrame.Angles(0, 0, math.pi / 2)
+		f.patch.Transparency = if p > 0.01 then G.transparency + (1 - G.transparency) * (1 - spread) * 0.6 else 1
+		for _, x in f.fingers do
+			local len = G.fingerLength * h * x.len * easeOut(seg(p, 0.08, 0.75))
+			local r0 = dia / 2 * 0.85
+			x.part.Size = Vector3.new(0.08, 0.04, math.max(0.05, len))
+			x.part.CFrame = CFrame.new(ground + Vector3.new(0, 0.05, 0)) * CFrame.Angles(0, x.angle, 0) * CFrame.new(0, 0, -(r0 + len / 2))
+			x.part.Transparency = if len > 0.06 then 0.35 else 1
+		end
+	end
+	-- frost feathers grow on the ice faces once the front passes them: a stem and two side branches
+	for _, fern in f.ferns do
+		local g = math.clamp((front - fern.v) * 4, 0, 1)
+		local stem = FZ.ferns.size * h * g
+		local face = CFrame.new(ground) * root.CFrame.Rotation * CFrame.Angles(0, fern.face * math.pi / 2, 0)
+			* CFrame.new(fern.u * outer, fern.v * h, -outer / 2 - 0.03) * CFrame.Angles(0, 0, fern.tilt)
+		local function place(part: BasePart, x0: number, y0: number, x1: number, y1: number)
+			local dx, dy = x1 - x0, y1 - y0
+			local len = math.sqrt(dx * dx + dy * dy)
+			part.Transparency = if len > 0.04 then FZ.ferns.transparency else 1
+			part.Size = Vector3.new(FZ.ferns.thick, math.max(0.05, len), FZ.ferns.thick)
+			part.CFrame = face * CFrame.new((x0 + x1) / 2, (y0 + y1) / 2, 0) * CFrame.Angles(0, 0, math.atan2(-dx, dy))
+		end
+		place(fern.parts[1], 0, 0, 0, stem)
+		local b = stem * 0.45
+		place(fern.parts[2], 0, stem * 0.45, -b * 0.7, stem * 0.45 + b * 0.7)
+		place(fern.parts[3], 0, stem * 0.65, b * 0.6, stem * 0.65 + b * 0.6)
+	end
+	-- glints twinkle on the ice's surface
+	if f.glintBox and f.glintFx then
+		f.glintBox.Size = Vector3.new(outer, iceH, outer)
+		f.glintBox.CFrame = CFrame.new(ground + Vector3.new(0, iceH / 2, 0)) * root.CFrame.Rotation
+		f.glintFx.Rate = FZ.iceGlints.rate * p * (if SettingsController.get("lowGraphics") == true then 0.5 else 1)
+	end
 	if f.highlight then
 		f.highlight.FillTransparency = 1 - FZ.frostFill * p
 		f.highlight.OutlineTransparency = 1 - 0.8 * p
@@ -1169,7 +1333,7 @@ local function drawFreeze(root: BasePart, d: Drawn, fz: RayController.Freeze, t:
 		k.part.Transparency = if show then 0.1 else 1
 		if show then
 			local side = CFrame.Angles(0, k.face * math.pi / 2, 0)
-			k.part.CFrame = CFrame.new(ground) * root.CFrame.Rotation * side * CFrame.new(k.u * w, k.v * h, -w / 2 - 0.02) * CFrame.Angles(0, 0, k.turn) * CFrame.Angles(math.pi / 2, 0, 0)
+			k.part.CFrame = CFrame.new(ground) * root.CFrame.Rotation * side * CFrame.new(k.u * w, k.v * h, -outer / 2 - 0.02) * CFrame.Angles(0, 0, k.turn) * CFrame.Angles(math.pi / 2, 0, 0)
 			if i > f.cracked then
 				f.cracked = i
 				SoundController.play("crack")
@@ -1207,6 +1371,10 @@ function PetVisuals.frozenCube(key: string, size: number): (Model?, Part?)
 	edges.Transparency = P.edgeTransparency
 	edges.SurfaceTransparency = 1
 	edges.Parent = cube
+	for _, off in bubbleSpots(size) do -- frozen air bubbles near the walls
+		local b = bubble(size, m)
+		b.CFrame = off
+	end
 	m.PrimaryPart = cube
 	m.Parent = folder
 	return m, cube
@@ -1451,6 +1619,9 @@ local function step(dt: number)
 			for _, k in c.cracks do
 				k.part.Transparency = 1
 			end
+			for _, b in c.bubbles do
+				b.part.Transparency = 1
+			end
 			continue
 		end
 		c.model:PivotTo(part.CFrame)
@@ -1483,6 +1654,11 @@ local function step(dt: number)
 			local flash = life < 0.25 and math.sin(t * 12) > 0
 			c.ice.Transparency = 0.45 + (1 - life) * M.fade
 			c.ice.Color = if flash then Theme.no else Theme.ice
+		end
+		for _, b in c.bubbles do -- bubbles stay only in the ice that's left
+			local inIce = b.offset.Position.Y < h - size.Y / 2 - 0.05
+			b.part.Transparency = if inIce then 0.5 else 1
+			b.part.CFrame = part.CFrame * b.offset
 		end
 		c.line.CFrame = bottom * CFrame.new(0, h, 0)
 		c.line.Transparency = if share < 0.995 then M.line.transparency else 1
