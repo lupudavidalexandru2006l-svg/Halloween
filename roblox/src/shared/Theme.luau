@@ -347,9 +347,16 @@ local Theme = {
 
 	-- sizes (Config.sizes): the word's colour on name tags, the Pets list and the reveal card; none is a tier colour
 	sizes = {
+		-- the chart's hues (owner 2026-11-17), shifted off the tier colours; Big / Large are teal, not the
+		-- chart's white, because the name pill is filled with this colour under white text
 		Big = Color3.fromHex("1fb5a8"),
-		Giant = Color3.fromHex("ff7a1a"),
-		Huge = Color3.fromHex("ff3b30"),
+		Large = Color3.fromHex("0f8a80"),
+		Huge = Color3.fromHex("e0c512"),
+		Colossal = Color3.fromHex("ff8a2a"),
+		Gigantic = Color3.fromHex("e8392e"),
+		Titanic = Color3.fromHex("e5289a"),
+		Monstrous = Color3.fromHex("8b3cf5"),
+		Cosmic = Color3.fromHex("6b8cff"),
 	} :: { [string]: Color3 },
 
 	-- the freeze shows' light pillars and titles: the tier colour, but one that glows (Secret's dark

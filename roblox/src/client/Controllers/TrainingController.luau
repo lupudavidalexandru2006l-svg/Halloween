@@ -551,8 +551,9 @@ local function myGain(tier: number): number
 		return 0
 	end
 	local gun = me:GetAttribute("GunTier")
-	return Config.trainGain(tier, Config.powerLevel(v.coldPower or 0), if typeof(gun) == "number" then gun else 1,
-		v.rebirths or 0, me:GetAttribute("Pass_doublePower") == true)
+	-- only upgrades move it: trainer level, gun, rebirths, the 2x pass (owner 2026-11-17)
+	return Config.trainGain(tier, if typeof(gun) == "number" then gun else 1, v.rebirths or 0,
+		me:GetAttribute("Pass_doublePower") == true)
 end
 
 local function refreshTrainers()

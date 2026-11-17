@@ -57,7 +57,7 @@ def sim(P, hours=12, seed=1, kid=KID, stop=None, dt=1.0):
         if S['trainer'] < 10: it.append((P['trainer'][S['trainer']], 'trainer'))
         if S['thaw'] < 10: it.append((P['thaw'][S['thaw']], 'thaw'))
         if S['slots'] < 7: it.append((slots_cost(), 'slots'))
-        if S['look'] < 5: it.append((P['looks'][S['look']], 'look'))
+        if S['look'] < 5 and not P.get('free_looks'): it.append((P['looks'][S['look']], 'look'))
         if S['gear'] < 5: it.append((P['gear'][S['gear']], 'gear'))
         if not S['gel']: it.append((P['gel'], 'gel'))
         return sorted(it)
@@ -98,7 +98,7 @@ def sim(P, hours=12, seed=1, kid=KID, stop=None, dt=1.0):
         farm = min(S['reach'], GUN_HEAT[S['gun'] - 1])
         training = nz <= 10 and S['power'] < P['needs'][nz - 1] and REBIRTH_GATES.get(nz, 0) <= S['reb'] and len(pan) >= nslots()
         if training:
-            g = 4 ** plevel() * TRAINER_MULT[S['trainer'] - 1] * GUN_TRAIN[S['gun'] - 1] * (1 + 0.5 * S['reb'])
+            g = P.get('base', 1) * P.get('level_value', 4) ** plevel() * P.get('tmult', TRAINER_MULT)[S['trainer'] - 1] * GUN_TRAIN[S['gun'] - 1] * (1 + 0.5 * S['reb'])
             S['power'] += g * (kid['clicks'] + 1 / 1.2) * (1 + 5 / 12) * kid['train_eff'] * dt
         else:
             trip_left -= dt
@@ -107,7 +107,7 @@ def sim(P, hours=12, seed=1, kid=KID, stop=None, dt=1.0):
                 cap = GUN_BEAMS[S['gun'] - 1]
                 d = 80 + ZMIN[z - 1] + 0.55 * LENGTHS[z - 1]
                 walk = 2 * d / kid['walk'] * kid['slow'] / (1.08 if S['gear'] >= 2 else 1) / (1.05 if S['gear'] >= 3 else 1)
-                need = max(P['needs'][z - 1], 50)
+                need = max(P['needs'][z - 1], P.get('floor', 50))
                 speed = min(5, max(1, math.sqrt(max(S['power'], 1) / need))) * (1 + 0.12 * (S['gun'] - 1))
                 odds = P.get('odds') or [t[1] for t in TIERS]
                 w = [o * (EARLY.get(i, 1) if z <= 4 else 1) for i, o in enumerate(odds)]
@@ -124,6 +124,7 @@ def sim(P, hours=12, seed=1, kid=KID, stop=None, dt=1.0):
                         seen.append((ti, size_roll()))
                     best, (smult, sthaw) = max(seen, key=lambda x: incs[x[0]] * x[1][0])
                     name, _, inc, ths, fz = TIERS[best]
+                    ths = (P.get('thaw_s') or [t[3] for t in TIERS])[best]
                     inc = incs[best] * smult
                     ths *= sthaw
                     pinc = inc * 4 ** (z - 1) * rnd.choice([1, 1, 1, 1.2, 1.2, 1.5]) * (2 if rnd.random() < 1 / 40 else 1)
@@ -196,16 +197,23 @@ def report(P, kid=KID, seeds=range(1, 9), hours=14, detail=False):
 # the prices in roblox/src/shared/Config.luau after the rarity pass of 2026-11-17 (Steal an Egg's steps, tamed)
 FINAL = dict(
     odds=[59.995, 25, 10, 4, 0.9, 0.1, 0.005], income=[1, 4, 20, 100, 500, 2500, 25000],
-    needs=[0, 150, 1e3, 300e3, 4e6, 75e6, 250e6, 15e9, 150e9, 4e12],
-    guns=[0, 40e3, 2.5e6, 15e6, 100e6, 400e6, 15e9, 40e9, 1.5e12, 3e12],
-    trainer=[0, 15e3, 1.2e6, 200e6, 2.5e9, 20e9, 300e9, 2e12, 4e12, 40e12],
-    thaw=[0, 250, 1e3, 4e3, 200e3, 1e6, 5e6, 200e6, 2.5e9, 75e9],
+    # shot-gain pass 2026-11-17: no x4 per island (level_value 1), needs fitted to keep the same timings
+    # Steal an Egg pass 2026-11-17: its biome speed gates as needs, bolts worth 5, trainers 6-10 x20-2000
+    level_value=1, needs=[0, 900, 10e3, 40e3, 170e3, 700e3, 2.5e6, 18e6, 700e6, 2.5e9],
+    base=5, floor=450, tmult=[1, 2, 3, 4, 6, 20, 75, 200, 600, 2000],
+    # owner 2026-11-17: Common / Uncommon thaw in 2 / 4 s; Looks come with Slots level 7 (not bought)
+    thaw_s=[2, 4, 20, 60, 150, 480, 1200], free_looks=True,
+    # coin pass 2026-11-17 (keep the 10.4 h runway), then the late-game pass (each stage harder than the last)
+    guns=[0, 40e3, 2e6, 25e6, 250e6, 5e9, 25e9, 750e9, 2.5e12, 40e12],
+    trainer=[0, 15e3, 2e6, 1.2e9, 15e9, 400e9, 1.2e12, 4e12, 7.5e12, 50e12],
+    thaw=[0, 250, 1e3, 4e3, 200e3, 2e6, 7.5e6, 300e6, 20e9, 1e12],
     looks=[0, 500e3, 30e6, 7.5e9, 6e12],
-    gear=[250e3, 1.5e6, 25e6, 400e6, 1e12],
+    gear=[250e3, 1.5e6, 30e6, 2e9, 2e12],
     gel=1e6, slots_base=50, slots_growth=2.5, slots_rgrowth=15,
-    rebirth=[5e6, 200e6, 1.5e9, 25e9, 400e9, 750e9, 15e12],
-    # Config.sizes (2026-11-17), rarest first: (chance, income x, thaw x) for Huge, Giant, Big
-    sizes=[(1 / 1000, 5, 2), (1 / 100, 3, 1.6), (1 / 20, 1.5, 1.25)])
+    rebirth=[5e6, 250e6, 5e9, 15e9, 250e9, 500e9, 25e12],
+    # Config.sizes (2026-11-17 size chart), rarest first: (chance, income x, thaw x), Cosmic down to Big
+    sizes=[(0.000081, 343.33, 6), (0.0002, 165.48, 5), (0.0005, 79.76, 4), (0.0013, 38.44, 3), (0.0032, 18.53, 2.5),
+           (0.0098, 8.93, 2), (0.035, 4.3, 1.6), (0.15, 2.07, 1.25)])
 
 if __name__ == '__main__':
     # Keep FINAL in step with Config.luau, then: python pacing_sim.py

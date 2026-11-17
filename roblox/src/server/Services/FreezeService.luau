@@ -69,6 +69,12 @@ local function inRange(player: Player, pos: Vector3, extra: number): boolean
 end
 FreezeService.inRange = inRange
 
+-- how much farther a big pet (Config.sizes) can be zapped from: its middle sits this far past a normal
+-- pet's, so you reach it from its edge, not only from under its belly
+local function petReach(pet: any): number
+	return math.max(0, pet.root.Size.X - (PetDefs.sizeHeight[pet.def.size] or 0)) / 2
+end
+
 local function touchFor(gun: number): string?
 	local best: string? = nil
 	for _, t in F.touches do
@@ -156,7 +162,7 @@ local function pickExtras(player: Player, main: any, data: any, gun: number): { 
 	end
 	local found: { { id: string, d: number } } = {}
 	for id, pet in WildPetSpawner.all() do
-		if pet ~= main and pet.state == "wild" and not F.shows[pet.def.tier] and inRange(player, pet.root.Position, 0) and canFreeze(player, pet, data) then
+		if pet ~= main and pet.state == "wild" and not F.shows[pet.def.tier] and inRange(player, pet.root.Position, petReach(pet)) and canFreeze(player, pet, data) then
 			table.insert(found, { id = id, d = (pet.root.Position - p).Magnitude })
 		end
 	end
@@ -310,7 +316,7 @@ local function tick(dt: number)
 			local hot = false -- a pet from an island one past this gun's Heat is being frozen
 			local gunHeat = Config.gun(gun).heat
 			local pet = WildPetSpawner.get(aim.id)
-			if pet and inRange(player, pet.root.Position, A.rangeGrace) then
+			if pet and inRange(player, pet.root.Position, A.rangeGrace + petReach(pet)) then
 				local r = pushPet(player, pet, data, gun, dt, pushed)
 				aim.froze = aim.froze or r == "frozen"
 				busy = r == "pushed"
@@ -319,7 +325,7 @@ local function tick(dt: number)
 			local left: { string } = {}
 			for _, x in aim.extras do
 				local e = WildPetSpawner.get(x)
-				if e and e.state == "wild" and inRange(player, e.root.Position, A.rangeGrace) then
+				if e and e.state == "wild" and inRange(player, e.root.Position, A.rangeGrace + petReach(e)) then
 					local r = pushPet(player, e, data, gun, dt, pushed)
 					aim.froze = aim.froze or r == "frozen"
 					if r == "pushed" then

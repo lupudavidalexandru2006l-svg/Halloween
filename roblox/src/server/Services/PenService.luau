@@ -117,7 +117,7 @@ local function drawPen(player: Player, d: Data)
 		local st: string?, k = if p.thawM then "machine" else nil, p.thawM or 0
 		keep[p.id] = true
 		local def = PetDefs.get(p.key)
-		-- a Big / Giant / Huge pet's cube is bigger too, up to Config.carrySizeMax x the usual cap so the grid stays clear
+		-- a Big ... Cosmic pet's cube is bigger too, up to Config.carrySizeMax x the usual cap so the grid stays clear
 		local big = Config.size(p.sz)
 		local s = if def then math.min(PetDefs.cube(def, p.sz), Config.panCubes.maxSize * (if big then math.min(big.scale, Config.carrySizeMax) else 1)) else 0
 		local at
@@ -755,6 +755,26 @@ local function machinePrompts()
 			pp:SetAttribute("Plot", i)
 			pp:SetAttribute("Machine", m)
 			pp.Parent = a
+			if not model:FindFirstChild("PadBlock") then
+				-- QA 2026-11-17: the heat pad was open to walk on, so you could stand inside the machine (under the
+				-- halo, between the pylons) and the camera pulled in to 2 studs and filled the screen with it. An
+				-- invisible wall round the deck keeps feet off it; CanQuery off, so the camera and the ray ignore it.
+				-- It is far taller than any jump (one 8.5 tall was jumped onto), so the machine's own top is kept in TopY
+				-- for the timer sign over it (ThawMachines).
+				local bcf, bsize = model:GetBoundingBox()
+				model:SetAttribute("TopY", bcf.Position.Y + bsize.Y / 2)
+				local block = Instance.new("Part")
+				block.Name = "PadBlock"
+				block.Shape = Enum.PartType.Cylinder
+				block.Size = Vector3.new(40, 7.6, 7.6) -- the deck is 7.4 across
+				block.CFrame = CFrame.new(core.Position.X, core.Position.Y - Config.thaw.machine.padTop + 20, core.Position.Z) * CFrame.Angles(0, 0, math.pi / 2)
+				block.Anchored = true
+				block.Transparency = 1
+				block.CanQuery = false
+				block.CanTouch = false
+				block.CastShadow = false
+				block.Parent = model
+			end
 		end
 	end
 end
@@ -936,11 +956,18 @@ function PenService.Start()
 			local W = Config.world
 			local pl = W.plots[plot]
 			local at = Vector3.new(pl.x, W.spawn.Y + 1, pl.z + W.penSize.Z / 2 + W.panSpawnFront)
+			-- owner 2026-11-17: while the tutorial is still on its catch (zap, freeze, pick up), you spawn in the
+			-- middle of the map at the tunnel mouth, by your tutorial pet and facing it, to get playing at once
+			local mid = W.spawn + Vector3.new(0, 1, 0)
 			local function toPan(character: Model)
 				local root = character:WaitForChild("HumanoidRootPart", 5)
 				if root and character.Parent and player.Parent and player.Character == character then
+					local now = DataService.get(player)
+					local catching = now ~= nil and not now.tutorial.done and now.tutorial.step <= Config.tutorial.spawnMidUntilStep
 					-- through PlayerTracker so the speed check starts fresh here (a plain pivot flagged every spawn)
-					PlayerTracker.teleport(player, CFrame.lookAt(at, Vector3.new(pl.x, at.Y, pl.z)))
+					PlayerTracker.teleport(player, if catching
+						then CFrame.lookAt(mid, mid + Vector3.new(0, 0, 1)) -- the islands are toward +Z
+						else CFrame.lookAt(at, Vector3.new(pl.x, at.Y, pl.z)))
 				end
 			end
 			player.CharacterAdded:Connect(function(c)

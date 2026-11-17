@@ -502,7 +502,10 @@ local function timerFor(mc: Machine): (BillboardGui, TextLabel, Frame)
 	-- high over the machine, above its "Thaw a pet" prompt (QA 2026-11-16: at 1.6 the prompt covered it)
 	-- Roblox turns this offset with the adornee, and the core is a cylinder lying on its side (owner 2026-11-16:
 	-- the timer floated to the left of the machine), so "up" is given in the core's own axes
-	local up = cf.Position.Y + size.Y / 2 + Config.thaw.timerSign.lift - mc.core.Position.Y
+	-- TopY: the machine's own top (PenService), since its invisible PadBlock wall is far taller (QA 2026-11-17)
+	local topY = mc.model:GetAttribute("TopY")
+	local top = if typeof(topY) == "number" then topY else cf.Position.Y + size.Y / 2
+	local up = top + Config.thaw.timerSign.lift - mc.core.Position.Y
 	g.StudsOffsetWorldSpace = mc.core.CFrame:VectorToObjectSpace(Vector3.new(0, up, 0))
 	g.Size = UDim2.fromScale(TS.size[1], TS.size[2])
 	g.LightInfluence = 0

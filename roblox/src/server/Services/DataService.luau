@@ -143,9 +143,11 @@ end
 local function knownMut(v: any): string?
 	return if typeof(v) == "string" and Config.mutations[v] then v else nil
 end
--- Big / Giant / Huge (Config.sizes); anything else (and every pet saved before sizes) is a normal pet
+-- Big ... Cosmic (Config.sizes; an old name goes through Config.sizeRenamed); anything else (and every pet
+-- saved before sizes) is a normal pet
 local function knownSize(v: any): string?
-	return if Config.size(v) then v else nil
+	local n = if typeof(v) == "string" then Config.sizeRenamed[v] or v else v
+	return if Config.size(n) then n else nil
 end
 
 local function migrate(old: any): Data

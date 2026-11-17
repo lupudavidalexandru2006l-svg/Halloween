@@ -262,7 +262,9 @@ local function pointAt(face: GuiObject)
 end
 
 function PanPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
-	local l = h.list(o.body, #P.order > 3) -- four cards (Speed left 2026-11-15) scroll
+	-- always a scrolling list: with three cards (Look left 2026-11-17) a centred list ran over the title on a
+	-- short phone and hid the last card's bottom (QA 2026-11-17)
+	local l = h.list(o.body, true)
 	local pulsing = false
 	local pick = tutorialPick(v)
 	for i, kind in P.order do
@@ -278,6 +280,11 @@ function PanPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
 		icon(face, kind)
 		local price = Config.panPrice(kind, level, v.rebirths)
 		local now, nxt, unit = values(kind, level, v.rebirths or 0, price ~= nil)
+		-- the Slots level that also brings the pan's next Look (PanService, owner 2026-11-17)
+		local look = PanPopup.level(v, "look")
+		if kind == "slots" and nxt and level + 1 == P.lookAtSlots and look < #P.looks and look <= (v.rebirths or 0) + 1 then
+			unit = `pets + {P.looks[look + 1].name} Look`
+		end
 		-- the name and its level badge
 		local top = line(face, "Title", 0.1, 0.38)
 		word(top, NAMES[kind] or kind, Theme.ink, "title", h, 1)

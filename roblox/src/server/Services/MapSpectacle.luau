@@ -372,10 +372,83 @@ local function magmaRock(f: Instance, at: Vector3, s: number)
 	end
 end
 
+-- a soft lens streak over a planet's bright side (the supernova clip's horizontal flare), plus a short
+-- upright one: fading white bars on a billboard, so it reads at any angle for the cost of two Frames
+local function flare(p: BasePart, r: number, color: Color3)
+	local g = Instance.new("BillboardGui")
+	g.Name = "Flare"
+	g.Size = UDim2.fromScale(r * 5, r * 5)
+	g.LightInfluence = 0
+	g.MaxDistance = 2000
+	g.Adornee = p
+	local fade = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0.15), NumberSequenceKeypoint.new(1, 1) })
+	for _, spec in { { 1, 0.035, 0 }, { 0.022, 0.42, 90 } } do
+		local bar = Instance.new("Frame")
+		bar.AnchorPoint = Vector2.new(0.5, 0.5)
+		bar.Position = UDim2.fromScale(0.5, 0.5)
+		bar.Size = UDim2.fromScale(spec[1], spec[2])
+		bar.BackgroundColor3 = P.white
+		bar.BorderSizePixel = 0
+		local grad = Instance.new("UIGradient")
+		grad.Color = ColorSequence.new(color, P.white)
+		grad.Transparency = fade
+		grad.Rotation = spec[3]
+		grad.Parent = bar
+		bar.Parent = g
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(0.5, 0)
+		c.Parent = bar
+	end
+	g.Parent = p
+end
+
+-- curved light tendrils arcing off a planet (the clip's whip-like streaks): beams between two attachments
+-- on an invisible hub that turns with the rings, so they sweep slowly round it
+local function tendrils(hub: BasePart, r: number, color: Color3, n: number)
+	local tr = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.15), NumberSequenceKeypoint.new(0.6, 0.55), NumberSequenceKeypoint.new(1, 1) })
+	for k = 0, n - 1 do
+		local a = k / n * math.pi * 2
+		local out = Vector3.new(math.cos(a), 0, math.sin(a))
+		local a0 = Instance.new("Attachment")
+		a0.Position = out * r * 0.95 + Vector3.new(0, r * 0.3, 0)
+		a0.Parent = hub
+		local a1 = Instance.new("Attachment")
+		a1.Position = out * r * 2.6 - Vector3.new(0, r * (1.2 + (k % 2) * 0.7), 0)
+		a1.Parent = hub
+		local b = Instance.new("Beam")
+		b.Attachment0, b.Attachment1 = a0, a1
+		b.CurveSize0, b.CurveSize1 = r * 1.6, -r * 0.6 -- out and over, then down
+		b.Width0, b.Width1 = r * 0.32, r * 0.04
+		b.Color = ColorSequence.new(P.white, color)
+		b.Transparency = tr
+		b.LightEmission = 1
+		b.LightInfluence = 0
+		b.FaceCamera = true
+		b.Segments = 14
+		b.Parent = hub
+	end
+end
+
+-- owner 2026-11-17 ("study the supernova clip ... make our planets more realistic while keeping performance
+-- up"): a lit body under a shimmering plasma shell (ForceField: the engine animates it, no script), a faint
+-- halo, a bright flare with a lens streak on the lit side, curved light tendrils sweeping round, a few
+-- drifting sparks, then the rings and the moon as before. About a dozen parts, 4 beams and one emitter each.
+-- (one glow layer, not two: see-through layers sit in front of the face and wash its colour out)
 local function planet(f: Instance, at: Vector3, r: number, body: Color3, ring: Color3)
 	ball(r, at, body, f)
-	neon(ball(r * 0.35, at + Vector3.new(r * 0.5, r * 0.55, -r * 0.55), P.white, f), 0.6)
+	local shell = ball(r * 1.02, at, ring, f) -- the ring's colour shimmering over the body (white washed it pale)
+	shell.Material = Enum.Material.ForceField
+	neon(ball(r * 1.25, at, body, f), 0.93) -- one faint halo in its own colour (two brighter ones washed the face pastel)
+	local lit = at + Vector3.new(r * 0.5, r * 0.55, -r * 0.55)
+	local hot = neon(ball(r * 0.35, lit, P.white, f), 0.45)
+	flare(hot, r, ring)
+	lamp(hot, ring, r * 3, 1.5)
+	particles(f, at, Vector3.new(r * 2.6, r * 2.6, r * 2.6), ring, r * 0.05, 6, 1.5, 4)
 	local tilt = CFrame.new(at) * CFrame.Angles(0.45, 0, 0.3)
+	local sweep = motion(f, "spin", CFrame.new(at), { Axis = Vector3.new(0, 1, 0), Speed = -S.spinSlow * 2 })
+	local hub = block(Vector3.one, CFrame.new(at), ring, sweep)
+	hub.Transparency = 1
+	tendrils(hub, r, ring, 4)
 	local m = motion(f, "spin", tilt, { Axis = Vector3.new(0, 1, 0), Speed = S.spinFast })
 	neon(mesh("Ring", Vector3.new(r * 3.4, r * 0.1, r * 3.4), tilt, ring, m), 0.1)
 	neon(mesh("Ring", Vector3.new(r * 2.7, r * 0.08, r * 2.7), tilt, P.white, m), 0.3)
@@ -722,6 +795,12 @@ function Spectacle.ground(tunnel: Instance)
 			end
 		end
 	end
+end
+
+-- one planet on its own (Studio: swap the planets in the saved map without rebuilding the whole map)
+function Spectacle.planet(f: Instance, at: Vector3, r: number, body: Color3, ring: Color3)
+	meshes = ReplicatedStorage:FindFirstChild("SceneryMeshes")
+	planet(f, at, r, body, ring)
 end
 
 function Spectacle.build(far: Instance)

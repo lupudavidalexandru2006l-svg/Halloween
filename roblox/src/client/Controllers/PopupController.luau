@@ -1220,7 +1220,9 @@ local function shop(o: Open, v: State.View)
 	local focal = passBuy or bestBuy or firstBuy
 	if focal then
 		pulse(focal.root)
-		o.first = focal.face
+		-- not the gamepad's first pick (QA 2026-11-17): opening the Shop on a console put A on a Robux Buy, so
+		-- one press opened a purchase. Like the Thaw Machine's Skip, A never starts a purchase: it lands on the X
+		-- and the stick moves to the cards.
 	end
 	styleTabs()
 	sf:GetPropertyChangedSignal("CanvasPosition"):Connect(mark)
@@ -1259,7 +1261,7 @@ local function petInfo(r: Frame, p: State.PetView, def: PetDefs.PetDef)
 		return `<font color="#{c:ToHex()}">{s}</font>`
 	end
 	local tags = { word(def.tier, Ui.darker(tierColor(def.tier))) }
-	if p.sz and Theme.sizes[p.sz] then -- Big / Giant / Huge (Config.sizes)
+	if p.sz and Theme.sizes[p.sz] then -- Big ... Cosmic (Config.sizes)
 		table.insert(tags, word(p.sz, Ui.darker(Theme.sizes[p.sz])))
 	end
 	local look = if p.mut then Theme.mut[p.mut] else nil
@@ -1736,8 +1738,8 @@ local function index(o: Open, v: State.View)
 				o.first = b.face
 			end
 		else
-			-- the page's badge: the trophy, bright once claimed, faint until then, with what it gives
-			local tr = Ui.image(head, Config.images.icons.trophy, UDim2.fromScale(0.07, 0.9), UDim2.fromScale(0.75, 0.05))
+			-- the page's badge: the coin (owner 2026-11-17: the bonus is coins), bright once claimed, faint until then
+			local tr = Ui.image(head, Config.images.icons.coin, UDim2.fromScale(0.07, 0.9), UDim2.fromScale(0.75, 0.05))
 			tr.Name = "Badge"
 			if not page.claimed then
 				tr.ImageTransparency = X.badgeFaint
@@ -2670,7 +2672,21 @@ local function board(o: Open)
 			img.Image = `rbxthumb://type=AvatarHeadShot&id={r.u}&w=150&h=150` -- Roblox draws it, no web call
 			Ui.corner(img, 0.5)
 			img.Parent = head
-			text(line, r.n, 0.205, 0.44)
+			local name = text(line, r.n, 0.205, 0.44)
+			-- the circles are as wide as the row is tall, so on a phone's taller rows they ran into each other
+			-- and into the name ("1(" and "Aplayer", QA 2026-11-17): place them from the row's real size (on PC
+			-- this lands where the fixed 0.105 / 0.205 did)
+			local function fit()
+				local w, h = line.AbsoluteSize.X, line.AbsoluteSize.Y
+				if w <= 0 or h <= 0 then
+					return
+				end
+				local d, gap = 0.8 * h, 0.012 * w
+				head.Position = UDim2.new(0, gap * 2 + d, 0.5, 0)
+				name.Position = UDim2.new(0, gap * 3 + d * 2, name.Position.Y.Scale, 0)
+			end
+			line:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
+			task.defer(fit)
 			local coins = def.id == "coins_week"
 			local score = text(line, r.s, 0.65, if coins then 0.26 else 0.33)
 			score.TextXAlignment = Enum.TextXAlignment.Right

@@ -54,7 +54,11 @@ end
 local function styleSecond(d: Instance, on: boolean)
 	if d:IsA("BasePart") then
 		d.LocalTransparencyModifier = if on then 0 else 1
-		d.CanCollide = false
+		-- solid again once it's yours (QA 2026-11-17: it stayed walk-through, so you could stand inside it)
+		if d:GetAttribute("BaseCollide") == nil then
+			d:SetAttribute("BaseCollide", d.CanCollide)
+		end
+		d.CanCollide = on and d:GetAttribute("BaseCollide") == true
 	elseif d:IsA("Light") or d:IsA("ParticleEmitter") then
 		(d :: any).Enabled = on
 	end

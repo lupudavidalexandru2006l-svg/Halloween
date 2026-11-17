@@ -33,6 +33,31 @@ end
 
 local forced = false -- Studio-only device QA: DevDevice pins the device (the phone emulator still reports a keyboard)
 
+-- gamepad Select: put the selection on the menu tiles (the top one first), or take it off again. QA 2026-11-17:
+-- nothing listened to "menu" and the binding swallowed the press, so a controller could never reach Pets, Shop,
+-- Index, Daily or Settings.
+local function toggleMenuSelection()
+	if GuiService.SelectedObject then
+		GuiService.SelectedObject = nil
+		return
+	end
+	local pg = game:GetService("Players").LocalPlayer:FindFirstChildOfClass("PlayerGui")
+	local hud = pg and pg:FindFirstChild("Hud")
+	local tiles = hud and hud:FindFirstChild("Tiles", true)
+	if not tiles or not (tiles :: GuiObject).Visible then
+		return -- menus are locked (tutorial) or hidden under a popup
+	end
+	local best: GuiObject? = nil
+	local bestOrder = math.huge
+	for _, tile in tiles:GetChildren() do
+		local face = tile:FindFirstChild("Face")
+		if tile:IsA("GuiObject") and tile.Visible and face and face:IsA("GuiObject") and face.Selectable and tile.LayoutOrder < bestOrder then
+			best, bestOrder = face, tile.LayoutOrder
+		end
+	end
+	GuiService.SelectedObject = best
+end
+
 -- a touch screen that is only touch, or phone-sized (Config.ui.phoneShortPx): a phone. Owner 2026-11-15 (2-player
 -- test log): each thumbstick touch switched to the touch layout (coins lifted over the stick, tiles smaller) and
 -- the next stray keyboard/mouse event (the emulator and some phones report a keyboard) switched it back, so the
@@ -127,6 +152,9 @@ function InputController.Start()
 			if state == Enum.UserInputState.Begin then
 				if UserInputService:GetFocusedTextBox() then
 					return Enum.ContextActionResult.Pass
+				end
+				if name == "menu" then
+					toggleMenuSelection()
 				end
 				action:Fire(name)
 				-- B only closes when something is open, otherwise Roblox keeps it

@@ -96,6 +96,14 @@ BEATS.push = function(ctx, seconds, keep)
 		local to = pet + dir * ctx.cfg.pushDistance + Vector3.new(0, ctx.cfg.pushHeight, 0)
 		-- looking at a point under the pet puts the pet in the upper half of the shot, above the reveal's words
 		local look = pet + Vector3.new(0, 0.5 - (ctx.cfg.lookDrop or 0), 0)
+		-- owner 2026-11-17: the pet turns to face the camera, so the reveal shows its face, not its side
+		local toCam = Vector3.new(to.X - pet.X, 0, to.Z - pet.Z)
+		if toCam.Magnitude > 0.1 then
+			ctx.at = CFrame.lookAt(pet, pet + toCam.Unit)
+			if ctx.model then
+				ctx.model:PivotTo(ctx.at)
+			end
+		end
 		cam.CFrame = CFrame.lookAt(from, look)
 		moveCamera(ctx, CFrame.lookAt(to, look), seconds)
 	end
@@ -701,7 +709,7 @@ function Show.statsCard(ctx: Ctx, gui: ScreenGui, def: PetDefs.PetDef)
 	list.Parent = card
 	local mut = if ctx.data and typeof(ctx.data.mut) == "string" then ctx.data.mut else nil
 	local bonus = if mut and Config.mutations[mut] then Config.mutations[mut].bonus else 1
-	local sz = if ctx.data and Config.size(ctx.data.sz) then ctx.data.sz :: string else nil -- Big / Giant / Huge
+	local sz = if ctx.data and Config.size(ctx.data.sz) then ctx.data.sz :: string else nil -- Big ... Cosmic
 	local big = Config.size(sz)
 	bonus *= if big then big.bonus else 1
 	local tier = Config.tier(def.tier)
@@ -2579,7 +2587,7 @@ function Show.Start()
 	State.Notify:Connect(function(kind: string, data: any)
 		if kind == "frozen" and typeof(data) == "table" and typeof(data.show) == "string" then
 			task.spawn(Show.play, data.show, data)
-		elseif kind == "thawed" and typeof(data) == "table" and (data.first or Config.show.thawReveal.tiers[data.tier]) then
+		elseif kind == "thawed" and typeof(data) == "table" and ((data.first and (Config.show.firstReveal :: any).enabled ~= false) or Config.show.thawReveal.tiers[data.tier]) then
 			task.spawn(Show.thawReveal, data)
 		elseif kind == "gunBought" then
 			task.spawn(Show.gunBuy, data)

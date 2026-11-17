@@ -4,7 +4,7 @@
 -- (only you can zap it back, free, always) and, for Rare and up, a Super Freeze offer at most once per run.
 -- The cube Part is welded to the character so everyone sees it; clients draw the pet inside and the melt.
 -- A fresh freeze first waits on the ground where the pet stood (owner 2026-11-07): only the player who
--- froze it picks it up, with E, and then it's carried like any other cube. Ground cubes don't melt;
+-- froze it picks it up, with E, for Config.carry.openAfter seconds; then anyone near can (owner 2026-11-17), and then it's carried like any other cube. Ground cubes don't melt;
 -- one left alone for Config.carry.groundSeconds thaws back into a dazed pet (0 = never). With Config.carry.autoPickUp
 -- (QA 2026-11-08) FreezeService picks it up for you a moment after the snap, so there's no E.
 
@@ -222,6 +222,8 @@ function CarryService.dropCube(player: Player, info: CubeInfo, petAt: Vector3, g
 	pp.Triggered:Connect(function(who: Player)
 		if who == player then
 			CarryService.pickUp(player, c.uid)
+		else
+			CarryService.claim(who, player, c.uid)
 		end
 	end)
 	c.part = p
@@ -269,6 +271,59 @@ function CarryService.pickUp(player: Player, uid: string, auto: boolean?)
 	changed(player)
 	Remotes.fire(player, "Notify", "pickedUp", { uid = cube.uid, key = cube.key, from = from })
 	TutorialService.did(player, "pickup")
+end
+
+-- the freezer left it: Config.carry.openAfter seconds after it lands (after its show), anyone near can take it
+local function openAt(c: Cube): number
+	return math.max(c.since, c.graceUntil) + Config.carry.openAfter
+end
+
+function CarryService.claim(who: Player, owner: Player, uid: string)
+	local list = ground[owner]
+	local data = DataService.get(who)
+	local p = PlayerTracker.position(who)
+	if not list or not data or not p then
+		return
+	end
+	local i: number? = nil
+	for j, g in list do
+		if g.uid == uid then
+			i = j
+			break
+		end
+	end
+	if not i then
+		return
+	end
+	local old = list[i :: number]
+	local at = old.part and old.part.Position
+	local reach = Config.carry.pickUpRange * Config.gearValue(who, "magnet_gloves", "rangeMult", 1) + 2
+	if os.clock() < openAt(old) or not at or (Vector3.new(p.X, 0, p.Z) - Vector3.new(at.X, 0, at.Z)).Magnitude > reach then
+		return
+	end
+	if CarryService.count(who) >= CarryService.capacity(who) then
+		Remotes.notYet(who, "Hands full! Take your pet home first", "pet")
+		return
+	end
+	local def = PetDefs.get(old.key)
+	if not def then
+		return
+	end
+	table.remove(list, i :: number)
+	local from = if old.part then old.part.CFrame else CFrame.new()
+	if old.part then
+		old.part:Destroy()
+	end
+	-- a fresh cube for the new carrier: its life comes from their own ray upgrade
+	local cube = newCube(def, data, { key = old.key, zone = old.zone, pose = old.pose, mut = old.mut, sz = old.sz,
+		superFrozen = false, superUsed = old.superUsed, offered = old.offered })
+	cube.part = makePart(who, cube)
+	local hands = carrying[who] or {}
+	table.insert(hands, cube)
+	carrying[who] = hands
+	changed(who)
+	Remotes.fire(who, "Notify", "pickedUp", { uid = cube.uid, key = cube.key, from = from })
+	TutorialService.did(who, "pickup")
 end
 
 -- left on the ground too long: the cube poofs away (Config.carry.groundVanish, owner 2026-11-13: gone after
@@ -434,8 +489,16 @@ function CarryService.superFreezeOffer(player: Player): boolean
 end
 
 local function tick(dt: number)
-	-- cubes waiting on the ground: the ice clears up as their time runs out (same look as a melt), then the pet wakes up
 	local now = os.clock()
+	-- a ground cube its freezer left past openAfter: other players' clients show its E prompt (PetVisuals)
+	for _, list in ground do
+		for _, c in list do
+			if c.part and now >= openAt(c) and not c.part:GetAttribute("OpenToAll") then
+				c.part:SetAttribute("OpenToAll", true)
+			end
+		end
+	end
+	-- cubes waiting on the ground: the ice clears up as their time runs out (same look as a melt), then the pet wakes up
 	for player, list in (if Config.carry.groundSeconds > 0 then ground else {}) do -- 0: they never wake up
 		for _, c in table.clone(list) do
 			local left = Config.carry.groundSeconds - (now - math.max(c.since, c.graceUntil))

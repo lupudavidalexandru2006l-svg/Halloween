@@ -97,21 +97,27 @@ Config.mutations = {
 } :: { [string]: { bonus: number, chance: number, nightOnly: boolean? } }
 Config.mutationRollOrder = { "Starry", "Golden" } -- rarest first
 
--- Sizes (owner 2026-11-17, from Steal an Egg: a pet's weight is rolled apart from its mutation, and a heavier
--- pet earns more, about weight^(37/60), and hatches slower; its fans call x3 "Giant" and x5 "Huge"). Every wild
--- pet rolls one when it spawns, rarest first; none = a normal pet. Rare on purpose: Big 1 in 20, Giant 1 in 100,
--- Huge 1 in 1,000 (a Huge Secret is a 1 in 20 million story). It stacks with the mutation.
---   bonus  = coins x (Steal an Egg's weight curve: x1.5 = about 2x the weight, x3 = 6x, x5 = 13x)
---   scale  = how much bigger the pet and its ice cube are drawn (Pet Rules 4: Giant at most 2.5x, never hiding you)
+-- Sizes (owner 2026-11-17, the size chart they sent: Normal x1, Big x1.5 ... Cosmic x25.63, each x1.5 the last,
+-- with that chart's chances and coin multipliers, about scale^1.8). Every wild pet rolls one when it spawns,
+-- rarest first; none = a normal pet (about 80%). It stacks with the mutation. Was Big / Giant / Huge
+-- (x1.25 / 1.6 / 2, 1 in 20 / 100 / 1,000); an old save's Giant loads as Large (DataService).
+--   bonus  = coins x
+--   scale  = how much bigger the wild pet and its ice cube are drawn (owner 2026-11-17: as big as in their
+--            reference, so a Cosmic L pet stands about 160 studs; carried and pan cubes stay capped below)
 --   thaw   = the Thaw Machine takes this much longer; freeze = the ray takes this much longer
--- PACING-2026-11-16.md section 7: with these the pacing barely moves (the longer thaws eat the extra coins).
 Config.sizes = {
-	Big = { chance = 1 / 20, bonus = 1.5, scale = 1.25, thaw = 1.25, freeze = 1.1 },
-	Giant = { chance = 1 / 100, bonus = 3, scale = 1.6, thaw = 1.6, freeze = 1.25 },
-	Huge = { chance = 1 / 1000, bonus = 5, scale = 2, thaw = 2, freeze = 1.5 },
+	Big = { chance = 0.15, bonus = 2.07, scale = 1.5, thaw = 1.25, freeze = 1.1 },
+	Large = { chance = 0.035, bonus = 4.3, scale = 2.25, thaw = 1.6, freeze = 1.25 },
+	Huge = { chance = 0.0098, bonus = 8.93, scale = 3.38, thaw = 2, freeze = 1.5 },
+	Colossal = { chance = 0.0032, bonus = 18.53, scale = 5.06, thaw = 2.5, freeze = 1.75 },
+	Gigantic = { chance = 0.0013, bonus = 38.44, scale = 7.59, thaw = 3, freeze = 2 },
+	Titanic = { chance = 0.0005, bonus = 79.76, scale = 11.39, thaw = 4, freeze = 2.5 },
+	Monstrous = { chance = 0.0002, bonus = 165.48, scale = 17.09, thaw = 5, freeze = 3 },
+	Cosmic = { chance = 0.000081, bonus = 343.33, scale = 25.63, thaw = 6, freeze = 3.5 },
 } :: { [string]: { chance: number, bonus: number, scale: number, thaw: number, freeze: number } }
-Config.sizeRollOrder = { "Huge", "Giant", "Big" } -- rarest first
--- a carried cube grows with its pet's size only this far, so a stack of Huge cubes never hides you
+Config.sizeRollOrder = { "Cosmic", "Monstrous", "Titanic", "Gigantic", "Colossal", "Huge", "Large", "Big" } -- rarest first
+Config.sizeRenamed = { Giant = "Large" } :: { [string]: string } -- saved names from before the size chart
+-- a carried (and pan) cube grows with its pet's size only this far, so a stack of big cubes never hides you
 Config.carrySizeMax = 1.4
 
 -- a pet's size entry (nil = normal, or a size this version doesn't know)
@@ -148,7 +154,7 @@ Config.notYetCooldown = 2 -- seconds between two of the same "not yet" message
 -- every pet's size multiplier (PetDefs.sizeHeight). QA 2026-11-08 (Studio-side work); restored 2026-11-09
 -- after a sync overwrote Studio's Config. The value there was lost: 1 = the sizes the repo always had.
 -- 1.25 (owner 2026-11-17: "the commons are too small"), then another 25% ("make everything 25 percent bigger"):
--- every pet and its ice cube the same amount bigger, so the steps between S / M / L and the Big / Giant / Huge
+-- every pet and its ice cube the same amount bigger, so the steps between S / M / L and the Big ... Cosmic
 -- rolls stay as they were (S 3.4, M 4.7, L 6.25 studs; the avatar is 5.8, so an L pet now stands a little taller)
 Config.petScale = 1.5625
 -- a booth's popup closes this many studs before the server's own range ends: its buttons only work at
@@ -592,7 +598,7 @@ Config.ui = {
 	tileMinFit = 0.075,
 	phoneShortPx = 600, -- a touch screen whose short side is under this many px is a phone (InputController) -- a tile never shrinks below this share of the short side to fit above the coins
 	wideTileWiggle = { degrees = 6, seconds = 1.1 },
-	wideTileText = { 0.48, 0.42, 0.47, 0.29 }, -- SHOP on the wide tile: width, height, x, y (smaller, owner 2026-11-16: it didn't match the others)
+	wideTileText = { 0.5, 0.52, 0.46, 0.24 }, -- "Shop" on the wide tile: width, height, x, y (smaller 2026-11-16 to match the others, then a tad bigger 2026-11-17)
 	-- touch screens (mobile QA 2026-11-10): no tap target under this many pixels (Apple asks 44). Tiles,
 	-- world prompts and the popup X use it; the hotbar slot has its own floor so its name stays readable
 	minTouchPx = 46, hotbarMinPx = 52,
@@ -645,7 +651,13 @@ Config.ui = {
 	-- strip with soft ends, no box. Sizes: shares of the screen's short side; times in seconds
 	-- (reduced motion halves them and drops the slide). nameRow / infoRow: shares of the strip's height.
 	islandBanner = {
-		width = 1.25, height = 0.15, nameRow = 0.56, infoRow = 0.36, iconSize = 0.9,
+		-- owner 2026-11-17: the recommended gun itself (no box) next to its name; the info row grew to fit it
+		width = 1.25, height = 0.2, nameRow = 0.47, infoRow = 0.45, iconSize = 0.9,
+		-- gunCard: the gun's slot height (share of the info row); gunAspect: width per height; gunZoom: the
+		-- gun's window per slot size. Checked in play 2026-11-17 (owner: "sizes match, not too big"): every gun
+		-- is drawn at one scale (EquipmentPopup.gunView `even`), seen from the tile angle they're about square,
+		-- and x1.5 makes them about as tall as the thermometer beside the island name.
+		gunCard = 0.95, gunAspect = 1, gunZoom = 1.5,
 		stripTransparency = 0.45, stripEnds = 0.22, -- the strip fades to clear over this share at each end
 		drop = 1.25, inSeconds = 0.34, holdSeconds = 2.8, outSeconds = 0.24, rise = 0.25, -- drop/rise: strip heights
 		textStroke = 2.5, repeatAfter = 6, -- the same island again within this many seconds doesn't re-show
@@ -860,39 +872,39 @@ Config.world = {
 			landmark = "snowman", landmarkAt = { x = 66, z = 112 }, landmarkScale = 2.6, -- map pass 2026-11-10: the first landmark a new player sees, now well over the cliffs -- landmarks stand in the cliffs, tall enough to show over them (World Rules 9)
 			trees = { kind = "snowpine", count = 14, r = { 4, 6.5 } },
 			near = { 8, 34 }, farFrom = 60 },
-		{ key = "forest", name = "Pine Forest", feel = "Cold", open = true, ready = true, theme = "forest", length = 176, heat = 0.8, iceLife = 1, need = 150, -- 150 (owner 2026-11-16: the tutorial's 500 took too long)
+		{ key = "forest", name = "Pine Forest", feel = "Cold", open = true, ready = true, theme = "forest", length = 176, heat = 0.8, iceLife = 1, need = 900, -- Steal an Egg's Lake (owner 2026-11-17; was 100, 150, and the tutorial's 500 before that); quick with 5 a shot
 			landmark = "mushroom", landmarkAt = { x = -66, z = 104 },
 			trees = { kind = "pine", count = 34, r = { 4.5, 7.5 } },
 			near = { 10, 42 }, farFrom = 10 },
-		{ key = "grove", name = "Mushroom Grove", feel = "Mild", open = true, ready = true, theme = "grove", length = 172, heat = 1.0, iceLife = 1.6, need = 1e3,
+		{ key = "grove", name = "Mushroom Grove", feel = "Mild", open = true, ready = true, theme = "grove", length = 172, heat = 1.0, iceLife = 1.6, need = 10e3,
 			landmark = "toadstoolTower", landmarkAt = { x = 66, z = 100 },
 			trees = { kind = "toadstool", count = 22, r = { 4, 7 } },
 			near = { 10, 40 }, farFrom = 12 },
-		{ key = "beach", name = "Sunny Beach", feel = "Warm", open = true, ready = true, theme = "beach", length = 172, heat = 1.3, iceLife = 2.4, need = 300e3,
+		{ key = "beach", name = "Sunny Beach", feel = "Warm", open = true, ready = true, theme = "beach", length = 172, heat = 1.3, iceLife = 2.4, need = 40e3,
 			landmark = "lighthouse", landmarkAt = { x = -66, z = 104 },
 			trees = { kind = "palm", count = 14, r = { 4, 6 } }, sun = { count = 7, r = { 7, 11 } },
 			near = { 10, 40 }, farFrom = 12 },
-		{ key = "jungle", name = "Jungle Falls", feel = "Hot and humid", open = true, ready = true, theme = "jungle", length = 210, heat = 1.6, iceLife = 3.3, need = 4e6,
+		{ key = "jungle", name = "Jungle Falls", feel = "Hot and humid", open = true, ready = true, theme = "jungle", length = 210, heat = 1.6, iceLife = 3.3, need = 170e3,
 			landmark = "waterfall", landmarkAt = { x = 56, z = 130 }, landmarkScale = 2.3, -- map pass 2026-11-10: it hid behind the jungle trees -- pours from the cliff face
 			trees = { kind = "jungle", count = 33, r = { 4.5, 7.5 } },
 			near = { 10, 42 }, farFrom = 12 },
-		{ key = "desert", name = "Desert Dunes", feel = "Hot", open = true, ready = true, theme = "desert", length = 230, heat = 2.0, iceLife = 4.4, need = 75e6,
+		{ key = "desert", name = "Desert Dunes", feel = "Hot", open = true, ready = true, theme = "desert", length = 230, heat = 2.0, iceLife = 4.4, need = 700e3,
 			landmark = "cactus", landmarkAt = { x = -66, z = 136 },
 			trees = { kind = "cactus", count = 12, r = { 3.5, 5 } }, sun = { count = 12, r = { 8, 12 } },
 			near = { 10, 42 }, farFrom = 12 },
-		{ key = "canyon", name = "Canyon Mesa", feel = "Very hot", open = true, ready = true, theme = "canyon", length = 250, heat = 2.4, iceLife = 5.7, need = 250e6,
+		{ key = "canyon", name = "Canyon Mesa", feel = "Very hot", open = true, ready = true, theme = "canyon", length = 250, heat = 2.4, iceLife = 5.7, need = 2.5e6,
 			landmark = "arch", landmarkAt = { x = 0, z = 155 },
 			trees = { kind = "hoodoo", count = 14, r = { 4, 6 } },
 			near = { 10, 42 }, farFrom = 12 },
-		{ key = "volcano", name = "Volcano Slopes", feel = "Lava", open = true, ready = true, theme = "volcano", length = 270, heat = 2.9, iceLife = 7.2, need = 15e9,
+		{ key = "volcano", name = "Volcano Slopes", feel = "Lava", open = true, ready = true, theme = "volcano", length = 270, heat = 2.9, iceLife = 7.2, need = 18e6,
 			landmark = "volcano", landmarkAt = { x = 70, z = 160 }, -- beside the tunnel, rising over the cliffs
 			trees = { kind = "charred", count = 12, r = { 4, 6 } }, lava = { count = 3, r = { 5, 8 } },
 			near = { 10, 42 }, farFrom = 12 },
-		{ key = "lavalake", name = "Lava Lake", feel = "Lava", open = true, ready = true, theme = "lavalake", length = 290, heat = 3.4, iceLife = 9, need = 150e9,
+		{ key = "lavalake", name = "Lava Lake", feel = "Lava", open = true, ready = true, theme = "lavalake", length = 290, heat = 3.4, iceLife = 9, need = 700e6,
 			landmark = "spire", landmarkAt = { x = -66, z = 176 },
 			trees = { kind = "obsidian", count = 13, r = { 4, 6 } }, lava = { count = 3, r = { 6, 10 } },
 			near = { 10, 42 }, farFrom = 12 },
-		{ key = "magma", name = "Magma Core", feel = "Extreme", open = true, ready = true, theme = "magma", length = 320, heat = 4.0, iceLife = 11, need = 4e12,
+		{ key = "magma", name = "Magma Core", feel = "Extreme", open = true, ready = true, theme = "magma", length = 320, heat = 4.0, iceLife = 11, need = 2.5e9,
 			landmark = "core", landmarkAt = { x = 0, z = 200 },
 			trees = { kind = "obsidian", count = 12, r = { 4, 6 } }, lava = { count = 3, r = { 5, 9 } },
 			near = { 10, 42 }, farFrom = 12 },
@@ -902,6 +914,19 @@ Config.world = {
 		-- rarity pass 2026-11-17: 150 / 1K / 300K / 4M / 75M / 250M / 15B / 150B / 4T. The islands behind
 		-- a rebirth gate (3, 5, 7, 9) need about 2x the island before, so they open soon after their rebirth;
 		-- 4, 6, 8 and 10 are the real Cold Power goals. Typical kid: island 2 at 4.7 min, island 10 at 6.4 h.
+		-- Shot-gain pass 2026-11-17 (owner: "+N/shot" changes only on upgrades, so no more x4 per island passed):
+		-- 100 (owner) / 400 / 20K / 75K / 400K / 500K / 4M / 12M / 75M, fitted in pacing_sim.py so every island still
+		-- opens when it did (typical kid: island 2 at 6.8 min, island 10 at 7.9 h; was 8.4 h).
+		-- Steal an Egg pass 2026-11-17 (owner: "find the recommended speed for Steal an Egg and implement it"):
+		-- needs = its biome speed gates, Forest to Cherry Blossom: 900 / 10K / 40K / 170K / 700K / 2.5M / 18M /
+		-- 700M / 2.5B. Bolts are worth 5 (training.baseValue) and trainers x1 / 2 / 3 / 4 / 6 / 20 / 75 / 200 / 600 / 2000, so the
+		-- islands keep their timeline (pacing_sim.py, typical kid, 20 runs): island 2 at 6.8 min, Rebirth 1 at 32 min, island 10 at
+		-- 7.2 h. Its x39 Cosmic wall (18M to 700M) is island 9, carried by trainer 8. With the size chart that left
+		-- the last buy at 9.3 h, so the coin pass (same day, owner: keep it 10.4 h or more) raised the later prices:
+		-- typical kid island 10 at 9.3 h, last buy at 11.6 h (slow 13.2 h, fast 9.3 h). PACING-2026-11-16.md section 9.
+		-- Late-game pass (same day, owner: "late game harder than the start, like Steal an Egg"): every stage now costs
+		-- more minutes of income per buy than the one before (0.4 in the first 10 min ... 35 after 10 h); island 10
+		-- at 9.7 h, last buy at 12.1 h (fast 11.0 h, slow 13.1 h). Section 10.
 		-- the next update (not built): its colour glows behind the end cap. Later updates add islands 11-20
 		-- past extreme heat into the sky and space (Sun Temple, Solar Flare Fields, Starfall Sky, Comet
 		-- Drift, Moon Base, Nebula Reef): one entry each, plus its Theme look and pets.
@@ -996,7 +1021,7 @@ Config.images = {
 		gate = "rbxassetid://125059317907976", lock = "rbxassetid://80262628352180", -- lock re-cut 2026-11-12: the shackle's hole was painted solid grey (owner: "a grey thing behind it")
 		-- Cold Power. STAND-IN: the thermometer, until the painted snowflake crystal is made (owner's OK on Figma credits first)
 		power = "rbxassetid://72963487370215",
-		robux = "rbxasset://textures/ui/common/robux.png", -- Roblox's own Robux mark, on every Robux price
+		robux = "rbxasset://textures/ui/common/robux@3x.png", -- Roblox's own Robux mark, on every Robux price (@3x: the plain one is 16 px and looked pixelated, owner 2026-11-17)
 		-- 2026-11-12, drawn (icons/arrow.png, icons/sunburst.png): the chunky go-green arrow (Rebirth banner and show)
 		-- and a soft white sunburst, tinted with ImageColor3 behind reveals
 		arrow = "rbxassetid://110202146195386", sunburst = "rbxassetid://78560668257766",
@@ -1117,6 +1142,9 @@ Config.guide = {
 -- Saved per player (DataService tutorial = { step, done, gift, paid }); saves from before it existed count
 -- as done (Lessons: new-player things are for new players only). Replay is in Settings.
 Config.tutorial = {
+	-- owner 2026-11-17: up to this step (1 zap, 2 freeze, 3 pick up) you spawn in the middle of the map by your
+	-- tutorial pet instead of at your pan (PenService)
+	spawnMidUntilStep = 3,
 	-- 2026-11-15 (owner: "get rid of captain frost", and Cold Power training belongs in the tutorial): one run,
 	-- no guide character and no talk steps. The goal pill says each goal; cheers, hints and reactions show in
 	-- it for a moment. The whole loop: catch -> home -> thaw -> upgrade -> train -> open the next island.
@@ -1338,7 +1366,8 @@ Config.petAnim = {
 	},
 	gaitFor = { snowbun = "Hopper", hopsprout = "Hopper", shimmerfrog = "Hopper" } :: { [string]: string }, -- bunnies and frogs hop
 }
-Config.mapFx = { gateBarsDrop = 19.3, gateBarsSeconds = 1.2, giftBob = 0.6, giftSway = 0.15,
+Config.mapFx = { gateBarsDrop = 23, -- the bars reach into the lintel now (2026-11-17), so they sink further
+	 gateBarsSeconds = 1.2, giftBob = 0.6, giftSway = 0.15,
 	motionTag = "MapMotion", -- MapArt's moving parts (booth gears, portal swirl, floating crystals); MapController moves them
 	gateGlowPulse = 1.6, -- seconds per breath of a gate's glowing arch (the next goal glows)
 	lightTweenSeconds = 1.5, -- each island's own tint fades in as you walk into it
@@ -1382,6 +1411,9 @@ Config.carry = { scale = 0.62, handY = 0.4, front = 0.9, stackGap = 0.15, armRai
 	-- ground thaws back out after groundSeconds (dazed for a moment, only you can zap it again), it never poofs
 	pickUpRange = 10, groundSeconds = 45, groundVanish = false,
 	groundMax = 12, -- at most this many of your frozen pets wait on the ground at once (phones)
+	-- owner 2026-11-17: a frozen pet its freezer doesn't pick up is open to anyone this many seconds after
+	-- it lands (counted from the end of its freeze show)
+	openAfter = 3,
 	-- QA 2026-11-08 (Studio-side work): the cube flies into your hands by itself this many seconds after
 	-- the snap, no E. Restored 2026-11-09 after a sync overwrote Studio's Config: the delay is a guess.
 	-- Off again (owner 2026-11-10): the frozen pet stays on the ground until you pick it up with E
@@ -1587,7 +1619,9 @@ Config.show.thawReveal = {
 		{ name = "title", time = 1.0, keepOnSkip = true },
 		{ name = "fly", time = 0.7, keepOnSkip = true },
 	} :: { Beat },
-	tiers = { Secret = true } :: { [string]: boolean },
+	-- owner 2026-11-17: no luck roll at the machine (a Secret already had it when caught; a common isn't
+	-- worth it). Put a tier back here to bring its reveal back.
+	tiers = {} :: { [string]: boolean },
 	camera = true, flash = false, burstParts = 50, rays = 10, chargePulses = 3, stats = true,
 	camBack = 15, camUp = 6, lookUp = 2,
 }
@@ -1603,6 +1637,7 @@ Config.show.firstReveal = {
 		{ name = "fly", time = 0.6, keepOnSkip = true },
 	} :: { Beat },
 	tiers = {} :: { [string]: boolean },
+	enabled = false, -- owner 2026-11-17: the very first pet just pops out too, no "1 in N" for a common
 	camera = true, flash = true, burstParts = 40, rays = 8, chargePulses = 2,
 	camBack = 15, camUp = 6, lookUp = 2,
 }
@@ -1678,14 +1713,14 @@ Config.guns = {
 		-- each gun lands within about 25 min of its island (gun 8 25B -> 7.5B, gun 10 1.5T -> 200B)
 		-- 2026-11-13: 20K -> 7.5K, the first gun lands ~8 min in (guns now also freeze faster: Config.gunFreeze)
 		{ key = "snowball_blaster", name = "Snowball Blaster", training = 2, range = 11, heat = 2, beams = 1, price = 40e3, rebirths = 0 },
-		{ key = "icicle_repeater", name = "Icicle Repeater", training = 3, range = 12, heat = 4, beams = 1, price = 2.5e6, rebirths = 0 },
-		{ key = "glacier_cannon", name = "Glacier Cannon", training = 5, range = 13, heat = 4, beams = 2, price = 15e6, rebirths = 0 },
-		{ key = "blizzard_beam", name = "Blizzard Beam", training = 8, range = 14, heat = 6, beams = 2, price = 100e6, rebirths = 0 },
-		{ key = "aurora_ray", name = "Aurora Ray", training = 12, range = 15, heat = 6, beams = 2, price = 400e6, rebirths = 0 },
-		{ key = "cryo_lance", name = "Cryo Lance", training = 20, range = 16, heat = 8, beams = 3, price = 15e9, rebirths = 0 },
-		{ key = "polar_vortex", name = "Polar Vortex", training = 30, range = 17, heat = 8, beams = 3, price = 40e9, rebirths = 0 },
-		{ key = "absolute_zero", name = "Absolute Zero", training = 50, range = 18, heat = 10, beams = 3, price = 1.5e12, rebirths = 0 },
-		{ key = "starfrost_nova", name = "Starfrost Nova", training = 100, range = 19, heat = 10, beams = 4, price = 3e12, rebirths = 0 },
+		{ key = "icicle_repeater", name = "Icicle Repeater", training = 3, range = 12, heat = 4, beams = 1, price = 2e6, rebirths = 0 },
+		{ key = "glacier_cannon", name = "Glacier Cannon", training = 5, range = 13, heat = 4, beams = 2, price = 25e6, rebirths = 0 },
+		{ key = "blizzard_beam", name = "Blizzard Beam", training = 8, range = 14, heat = 6, beams = 2, price = 250e6, rebirths = 0 },
+		{ key = "aurora_ray", name = "Aurora Ray", training = 12, range = 15, heat = 6, beams = 2, price = 5e9, rebirths = 0 },
+		{ key = "cryo_lance", name = "Cryo Lance", training = 20, range = 16, heat = 8, beams = 3, price = 25e9, rebirths = 0 },
+		{ key = "polar_vortex", name = "Polar Vortex", training = 30, range = 17, heat = 8, beams = 3, price = 750e9, rebirths = 0 },
+		{ key = "absolute_zero", name = "Absolute Zero", training = 50, range = 18, heat = 10, beams = 3, price = 2.5e12, rebirths = 0 },
+		{ key = "starfrost_nova", name = "Starfrost Nova", training = 100, range = 19, heat = 10, beams = 4, price = 40e12, rebirths = 0 },
 		-- owner 2026-11-09: every gun shows a coin price (the free rebirth guns read "Rebirth 2" on only some
 		-- rows and looked odd), so all guns are bought with coins in order; rebirth gates islands, not guns
 	} :: { Gun },
@@ -1749,7 +1784,7 @@ Config.rebirth = {
 	-- balance pass 2026-11-12 (BALANCE-2026-11-12.md): Rebirth 1 at ~36 min, Rebirth 2 at ~67 min, then about one an hour
 	-- pacing pass 2026-11-16 (PACING-2026-11-16.md): Rebirth 1 at ~34 min, Rebirth 2 at ~69 min, then one every
 	-- 1-1.5 h; island 10 at ~8 h and the last buy at ~10 h (rarity pass 2026-11-17) for a typical kid (was everything in ~4.5 h)
-	costs = { 5e6, 200e6, 1.5e9, 25e9, 400e9, 750e9, 15e12 }, -- Rebirth 1, 2, 3 ...
+	costs = { 5e6, 250e6, 5e9, 15e9, 250e9, 500e9, 25e12 }, -- Rebirth 1, 2, 3 ... (late-game pass 2026-11-17)
 	costGrowth = 3,
 	fullAt = 7,
 	boothRange = 30, -- studs from the Rebirth Booth (the server's position)
@@ -1793,9 +1828,9 @@ export type GearItem = { key: string, name: string, shape: string, price: number
 Config.gear = {
 	{ key = "magnet_gloves", name = "Magnet Gloves", shape = "gloves", price = 250e3, text = "Grab frozen pets from far away", rangeMult = 2.5 },
 	{ key = "ice_skates", name = "Ice Skates", shape = "skates", price = 1.5e6, text = "Faster when carrying pets home", carrySpeed = 1.2 },
-	{ key = "frost_boots", name = "Frost Boots", shape = "boots", price = 25e6, text = "Pets run slower from you", fleeMult = 0.75 },
-	{ key = "cooling_vest", name = "Cooling Vest", shape = "vest", price = 400e6, text = "Your gun heats up slower", heatMult = 0.6 },
-	{ key = "cozy_hat", name = "Cozy Hat", shape = "hat", price = 1e12, text = "+10% coins from your pets", coinMult = 1.1 },
+	{ key = "frost_boots", name = "Frost Boots", shape = "boots", price = 30e6, text = "Pets run slower from you", fleeMult = 0.75 },
+	{ key = "cooling_vest", name = "Cooling Vest", shape = "vest", price = 2e9, text = "Your gun heats up slower", heatMult = 0.6 },
+	{ key = "cozy_hat", name = "Cozy Hat", shape = "hat", price = 2e12, text = "+10% coins from your pets", coinMult = 1.1 },
 } :: { GearItem }
 
 function Config.gearItem(key: string): GearItem?
@@ -1882,9 +1917,12 @@ Config.pan = {
 	-- once, for levels above coldStart.
 	-- trainer: your pan's Cold Power trainer (Config.training.stations). owner 2026-11-13: + Thaw (the Thaw
 	-- Machine's wait -10% a level); rebirth keeps it. Speed was sold here too until 2026-11-15 (now Gear only).
-	order = { "slots", "thaw", "trainer", "look" },
+	-- owner 2026-11-17: Look is no longer bought; reaching Slots level lookAtSlots gives the pan its next Look,
+	-- once per rebirth run (a Look already bought is kept). The looks' prices below are unused now.
+	order = { "slots", "thaw", "trainer" },
+	lookAtSlots = 7,
 	-- the price of level 2, 3 ... 10 (cheap at first: a buy every minute or two in the first half hour)
-	thawPrices = { 250, 1e3, 4e3, 200e3, 1e6, 5e6, 200e6, 2.5e9, 75e9 }, -- pacing + rarity pass 2026-11-16/17
+	thawPrices = { 250, 1e3, 4e3, 200e3, 2e6, 7.5e6, 300e6, 20e9, 1e12 }, -- pacing + rarity pass 2026-11-16/17, coin + late-game passes 2026-11-17
 	-- what Speed level 2, 3 ... 10 cost while it was sold: DataService pays these back once and resets the level
 	speedRefund = { 120, 500, 2e3, 7.5e3, 30e3, 200e3, 2e6, 20e6, 250e6 },
 	coldStart = 2,
@@ -2128,7 +2166,8 @@ Config.thaw = {
 	-- (was 15 / 30 / 60 / 180 / 360) so the catch -> thaw -> earn loop turns over every minute or so;
 	-- Mythic and Secret stay the long waits
 	-- owner 2026-11-16 ("the pets unfreeze very hard"): about a third shorter again
-	seconds = { Common = 4, Uncommon = 8, Rare = 20, Epic = 60, Legendary = 150, Mythic = 480, Secret = 1200 } :: { [string]: number },
+	-- owner 2026-11-17 ("still too slow for a 1st island common"): Common 4 -> 2, Uncommon 8 -> 4
+	seconds = { Common = 2, Uncommon = 4, Rare = 20, Epic = 60, Legendary = 150, Mythic = 480, Secret = 1200 } :: { [string]: number },
 	sizeFactor = { S = 0.85, M = 1, L = 1.2 } :: { [string]: number },
 	mutFactor = { Frosty = 1.2, Golden = 1.5, Starry = 2 } :: { [string]: number },
 	islandGrowth = 1.3, -- island 2 x1.3, island 3 x1.69, island 8 x6.3
@@ -2337,7 +2376,7 @@ end
 -- thawLevel = the Thaw Speed upgrade (pan.thaw): each level x upgradeFactor (-10%)
 function Config.thawSeconds(tier: string, size: string, zone: number, mut: string?, panLevel: number, thawLevel: number?, sz: string?): number
 	local T = Config.thaw
-	local big = Config.size(sz) -- Big / Giant / Huge thaw slower (Config.sizes)
+	local big = Config.size(sz) -- Big ... Cosmic thaw slower (Config.sizes)
 	local base = (T.seconds[tier] or 15) * (T.sizeFactor[size] or 1) * (if mut then T.mutFactor[mut] or 1 else 1) * (if big then big.thaw else 1)
 	local far = T.islandGrowth ^ math.max(0, zone - 1)
 	local upgrade = T.upgradeFactor ^ math.max(0, (thawLevel or 1) - 1)
@@ -2387,7 +2426,7 @@ end
 Config.coldPower = {
 	max = 1e30,
 	maxSpeed = 5,
-	speedFloor = 50,
+	speedFloor = 450, -- 450 (2026-11-17, was 50): half of island 2's 900, as 50 was of 100
 	needGrowth = 20,
 	minSeconds = { Common = 0.5, Uncommon = 1, Rare = 1.5, Epic = 2.5, Legendary = 3.5, Mythic = 4.5, Secret = 6 } :: { [string]: number },
 }
@@ -2405,7 +2444,8 @@ Config.coldPower = {
 --              price = coins at your Pan Upgrades stand. Each one hotter and grander, like the islands.
 --   aimY / shell: where the bolts land (studs over the pad) and the frost crust that climbs the target
 --              as you shoot it (bottom over the pad, full height, width)
---   levelValue: every island need you've passed makes each bolt worth x levelValue (Config.powerLevel)
+--   a bolt is worth only what you upgraded: trainer xN x gun Training x rebirths x the 2x pass (owner
+--              2026-11-17: the old x4 per island passed made "+N/shot" jump by itself, which read as a bug)
 --   spot     = the pad's middle from the pan's door (x along the front, z out toward the plaza). padSize =
 --              (x, z) studs, a few studs clear of the fence. It faces away from the pan (owner 2026-11-10):
 --              the open side toward the pan, the target targetZ studs out toward the plaza, and you stand
@@ -2418,19 +2458,19 @@ Config.training = {
 		-- v3 (owner 2026-11-12): nine themed levels after the snowman, each its own gate and target (TrainingArt)
 		-- prices: pacing pass 2026-11-16 (spread through the saves, PACING-2026-11-16.md)
 		{ id = "peppermint", name = "Peppermint Pal", kind = "peppermint", mult = 2, price = 15e3, aimY = 4.9, shell = { bottom = 0.3, height = 7.8, width = 5.4 } },
-		{ id = "gingerbread", name = "Gingerbread Man", kind = "gingerbread", mult = 3, price = 1.2e6, aimY = 4.4, shell = { bottom = 0.3, height = 7.8, width = 4.6 } },
-		{ id = "workshop", name = "Nutcracker", kind = "workshop", mult = 5, price = 200e6, aimY = 4.8, shell = { bottom = 0.5, height = 8.6, width = 4.4 } },
-		{ id = "ice", name = "Penguin", kind = "ice", mult = 8, price = 2.5e9, aimY = 4.2, shell = { bottom = 0.4, height = 7.8, width = 4.6 } },
-		{ id = "reindeer", name = "Reindeer", kind = "reindeer", mult = 12, price = 20e9, aimY = 4.6, shell = { bottom = 0.3, height = 8.4, width = 4.4 } },
-		{ id = "crystal", name = "Amethyst Golem", kind = "crystal", mult = 20, price = 300e9, aimY = 5, shell = { bottom = 0.8, height = 8.6, width = 6.2 } },
-		{ id = "aurora", name = "Snow Owl", kind = "aurora", mult = 30, price = 2e12, aimY = 4.6, shell = { bottom = 1.2, height = 7.4, width = 4.6 } },
-		{ id = "citadel", name = "Knight", kind = "citadel", mult = 50, price = 4e12, aimY = 4.6, shell = { bottom = 0.3, height = 8.4, width = 5.0 } },
-		{ id = "northstar", name = "Star Spirit", kind = "northstar", mult = 100, price = 40e12, aimY = 4.9, shell = { bottom = 0.4, height = 7.6, width = 5.6 } },
+		{ id = "gingerbread", name = "Gingerbread Man", kind = "gingerbread", mult = 3, price = 2e6, aimY = 4.4, shell = { bottom = 0.3, height = 7.8, width = 4.6 } },
+		{ id = "workshop", name = "Nutcracker", kind = "workshop", mult = 4, price = 1.2e9, aimY = 4.8, shell = { bottom = 0.5, height = 8.6, width = 4.4 } },
+		{ id = "ice", name = "Penguin", kind = "ice", mult = 6, price = 15e9, aimY = 4.2, shell = { bottom = 0.4, height = 7.8, width = 4.6 } },
+		{ id = "reindeer", name = "Reindeer", kind = "reindeer", mult = 20, price = 400e9, aimY = 4.6, shell = { bottom = 0.3, height = 8.4, width = 4.4 } },
+		{ id = "crystal", name = "Amethyst Golem", kind = "crystal", mult = 75, price = 1.2e12, aimY = 5, shell = { bottom = 0.8, height = 8.6, width = 6.2 } },
+		{ id = "aurora", name = "Snow Owl", kind = "aurora", mult = 200, price = 4e12, aimY = 4.6, shell = { bottom = 1.2, height = 7.4, width = 4.6 } },
+		{ id = "citadel", name = "Knight", kind = "citadel", mult = 600, price = 7.5e12, aimY = 4.6, shell = { bottom = 0.3, height = 8.4, width = 5.0 } },
+		{ id = "northstar", name = "Star Spirit", kind = "northstar", mult = 2000, price = 50e12, aimY = 4.9, shell = { bottom = 0.4, height = 7.6, width = 5.6 } },
 	} :: { TrainStation },
 	targetTag = "TrainTarget", -- each trainer's target Model (TrainingArt); the client frosts and wobbles it
 	spot = { x = 14, z = 12 }, padSize = { 11, 12 }, padHeight = 0.8,
 	targetZ = 3.3, standZ = -2.6,
-	baseValue = 1, levelValue = 4, -- 4 (balance pass 2026-11-12): at 10 the late islands' needs trained in seconds
+	baseValue = 5, -- 5 (2026-11-17): Steal an Egg's 900 for island 2 takes as long as 100 did at 1 a shot
 	autoEvery = 1.2, autoPass = 0.3,
 	clickMax = 5,
 	shatterHits = 12, shatterBonus = 5,
@@ -2550,7 +2590,7 @@ end
 
 function Config.freezeSeconds(tier: string, size: string, power: number, zoneId: number, asleep: boolean?, gun: number?, sz: string?): number
 	local F = Config.show.freeze
-	local big = Config.size(sz) -- Big / Giant / Huge take longer to freeze (Config.sizes)
+	local big = Config.size(sz) -- Big ... Cosmic take longer to freeze (Config.sizes)
 	local raw = (F.tierSeconds[tier] or 1) * (F.sizeFactor[size] or 1) * (if big then big.freeze else 1) * Config.aim.timeScale / Config.freezeSpeed(power, zoneId)
 		/ Config.gunFreeze(gun)
 	if asleep then
@@ -2577,15 +2617,15 @@ function Config.cubeLife(tier: string, zoneId: number): number
 	return (home + M.slackSeconds * own) / (M.homeShare[tier] or 0.5)
 end
 
--- the Cold Power one training bolt gives: the base value x the power level x the trainer's xN x the
+-- the Cold Power one training bolt gives: the base value x the trainer's xN x the
 -- gun's Training x the rebirth multiplier x the 2x Cold Power pass (a shatter is shatterBonus of these)
-function Config.trainGain(tier: number, level: number, gun: number, rebirths: number, doubled: boolean): number
+function Config.trainGain(tier: number, gun: number, rebirths: number, doubled: boolean): number
 	local T = Config.training
 	local s = T.stations[tier] -- the trainer's level (pan.trainer)
 	if not s then
 		return 0
 	end
-	local gain = T.baseValue * T.levelValue ^ math.max(0, level) * s.mult
+	local gain = T.baseValue * s.mult
 		* Config.gun(gun).training * Config.rebirthIncome(rebirths) * (if doubled then 2 else 1)
 	-- to the nearest whole number, never 0
 	return math.min(Config.coldPower.max, math.max(1, math.round(gain)))

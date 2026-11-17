@@ -185,7 +185,7 @@ local function shoot(player: Player, s: State, click: boolean)
 		return
 	end
 	local tier = tierOf(player)
-	local gain = Config.trainGain(tier, Config.powerLevel(d.coldPower), GunService.equipped(player), d.rebirths, hasPass(player, "doublePower"))
+	local gain = Config.trainGain(tier, GunService.equipped(player), d.rebirths, hasPass(player, "doublePower"))
 	s.hits += 1
 	local bonus = 0
 	if s.hits >= T.shatterHits then

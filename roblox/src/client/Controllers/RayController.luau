@@ -288,6 +288,10 @@ end
 
 local function inReach(t: Target, from: Vector3): boolean
 	local range = Config.gun(gunTierOf(me)).range
+	if t.kind == "pet" then -- a big pet (Config.sizes) is reached from its edge, like FreezeService's petReach
+		local def = PetDefs.get(t.part:GetAttribute("PetKey") :: string)
+		range += math.max(0, t.part.Size.X - (if def then PetDefs.sizeHeight[def.size] else t.part.Size.X)) / 2
+	end
 	local d = Vector3.new(t.part.Position.X - from.X, 0, t.part.Position.Z - from.Z).Magnitude
 	return d <= range and (skip[t.part] or 0) < os.clock() and typeof(t.id) == "string"
 end

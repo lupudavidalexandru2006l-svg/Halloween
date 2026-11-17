@@ -1,7 +1,8 @@
 --!strict
 -- PanService (Round 4 phase 5): owns the pan upgrades, bought at your own pan's Pan Upgrades stand.
 --   Slots      = upgrades.pen (how many pets the pan holds; rebirth resets it)
---   Look       = pan.look (straw -> wood -> stone -> crystal ice -> aurora; rebirth keeps it)
+--   Look       = pan.look (straw -> wood -> stone -> crystal ice -> aurora; rebirth keeps it). Not bought since
+--                2026-11-17: reaching Slots level Config.pan.lookAtSlots gives the next one, once per rebirth run
 --   Trainer    = pan.trainer (snowman -> peppermint ... -> north star: x1 -> x100 Cold Power;
 --                rebirth keeps it; TrainingService builds it)
 -- (Cold Level was removed with the Cold Power remake, 2026-11-10: the pan keeps every pet frozen.)
@@ -113,6 +114,7 @@ local function buy(player: Player, kind: any)
 	lastBuy[player] = now
 	local old = PanService.level(d, kind)
 	local paid, bought = 0, false
+	local newLook: number? = nil
 	DataService.mutate(player, function(x)
 		-- checked again inside the change itself: nothing runs between this check and the charge
 		if PanService.level(x, kind) ~= old or PanService.blocker(x, kind) then
@@ -124,6 +126,11 @@ local function buy(player: Player, kind: any)
 		if kind == "slots" then
 			x.upgrades.pen = old + 1
 			PenService.fillEmptySlots(x) -- the new slots take the best pets from Storage
+			-- full Slots: the pan's next Look comes free, one per run (look <= rebirths + 1 keeps it to one)
+			if old + 1 == P.lookAtSlots and x.pan.look < #P.looks and x.pan.look <= x.rebirths + 1 then
+				x.pan.look += 1
+				newLook = x.pan.look
+			end
 		elseif kind == "trainer" then
 			x.pan.trainer = old + 1 -- TrainingService rebuilds the pan's trainer from PanTrainer<i>
 		elseif kind == "thaw" then
@@ -139,6 +146,9 @@ local function buy(player: Player, kind: any)
 	publish(player)
 	-- the show plays first, then the save marks it seen (SKIP from the second upgrade on)
 	Remotes.fire(player, "Notify", "panUpgraded", { kind = kind, level = old + 1, old = old, price = paid, plot = WorldService.plotOf(player) })
+	if newLook then
+		Remotes.fire(player, "Notify", "panUpgraded", { kind = "look", level = newLook, old = newLook - 1, price = 0, plot = WorldService.plotOf(player) })
+	end
 	DataService.mutate(player, function(x)
 		x.seenShows.panUpgrade = true
 	end)

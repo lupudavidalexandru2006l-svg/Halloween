@@ -768,7 +768,7 @@ local function addPet(root: Instance)
 	-- it, a bit smaller. Thawed ("out"), it's a normal pet strolling round the pan (Round 5).
 	local penPet = root:GetAttribute("Banked") == true
 	local banked = penPet and root:GetAttribute("Thaw") ~= "out"
-	local h = if banked then (root :: BasePart).Size.Y * 0.62 else PetDefs.height(def, root:GetAttribute("Size") :: string?) -- Big / Giant / Huge stand taller
+	local h = if banked then (root :: BasePart).Size.Y * 0.62 else PetDefs.height(def, root:GetAttribute("Size") :: string?) -- Big ... Cosmic stand taller
 	local wild = root:GetAttribute("PenOwner") == nil
 	-- a wild pet's parts all live in its own box, so step() can hide it while you're on another island
 	-- (owner 2026-11-13: no glowing pets seen through the gates and walls)
@@ -997,7 +997,13 @@ local function addCube(part: Instance)
 	if onGround and part:GetAttribute("OwnerUserId") ~= me.UserId then
 		local prompt = part:FindFirstChildWhichIsA("ProximityPrompt", true)
 		if prompt then
-			prompt.Enabled = false -- someone else's frozen pet: only they can pick it up
+			-- someone else's frozen pet: only they can pick it up, until the server opens it to all
+			-- (Config.carry.openAfter, owner 2026-11-17)
+			local function sync()
+				prompt.Enabled = part:GetAttribute("OpenToAll") == true
+			end
+			sync()
+			part:GetAttributeChangedSignal("OpenToAll"):Connect(sync) -- goes with the part
 		end
 	end
 	local model, img = standIn(def, part.Size.Y * 0.6, part:GetAttribute("Pose") == "sleep") -- frozen asleep: eyes shut

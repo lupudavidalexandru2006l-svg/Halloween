@@ -199,12 +199,15 @@ local function gunTile(h: Helpers, parent: Instance, i: number, v: State.View, o
 	local name = Ui.label(b.face, g.name, UDim2.fromScale(0.6, 0.46), UDim2.fromScale(0.36, 0.06))
 	name.TextXAlignment = Enum.TextXAlignment.Left
 	textRole(h, name, "body")
+	-- a gun you have shows Owned / Holding in the price's place: its price beside it read as "pay again"
+	-- (QA 2026-11-17), and the wider chip keeps its word readable on a phone (it was 8 px)
 	if st == "held" then
-		chip(h, b.face, "Holding", Theme.coin, 0.36, 0.56, 0.27, 0.32)
+		chip(h, b.face, "Holding", Theme.coin, 0.36, 0.56, 0.6, 0.32)
 	elseif st == "owned" then
-		chip(h, b.face, "Owned", Theme.go, 0.36, 0.56, 0.27, 0.32)
+		chip(h, b.face, "Owned", Theme.go, 0.36, 0.56, 0.6, 0.32)
+	else
+		pricePill(h, b.face, g.price, 0.65, 0.56, 0.32, 0.32)
 	end
-	pricePill(h, b.face, g.price, 0.65, 0.56, 0.32, 0.32)
 end
 
 -- one stat on the card's white panel (owner 2026-11-12: "the stat bars look too simple"): its name, a
@@ -219,7 +222,10 @@ local function statBar(h: Helpers, parent: Instance, n: number, count: number, s
 	r.Position = UDim2.fromScale(0.04, S.pad + (n - 1) * rh)
 	r.Size = UDim2.fromScale(0.92, rh)
 	r.Parent = parent
-	local label = h.text(r, G.statLabels[stat], 0, S.labelW)
+	-- a phone has no room for the bar (QA 2026-11-17: its numbers came out 6 px): the name and the number only,
+	-- each twice as wide, still green / red for gain / loss
+	local phone = Screen.deviceClass() == "phone"
+	local label = h.text(r, G.statLabels[stat], 0, if phone then 0.5 else S.labelW)
 	textRole(h, label, "small")
 	local track = Instance.new("Frame")
 	track.Name = "Track_" .. stat
@@ -231,6 +237,7 @@ local function statBar(h: Helpers, parent: Instance, n: number, count: number, s
 	Ui.corner(track, 0.5)
 	Ui.stroke(track)
 	track.Parent = r
+	track.Visible = not phone
 	local value, held_ = (g :: any)[stat] :: number, (cur :: any)[stat] :: number
 	local share, heldShare = Config.gunStatShare(stat, value), Config.gunStatShare(stat, held_)
 	-- every piece is a pill that starts at the left edge, so each keeps its round end
@@ -269,8 +276,9 @@ local function statBar(h: Helpers, parent: Instance, n: number, count: number, s
 	pill.BackgroundColor3 = Theme.white
 	pill.BorderSizePixel = 0
 	pill.AnchorPoint = Vector2.new(0, 0.5)
-	pill.Position = UDim2.fromScale(S.valueX, 0.5)
-	pill.Size = UDim2.fromScale(1 - S.valueX, S.trackH * 1.15)
+	local vx = if phone then 0.52 else S.valueX
+	pill.Position = UDim2.fromScale(vx, 0.5)
+	pill.Size = UDim2.fromScale(1 - vx, if phone then 0.86 else S.trackH * 1.15)
 	Ui.corner(pill, 0.5)
 	Ui.stroke(pill, Config.ui.cardStroke)
 	pill.Parent = r
@@ -288,7 +296,25 @@ end
 -- multiplies every colour to black), `fade` see-through on the card (owner 2026-11-12).
 -- A turning gun's angle comes from the clock, so a refresh of the card doesn't jump it back to the
 -- start; the spin stops itself once the window is gone.
-function gunView(parent: Instance, i: number, dark: boolean, spin: boolean, fade: number?): ViewportFrame
+-- even = every gun at one scale: framed as if it were the biggest gun's box, so a small chunky gun isn't
+-- blown up past a long thin one (the island banner, owner 2026-11-17: "make sure their sizes match")
+local sharedBox: Vector3? = nil
+local function biggestGunBox(fallback: Vector3): Vector3
+	if not sharedBox then
+		local box = Vector3.zero
+		local models = ReplicatedStorage:FindFirstChild("GunModels")
+		for _, m in (if models then models:GetChildren() else {}) do
+			if m:IsA("Model") then
+				local _, s = m:GetBoundingBox()
+				box = box:Max(s)
+			end
+		end
+		sharedBox = if box.Magnitude > 0 then box else nil
+	end
+	return sharedBox or fallback
+end
+
+function gunView(parent: Instance, i: number, dark: boolean, spin: boolean, fade: number?, even: boolean?): ViewportFrame
 	local P = G.preview
 	local vp = Instance.new("ViewportFrame")
 	vp.Name = "Gun"
@@ -312,6 +338,7 @@ function gunView(parent: Instance, i: number, dark: boolean, spin: boolean, fade
 	local rest = m:GetPivot() - bb.Position
 	m:PivotTo(rest)
 	m.Parent = vp
+	size = if even then biggestGunBox(size) else size -- the box the camera fits
 	local pitch = math.rad(P.pitch)
 	local t = math.tan(math.rad(P.fov / 2))
 	-- across = half its width as the camera sees it, depth = how far its near end comes toward the camera
@@ -372,7 +399,8 @@ local function gunCard(h: Helpers, holder: Frame, i: number, v: State.View, o: a
 	local st = status(i, v)
 	local l = h.list(holder, false)
 	-- the gun turning in a big window in its glow colour, its number in the corner, the name under it
-	local top = h.row(l, 1, 0.33)
+	local phone = Screen.deviceClass() == "phone"
+	local top = h.row(l, 1, if phone then 0.24 else 0.33) -- a phone gives the stats more of the card
 	local box = preview(top, i, i > best())
 	box.Size = UDim2.fromScale(1, 1)
 	local badge = swatch(box, i, 0.02, 0.24)
@@ -389,7 +417,7 @@ local function gunCard(h: Helpers, holder: Frame, i: number, v: State.View, o: a
 	end
 	local name = Ui.label(h.row(l, 2, 0.09), g.name, UDim2.fromScale(1, 0.9), UDim2.fromScale(0, 0.05))
 	textRole(h, name, "title")
-	local sr = h.row(l, 3, G.statCard.height)
+	local sr = h.row(l, 3, if phone then G.statCard.height + 0.09 else G.statCard.height)
 	sr.Name = "Stats"
 	local panel: Instance = if h.card then h.card(sr) else sr
 	for n, stat in G.stats do

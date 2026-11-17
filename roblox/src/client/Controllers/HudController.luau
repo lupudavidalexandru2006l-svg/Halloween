@@ -8,6 +8,7 @@ local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ContentProvider = game:GetService("ContentProvider")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Theme = require(ReplicatedStorage.Shared.Theme)
 local PetDefs = require(ReplicatedStorage.Shared.PetDefs)
@@ -18,6 +19,7 @@ local Screen = require(script.Parent.Screen)
 local PopupController = require(script.Parent.PopupController)
 local SettingsController = require(script.Parent.SettingsController)
 local SoundController = require(script.Parent.SoundController)
+local EquipmentPopup = require(script.Parent.EquipmentPopup)
 
 local HudController = {}
 
@@ -242,15 +244,32 @@ end
 -- ---------- the clocks (owner 2026-11-16: Secret every 30 min, an event every 30 min, the night) ----------
 -- three small chips bottom right, like the reference's "in 1m 41s": the event now (or the next one), the next
 -- Secret, the next night. From the Unix clock (WorldRules), so they agree with the server without messages.
-type Clock = { root: Frame, text: TextLabel, chip: Frame, icon: ImageLabel }
+-- owner 2026-11-17 ("not that much timers"): only the soonest clock shows, with a small "+2" badge; hover
+-- the clocks (or tap one on a phone) and all of them show.
+type Clock = { root: TextButton, text: TextLabel, chip: Frame, icon: ImageLabel, more: TextLabel }
 local clocks: { [string]: Clock } = {}
+local CLOCK_ORDER = { "event", "secret", "night" }
+local clocksOpenUntil = 0 -- os.clock() until which every clock shows
+local soonestClock = "event" -- set by tickClocks
+
+-- owner 2026-11-17: hover opens and closes at once, no delay
+local function applyClocks()
+	local open = os.clock() < clocksOpenUntil
+	for _, k in CLOCK_ORDER do
+		local c = clocks[k]
+		c.root.Visible = open or k == soonestClock
+		c.more.Visible = not open and k == soonestClock
+	end
+end
 
 local function clockChip(parent: Frame, order: number, color: Color3, icon: string): Clock
 	local C = Config.ui.clocks
 	local n = 3
 	local totalH = C.size[2] * n + C.gap * (n - 1)
-	local f = Instance.new("Frame")
+	local f = Instance.new("TextButton")
 	f.Name = "Clock"
+	f.Text = ""
+	f.AutoButtonColor = false
 	f.LayoutOrder = order
 	f.BackgroundColor3 = Theme.alert.back
 	f.BackgroundTransparency = 0.15
@@ -276,8 +295,52 @@ local function clockChip(parent: Frame, order: number, color: Color3, icon: stri
 	pad.PaddingLeft = UDim.new(0.2, 0)
 	pad.PaddingRight = UDim.new(0.07, 0)
 	pad.Parent = t
+	-- "+2": more clocks are tucked away (only on the one shown while they're closed)
+	local more = Instance.new("TextLabel")
+	more.Name = "More"
+	more.AnchorPoint = Vector2.new(1, 0.5)
+	more.Position = UDim2.new(0, -4, 0.5, 0) -- just left of the chip, clear of its icon
+	more.Size = UDim2.fromScale(0.5, 0.5)
+	more.BackgroundColor3 = Theme.info
+	more.TextColor3 = Theme.white
+	more.Font = Theme.font
+	more.TextScaled = true
+	more.ZIndex = 3
+	more.Visible = false
+	local ma = Instance.new("UIAspectRatioConstraint")
+	ma.AspectRatio = 1.4
+	ma.DominantAxis = Enum.DominantAxis.Height
+	ma.Parent = more
+	Ui.corner(more, 0.5)
+	Ui.stroke(more, 2)
+	more.Parent = f
+	local function showAll() -- at once, not on the next tick
+		for _, c in clocks do
+			c.root.Visible = true
+			c.more.Visible = false
+		end
+	end
+	f.MouseEnter:Connect(function()
+		clocksOpenUntil = math.huge
+		showAll()
+	end)
+	f.MouseLeave:Connect(function()
+		clocksOpenUntil = 0
+		-- deferred so moving onto the next clock (its MouseEnter fires right after) doesn't flicker
+		task.defer(applyClocks)
+	end)
+	f.Activated:Connect(function() -- a tap on a phone: open for a few seconds, tap again to close
+		if clocksOpenUntil == math.huge then
+			return -- a mouse is already hovering them open
+		end
+		clocksOpenUntil = if os.clock() < clocksOpenUntil then 0 else os.clock() + 5
+		if clocksOpenUntil > 0 then
+			showAll()
+		end
+		SoundController.play("click")
+	end)
 	f.Parent = parent
-	return { root = f, text = t, chip = chip, icon = img }
+	return { root = f, text = t, chip = chip, icon = img, more = more }
 end
 
 local function buildClocks()
@@ -311,6 +374,20 @@ local function tickClocks()
 	local offset = (workspace:GetAttribute("NightOffset") or 0) :: number
 	local nightIn = WorldRules.nightIn(now, offset)
 	clocks.night.text.Text = if nightIn <= 0 then "Night!" else `Night in {Config.timeText(nightIn)}`
+	-- one clock unless open: the soonest (something happening now counts as 0)
+	local soonIn = { event = if cur then 0 else nextIn, secret = if out then 0 else secretIn, night = math.max(0, nightIn) }
+	local soonest = "event"
+	for _, k in CLOCK_ORDER do
+		if soonIn[k] < soonIn[soonest] then
+			soonest = k
+		end
+	end
+	soonestClock = soonest
+	applyClocks()
+	local moreText = `+{#CLOCK_ORDER - 1}`
+	if clocks[soonest].more.Text ~= moreText then
+		clocks[soonest].more.Text = moreText
+	end
 end
 
 -- gain text appears beside the coin counter, never on a HUD item. It wears the counter's own look
@@ -435,6 +512,8 @@ local nameText: TextLabel
 local feelText: TextLabel
 local recLabel: TextLabel
 local gunText: TextLabel
+local gunBox: Frame -- the recommended gun's own model (owner 2026-11-17: not the generic ray icon); holds Gun1..GunN
+local gunShown = 0
 local islandToken = 0
 local islandShowing = false
 local lastZone = -1 -- -1 = not checked yet, 0 = the hub
@@ -489,7 +568,7 @@ local function sizeText()
 	local nh, ih = nameRow.AbsoluteSize.Y, infoRow.AbsoluteSize.Y
 	nameText.TextSize = math.min(100, math.floor(nh * 0.92))
 	feelText.TextSize = math.min(100, math.floor(nh * 0.62))
-	recLabel.TextSize = math.min(100, math.floor(ih * 0.9))
+	recLabel.TextSize = math.min(100, math.floor(ih * 0.55)) -- the row is tall for the gun card; the words stay their old size
 	gunText.TextSize = recLabel.TextSize
 end
 
@@ -525,7 +604,35 @@ local function buildIsland()
 	feelText = rowText(nameRow, 3, Theme.white)
 	recLabel = rowText(infoRow, 1, Theme.white)
 	recLabel.Text = "Recommended:"
-	rowIcon(infoRow, 2, Config.images.icons.ray)
+	-- the gun itself, no box behind it (owner 2026-11-17: like the icon before, but each island's own gun)
+	gunBox = Instance.new("Frame")
+	gunBox.Name = "Gun"
+	gunBox.BackgroundTransparency = 1
+	gunBox.Size = UDim2.fromScale(1, IB.gunCard)
+	gunBox.LayoutOrder = 2
+	local ga = Instance.new("UIAspectRatioConstraint")
+	ga.AspectRatio = IB.gunAspect -- guns are long
+	ga.DominantAxis = Enum.DominantAxis.Height
+	ga.Parent = gunBox
+	gunBox.Parent = infoRow
+	-- every gun's window is built now and only switched on when its island shows, and their meshes are
+	-- fetched up front: built on show, the gun popped in a moment after the banner (owner 2026-11-17)
+	for i in Config.guns.list do
+		local vp = EquipmentPopup.gunView(gunBox, i, false, false, nil, true)
+		vp.Name = `Gun{i}`
+		vp.AnchorPoint = Vector2.new(0.5, 0.5)
+		vp.Position = UDim2.fromScale(0.5, 0.5)
+		vp.Size = UDim2.fromScale(IB.gunZoom, IB.gunZoom) -- see-through edges past the slot: the gun fills it
+		vp.Visible = false
+	end
+	local models = ReplicatedStorage:FindFirstChild("GunModels")
+	if models then
+		task.spawn(function()
+			pcall(function()
+				ContentProvider:PreloadAsync({ models })
+			end)
+		end)
+	end
 	gunText = rowText(infoRow, 3, Theme.islandValue)
 	nameRow:GetPropertyChangedSignal("AbsoluteSize"):Connect(sizeText)
 	Screen.register("island", islandSlot)
@@ -556,14 +663,10 @@ local function hideIsland(quick: boolean?)
 	end)
 end
 
--- the gun that can freeze this island's pets: the first one whose Cold reaches it
-local function gunFor(id: number): string
-	for _, g in Config.guns.list do
-		if g.heat >= id then
-			return g.name
-		end
-	end
-	return Config.guns.list[#Config.guns.list].name
+-- this island's own gun (owner 2026-11-17: each island its specific gun): gun N belongs to island N, as
+-- in the pacing ("guns follow their islands", PACING-2026-11-16.md); islands past the last gun get the last
+local function gunFor(id: number): number
+	return math.clamp(id, 1, #Config.guns.list)
 end
 
 local function showIsland(zone: Config.Zone)
@@ -581,7 +684,19 @@ local function showIsland(zone: Config.Zone)
 	nameText.TextColor3 = Theme.islandTitle[zone.theme] or Theme.white
 	feelText.Text = `{zone.feel} {shown}°{unit}`
 	feelText.TextColor3 = Theme.temp[band] or Theme.white
-	gunText.Text = gunFor(zone.id)
+	local gi = gunFor(zone.id)
+	gunText.Text = Config.guns.list[gi].name
+	if gunShown ~= gi then
+		local was = gunBox:FindFirstChild(`Gun{gunShown}`) :: GuiObject?
+		if was then
+			was.Visible = false
+		end
+		gunShown = gi
+		local now = gunBox:FindFirstChild(`Gun{gi}`) :: GuiObject?
+		if now then
+			now.Visible = true
+		end
+	end
 	sizeText()
 	islandToken += 1
 	local my = islandToken
@@ -661,7 +776,7 @@ function HudController.Start()
 			img.ZIndex = 1
 			-- smaller than before (owner 2026-11-16: the big SHOP didn't match the other tiles' names)
 			local WT = Config.ui.wideTileText
-			b.text.Text = string.upper(t.label)
+			b.text.Text = t.label -- owner 2026-11-17: "Shop", not "SHOP", like the other tile names
 			b.text.Size = UDim2.fromScale(WT[1], WT[2])
 			b.text.Position = UDim2.fromScale(WT[3], WT[4])
 			b.text.ZIndex = 2

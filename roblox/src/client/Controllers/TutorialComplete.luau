@@ -69,6 +69,12 @@ function TutorialComplete.show(title: string, coins: number)
 	local frame = Screen.popupFrame(false)
 	frame.Name = "TutorialComplete"
 	open = frame
+	-- the banners ("Pine Forest is open!") sit on a layer over the popups and covered the trophy on a phone
+	-- (QA 2026-11-17): they wait while this card is up
+	local alerts = Screen.alerts
+	if alerts then
+		alerts.Enabled = false
+	end
 	local layer = frame.Parent :: Instance
 	-- a soft ink wash behind it, so the card is the only thing to look at
 	local wash = Instance.new("Frame")
@@ -126,6 +132,9 @@ function TutorialComplete.show(title: string, coins: number)
 		SoundController.play("click")
 		local function gone()
 			frame:Destroy()
+			if alerts then
+				alerts.Enabled = true
+			end
 			if open == frame then
 				open = nil
 			end

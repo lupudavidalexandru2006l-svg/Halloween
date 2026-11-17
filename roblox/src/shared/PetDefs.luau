@@ -177,7 +177,7 @@ function M.inZone(zone: number, tier: string?): { PetDef }
 	return out
 end
 
--- sz = the pet's size (Config.sizes: Big / Giant / Huge, nil = normal)
+-- sz = the pet's size (Config.sizes: Big ... Cosmic, nil = normal)
 function M.income(def: PetDef, pose: string, mutation: string?, sz: string?): number
 	local p = Config.poses[pose]
 	local m = if mutation then Config.mutations[mutation] else nil

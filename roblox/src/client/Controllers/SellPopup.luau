@@ -3,7 +3,7 @@
 -- (same pet, pose and mutation) grouped into one row with how many you have and what one sells for.
 -- Right: the picked group, what you get before you sell (Config.sellValue of the pet's own income),
 -- "Sell 1" (Storage first, so your pan keeps earning) and "Sell extras" (all but one, in one go).
--- Epic and up ask "Sure?" first. Buttons send the pets' ids; SellService decides and pays.
+-- "Sell all" sells every Storage pet. Epic and up, and Sell all, ask "Sure?" first. Buttons send the pets' ids; SellService decides and pays.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
@@ -140,7 +140,7 @@ local function line(h: EquipmentPopup.Helpers, l: GuiObject, order: number, s: s
 	return t
 end
 
-local function card(h: EquipmentPopup.Helpers, holder: Frame, g: Group, o: any)
+local function card(h: EquipmentPopup.Helpers, holder: Frame, g: Group, o: any, list: { Group })
 	local l = h.list(holder, false)
 	-- the pet big in a window glowing in its tier colour, its tier on a chip, then its name
 	local top = h.row(l, 0, S.windowHeight)
@@ -178,7 +178,7 @@ local function card(h: EquipmentPopup.Helpers, holder: Frame, g: Group, o: any)
 	local ask = o.data.ask
 	if ask then
 		-- Epic and up: say yes first, seeing exactly what you get
-		line(h, l, 4, `Sell {ask.n} for {Ui.commas(ask.n * g.value)} coins?`, Theme.no, "body")
+		line(h, l, 4, if ask.all then `Sell all {ask.n} for {Ui.commas(ask.total)} coins?` else `Sell {ask.n} for {Ui.commas(ask.n * g.value)} coins?`, Theme.no, "body")
 		local r = h.row(l, 5, 0.2)
 		local yes = h.button(r, Theme.go, "Yes, sell", 0.04, 0.44, function()
 			State.send("SellPets", ask.ids, true)
@@ -219,9 +219,27 @@ local function card(h: EquipmentPopup.Helpers, holder: Frame, g: Group, o: any)
 		end)
 		all.root.Name = "SellExtras"
 	end
+	-- owner 2026-11-17: Sell All = every pet in Storage in one go (the pan's pets keep earning, so they stay).
+	-- It always asks "Sure?" first with the total, since it can't be undone.
+	local allIds: { string } = {}
+	local allTotal = 0
+	for _, gg in list do
+		for n = 1, math.min(#gg.ids - gg.inPan, S.maxPerSale - #allIds) do -- Storage ones come first in each group
+			table.insert(allIds, gg.ids[n])
+			allTotal += gg.value
+		end
+	end
+	if #allIds >= 1 then
+		local ar = h.row(l, 6, 0.16)
+		local sellAll = h.button(ar, Theme.coin, `Sell all {#allIds}  +{Ui.short(allTotal)}`, 0, 1, function()
+			o.data.ask = { ids = allIds, n = #allIds, total = allTotal, all = true }
+			h.refresh()
+		end)
+		sellAll.root.Name = "SellAll"
+	end
 	local sale = lastSale
 	if sale and os.clock() - sale.at < 4 then
-		line(h, l, 6, `Sold {sale.count}: +{Ui.commas(sale.coins)} coins`, Theme.go, "body")
+		line(h, l, 7, `Sold {sale.count}: +{Ui.commas(sale.coins)} coins`, Theme.go, "body")
 	end
 end
 
@@ -273,7 +291,7 @@ function SellPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
 	right.Position = UDim2.fromScale(0.59, 0)
 	right.Size = UDim2.fromScale(0.41, 1)
 	right.Parent = o.body
-	card(h, right, picked :: Group, o)
+	card(h, right, picked :: Group, o, list)
 end
 
 function SellPopup.Init() end

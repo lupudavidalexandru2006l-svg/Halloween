@@ -11,10 +11,11 @@ local SettingsController = require(script.Parent.SettingsController)
 
 local SignsController = {}
 
--- the gauge at each pan's door: a thermometer drawn from UI shapes showing its owner's Cold Power
--- (the map's PanPower<i>, set by PanService): the number, and the tube filled by how far it is toward
--- the next island's need.
-type Gauge = { label: TextLabel, fill: Frame, tube: Frame, bulb: Frame, flashing: boolean }
+-- the gauge at each pan's door: its owner's Cold Power (the map's PanPower<i>, set by PanService).
+-- owner 2026-11-17 ("improve these small details from the pan"): was a thermometer drawn from plain UI
+-- shapes; now an ice-trimmed panel with the painted Power icon, the number big, and a bar filled by how
+-- far it is toward the next island's need.
+type Gauge = { label: TextLabel, fill: Frame, flashing: boolean }
 local gauges: { [number]: Gauge } = {}
 local function buildGauge(i: number)
 	local map = workspace:FindFirstChild("Map")
@@ -30,32 +31,62 @@ local function buildGauge(i: number)
 	g.PixelsPerStud = 40
 	g.Adornee = part
 	local HA = Theme.hubArt
+	-- an ice-white trim round the navy board (the board itself is the part)
+	local trim = Instance.new("Frame")
+	trim.BackgroundTransparency = 1
+	trim.AnchorPoint = Vector2.new(0.5, 0.5)
+	trim.Position = UDim2.fromScale(0.5, 0.5)
+	trim.Size = UDim2.new(1, -10, 1, -10)
+	Ui.corner(trim, 0.08)
+	local ts = Instance.new("UIStroke")
+	ts.Color = Theme.white
+	ts.Thickness = 5
+	ts.Parent = trim
+	trim.Parent = g
+	-- the painted Power icon (the same one as the HUD's Power), top
+	local icon = Ui.image(g, Config.images.icons.power, UDim2.fromScale(0.62, 0.36), UDim2.fromScale(0.19, 0.07))
+	icon.ScaleType = Enum.ScaleType.Fit
+	-- the number, big, under it
+	local label = Ui.label(g, "", UDim2.fromScale(0.84, 0.27), UDim2.fromScale(0.08, 0.44))
+	-- the progress bar toward the next island
 	local tube = Instance.new("Frame")
-	tube.AnchorPoint = Vector2.new(0.5, 0)
-	tube.Position = UDim2.fromScale(0.5, 0.06)
-	tube.Size = UDim2.fromScale(0.3, 0.58)
+	tube.Position = UDim2.fromScale(0.14, 0.78)
+	tube.Size = UDim2.fromScale(0.72, 0.1)
 	tube.BackgroundColor3 = HA.gaugeTube
 	Ui.corner(tube, 1)
 	Ui.stroke(tube, 3)
 	tube.Parent = g
 	local fill = Instance.new("Frame")
-	fill.AnchorPoint = Vector2.new(0.5, 1)
-	fill.Position = UDim2.fromScale(0.5, 1)
-	fill.Size = UDim2.fromScale(0.6, 0.35)
+	fill.Size = UDim2.fromScale(0.35, 1)
 	fill.BackgroundColor3 = HA.gaugeFill
 	Ui.corner(fill, 1)
 	fill.Parent = tube
-	local bulb = Instance.new("Frame")
-	bulb.AnchorPoint = Vector2.new(0.5, 0.5)
-	bulb.Position = UDim2.fromScale(0.5, 0.64)
-	bulb.Size = UDim2.fromScale(0.5, 0.5)
-	bulb.BackgroundColor3 = HA.gaugeFill
-	local a = Instance.new("UIAspectRatioConstraint")
-	a.Parent = bulb
-	Ui.corner(bulb, 1)
-	Ui.stroke(bulb, 3)
-	bulb.Parent = g
-	gauges[i] = { label = Ui.label(g, "", UDim2.fromScale(1, 0.22), UDim2.fromScale(0, 0.77)), fill = fill, tube = tube, bulb = bulb, flashing = false }
+	gauges[i] = { label = label, fill = fill, flashing = false }
+	g.Parent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+end
+
+-- the Pan Upgrades stand's front (owner 2026-11-17): a painted coin on the plain green box, so it reads as
+-- "spend coins here". PanUpgrade is the stand's invisible collider, built without a turn: +Z (Back) faces the plaza.
+local stands: { [number]: boolean } = {}
+local function buildStand(i: number)
+	local map = workspace:FindFirstChild("Map")
+	local plot = map and map:FindFirstChild("Plot" .. i)
+	local part = plot and plot:FindFirstChild("PanUpgrade")
+	if not part or not part:IsA("BasePart") or stands[i] then
+		return
+	end
+	stands[i] = true
+	local g = Instance.new("SurfaceGui")
+	g.Name = "StandFront"
+	g.Face = Enum.NormalId.Back
+	g.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	g.PixelsPerStud = 50
+	g.LightInfluence = 0.4
+	g.MaxDistance = 120
+	g.ZOffset = 1 -- the green box's front is in the same plane
+	g.Adornee = part
+	local coin = Ui.image(g, Config.images.icons.coin, UDim2.fromScale(0.6, 0.55), UDim2.fromScale(0.2, 0.32))
+	coin.ScaleType = Enum.ScaleType.Fit
 	g.Parent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
 end
 
@@ -67,14 +98,14 @@ end
 
 local function setGauge(gauge: Gauge, share: number, color: Color3, text: string)
 	gauge.label.Text = text
-	gauge.fill.Size = UDim2.fromScale(0.6, math.clamp(share, 0.12, 1))
+	gauge.fill.Size = UDim2.fromScale(math.clamp(share, 0.12, 1), 1)
 	gauge.fill.BackgroundColor3 = color
-	gauge.bulb.BackgroundColor3 = color
 end
 
 local function drawGauges()
 	for i in Config.world.plots do
 		buildGauge(i)
+		buildStand(i)
 		local gauge = gauges[i]
 		if gauge and not gauge.flashing then
 			local power = powerOf(i)

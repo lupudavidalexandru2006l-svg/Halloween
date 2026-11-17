@@ -2682,8 +2682,10 @@ local function gatehouse(parent: Instance, gz: number, theme: string, id: number
 	if withBars then
 		local bars = folder("GateBars" .. id, gf)
 		local x = -half + G.barGap
+		-- up into the lintel (owner 2026-11-17: "the gate doesn't fully close", the sky showed over the bars)
+		local barH = G.height + 2.6 * s - 1.1 * s + 0.4
 		while x < half - 1 do
-			local bar = block(Vector3.new(0.8, G.height - 1, 0.8), CFrame.new(x, (G.height - 1) / 2, gz), A.iceBar, bars, false, Enum.Material.Ice)
+			local bar = block(Vector3.new(0.8, barH, 0.8), CFrame.new(x, barH / 2, gz), A.iceBar, bars, false, Enum.Material.Ice)
 			bar.Transparency = 0.2
 			x += G.barGap
 		end

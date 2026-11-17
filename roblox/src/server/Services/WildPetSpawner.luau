@@ -39,7 +39,7 @@ export type WildPet = {
 	dazedUntil: number,
 	pose: string?,
 	mut: string?,
-	sz: string?, -- Big / Giant / Huge (Config.sizes), nil = normal
+	sz: string?, -- Big ... Cosmic (Config.sizes), nil = normal
 	offerFor: Player?,
 	dazedOwner: Player?,
 	superUsed: boolean,
