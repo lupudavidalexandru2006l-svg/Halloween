@@ -12,6 +12,10 @@
 -- it's stuck (Config.aim.stuckAt) it can't move and its pose is locked in. Slow Gel slows all of it.
 -- Mutations (Golden, Starry at night) are rolled here when a pet spawns, so you can see them before you
 -- freeze. At night every wild pet sleeps: it stops wandering and freezes in half the hold (Config.night).
+-- One wave a day (owner 2026-11-17: "after freezing something another animal shouldn't spawn, that's why we
+-- have the night"): nothing respawns during the day. A frozen pet leaves a gap until the Night Reset clears
+-- the islands and sunrise rolls a fresh wave: shared Commons/Uncommons, plus each player's own rolls (by
+-- rarity, with their pity), and every pet rolls its size. Config.night.wave holds the numbers.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -50,14 +54,18 @@ export type WildPet = {
 	dartAt: number,
 	swerve: number,
 	swerveAt: number,
-	bornAt: number, -- os.clock() at spawn (untouched pets wander off after Config.spawner.lifeSeconds)
-	knocked: boolean?, -- knocked out of its carrier's hands: theirs (any tier), but it still wanders off
+	bornAt: number, -- os.clock() at spawn
+	knocked: boolean?, -- knocked out of its carrier's hands: theirs (any tier)
+	tutorial: boolean?, -- a new player's first pet: the Night Reset leaves it alone
 }
 
 local WildPetSpawner = {}
 local pets: { [string]: WildPet } = {}
 local pity: { [Player]: { [number]: { [string]: number } } } = {}
-local respawnAt: { [Player]: { [number]: number } } = {}
+-- the day's wave number (+1 each sunrise) and the wave each player last got their own rolls in, per island.
+-- By UserId and kept when they leave, so leaving and rejoining never rerolls the same day.
+local wave = 1
+local rolledWave: { [number]: { [number]: number } } = {}
 local nextId = 1
 local rng = Random.new()
 local folder: Folder
@@ -379,6 +387,32 @@ local function nearCount(zone: number): number
 	return n
 end
 
+-- a player's own share of today's wave, once per island per wave: Config.night.wave.perPlayer rolls with their
+-- odds and pity, each a pet only they see (any tier, so their view is the shared pets plus these). Runs for an
+-- island as soon as they can reach it: at sunrise, when they join, when they unlock it.
+function WildPetSpawner.rollFor(player: Player)
+	local data = DataService.get(player)
+	if not data then
+		return
+	end
+	local done = rolledWave[player.UserId] or {}
+	rolledWave[player.UserId] = done
+	for _, z in Config.world.zones do
+		if not z.ready or z.id > data.reach or done[z.id] == wave then
+			continue
+		end
+		done[z.id] = wave
+		for _ = 1, Config.night.wave.perPlayer do
+			local tier = pickTier(player, z.id)
+			local pool = PetDefs.inZone(z.id, tier)
+			local def = if #pool > 0 then pool[rng:NextInteger(1, #pool)] else nil
+			if def and WildPetSpawner.spawn(z.id, nil, def.key, false, player) then
+				commitPity(player, z.id, tier)
+			end
+		end
+	end
+end
+
 local function tick(dt: number)
 	local now = os.clock()
 	local night = EventService.isNight()
@@ -464,78 +498,13 @@ local function tick(dt: number)
 			end
 		end
 	end
-	local sp = Config.spawner
-	-- pets nobody is after wander off, so the zone has room and keeps rolling (it never clogs with Commons).
-	-- Never anyone's own pet (tutorial pet, personal Rare, Starry): it waits for them, capped per player
-	local roots: { Vector3 } = {}
-	for _, player in Players:GetPlayers() do
-		local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-		if hrp and hrp:IsA("BasePart") then
-			table.insert(roots, hrp.Position)
-		end
-	end
-	for id, pet in pets do
-		local life = sp.lifeSeconds[pet.def.tier]
-		if life and pet.state == "wild" and pet.meter <= 0 and (not pet.owner or pet.knocked) and now - pet.bornAt > life then
-			local seen = false
-			for _, at in roots do
-				if (at - pet.root.Position).Magnitude < sp.despawnClearStuds then
-					seen = true
-					break
-				end
-			end
-			if not seen then
-				WildPetSpawner.remove(id)
-			end
-		end
-	end
-	for _, z in Config.world.zones do
-		if not z.ready or night then
-			continue -- "Coming soon": no pets until the island's pets are approved (Round 4 phase 6); nothing new in the Night Reset
-		end
-		local shared = 0
-		local personal: { [Player]: number } = {}
-		for _, p in pets do
-			if p.zone == z.id then
-				if p.owner then
-					personal[p.owner] = (personal[p.owner] or 0) + 1
-				else
-					shared += 1
-				end
-			end
-		end
-		-- "always one within about 3 seconds of walking"
-		if shared < sp.maxPerZone and nearCount(z.id) < sp.nearCount then
-			if WildPetSpawner.spawn(z.id, nil, nil, true) then
-				shared += 1
-			end
-		end
+	-- nothing respawns during the day (one wave a day, see the top): only each player's own share of the
+	-- wave, the first time they can reach an island this wave (they joined, or unlocked it)
+	if not night then
 		for _, player in Players:GetPlayers() do
-			local data = DataService.get(player)
-			if not data or z.id > data.reach then
-				continue -- no rolls for a zone you can't reach yet
-			end
-			local timers = respawnAt[player] or {}
-			respawnAt[player] = timers
-			local mine = personal[player] or 0
-			if now < (timers[z.id] or 0) or shared + mine >= sp.maxPerZone then
-				continue
-			end
-			timers[z.id] = now + sp.respawnSeconds
-			local tier = pickTier(player, z.id)
-			local rare = Config.tier(tier).rank >= 3
-			if rare and sp.personalRares and mine >= sp.personalMaxPerZone then
-				continue -- full of your own rares: nothing spawns and pity doesn't move
-			end
-			local pool = PetDefs.inZone(z.id, tier)
-			local def = if #pool > 0 then pool[rng:NextInteger(1, #pool)] else nil
-			if def and WildPetSpawner.spawn(z.id, nil, def.key, false, if rare and sp.personalRares then player else nil) then
-				commitPity(player, z.id, tier)
-				if rare and sp.personalRares then
-					personal[player] = mine + 1
-				else
-					shared += 1
-				end
+			local ok, err = pcall(WildPetSpawner.rollFor, player)
+			if not ok then
+				warn("[WildPetSpawner] own rolls:", err)
 			end
 		end
 	end
@@ -637,8 +606,8 @@ function WildPetSpawner.Init()
 	folder = WorldService.petsFolder("WildPets")
 end
 
--- the islands' starting crowd: the near band, then shared Commons and Uncommons (rares come from the
--- players' own rolls). Server start and every sunrise after a Night Reset.
+-- the shared half of a wave: the near band, then shared Commons and Uncommons up to Config.night.wave.shared
+-- (the rest is each player's own rolls, rollFor). Server start and every sunrise.
 local function fillZones()
 	for _, z in Config.world.zones do
 		if not z.ready then
@@ -655,7 +624,7 @@ local function fillZones()
 				shared += 1
 			end
 		end
-		for _ = shared + 1, Config.spawner.maxPerZone - 2 do
+		for _ = shared + 1, Config.night.wave.shared do
 			WildPetSpawner.spawn(z.id)
 		end
 	end
@@ -701,19 +670,27 @@ local function starryFor(player: Player)
 	end
 end
 
--- Night Reset (Config.night): night falls = the reset tiers go (never one with ice on it, a melted
--- cube's dazed pet, or anyone's own pet: their Rare, the tutorial pet, a Starry); then maybe a Starry
--- pet each (starryFor); sunrise = a fresh wave at once
+-- Night Reset (Config.night): night falls = every wild pet goes, any tier, shared or personal (never one with
+-- ice on it, a melted or knocked cube's pet, the tutorial pet, or the Secret on its clock). Sunrise = a fresh
+-- wave at once: the shared pets (fillZones), everyone's own rolls (rollFor), then maybe a Starry pet each.
 function WildPetSpawner.nightReset(night: boolean)
 	if night then
 		for id, pet in pets do
-			if Config.night.resetTiers[pet.def.tier] and pet.state == "wild" and pet.meter <= 0 and not pet.owner then
+			if pet.state == "wild" and pet.meter <= 0 and not pet.knocked and not pet.tutorial
+				and not pet.root:GetAttribute("ClockSecret") then
 				WildPetSpawner.remove(id)
 			end
 		end
 	else
-		dawnWave = true
+		wave += 1
+		dawnWave = true -- the whole wave may roll night-only mutations (Starry)
 		local ok, err = pcall(fillZones)
+		for _, player in Players:GetPlayers() do
+			local ok3, err3 = pcall(WildPetSpawner.rollFor, player)
+			if not ok3 then
+				warn("[WildPetSpawner] sunrise own rolls:", err3)
+			end
+		end
 		dawnWave = false
 		if not ok then
 			warn("[WildPetSpawner] sunrise wave:", err)
@@ -724,9 +701,6 @@ function WildPetSpawner.nightReset(night: boolean)
 			if not ok2 then
 				warn("[WildPetSpawner] starry sunrise:", err2)
 			end
-		end
-		for _, timers in respawnAt do
-			table.clear(timers) -- everyone's own rolls start again straight away
 		end
 	end
 end
@@ -740,13 +714,15 @@ function WildPetSpawner.Start()
 			-- the hub is safe (no wild pets), so it waits just inside the tunnel mouth, straight ahead. It's
 			-- theirs (2026-11-15): nobody else takes it, and the Night Reset leaves it alone
 			local s = Config.world.spawn
-			WildPetSpawner.spawn(1, Vector3.new(s.X + 4, 0, Config.world.hubZMax + Config.spawner.firstPetDistance), "snowbun", false, player)
+			local first = WildPetSpawner.spawn(1, Vector3.new(s.X + 4, 0, Config.world.hubZMax + Config.spawner.firstPetDistance), "snowbun", false, player)
+			if first then
+				first.tutorial = true
+			end
 		end
-		-- the near band is kept topped up for everyone (see nearCount), so nothing more is needed here
+		-- their own share of today's wave comes from the next tick (rollFor)
 	end)
 	Players.PlayerRemoving:Connect(function(player)
 		pity[player] = nil
-		respawnAt[player] = nil
 		for id, p in pets do
 			if p.owner == player then
 				WildPetSpawner.remove(id) -- a personal rare leaves with its player

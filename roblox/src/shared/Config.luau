@@ -252,11 +252,9 @@ Config.dazedSeconds = 8
 
 Config.spawner = {
 	-- owner 2026-10-30: Common and Uncommon pets are shared by everyone on the server; Rare and up
-	-- spawn just for one player (only they see and can freeze it), each with their own pity
+	-- spawn just for one player (only they see and can freeze it), each with their own pity.
+	-- owner 2026-11-17: pets come in one wave a day (Config.night.wave), nothing respawns in between.
 	personalRares = true,
-	personalMaxPerZone = 3,
-	maxPerZone = 9,
-	respawnSeconds = 1.5,
 	firstPetDistance = 10, -- studs past the tunnel mouth (about 3 s from the spawn)
 	-- "always one within about 3 seconds of walking": each zone keeps 2 Commons or Uncommons in its
 	-- near band; other Commons spawn from farZMin; Rare and up only in the far half of the zone.
@@ -271,13 +269,6 @@ Config.spawner = {
 	-- tiers roll more often (x the tier's odds, then all tiers rescaled to 100%): Epic ~4% -> ~7.3%.
 	-- Secret stays the long chase.
 	earlyIslands = { upTo = 4, mult = { Rare = 1.5, Epic = 2, Legendary = 2, Mythic = 1.5 } :: { [string]: number } },
-	-- Wild pets nobody is after wander off after lifeSeconds, so a zone never clogs with uncaught Commons
-	-- (rolls only happen while it has room). Only when no player is within despawnClearStuds, so a pet
-	-- never vanishes in front of you; never while it has ice on it. Tiers not listed stay until caught.
-	-- owner 2026-11-15 (Night Reset): Commons, Uncommons and Rares nobody is freezing go after a minute.
-	-- "Interacting" = ice on it; the stand-off guard is only right next to you now (it was 30 studs).
-	lifeSeconds = { Common = 60, Uncommon = 60, Rare = 60 } :: { [string]: number },
-	despawnClearStuds = 12,
 	-- the rarest pets are restless (owner 2026-11-12: "secrets should be harder to ice ray, they should move
 	-- quicker and more random"). Per tier: speed = x wanderSpeed, always on the move whatever their pose;
 	-- dart = seconds before they pick a new random spot (min, max) within dartRadius studs; flee = x
@@ -330,14 +321,22 @@ Config.nightClose = { warnSeconds = 15, wallHeight = 40, wallZ = 1, homeDelay = 
 -- in half the time, Sleeping pose), cubes melt slower (Config.melt.night) and Starry pets can spawn.
 -- Candy night, never scary: deep blue-purple, bright enough to play.
 -- Night Reset (owner 2026-11-15: "night is too easy, sleeping pets are free catches; make night a reset"):
--- every 5 minutes a 10-second night falls. Its first moment clears the islands' Commons, Uncommons and
--- Rares (resetTiers) with a snowy poof, unless someone has ice on them; nothing new spawns while it's dark;
--- at sunrise a fresh wave pops in at once, and that wave can roll Starry. Epic and up stay through it.
+-- every 5 minutes a 10-second night falls. Its first moment clears the islands with a snowy poof, unless
+-- someone has ice on a pet; nothing new spawns while it's dark; at sunrise a fresh wave pops in at once, and
+-- that wave can roll Starry.
 -- Pets no longer sleep at night (petsSleep), so the night is never a free catch.
+-- One wave a day (owner 2026-11-17: "after freezing something another animal shouldn't spawn, that's why we have
+-- the night"): nothing respawns during the day, so a frozen pet leaves a gap. The Night Reset now takes EVERY wild
+-- pet, any tier, shared or personal (not one with ice on it, a melted or knocked cube's pet, the tutorial pet or the
+-- clock Secret), and sunrise rolls the new wave. Per ready island:
+--   shared    = Commons/Uncommons everyone sees (60:25), nearCount of them in the near band
+--   perPlayer = each player's own rolls on each island they can reach, by rarity with their pity and the island
+--               boosts; every pet rolls its size (Config.sizes) and mutation. A late joiner or a newly unlocked
+--               island gets its rolls at once, but only once per wave (rejoining never rerolls the day).
 Config.night = {
 	daySeconds = 282, fadeSeconds = 4, nightSeconds = 10, -- cycle = day + fade + night + fade = 300 s
 	petsSleep = false,
-	resetTiers = { Common = true, Uncommon = true, Rare = true } :: { [string]: boolean }, -- never a personal pet (your own Rare, the tutorial pet)
+	wave = { shared = 6, perPlayer = 3 },
 	-- Starry night (design review 2026-11-15: the night was 14 s with nothing to do): as night falls, each player
 	-- may get one personal Starry pet near them, on the island they stand on (from the hub: island 1). Rolled with
 	-- the island's normal odds and their pity, so it's a nice surprise, not a free Rare. Numbers: an owner call.
