@@ -636,7 +636,12 @@ Config.ui = {
 		pop = { px = 34, bigPx = 56, iconPx = 36, outX = { 40, 95 }, outY = { 36, 78 }, out = 0.22, hold = 0.5, exit = 0.18,
 			drift = 12, tilt = 10, startScale = 0.45, exitScale = 0.8, maxActive = 18, maxDistance = 90, boxPx = { 420, 260 },
 			front = 3.5 }, -- studs toward the camera, in front of the target (the pops aren't AlwaysOnTop)
-		bolt = { seconds = 0.13, size = 0.55, clickSize = 0.9, trail = 0.14 },
+		-- a training shot (v2 2026-11-17, "more realistic"): a straight tracer (seconds to the target; size / clickSize =
+		-- its head width in studs; tail = share of the path it trails; flare = head flare in head widths), a laser line
+		-- along the path for a blink (studs wide, seconds), a flare at the hit (studs, seconds), ice chips off my hits,
+		-- the gun's recoil (click, auto: shares of Config.ray.anim.recoil)
+		bolt = { seconds = 0.08, size = 0.45, clickSize = 0.7, tail = 0.45, flare = 3, lineWidth = 0.22, lineSeconds = 0.12,
+			hitBack = 1.2, hitFlare = 2.4, hitSeconds = 0.14, shards = 4, recoil = { 1, 0.6 } },
 		wobble = { squash = 0.12, seconds = 0.28, shatterSeconds = 0.5 },
 		turnSpeed = 10,
 	},
@@ -1211,18 +1216,25 @@ Config.ray = { beamCore = 0.28, beamGlow = 0.84, armRaise = 90, tipSize = 0.76, 
 	-- owner 2026-11-16: "you can freeze more": the ray stays out after a freeze, so you can freeze one pet after
 	-- another; they wait on the ground (Config.carry) while your hands still hold only what they can
 	putAwayAfterFreeze = false,
-	-- the laser in detail (owner 2026-11-17: "make the shooting better and the lasers more detailed"):
-	-- travel: seconds the beam's head takes to race from the muzzle to the target. haze: a wide soft glow
-	-- round it (studs, transparency). pulses: bright packets running down the glow layer toward the target
-	-- (count, beam lengths a second, width as a share of the beam). strands: two thin frost threads that
-	-- twist round the core (studs wide, curve, turns a second). motes: frost dust drifting off the beam (per
-	-- stud a second). impact: a frost ring at the target (studs, turns a second), a spray of ice flakes
-	-- bouncing off it (a second) and a burst when the head lands. muzzle: a pulsing glow ball and light.
-	-- Reduced motion: no travel, no pulses, still strands. Low graphics: no strands or motes, half the spray.
-	beam = { travel = 0.08, haze = 2.2, hazeTransparency = 0.84, pulses = 3, pulseSpeed = 2.2, pulseWidth = 0.07,
-		pulseBase = 0.6, pulseBright = 0.15, strand = 0.1, strandCurve = 1.2, strandTurns = 1.6, motes = 3,
-		impactSize = 1.3, impactSpin = 3, spray = 22, landBurst = 14, muzzleGlow = 0.6, muzzleHz = 9,
-		lightRange = 8, lightBrightness = 2.5 },
+	-- the laser, v2 (owner 2026-11-17: "the laser should not look AI ... make it more appealing"): no neon
+	-- shapes any more (v1's twisting threads, sliding pulses and spinning ring read as generated). Textured
+	-- layers instead, from Roblox's built-in images (tex; every client has them): cold vapour and glittering
+	-- ice scrolling toward the target (width in studs, muzzle = width share at the gun, length = studs per
+	-- texture repeat, speed = studs a second, light = LightEmission; lowGfx = false drops it on Low graphics),
+	-- over a soft glow (brighter at both ends) and a white core whose width breathes a little. travel: seconds
+	-- the head takes to reach the target (it stops hitBack studs short of the middle, on the near side). Glows (sparkle particles, studs) at the muzzle and the hit; vapour curls off both
+	-- (a second); ice flakes spray back off the hit (a second, a burst of landBurst when the head lands).
+	-- Reduced motion: no travel, slower scroll, still flares. Low graphics: one vapour layer, half everything.
+	beam = {
+		tex = { smoke = "rbxasset://textures/particles/smoke_main.dds", sparkle = "rbxasset://textures/particles/sparkles_main.dds" },
+		layers = {
+			{ tex = "smoke", color = "spark", width = 1.6, muzzle = 0.35, transparency = 0.55, length = 2.6, speed = 7, light = 0.25 },
+			{ tex = "smoke", color = "glow", width = 1.0, muzzle = 0.5, transparency = 0.5, length = 4.2, speed = 4.5, light = 0.4, lowGfx = false },
+			{ tex = "sparkle", color = "spark", width = 0.9, muzzle = 0.4, transparency = 0.15, length = 1.3, speed = 11, light = 1, lowGfx = false },
+		},
+		glowTransparency = 0.6, travel = 0.08, hitBack = 1.4, hitFlare = 3.2, muzzleFlare = 1.6, hitVapour = 10, muzzleVapour = 6,
+		spray = 18, landBurst = 14, lightRange = 8, lightBrightness = 2.5,
+	},
 -- the shot's body motion (owner 2026-11-05, from a freeze reference clip): a quick start (hips lead, the
 -- torso coils back, then everything snaps forward and the beam lands), a hold that leans in harder as the
 -- meter climbs, and a lock (the cube shut) or a cancel (let go early). Seconds; angles in degrees;
@@ -1243,11 +1255,15 @@ anim = {
 	lockCues = { { at = 0, kick = "lock" }, { at = 0.07, sound = "ray_tail" }, { at = 0.15, fx = "vent" } } :: { RayCue },
 	cancelCues = { { at = 0, sound = "ray_fizz" } } :: { RayCue },
 	humPitch = { 1.0, 1.2 }, -- the hold's hum rises with the meter
-	fx = { mist = 8, eject = 5, vent = 10, flashSize = 0.9, flashSeconds = 0.07, flashGap = 0.34, -- flashGap: at most 3 flashes a second
+	fx = { mist = 8, eject = 5, vent = 10, flashSeconds = 0.07, flashGap = 0.34, -- flashGap: at most 3 flashes a second
 		beamOut = 0.06, beamIn = 0.1, -- the beam pulls back: the muzzle end first, then the target end
-		-- 2026-11-17: the charge pulls a ring into the muzzle (studs wide, from -> to); the fire blasts a
-		-- shock ring out of the barrel (studs wide, studs ahead it travels)
-		chargeRing = { 1.6, 0.2 }, chargeSeconds = 0.12, shockRing = { 0.5, 2.6 }, shockAhead = 1.6, shockSeconds = 0.18 },
+		-- 2026-11-17 v2: the charge gathers a small flare in the muzzle (studs, from -> to); the fire pops a big
+		-- flare (from -> to), throws a short cone of glittering frost out of the barrel (studs long / wide) and a
+		-- breath of vapour (particles)
+		charge = { 0.2, 1.1 }, chargeSeconds = 0.12, flash = { 0.8, 3.4 }, blastLength = 2.2, blastWidth = 1.1, flashVapour = 6 },
+	-- a single shot's recoil (training bolts, RayController.recoil): the gun arm snaps up (degrees) by kickEnd,
+	-- then settles back with a damped spring over seconds; the body rocks back a little (degrees of lean)
+	recoil = { up = 11, lean = 2.5, kickEnd = 0.035, seconds = 0.3 },
 } }
 -- extra pet looks (prototype syncWild / makeCube)
 Config.petFx = {
@@ -1493,17 +1509,22 @@ Config.show.freeze = {
 	-- clear: first play-test (2026-11-17) at 0.78 .. 0.5 hid the pet behind the stacked walls
 	bands = { count = 4, jitter = 0.05, turn = 0.07, pop = 0.35, baseThick = 0.07, clear = { 0.82, 0.64 }, cloud = 0.15 },
 	groundFrost = { reach = 2.1, fingers = 8, fingerLength = 0.55, transparency = 0.3 },
-	ferns = { count = 6, size = 0.26, thick = 0.035, from = 0.12, transparency = 0.3 }, -- 0.4 studs read as twigs
+	ferns = { count = 6, size = 0.24, thick = 0.025, from = 0.12, transparency = 0.5 }, -- 0.4 studs read as twigs
 	iceGlints = { rate = 7 },
 	-- the snap at 100% (EffectsController)
 	snapSeconds = 0.16, snapScale = 1.22, puffParts = 14, flashPuffParts = 22, flySeconds = 0.3,
 	-- realism pass for the snap: ice shards burst off and bounce on the ground (speed / up in studs a second,
-	-- size in studs), a frost ring races out over the ground and a frost patch lingers, the cube is frosted
+	-- size in studs), a frost patch spreads and cold vapour rolls out over the ground, the cube is frosted
 	-- white for a moment and clears from the bottom up (coat), star glints wink on its corners, then it sits
 	-- for settleSeconds before flying home. Cubes hold a few frozen air bubbles near their walls.
 	shards = { count = 10, speed = { 6, 12 }, up = { 7, 12 }, size = { 0.18, 0.42 }, seconds = 0.75, gravity = 48, bounce = 0.35 },
-	frostRing = { reach = 3.4, seconds = 0.4, linger = 1.4 },
+	frostRing = { reach = 3.4, seconds = 0.4, linger = 1.4, fog = 12 }, -- fog: vapour puffs rolling out over the ground
 	coatSeconds = 0.45, glints = 3, glintSeconds = 0.3, glintSize = 0.9, settleSeconds = 0.22, bubbles = 6,
+	-- every cube's detail (PetVisuals.cubeDetail, owner 2026-11-17: "make the cube even more detailed"); shares of
+	-- the cube's size: a cloudy base (height share), frosted corners (size share), faint fracture planes inside
+	-- (count), glossy streaks on two faces (length share, tilt in radians) and rime crystals on the top (count)
+	cubeDetail = { base = 0.16, baseTransparency = 0.45, corner = 0.11, cornerTransparency = 0.35, fractures = 2,
+		fractureTransparency = 0.82, streak = 0.62, streakAngle = 0.62, streakTransparency = 0.55, rime = 5 },
 	-- a save's very first freeze (2026-11-15): longer hit-stop, a flash, rays and a big burst
 	firstHoldScale = 2.5, firstRays = 10, firstRaySeconds = 1.2, firstBurst = 60,
 	touchSeconds = 0.8, spikeCount = 6, spikeHeight = 1.6, starCount = 7, auroraBands = 3,

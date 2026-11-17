@@ -50,7 +50,8 @@ type Drawn = { model: PVInstance, height: number, offer: BillboardGui?, img: Ima
 -- (Config.petFx.melt); shown = its drawn height share; lastFrac / meltAt: when LifeFrac last went down
 type CubeLook = { model: PVInstance, edges: SelectionBox, cracks: { { part: BasePart, offset: CFrame } }, onGround: boolean,
 	ice: BasePart, line: BasePart, drips: ParticleEmitter, shown: number, lastFrac: number, meltAt: number,
-	bubbles: { { part: BasePart, offset: CFrame } } } -- frozen air bubbles near the walls (they go as the ice melts past them)
+	bubbles: { { part: BasePart, offset: CFrame } }, -- frozen air bubbles near the walls (they go as the ice melts past them)
+	detail: { { part: BasePart, offset: CFrame, top: boolean, alpha: number } } } -- cubeDetail: base, corners, fractures, streaks, rime
 local drawn: { [BasePart]: Drawn } = {}
 local cubes: { [BasePart]: CubeLook } = {}
 local folder: Folder
@@ -896,6 +897,70 @@ local function bubble(size: number, parent: Instance): BasePart
 	return b
 end
 
+-- the cube's detail (owner 2026-11-17: "make the cube even more detailed"; Config.show.freeze.cubeDetail). Real ice
+-- blocks: cloudy at the bottom where air got trapped, frosted at the corners, faint fracture planes inside catching
+-- the light, glossy reflection streaks on the faces, and a few rime crystals on the top. Offsets from the cube's
+-- middle; top = rides down on the ice's top as a carried cube melts. Low graphics: base and streaks only.
+type Detail = { part: BasePart, offset: CFrame, top: boolean, alpha: number }
+local function cubeDetail(size: number, parent: Instance): { Detail }
+	local D = FZ.cubeDetail
+	local r = Random.new()
+	local low = SettingsController.get("lowGraphics") == true
+	local out: { Detail } = {}
+	local function add(p: BasePart, offset: CFrame, top: boolean)
+		p.CFrame = offset
+		table.insert(out, { part = p, offset = offset, top = top, alpha = p.Transparency })
+	end
+	-- the cloudy base: milky ice in the bottom share, a touch inside the walls
+	local base = fxPart(Vector3.new(size * 0.97, size * D.base, size * 0.97), Theme.white, parent)
+	base.Material = Enum.Material.Snow
+	base.Transparency = D.baseTransparency
+	add(base, CFrame.new(0, -size / 2 + size * D.base / 2 + 0.01, 0), false)
+	-- glossy streaks: two long thin highlights running diagonally across two side faces, a short one beside each
+	for k = 0, 1 do
+		local face = CFrame.Angles(0, k * math.pi / 2, 0) * CFrame.new(0, 0, -size / 2 - 0.015)
+		for j, len in { D.streak, D.streak * 0.45 } do
+			local s = fxPart(Vector3.new(size * len, size * (if j == 1 then 0.045 else 0.03), 0.02), Theme.white, parent)
+			s.Material = Enum.Material.SmoothPlastic
+			s.Transparency = D.streakTransparency + (j - 1) * 0.1
+			add(s, face * CFrame.new(size * (0.08 - 0.12 * (j - 1)), size * (0.12 + 0.13 * (j - 1)), 0) * CFrame.Angles(0, 0, D.streakAngle), false)
+		end
+	end
+	if low then
+		return out
+	end
+	-- frosted corners: small snowy caps sitting into each corner
+	for _, x in { -1, 1 } do
+		for _, y in { -1, 1 } do
+			for _, z in { -1, 1 } do
+				local c = fxPart(Vector3.one * size * D.corner * r:NextNumber(0.75, 1.15), Theme.fx.frost, parent)
+				c.Material = Enum.Material.Snow
+				c.Transparency = D.cornerTransparency
+				add(c, CFrame.new(Vector3.new(x, y, z) * size * (0.5 - D.corner * 0.35)) * CFrame.Angles(r:NextNumber(-0.3, 0.3), r:NextNumber(0, 1.5), r:NextNumber(-0.3, 0.3)), y > 0)
+			end
+		end
+	end
+	-- fracture planes: thin, faint sheets inside at odd angles
+	for _ = 1, D.fractures do
+		local f = fxPart(Vector3.new(size * r:NextNumber(0.35, 0.55), size * r:NextNumber(0.3, 0.5), 0.02), Theme.white, parent)
+		f.Material = Enum.Material.Neon
+		f.Transparency = D.fractureTransparency
+		local at = Vector3.new(r:NextNumber(-0.25, 0.25), r:NextNumber(-0.2, 0.2), r:NextNumber(-0.25, 0.25)) * size
+		add(f, CFrame.new(at) * CFrame.Angles(r:NextNumber(-1, 1), r:NextNumber(0, 3), r:NextNumber(-1, 1)), false)
+	end
+	-- rime crystals standing on the top face
+	for _ = 1, D.rime do
+		local c = fxPart(Vector3.one * 0.05, Theme.fx.crystal, parent, "Octa")
+		local s = size * r:NextNumber(0.05, 0.09)
+		c.Size = Vector3.new(s * 0.6, s * 1.4, s * 0.6)
+		c.Material = Enum.Material.Glass
+		c.Transparency = 0.2
+		local at = Vector3.new(r:NextNumber(-0.38, 0.38) * size, size / 2 + s * 0.45, r:NextNumber(-0.38, 0.38) * size)
+		add(c, CFrame.new(at) * CFrame.Angles(r:NextNumber(-0.5, 0.5), r:NextNumber(0, 3), r:NextNumber(-0.5, 0.5)), true)
+	end
+	return out
+end
+
 -- prototype crackGeo: a few zig-zag cracks on three faces, shown when the cube is nearly gone
 local function makeCracks(part: BasePart): { { part: BasePart, offset: CFrame } }
 	local out = {}
@@ -975,7 +1040,8 @@ local function addCube(part: Instance)
 		table.insert(bubbles, { part = bubble(part.Size.X, folder), offset = off })
 	end
 	cubes[part] = { model = model, edges = edges, cracks = makeCracks(part), onGround = onGround,
-		ice = ice, line = line, drips = drips, shown = start, lastFrac = start, meltAt = -math.huge, bubbles = bubbles }
+		ice = ice, line = line, drips = drips, shown = start, lastFrac = start, meltAt = -math.huge, bubbles = bubbles,
+		detail = cubeDetail(part.Size.X, folder) }
 end
 
 local function removeCube(part: Instance)
@@ -990,6 +1056,9 @@ local function removeCube(part: Instance)
 		end
 		for _, b in c.bubbles do
 			b.part:Destroy()
+		end
+		for _, x in c.detail do
+			x.part:Destroy()
 		end
 		cubes[part :: BasePart] = nil
 	end
@@ -1375,6 +1444,7 @@ function PetVisuals.frozenCube(key: string, size: number): (Model?, Part?)
 		local b = bubble(size, m)
 		b.CFrame = off
 	end
+	cubeDetail(size, m) -- cloudy base, frosted corners, fractures, streaks, rime (placed round the origin)
 	m.PrimaryPart = cube
 	m.Parent = folder
 	return m, cube
@@ -1622,6 +1692,9 @@ local function step(dt: number)
 			for _, b in c.bubbles do
 				b.part.Transparency = 1
 			end
+			for _, x in c.detail do
+				x.part.Transparency = 1
+			end
 			continue
 		end
 		c.model:PivotTo(part.CFrame)
@@ -1659,6 +1732,17 @@ local function step(dt: number)
 			local inIce = b.offset.Position.Y < h - size.Y / 2 - 0.05
 			b.part.Transparency = if inIce then 0.5 else 1
 			b.part.CFrame = part.CFrame * b.offset
+		end
+		-- the detail: top pieces (rime, upper corners) ride down on the ice's top; the rest show only in the ice left
+		for _, x in c.detail do
+			if x.top then
+				x.part.Transparency = x.alpha
+				x.part.CFrame = part.CFrame * CFrame.new(0, h - size.Y, 0) * x.offset
+			else
+				local inIce = x.offset.Position.Y < h - size.Y / 2 - 0.02
+				x.part.Transparency = if inIce then x.alpha else 1
+				x.part.CFrame = part.CFrame * x.offset
+			end
 		end
 		c.line.CFrame = bottom * CFrame.new(0, h, 0)
 		c.line.Transparency = if share < 0.995 then M.line.transparency else 1

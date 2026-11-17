@@ -23,6 +23,7 @@
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local TextService = game:GetService("TextService")
 local UserInputService = game:GetService("UserInputService")
 local CollectionService = game:GetService("CollectionService")
@@ -237,8 +238,13 @@ local function setFrostStation(i: number)
 end
 
 -- ---------- bolts ----------
-type Bolt = { part: BasePart, from: Vector3, to: Vector3, t0: number, seconds: number, land: () -> () }
+-- v2 (owner 2026-11-17: "make the shooting feel more realistic even for the training"): no lobbed neon ball. A
+-- shot is a straight, fast tracer (a tapered streak of glittering frost with a flare at its head) and, for a
+-- blink, a thin laser line along the whole path; at the target a flare pops, vapour puffs and ice chips fly
+-- and bounce. The gun kicks (RayController.recoil) and my own shots nudge the camera.
+type Bolt = { head: Attachment, tail: Attachment, items: { Instance }, from: Vector3, to: Vector3, t0: number, seconds: number, land: () -> () }
 local bolts: { Bolt } = {}
+local TX = Config.ray.beam.tex
 
 local function gunTipPos(c: Model): Vector3?
 	local tip = RayController.tipOf(c)
@@ -252,50 +258,106 @@ local function gunTipPos(c: Model): Vector3?
 	return nil
 end
 
+local function freeAttachment(at: Vector3): Attachment
+	local a = Instance.new("Attachment")
+	a.Name = "BoltPoint"
+	a.WorldPosition = at
+	a.Parent = workspace.Terrain
+	return a
+end
+
+local function boltBeam(a0: Attachment, a1: Attachment, w0: number, w1: number, color: ColorSequence, transparency: NumberSequence, tex: string?): Beam
+	local b = Instance.new("Beam")
+	b.Attachment0, b.Attachment1 = a0, a1
+	b.Width0, b.Width1 = w0, w1
+	b.Color = color
+	b.Transparency = transparency
+	b.LightEmission = 1
+	b.LightInfluence = 0
+	b.FaceCamera = true
+	b.Segments = 1
+	if tex then
+		b.Texture = tex
+		b.TextureMode = Enum.TextureMode.Stretch
+	end
+	b.Parent = a0
+	return b
+end
+
 local function launch(from: Vector3, to: Vector3, big: boolean, land: () -> ())
 	local B = U.bolt
 	local s = if big then B.clickSize else B.size
-	local p = Instance.new("Part")
-	p.Name = "FrostBolt"
-	p.Shape = Enum.PartType.Ball
-	p.Size = Vector3.one * s
-	p.Color = TT.frostGlow
-	p.Material = Enum.Material.Neon
-	p.Anchored, p.CanCollide, p.CanQuery, p.CanTouch, p.CastShadow = true, false, false, false, false
-	p.CFrame = CFrame.new(from)
+	local tail, head = freeAttachment(from), freeAttachment(from)
+	local items: { Instance } = { tail, head }
+	-- the tracer: thin at the tail, full at the head; glittering frost over a white-hot core
+	boltBeam(tail, head, 0, s, ColorSequence.new(TT.frostGlow, Theme.white), NumberSequence.new(0.7, 0), TX.sparkle)
+	boltBeam(tail, head, 0, s * 0.35, ColorSequence.new(Theme.white), NumberSequence.new(0.4, 0), nil)
+	RayController.flare(head, TT.frostGlow, s * B.flare) -- a glow rides the head
+	-- the laser line: the whole path lights for a blink, then thins away
 	if not lowGfx() then
-		local a0, a1 = Instance.new("Attachment"), Instance.new("Attachment")
-		a0.Position, a1.Position = Vector3.new(0, s * 0.45, 0), Vector3.new(0, -s * 0.45, 0)
-		a0.Parent, a1.Parent = p, p
-		local tr = Instance.new("Trail")
-		tr.Attachment0, tr.Attachment1 = a0, a1
-		tr.Lifetime = B.trail
-		tr.LightEmission = 1
-		tr.Color = ColorSequence.new(Theme.white, TT.frostGlow)
-		tr.Transparency = NumberSequence.new(0.1, 1)
-		tr.Parent = p
+		local a0, a1 = freeAttachment(from), freeAttachment(to)
+		local line = boltBeam(a0, a1, B.lineWidth * 0.6, B.lineWidth, ColorSequence.new(Theme.white, TT.frostGlow), NumberSequence.new(0.35, 0.15), nil)
+		local time = B.lineSeconds * (if reduced() then 0.5 else 1)
+		TweenService:Create(line, TweenInfo.new(time, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Width0 = 0, Width1 = 0 }):Play()
+		task.delay(time, function()
+			a0:Destroy()
+			a1:Destroy()
+		end)
 	end
-	p.Parent = folder
-	table.insert(bolts, { part = p, from = from, to = to, t0 = os.clock(), seconds = B.seconds, land = land })
+	table.insert(bolts, { head = head, tail = tail, items = items, from = from, to = to, t0 = os.clock(), seconds = B.seconds, land = land })
+end
+
+-- the target's hit: a flare pops, cold vapour puffs, and (my shots) a few ice chips fly off and bounce
+local function hitAt(to: Vector3, mine: boolean, big: boolean)
+	local B = U.bolt
+	local a = freeAttachment(to)
+	local size = B.hitFlare * (if big then 1.3 else 1)
+	RayController.popFlare(a, TT.frostGlow, size * 0.6, size * 1.4, B.hitSeconds * (if reduced() then 0.5 else 1), 0.05)
+	local e = Instance.new("ParticleEmitter")
+	e.Texture = TX.smoke
+	e.Color = ColorSequence.new(TT.frost, Theme.white)
+	e.LightEmission = 0.3
+	e.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.15, 0.5), NumberSequenceKeypoint.new(1, 1) })
+	e.Size = NumberSequence.new(0.5, 1.8)
+	e.Speed = NumberRange.new(1.5, 3.5)
+	e.SpreadAngle = Vector2.new(180, 180)
+	e.Drag = 4
+	e.Acceleration = Vector3.new(0, -1, 0)
+	e.Lifetime = NumberRange.new(0.4, 0.7)
+	e.Rotation = NumberRange.new(0, 360)
+	e.Rate = 0
+	e.Parent = a
+	e:Emit(if lowGfx() then 2 else (if mine then 5 else 3))
+	if mine then
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { folder, workspace.Terrain :: Instance, me.Character :: Instance }
+		local hit = workspace:Raycast(to, Vector3.new(0, -30, 0), params)
+		EffectsController.shards(to, 1.2, if hit then hit.Position.Y else to.Y - 3, if big then B.shards + 2 else B.shards)
+	end
+	task.delay(1, function()
+		a:Destroy()
+	end)
 end
 
 local function stepBolts(now: number)
+	local tailShare = U.bolt.tail
 	for k = #bolts, 1, -1 do
 		local b = bolts[k]
 		local f = (now - b.t0) / b.seconds
 		if f >= 1 then
 			table.remove(bolts, k)
-			b.part.Transparency = 1 -- its trail fades out behind it, then it goes
-			task.delay(U.bolt.trail, function()
-				b.part:Destroy()
-			end)
+			for _, x in b.items do
+				x:Destroy()
+			end
 			local ok, err = pcall(b.land)
 			if not ok then
 				warn("[TrainingController] bolt:", err)
 			end
 		else
-			local pos = b.from:Lerp(b.to, f) + Vector3.new(0, math.sin(f * math.pi) * 0.6, 0) -- a small arc
-			b.part.CFrame = CFrame.new(pos)
+			-- straight and fast, like a real shot (no lob); the tail trails a share of the path behind
+			b.head.WorldPosition = b.from:Lerp(b.to, f)
+			b.tail.WorldPosition = b.from:Lerp(b.to, math.max(0, f - tailShare))
 		end
 	end
 end
@@ -315,8 +377,13 @@ local function drawShot(p: Player, i: number, mine: boolean, big: boolean, land:
 	if mine and big then
 		RayController.muzzle(c, "mist")
 	end
+	RayController.recoil(c, if big then U.bolt.recoil[1] else U.bolt.recoil[2]) -- the gun kicks with every shot (the camera nudge is tryShot's, clicks only)
 	local to = aimAt(i)
-	launch(from, to, big, function()
+	-- the shot lands on the target's near side, not in its middle (where the hit would hide inside it)
+	local path = to - from
+	local hit = if path.Magnitude > 0.1 then to - path.Unit * math.min(U.bolt.hitBack, path.Magnitude * 0.4) else to
+	launch(from, hit, big, function()
+		hitAt(hit, mine, big)
 		wobble(i, false)
 		if mine then
 			hitFlash(J.flashPeak, 0)

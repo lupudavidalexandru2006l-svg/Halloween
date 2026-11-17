@@ -291,9 +291,9 @@ end
 
 -- ---------- the snap in detail (2026-11-17 realism pass, Config.show.freeze) ----------
 -- ice shards burst off the new cube, spin, fall and bounce on the ground, then fade
-function EffectsController.shards(center: Vector3, size: number, groundY: number)
+function EffectsController.shards(center: Vector3, size: number, groundY: number, count: number?)
 	local S = F.shards
-	local n = amount(S.count)
+	local n = amount(count or S.count)
 	local r = Random.new()
 	local list: { { part: BasePart, vel: Vector3, spin: Vector3 } } = {}
 	for i = 1, n do
@@ -347,7 +347,7 @@ function EffectsController.shards(center: Vector3, size: number, groundY: number
 	end)
 end
 
--- a frost ring races out over the ground and a snowy patch lingers where the cube shut
+-- a snowy frost patch spreads where the cube shut and cold vapour rolls out low over the ground
 function EffectsController.frostRing(groundAt: Vector3, size: number)
 	local R = F.frostRing
 	local patch = glow(Vector3.new(0.05, size, size), Theme.fx.frost, nil)
@@ -360,18 +360,29 @@ function EffectsController.frostRing(groundAt: Vector3, size: number)
 	TweenService:Create(patch, TweenInfo.new(EffectsController.time(R.seconds), Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
 		{ Size = Vector3.new(0.05, reach * 0.8, reach * 0.8) }):Play()
 	TweenService:Create(patch, TweenInfo.new(linger, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Transparency = 1 }):Play()
-	local ring = glow(Vector3.new(size, 0.1, size), Theme.white, "Ring")
-	ring.Transparency = if reduced() then 0.7 else 0.3
-	ring.CFrame = CFrame.new(groundAt + Vector3.new(0, 0.08, 0))
-	if not ring:IsA("MeshPart") then -- no ring mesh: a thin flat disc
-		ring.Size = Vector3.new(size, 0.04, size)
-	end
-	local rt = EffectsController.time(R.seconds)
-	TweenService:Create(ring, TweenInfo.new(rt, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
-		{ Size = Vector3.new(reach, ring.Size.Y, reach), Transparency = 1 }):Play()
-	task.delay(math.max(linger, rt), function()
+	-- a cloud of cold vapour rolls out low over the ground (a neon shock ring was tried first, 2026-11-17: seen
+	-- edge-on it drew a hard line across the ground)
+	local fog = anchor(groundAt + Vector3.new(0, 0.3, 0))
+	local e = Instance.new("ParticleEmitter")
+	e.Texture = Config.ray.beam.tex.smoke
+	e.Color = ColorSequence.new(Theme.fx.frost, Theme.white)
+	e.LightEmission = 0.2
+	e.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.15, 0.45), NumberSequenceKeypoint.new(1, 1) })
+	e.Size = NumberSequence.new(size * 0.35, size * 0.9)
+	e.EmissionDirection = Enum.NormalId.Top
+	e.SpreadAngle = Vector2.new(88, 88) -- out sideways, hugging the ground
+	e.Speed = NumberRange.new(size * 1.6, size * 2.6)
+	e.Drag = 5
+	e.Acceleration = Vector3.new(0, -2, 0)
+	e.Lifetime = NumberRange.new(0.7, 1.1)
+	e.Rotation = NumberRange.new(0, 360)
+	e.RotSpeed = NumberRange.new(-30, 30)
+	e.Rate = 0
+	e.Parent = fog
+	e:Emit(amount(R.fog))
+	task.delay(math.max(linger, 1.2), function()
 		patch:Destroy()
-		ring:Destroy()
+		fog:Destroy()
 	end)
 end
 

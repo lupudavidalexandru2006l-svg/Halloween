@@ -55,12 +55,14 @@ local locked: Target? = nil
 local shot = false
 local sentKey = "none"
 local lastSent = 0
--- the laser in detail (Config.ray.beam): the beams run from the gun tip to a head that races to the target;
--- strands twist round the core between their own end points; parts (motes box, impact ring, muzzle glow)
--- and the Terrain attachments go when the beam is dropped
+-- the laser (Config.ray.beam, v2 2026-11-17, owner: "the laser should not look AI"): textured layers (cold
+-- vapour and glittering ice scrolling toward the target, Roblox's own built-in images), a soft glow and a
+-- white core, all running from the gun tip to a head that races to the target. Lens flares at the muzzle and
+-- the hit, vapour curling off both, ice flakes spraying back. The head (a Terrain attachment) carries the
+-- hit's flare and emitters and goes a moment after the beam is dropped.
 type BeamSet = { beams: { Beam }, sparkles: { ParticleEmitter }, tip: Attachment, target: Attachment, head: Attachment,
-	born: number, landed: boolean, tier: number, glowBeam: Beam, strands: { { beam: Beam, a: Attachment, b: Attachment, phase: number } },
-	motes: Part?, moteFx: ParticleEmitter?, ring: BasePart, spray: ParticleEmitter, glowBall: Part, ends: { Instance } }
+	born: number, landed: boolean, tier: number, core: Beam, spray: ParticleEmitter, seed: number,
+	hitFlare: ParticleEmitter, hitSmoke: ParticleEmitter, muzzleFlare: ParticleEmitter, muzzleSmoke: ParticleEmitter, muzzleLight: PointLight }
 local beamSets: { [string]: BeamSet } = {}
 local reticle: { gui: BillboardGui, ring: Frame, fill: Frame, hint: TextLabel }? = nil
 
@@ -428,6 +430,7 @@ local function aimAttachment(part: BasePart): Attachment
 end
 
 local BM = R.beam
+local TX = BM.tex
 local function lowGfx(): boolean
 	return SettingsController.get("lowGraphics") == true
 end
@@ -435,7 +438,7 @@ local function calm(): boolean
 	return SettingsController.get("reducedMotion") == true
 end
 
--- a free attachment in the world (under Terrain): the beam's racing head and the strands' twisting ends
+-- a free attachment in the world (under Terrain): the beam's racing head
 local function freeAttachment(name: string, at: Vector3): Attachment
 	local a = Instance.new("Attachment")
 	a.Name = name
@@ -444,15 +447,7 @@ local function freeAttachment(name: string, at: Vector3): Attachment
 	return a
 end
 
--- an anchored effect part in the world (no collisions, no shadow)
-local function fxPiece(shape: Enum.PartType, size: Vector3, color: Color3): Part
-	local p = piece(shape, size, color, workspace)
-	p.Anchored = true
-	p.Material = Enum.Material.Neon
-	return p
-end
-
--- this CFrame's up axis points along dir (rings face down the beam)
+-- this CFrame's up axis points along dir
 local function upAlong(pos: Vector3, dir: Vector3): CFrame
 	if dir.Magnitude < 1e-3 then
 		return CFrame.new(pos)
@@ -460,84 +455,120 @@ local function upAlong(pos: Vector3, dir: Vector3): CFrame
 	return CFrame.lookAt(pos, pos + dir) * CFrame.Angles(-math.pi / 2, 0, 0)
 end
 
+-- a textured layer of the beam (Config.ray.beam.layers): the texture scrolls toward the target
+local function texturedBeam(from: Attachment, to: Attachment, L: any, color: Color3): Beam
+	local b = beam(from, to, L.width, color, L.transparency)
+	b.Texture = (TX :: any)[L.tex]
+	b.TextureMode = Enum.TextureMode.Wrap
+	b.TextureLength = L.length
+	b.TextureSpeed = L.speed * (if calm() then 0.4 else 1)
+	b.LightEmission = L.light
+	b.LightInfluence = 0
+	b.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, math.min(1, L.transparency + 0.25)),
+		NumberSequenceKeypoint.new(0.15, L.transparency), NumberSequenceKeypoint.new(1, L.transparency) })
+	return b
+end
+
+-- a glow that stays lit on a point (the built-in sparkle texture, added light: its dark parts vanish). Image
+-- flares were tried first (2026-11-17) and their dark rays drew a smudge at the muzzle.
+local function flare(parent: Instance, color: Color3, size: number): ParticleEmitter
+	local e = Instance.new("ParticleEmitter")
+	e.Name = "RayFlare"
+	e.Texture = TX.sparkle
+	e.Color = ColorSequence.new(Theme.white, color)
+	e.LightEmission = 1
+	e.LightInfluence = 0
+	e.LockedToPart = true
+	e.Speed = NumberRange.new(0)
+	e.Lifetime = NumberRange.new(0.08, 0.14)
+	e.Rate = 40
+	e.Rotation = NumberRange.new(0, 360)
+	e.RotSpeed = NumberRange.new(-120, 120)
+	e.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, size * 0.42), NumberSequenceKeypoint.new(1, size * 0.5) })
+	e.Transparency = NumberSequence.new(0.15, 0.6)
+	e.ZOffset = 1
+	e.Parent = parent
+	return e
+end
+
+RayController.flare = flare -- the training tracers' heads glow with it
+
+-- a flare that pops once (grows from one size to another and fades over seconds)
+function RayController.popFlare(parent: Instance, color: Color3, fromSize: number, toSize: number, seconds: number, alpha: number)
+	local e = flare(parent, color, fromSize)
+	e.Rate = 0
+	e.Lifetime = NumberRange.new(seconds)
+	e.RotSpeed = NumberRange.new(-60, 60)
+	e.Size = NumberSequence.new(fromSize * 0.5, toSize * 0.5)
+	e.Transparency = NumberSequence.new(alpha, 1)
+	e:Emit(1)
+	task.delay(seconds + 0.05, function()
+		e:Destroy()
+	end)
+end
+
+-- cold vapour rolling off a point (smoke texture), drifting and sinking
+local function vapour(parent: Instance, color: Color3, rate: number): ParticleEmitter
+	local e = Instance.new("ParticleEmitter")
+	e.Texture = TX.smoke
+	e.Color = ColorSequence.new(color, Theme.white)
+	e.LightEmission = 0.3
+	e.LightInfluence = 0.2
+	e.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.2, 0.55), NumberSequenceKeypoint.new(1, 1) })
+	e.Size = NumberSequence.new(0.4, 1.6)
+	e.Speed = NumberRange.new(0.6, 1.6)
+	e.SpreadAngle = Vector2.new(60, 60)
+	e.Acceleration = Vector3.new(0, -1.2, 0) -- cold air sinks
+	e.Drag = 2
+	e.Lifetime = NumberRange.new(0.5, 0.9)
+	e.Rotation = NumberRange.new(0, 360)
+	e.RotSpeed = NumberRange.new(-40, 40)
+	e.Rate = rate * (if lowGfx() then 0.5 else 1)
+	e.Parent = parent
+	return e
+end
+
 local function makeBeams(tip: Attachment, part: BasePart, tier: number): BeamSet
 	local look = Theme.guns[tier] or Theme.guns[1]
 	local w = R.beamPerGun * (tier - 1)
 	local target = aimAttachment(part)
 	local from = tip.WorldPosition
-	local now = os.clock()
 	-- the head starts at the muzzle and races to the target (Config.ray.beam.travel)
 	local head = freeAttachment("RayHead", if calm() then target.WorldPosition else from)
-	local ends: { Instance } = { head }
-	-- haze (wide, soft), glow (pulses run down it), core (white-hot), widest first so the core draws on top
-	local haze = beam(tip, head, BM.haze + w * 3, look.glow, BM.hazeTransparency)
-	haze.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.95), NumberSequenceKeypoint.new(0.25, BM.hazeTransparency),
-		NumberSequenceKeypoint.new(1, BM.hazeTransparency - 0.08) })
-	haze.Width0 = (BM.haze + w * 3) * 0.45 -- it opens out toward the target, like light spreading
-	local glowBeam = beam(tip, head, R.beamGlow + w * 2, look.glow, 0.5)
-	local core = beam(tip, head, R.beamCore + w, look.core, 0.05)
-	core.Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, look.core), ColorSequenceKeypoint.new(0.85, look.core), ColorSequenceKeypoint.new(1, look.spark) })
-	local beams = { haze, glowBeam, core }
-	-- two thin frost strands twisting round the core (each between its own pair of free attachments)
-	local strands = {}
-	if not lowGfx() then
-		for i = 1, 2 do
-			local a = freeAttachment("StrandA", from)
-			local b = freeAttachment("StrandB", from)
-			local s = beam(a, b, BM.strand + w * 0.5, look.spark, 0.2)
-			s.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.7), NumberSequenceKeypoint.new(0.2, 0.15), NumberSequenceKeypoint.new(1, 0.25) })
-			s.Segments = 20
-			table.insert(strands, { beam = s, a = a, b = b, phase = (i - 1) * math.pi })
-			table.insert(beams, s)
-			table.insert(ends, a)
-			table.insert(ends, b)
+	-- widest first, so the core draws on top: cold vapour flowing along it, a soft glow, glittering ice, the core
+	local beams: { Beam } = {}
+	for _, L in BM.layers do
+		if L.lowGfx == false and lowGfx() then
+			continue
 		end
+		local color = if L.color == "glow" then look.glow elseif L.color == "spark" then look.spark else look.core
+		local b = texturedBeam(tip, head, L, color)
+		b.Width0 = L.width * L.muzzle + w
+		b.Width1 = L.width + w * (if L.tex == "smoke" then 3 else 1)
+		table.insert(beams, b)
 	end
-	-- frost dust drifting off along the beam: a thin invisible box the length of the beam emits it
-	local motes: Part? = nil
-	local moteFx: ParticleEmitter? = nil
-	if not lowGfx() then
-		local m = fxPiece(Enum.PartType.Block, Vector3.new(0.3, 0.3, 1), look.spark)
-		m.Name = "RayMotes"
-		m.Transparency = 1
-		local e = Instance.new("ParticleEmitter")
-		e.Color = ColorSequence.new(look.spark)
-		e.LightEmission = 0.8
-		e.Shape = Enum.ParticleEmitterShape.Box
-		e.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
-		e.Speed = NumberRange.new(0.2, 0.8)
-		e.SpreadAngle = Vector2.new(180, 180)
-		e.Acceleration = Vector3.new(0, -1.2, 0) -- cold dust sinks
-		e.Drag = 1.5
-		e.Lifetime = NumberRange.new(0.4, 0.9)
-		e.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.2, 0.13), NumberSequenceKeypoint.new(1, 0) })
-		e.Rate = 0
-		e.Parent = m
-		motes, moteFx = m, e
-	end
-	-- the impact: a frost ring spinning on the target, a spray of ice flakes off it, a light
-	local meshes = ReplicatedStorage:FindFirstChild("SceneryMeshes")
-	local ringMesh = meshes and meshes:FindFirstChild("Ring")
-	local ring: BasePart = if ringMesh and ringMesh:IsA("MeshPart") then ringMesh:Clone() else fxPiece(Enum.PartType.Cylinder, Vector3.one, look.glow)
-	ring.Anchored = true
-	ring.CanCollide = false
-	ring.CanQuery = false
-	ring.CanTouch = false
-	ring.CastShadow = false
-	ring.Material = Enum.Material.Neon
-	ring.Color = look.spark
-	ring.Transparency = 1
-	ring.Name = "RayImpact"
-	ring.Parent = workspace
+	local glowBeam = beam(tip, head, R.beamGlow + w * 2, look.glow, BM.glowTransparency)
+	glowBeam.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.25), NumberSequenceKeypoint.new(0.5, BM.glowTransparency),
+		NumberSequenceKeypoint.new(1, 0.3) }) -- brighter where it leaves the gun and where it hits
+	local core = beam(tip, head, R.beamCore + w, look.core, 0.02)
+	core.Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, look.core), ColorSequenceKeypoint.new(0.9, look.core), ColorSequenceKeypoint.new(1, look.spark) })
+	table.insert(beams, glowBeam)
+	table.insert(beams, core)
+	-- the hit: a flare on the target, vapour billowing off it, ice flakes spraying back, a light
+	local hitFlare = flare(head, look.glow, BM.hitFlare * (1 + 0.04 * (tier - 1)))
+	hitFlare.Enabled = calm()
+	local hitSmoke = vapour(head, Theme.fx.frost, 0)
+	hitSmoke.EmissionDirection = Enum.NormalId.Top
 	local spray = Instance.new("ParticleEmitter")
+	spray.Texture = TX.sparkle
 	spray.Color = ColorSequence.new(look.spark, Theme.fx.frost)
-	spray.LightEmission = 0.5
+	spray.LightEmission = 0.8
 	spray.EmissionDirection = Enum.NormalId.Top -- the head's up axis points back at the shooter
 	spray.SpreadAngle = Vector2.new(55, 55)
 	spray.Speed = NumberRange.new(4, 9)
 	spray.Acceleration = Vector3.new(0, -26, 0)
 	spray.Lifetime = NumberRange.new(0.3, 0.55)
-	spray.Size = NumberSequence.new(0.16 + 0.01 * tier, 0)
+	spray.Size = NumberSequence.new(0.35 + 0.02 * tier, 0)
 	spray.Rotation = NumberRange.new(0, 360)
 	spray.RotSpeed = NumberRange.new(-300, 300)
 	spray.Rate = 0
@@ -548,96 +579,57 @@ local function makeBeams(tip: Attachment, part: BasePart, tier: number): BeamSet
 	light.Brightness = BM.lightBrightness
 	light.Shadows = false
 	light.Parent = head
-	-- the muzzle: a glow ball that pulses while the beam runs, with its own light
-	local glowBall = fxPiece(Enum.PartType.Ball, Vector3.one * BM.muzzleGlow, look.core)
-	glowBall.Name = "RayMuzzleGlow"
-	glowBall.Transparency = 0.3
+	-- the muzzle: a flare and a curl of cold vapour off the barrel, with its own light
+	local muzzleFlare = flare(tip, look.glow, BM.muzzleFlare * (1 + 0.04 * (tier - 1)))
+	local muzzleSmoke = vapour(tip, Theme.fx.frost, BM.muzzleVapour)
+	muzzleSmoke.EmissionDirection = Enum.NormalId.Right -- the barrel points along the tip's +X
 	local ml = Instance.new("PointLight")
 	ml.Color = look.glow
 	ml.Range = BM.lightRange * 0.6
 	ml.Brightness = BM.lightBrightness * 0.8
 	ml.Shadows = false
-	ml.Parent = glowBall
+	ml.Parent = tip
 	return {
 		beams = beams,
-		sparkles = { sparkle(target, look.spark, tier, 4), sparkle(tip, look.glow, tier, 2) },
-		tip = tip, target = target, head = head, born = now, landed = calm(), tier = tier, glowBeam = glowBeam,
-		strands = strands, motes = motes, moteFx = moteFx, ring = ring, spray = spray, glowBall = glowBall, ends = ends,
+		sparkles = { sparkle(target, look.spark, tier, 4) },
+		tip = tip, target = target, head = head, born = os.clock(), landed = calm(), tier = tier, core = core,
+		spray = spray, hitFlare = hitFlare, hitSmoke = hitSmoke,
+		muzzleFlare = muzzleFlare, muzzleSmoke = muzzleSmoke, muzzleLight = ml,
+		seed = math.random() * 100,
 	}
 end
 
--- bright packets running down the glow layer toward the target (a list of up to 2 + 3 x pulses keypoints)
-local function pulseSequence(phase: number): NumberSequence
-	local half = BM.pulseWidth
-	local centers = {}
-	for i = 0, BM.pulses - 1 do
-		local c = (phase + i / BM.pulses) % 1
-		if c - half > 0.01 and c + half < 0.99 then
-			table.insert(centers, c)
-		end
-	end
-	table.sort(centers)
-	local keys = { NumberSequenceKeypoint.new(0, BM.pulseBase) }
-	for _, c in centers do
-		table.insert(keys, NumberSequenceKeypoint.new(c - half, BM.pulseBase))
-		table.insert(keys, NumberSequenceKeypoint.new(c, BM.pulseBright))
-		table.insert(keys, NumberSequenceKeypoint.new(c + half, BM.pulseBase))
-	end
-	table.insert(keys, NumberSequenceKeypoint.new(1, BM.pulseBase))
-	return NumberSequence.new(keys)
+-- smooth noise in 0..1 (two sines at odd rates): flicker that never repeats in a visible pattern
+local function flicker(t: number, seed: number): number
+	return 0.5 + 0.3 * math.sin(t * 23.7 + seed) + 0.2 * math.sin(t * 41.3 + seed * 1.7)
 end
 
--- one frame of a live beam: the head races in then rides the target, strands twist, pulses run, dust drifts,
--- the impact ring spins and sprays, the muzzle glow throbs
+-- one frame of a live beam: the head races in then rides the target; the core and flares flicker a little
 local function stepBeams(set: BeamSet, now: number)
 	local from = set.tip.WorldPosition
 	local to = set.target.WorldPosition
 	local still = calm()
 	local u = if set.landed then 1 else math.min(1, (now - set.born) / math.max(0.01, BM.travel))
-	local headAt = from:Lerp(to, 1 - (1 - u) ^ 3)
 	local dir = to - from
-	local len = dir.Magnitude
-	local unit = if len > 1e-3 then dir / len else Vector3.zAxis
+	local unit = if dir.Magnitude > 1e-3 then dir.Unit else Vector3.zAxis
+	-- the beam stops on the target's near side, not in its middle (the hit's glow and spray were hidden inside the pet)
+	local stop = to - unit * math.min(BM.hitBack, dir.Magnitude * 0.4)
+	local headAt = from:Lerp(stop, 1 - (1 - u) ^ 3)
 	set.head.WorldCFrame = upAlong(headAt, -unit) -- up points back at the shooter: the spray bounces off
 	if not set.landed and u >= 1 then
 		set.landed = true
-		local n = if lowGfx() then math.floor(BM.landBurst / 2) else BM.landBurst
-		set.spray:Emit(n) -- the head hits: one splash of ice
+		set.spray:Emit(if lowGfx() then math.floor(BM.landBurst / 2) else BM.landBurst) -- the head hits: one splash of ice
+		set.hitSmoke:Emit(if lowGfx() then 2 else 5)
 	end
-	-- pulses run toward the target (still with reduced motion)
-	if not still then
-		set.glowBeam.Transparency = pulseSequence((now * BM.pulseSpeed) % 1)
-	end
-	-- the strands twist round the core: their bend points sweep round the beam
-	local side = if math.abs(unit.Y) < 0.95 then unit:Cross(Vector3.yAxis).Unit else unit:Cross(Vector3.xAxis).Unit
-	local up = side:Cross(unit)
-	for _, s in set.strands do
-		local a = s.phase + (if still then 0 else now * BM.strandTurns * math.pi * 2)
-		local off = side * math.cos(a) + up * math.sin(a)
-		s.a.WorldCFrame = CFrame.fromMatrix(from, off, unit:Cross(off))
-		s.b.WorldCFrame = CFrame.fromMatrix(headAt, off, unit:Cross(off))
-		s.beam.CurveSize0 = BM.strandCurve
-		s.beam.CurveSize1 = BM.strandCurve -- P2 = end - axis x size: an S that turns round the beam
-	end
-	-- frost dust: the box spans the beam so far
-	local reach = (headAt - from).Magnitude
-	if set.motes and set.moteFx then
-		set.motes.Size = Vector3.new(0.35, 0.35, math.max(0.2, reach))
-		set.motes.CFrame = CFrame.lookAt((from + headAt) / 2, headAt + unit * 0.01)
-		set.moteFx.Rate = BM.motes * reach
-	end
-	-- the impact ring spins on the target once the head is there, breathing in and out
-	local r = BM.impactSize * (1 + 0.04 * (set.tier - 1)) * (1 + 0.12 * math.sin(now * 11))
-	set.ring.Size = if set.ring:IsA("MeshPart") then Vector3.new(r, 0.08, r) else Vector3.new(0.06, r, r)
-	local face = upAlong(headAt - unit * 0.1, unit)
-	set.ring.CFrame = if set.ring:IsA("MeshPart") then face * CFrame.Angles(0, if still then 0 else now * BM.impactSpin * math.pi * 2, 0)
-		else CFrame.lookAt(headAt - unit * 0.1, headAt) * CFrame.Angles(0, math.pi / 2, 0)
-	set.ring.Transparency = if set.landed then 0.35 + 0.15 * math.sin(now * 17) else 1
+	local f = if still then 0.5 else flicker(now, set.seed)
+	-- the core's width breathes a touch, like a live beam (never a strobe: smooth noise, small)
+	local w = R.beamCore + R.beamPerGun * (set.tier - 1)
+	set.core.Width0 = w * (0.9 + 0.2 * f)
+	set.core.Width1 = w * (0.95 + 0.15 * f)
+	-- the hit flare lights once the head lands (its own particles flicker and turn)
+	set.hitFlare.Enabled = set.landed
+	set.hitSmoke.Rate = if set.landed then BM.hitVapour * (if lowGfx() then 0.5 else 1) else 0
 	set.spray.Rate = if set.landed then BM.spray * (if lowGfx() then 0.5 else 1) else 0
-	-- the muzzle glow throbs
-	local throb = 1 + (if still then 0 else 0.18 * math.sin(now * BM.muzzleHz * math.pi * 2))
-	set.glowBall.Size = Vector3.one * BM.muzzleGlow * (1 + 0.05 * (set.tier - 1)) * throb
-	set.glowBall.Position = from
 end
 
 -- the beam pulls back rather than vanishing: the muzzle end thins first, then the target end
@@ -654,18 +646,17 @@ local function dropBeams(set: BeamSet)
 	for _, s in set.sparkles do
 		s:Destroy()
 	end
-	if set.motes then
-		set.motes:Destroy()
-	end
+	set.muzzleFlare:Destroy()
+	set.muzzleLight:Destroy()
+	set.muzzleSmoke.Rate = 0
 	set.spray.Rate = 0
-	set.glowBall:Destroy()
-	-- the ring shrinks away; the free ends go once the beams are gone (the spray's last flakes finish falling)
-	TweenService:Create(set.ring, TweenInfo.new(F.beamIn * k * 2), { Transparency = 1, Size = set.ring.Size * 0.3 }):Play()
-	task.delay(math.max(F.beamIn * k * 2, 0.6), function()
-		set.ring:Destroy()
-		for _, e in set.ends do
-			e:Destroy()
-		end
+	set.hitSmoke.Rate = 0
+	set.hitFlare.Enabled = false -- its last particles fade by themselves
+	-- the muzzle's last vapour and the hit's last flakes finish, then the head and its emitters go
+	local muzzleSmoke = set.muzzleSmoke
+	task.delay(1, function()
+		muzzleSmoke:Destroy()
+		set.head:Destroy()
 	end)
 end
 
@@ -682,6 +673,7 @@ type Shot = {
 local shots: { [Model]: Shot } = {}
 local bodyPose: { [Model]: BodyPose } = setmetatable({}, { __mode = "k" }) :: any -- this frame's pose, read by poseArms
 local lastFlash = 0
+local recoils: { [Model]: { t0: number, scale: number } } = setmetatable({}, { __mode = "k" }) :: any -- a single shot's kick
 local pendingLock: { scale: number, show: boolean, at: number }? = nil -- my cube shut ("frozen")
 
 local function reduced(): boolean
@@ -800,22 +792,12 @@ local function muzzle(c: Model, kind: string)
 	end
 	local F = AN.fx
 	local look = Theme.guns[tier] or Theme.guns[1]
-	-- a thin ring round the barrel (its axis = the tip's +X): the charge pulls in, the fire blasts out
-	local function barrelRing(fromSize: number, toSize: number, ahead: number, seconds: number, alpha: number)
-		local ring = fxPiece(Enum.PartType.Cylinder, Vector3.new(0.05, fromSize, fromSize), look.glow)
-		ring.Transparency = alpha
-		local at = tip.WorldCFrame
-		ring.CFrame = at
-		local time = seconds * timeScale()
-		TweenService:Create(ring, TweenInfo.new(time, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-			Size = Vector3.new(0.05, toSize, toSize), CFrame = at * CFrame.new(ahead, 0, 0), Transparency = 1,
-		}):Play()
-		task.delay(time, function()
-			ring:Destroy()
-		end)
+	-- a flare at the barrel that grows from one size to another and fades
+	local function popFlare(fromSize: number, toSize: number, seconds: number, alpha: number)
+		RayController.popFlare(tip, look.glow, fromSize, toSize, seconds * timeScale(), alpha)
 	end
 	if kind == "mist" and not reduced() then
-		barrelRing(F.chargeRing[1], F.chargeRing[2], 0, F.chargeSeconds, 0.55) -- the charge: a ring pulls into the muzzle
+		popFlare(F.charge[1], F.charge[2], F.chargeSeconds, 0.45) -- the charge: light gathers in the muzzle
 	end
 	if kind == "flash" then
 		local now = os.clock()
@@ -823,17 +805,24 @@ local function muzzle(c: Model, kind: string)
 			return -- never more than 3 flashes a second (Animation Rules 1)
 		end
 		lastFlash = now
-		barrelRing(F.shockRing[1], F.shockRing[2], F.shockAhead, F.shockSeconds, if reduced() then 0.75 else 0.4) -- the shot blasts out
-		local b = piece(Enum.PartType.Ball, Vector3.one * F.flashSize, look.core, workspace)
-		b.Anchored = true
-		b.Material = Enum.Material.Neon
-		b.Transparency = if reduced() then 0.6 else 0.2
-		b.Position = tip.WorldPosition
-		local time = F.flashSeconds * timeScale()
-		TweenService:Create(b, TweenInfo.new(time), { Transparency = 1, Size = Vector3.one * F.flashSize * 1.4 }):Play()
+		popFlare(F.flash[1], F.flash[2], F.flashSeconds, if reduced() then 0.6 else 0.05)
+		-- the blast: a short cone of glittering frost thrown out of the barrel along its axis (+X), gone in a blink
+		local a1 = Instance.new("Attachment")
+		a1.WorldPosition = tip.WorldPosition + tip.WorldAxis * F.blastLength
+		a1.Parent = workspace.Terrain
+		local b = beam(tip, a1, F.blastWidth, look.spark, 0.1)
+		b.Texture = R.beam.tex.sparkle
+		b.TextureMode = Enum.TextureMode.Stretch
+		b.Width1 = F.blastWidth * 0.25
+		b.Transparency = NumberSequence.new(0.05, 1)
+		local time = F.flashSeconds * 1.4 * timeScale()
+		TweenService:Create(b, TweenInfo.new(time, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Width0 = 0, Width1 = 0 }):Play()
 		task.delay(time, function()
-			b:Destroy()
+			b:Destroy() -- it lives on the gun tip: without this every shot left an empty beam behind
+			a1:Destroy()
 		end)
+		local f = if SettingsController.get("lowGraphics") == true then 0.5 else 1
+		frostEmitter(tip):Emit(math.max(1, math.floor(F.flashVapour * f))) -- a breath of cold vapour with the shot
 		return
 	end
 	local count = (F :: any)[kind]
@@ -851,6 +840,11 @@ end
 
 function RayController.muzzle(character: Model, kind: string)
 	muzzle(character, kind)
+end
+
+-- one shot's recoil on this character (Config.ray.anim.recoil): the training bolts use it; reduced motion halves it
+function RayController.recoil(character: Model, scale: number?)
+	recoils[character] = { t0 = os.clock(), scale = (scale or 1) * (if reduced() then 0.5 else 1) }
 end
 
 local function playCue(c: Model, s: Shot, cue: Config.RayCue)
@@ -1104,7 +1098,7 @@ local function drawBeams()
 			end
 		end
 	end
-	-- every live beam's detail (after the curl: the strands set their own curves)
+	-- every live beam's detail: the racing head, the flicker, the flares
 	local now = os.clock()
 	for _, set in beamSets do
 		if set.tip.Parent and set.target.Parent then
@@ -1394,6 +1388,19 @@ local function poseArms()
 		-- the shot's body motion plays on while you carry (the cube lands in your hands as the lock starts);
 		-- only the gun arm's part of it gives way to the carry pose
 		local pose = bodyPose[character]
+		-- a single shot's recoil (training bolts): the arm snaps up, the body rocks back, both spring home
+		local rk = recoils[character]
+		if rk then
+			local RC = AN.recoil
+			local t = (os.clock() - rk.t0) / timeScale()
+			if t >= RC.seconds then
+				recoils[character] = nil
+			else
+				local kick = rk.scale * (if t < RC.kickEnd then quadOut(t / RC.kickEnd) else settle(seg(t, RC.kickEnd, RC.seconds)))
+				local base = pose or ZERO
+				pose = { dip = base.dip, hipYaw = base.hipYaw, twist = base.twist, lean = base.lean - RC.lean * kick, arm = base.arm + RC.up * kick }
+			end
+		end
 		poseBody(character, pose)
 		for _, side in { "Right", "Left" } do
 			local joint = character:FindFirstChild(side .. "Shoulder", true)
