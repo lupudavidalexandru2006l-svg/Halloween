@@ -146,8 +146,11 @@ Config.pen = { baseSlots = 10, maxSlots = 16, storageMax = 500, -- maxSlots: the
 Config.carryHomeMinStuds = 4 -- funnel step 4 counts a cube carried at least this far out of the hub and back
 Config.notYetCooldown = 2 -- seconds between two of the same "not yet" message
 -- every pet's size multiplier (PetDefs.sizeHeight). QA 2026-11-08 (Studio-side work); restored 2026-11-09
--- after a sync overwrote Studio's Config. The value there was lost: 1 = the sizes the repo always had
-Config.petScale = 1
+-- after a sync overwrote Studio's Config. The value there was lost: 1 = the sizes the repo always had.
+-- 1.25 (owner 2026-11-17: "the commons are too small"), then another 25% ("make everything 25 percent bigger"):
+-- every pet and its ice cube the same amount bigger, so the steps between S / M / L and the Big / Giant / Huge
+-- rolls stay as they were (S 3.4, M 4.7, L 6.25 studs; the avatar is 5.8, so an L pet now stands a little taller)
+Config.petScale = 1.5625
 -- a booth's popup closes this many studs before the server's own range ends: its buttons only work at
 -- the booth, so walking away with it open left buttons that did nothing (final QA 2026-11-03)
 Config.boothLeaveMargin = 4

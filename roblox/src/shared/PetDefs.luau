@@ -154,7 +154,7 @@ local M = {
 	list = PetDefs,
 	byKey = byKey,
 	sizeHeight = { S = 2.2 * Config.petScale, M = 3 * Config.petScale, L = 4 * Config.petScale } :: { [string]: number },
-	cubeSize = { S = 3.0, M = 3.8, L = 4.8 } :: { [string]: number },
+	cubeSize = { S = 3.0 * Config.petScale, M = 3.8 * Config.petScale, L = 4.8 * Config.petScale } :: { [string]: number }, -- grows with the pets, so they still fit
 }
 
 function M.get(key: string): PetDef?
