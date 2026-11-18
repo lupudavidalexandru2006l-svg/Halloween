@@ -501,19 +501,23 @@ local function thawMachine(parent: Instance, name: string, ground: Vector3)
 	m.Parent = parent
 end
 
-local function panArt(parent: Instance, i: number, pl: { x: number, z: number }, rng: () -> number)
+-- len = how deep the pan is drawn (it grows backwards with its Slots: Config.panLength; nil = the start size)
+local function panArt(parent: Instance, i: number, pl: { x: number, z: number }, rng: () -> number, len: number?)
 	local P = W.pans
+	local length = len or P.length
 	local look = Theme.panLooks.garden
 	local f = folder("Pan" .. i, parent)
+	f:SetAttribute("Length", length)
 	local y = P.soilHeight
 	local x0, x1 = pl.x - P.width / 2, pl.x + P.width / 2
-	local zb, zf = P.frontZ - P.length, P.frontZ
+	local zb, zf = P.frontZ - length, P.frontZ
+	local zc = P.frontZ - length / 2
 	-- a flush stone edge round the bed (the pan sits level with the ground), then the lawn with mowed stripes
 	local kerb = y + 0.1
-	block(Vector3.new(P.width + 0.9, kerb, P.length + 0.9), CFrame.new(pl.x, kerb / 2, pl.z), V.stone, f, false, Enum.Material.Cobblestone)
-	named(block(Vector3.new(P.width - 0.2, 0.2, P.length - 0.2), CFrame.new(pl.x, y + 0.1, pl.z), look.floor, f, false, Enum.Material.Grass), "PanFloor")
+	block(Vector3.new(P.width + 0.9, kerb, length + 0.9), CFrame.new(pl.x, kerb / 2, zc), V.stone, f, false, Enum.Material.Cobblestone)
+	named(block(Vector3.new(P.width - 0.2, 0.2, length - 0.2), CFrame.new(pl.x, y + 0.1, zc), look.floor, f, false, Enum.Material.Grass), "PanFloor")
 	local band = 4
-	local n = math.floor((P.length - 0.4) / band)
+	local n = math.floor((length - 0.4) / band)
 	for k = 0, n - 1, 2 do
 		quiet(named(block(Vector3.new(P.width - 0.4, 0.05, band), CFrame.new(pl.x, y + 0.225, zb + 0.2 + (k + 0.5) * band), look.stripe, f, false, Enum.Material.Grass), "LawnStripe"))
 	end
@@ -550,9 +554,9 @@ local function panArt(parent: Instance, i: number, pl: { x: number, z: number },
 	local arrow = CFrame.new(sx, 4.6, sz)
 	block(Vector3.new(0.8, 1.6, 0.8), arrow * CFrame.new(0, -0.6, 0), Theme.coin, f)
 	shape("Cone", Vector3.new(2, 1.5, 2), arrow * CFrame.new(0, 0.85, 0), Theme.coin, f)
-	-- the Thaw Machines at the back (the second one shows once the pan has it: PanLooks)
+	-- the Thaw Machines at the back (machines 2 and 3 show once the pan has them: PanLooks, PenService)
 	local T = Config.thaw
-	for m = 1, 2 do
+	for m = 1, #T.machinesAt do
 		thawMachine(f, "ThawMachine" .. m, Vector3.new(pl.x + T.machine.x + (m - 1) * T.machine.gap, y, zb + T.machine.z)) -- on the ground; the pad lifts the cube to padTop
 	end
 end
@@ -2680,15 +2684,53 @@ local function gatehouse(parent: Instance, gz: number, theme: string, id: number
 		end
 	end
 	if withBars then
+		-- owner 2026-11-17 (later): the row of thin ice bars read as lasers. Now one magic curtain in the
+		-- island's colour (you see the island through it), glowing posts at its edges and a big gold padlock
+		-- facing the hub. MapController slides the whole folder into the ground once the gate is open.
 		local bars = folder("GateBars" .. id, gf)
-		local x = -half + G.barGap
 		-- up into the lintel (owner 2026-11-17: "the gate doesn't fully close", the sky showed over the bars)
 		local barH = G.height + 2.6 * s - 1.1 * s + 0.4
-		while x < half - 1 do
-			local bar = block(Vector3.new(0.8, barH, 0.8), CFrame.new(x, barH / 2, gz), A.iceBar, bars, false, Enum.Material.Ice)
-			bar.Transparency = 0.2
-			x += G.barGap
+		local cw = T.width - 2
+		local tint = look.accent:Lerp(Color3.new(1, 1, 1), 0.35)
+		local sheet = quiet(block(Vector3.new(cw, barH, 0.3), CFrame.new(0, barH / 2, gz), tint, bars))
+		sheet.Name = "Curtain"
+		sheet.Transparency = 0.6
+		local shimmer = quiet(block(Vector3.new(cw, barH, 0.2), CFrame.new(0, barH / 2, gz - 0.35), look.accent, bars, false, Enum.Material.ForceField))
+		shimmer.Name = "CurtainShimmer"
+		-- slow sparkles drifting up the curtain
+		local pe = Instance.new("ParticleEmitter")
+		pe.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+		pe.Color = ColorSequence.new(Color3.new(1, 1, 1), tint)
+		pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.3, 1.1), NumberSequenceKeypoint.new(1, 0) })
+		pe.Transparency = NumberSequence.new(0.2)
+		pe.Lifetime = NumberRange.new(2, 3.5)
+		pe.Rate = 6
+		pe.Speed = NumberRange.new(1, 2.5)
+		pe.EmissionDirection = Enum.NormalId.Top
+		pe.LightEmission = 1
+		pe.Parent = sheet
+		-- glowing edge posts and a glowing sill along the ground
+		for _, x in { -cw / 2, cw / 2 } do
+			local post = glow(block(Vector3.new(1.4, barH, 1.4), CFrame.new(x, barH / 2, gz), look.accent, bars), 0.05)
+			post.Name = "GateGlow"
 		end
+		local sill = glow(block(Vector3.new(cw, 0.8, 1.2), CFrame.new(0, 0.4, gz), look.accent, bars), 0.1)
+		sill.Name = "GateGlow"
+		-- the padlock: a chunky gold body, a steel-look shackle and a dark keyhole, on the hub side
+		local lz = gz - 1.2
+		local ly = 7.5
+		block(Vector3.new(7, 6, 1.6), CFrame.new(0, ly, lz), Theme.fx.gateLock, bars, false, Enum.Material.Metal)
+		block(Vector3.new(7.4, 0.8, 1.8), CFrame.new(0, ly + 2.2, lz), Theme.fx.gateLockDark, bars, false, Enum.Material.Metal)
+		block(Vector3.new(7.4, 0.8, 1.8), CFrame.new(0, ly - 2.2, lz), Theme.fx.gateLockDark, bars, false, Enum.Material.Metal)
+		for _, x in { -2.3, 2.3 } do
+			cyl(0.75, 3.4, CFrame.new(x, ly + 4.4, lz), Theme.fx.gateLockDark, bars, false, Enum.Material.Metal)
+		end
+		local arch = shape("Arch", Vector3.new(6.1, 3.05, 1.5), CFrame.new(0, ly + 7.6, lz), Theme.fx.gateLockDark, bars)
+		arch.Material = Enum.Material.Metal
+		local hole = cyl(0.6, 0.5, CFrame.new(0, ly + 0.6, lz - 0.85) * CFrame.Angles(math.pi / 2, 0, 0), Theme.fx.gateKeyhole, bars)
+		hole.Material = Enum.Material.SmoothPlastic
+		block(Vector3.new(0.5, 1.6, 0.3), CFrame.new(0, ly - 0.5, lz - 0.85), Theme.fx.gateKeyhole, bars)
+		light(sheet, look.accent, 22, 0.8)
 	end
 	return gf
 end
@@ -2989,6 +3031,28 @@ local function walkThrough(p: BasePart): boolean
 		a = a.Parent
 	end
 	return false
+end
+
+-- the pan grew (owner 2026-11-17 night, Config.panLength): redraw plot i's pan at its new depth. Called by
+-- PenService when the plot's PanLength changes; the client restyles it for its Look (PanLooks).
+function MapArt.rebuildPan(map: Instance, i: number, len: number)
+	meshes = ReplicatedStorage:FindFirstChild("SceneryMeshes")
+	local old = map:FindFirstChild("Pan" .. i, true)
+	local art = map:FindFirstChild("Art")
+	local parent = if old then old.Parent else (art and art:FindFirstChild("Hub"))
+	local pl = W.plots[i]
+	if not parent or not pl then
+		return
+	end
+	if old then
+		old:Destroy()
+	end
+	panArt(parent, i, pl, Scenery.rng(C.seed + i), len)
+	local f = parent:FindFirstChild("Pan" .. i)
+	if f then
+		MapArt.solidify(f)
+		MapSpectacle.vivid(f)
+	end
 end
 
 function MapArt.solidify(root: Instance)

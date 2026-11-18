@@ -47,7 +47,8 @@ Config.player = {
 	-- owner 2026-11-10: 16 (Roblox's default) made the walk out "slow and boring". The pans' doors are 85-145
 	-- studs from the first meadow pets, so 32 gets you there in 3-5 s, and every later island in half the time.
 	-- Nothing sells speed (owner 2026-11-15: speed comes from Gear only, Ice Skates), so this is everyone's base speed.
-	walkSpeed = 32,
+	-- owner 2026-11-17 (night): "the speed is still a problem" (the walk from the pets back to your pan): 32 -> 40
+	walkSpeed = 40,
 	respawnSeconds = 1, -- Game Design Rules 7: failure is gentle, quick respawn (Roblox's default is 5)
 	freezeRange = 10,
 	refreezeHold = 0.35, -- zapping a melted pet back (a first freeze takes Config.show.freeze seconds)
@@ -73,7 +74,10 @@ Config.tiers = {
 	{ name = "Mythic", odds = 0.1, cubeLife = 12, income = 2500, rank = 6 },
 	{ name = "Secret", odds = 0.005, cubeLife = 8, income = 25000, rank = 7 }, -- 1 in 20,000, every zone
 } :: { Tier }
-Config.incomeZoneMultiplier = 4
+-- x6 an island (balance pass 2026-11-17, was x4): every pet on a new island out-earns the pet one rarity up on the
+-- island before (a new Common 6 > an old Uncommon 4, a new Uncommon 24 > an old Rare 20 ...), so the first catches on a
+-- new island all raise your coins at once. prototype/ice-ray-for-pets/BALANCE-2026-11-17.md
+Config.incomeZoneMultiplier = 6
 
 Config.poses = {
 	idle = { label = "Normal", bonus = 1.0, seconds = 2.4 },
@@ -117,8 +121,10 @@ Config.sizes = {
 } :: { [string]: { chance: number, bonus: number, scale: number, thaw: number, freeze: number } }
 Config.sizeRollOrder = { "Cosmic", "Monstrous", "Titanic", "Gigantic", "Colossal", "Huge", "Large", "Big" } -- rarest first
 Config.sizeRenamed = { Giant = "Large" } :: { [string]: string } -- saved names from before the size chart
--- a carried (and pan) cube grows with its pet's size only this far, so a stack of big cubes never hides you
-Config.carrySizeMax = 1.4
+-- a carried (and pan) cube grows with its pet's size only this far. Was 1.4 ("a stack of big cubes never hides
+-- you"); owner 2026-11-17 (night): "the big pets when you freeze them are small again, make them their real
+-- size", so every size keeps its full scale now
+Config.carrySizeMax = 100
 
 -- a pet's size entry (nil = normal, or a size this version doesn't know)
 function Config.size(sz: any): { chance: number, bonus: number, scale: number, thaw: number, freeze: number }?
@@ -138,7 +144,11 @@ Config.upgrades = { -- baseCost = the price of level 2; each step costs x1.5 the
 	-- One slot is a bigger share now, so each level costs x2.5 the last, rounded (100, 250, 600, 1.5K, 4K, 10K)
 	-- balance pass 2026-11-12: baseCost 100 -> 50 (first upgrade at ~90 s), rebirthGrowth 5 -> 15 (the
 	-- rebuild after a late rebirth took 1-2 minutes)
-	pen = { name = "Pan", baseCost = 50, costGrowth = 2.5, maxLevel = 7, slotsPerLevel = 1, rebirthGrowth = 15 },
+	-- balance pass 2026-11-17 (owner: "you don't really need slots"): Slots are a quick early ladder, all 7 levels in
+	-- the first ~8 minutes, and KEPT through rebirth (no rebuild after every rebirth). prices[n] = level n+1's price.
+	-- Level 2 brings Thaw Machine 2, level 5 Thaw Machine 3 (Config.thaw.machinesAt).
+	pen = { name = "Pan", baseCost = 25, costGrowth = 2.5, maxLevel = 7, slotsPerLevel = 1, rebirthGrowth = 1,
+		prices = { 25, 100, 500, 1.5e3, 10e3, 25e3 } },
 } :: { [string]: { [string]: any } }
 Config.upgradeIds = { "ray", "boots", "backpack", "pen" } -- every saved upgrade level
 -- what the coin Shop sells: nothing since the owner removed its Upgrades list (2026-11-05); levels already
@@ -214,7 +224,7 @@ Config.dev = {
 	-- rowAspect / headAspect = a button row's / a heading's width over height
 	panel = {
 		tabs = { { id = "player", label = "Player" }, { id = "world", label = "World" }, { id = "pets", label = "Pets" },
-			{ id = "events", label = "Events" }, { id = "save", label = "Save" } },
+			{ id = "events", label = "Events" }, { id = "save", label = "Save" }, { id = "mail", label = "Mail" } },
 		topHeight = 0.16, perRow = 6, gap = 0.01, rowAspect = 20, headAspect = 30,
 	},
 }
@@ -240,9 +250,12 @@ Config.melt = {
 	-- its island, is homeShare[tier] of the cube. So a straight run home always makes it; a detour, sun
 	-- patches or lava can melt it, more easily the rarer the pet. A melt is gentle: the pet drops dazed
 	-- next to you and only you can zap it back.
-	homeShare = { Common = 0.3, Uncommon = 0.4, Rare = 0.5, Epic = 0.58, Legendary = 0.65, Mythic = 0.72, Secret = 0.8 } :: { [string]: number },
+	-- owner 2026-11-17 ("it's too easy to not melt"): tighter, so the Frost Pack matters. A straight run home
+	-- now uses half of a Common's ice and nearly all of a Secret's; sun patches and detours melt rare ones.
+	-- (Was Common 0.3 ... Secret 0.8 with 8 s of slack.)
+	homeShare = { Common = 0.5, Uncommon = 0.6, Rare = 0.7, Epic = 0.78, Legendary = 0.85, Mythic = 0.9, Secret = 0.93 } :: { [string]: number },
 	homeFrom = 0.75, -- Rare and up spawn in an island's far half
-	slackSeconds = 8,
+	slackSeconds = 4,
 }
 
 -- Temperature: a readable version of the melt speed (owner request 2026-10-30). Worked out from the
@@ -337,7 +350,9 @@ Config.nightClose = { warnSeconds = 15, wallHeight = 40, wallZ = 1, homeDelay = 
 Config.night = {
 	daySeconds = 282, fadeSeconds = 4, nightSeconds = 10, -- cycle = day + fade + night + fade = 300 s
 	petsSleep = false,
-	wave = { perIsland = 9 },
+	-- commonLeave (owner 2026-11-17 night: "rare pets don't spawn that often, commons despawn too slowly"): a Common
+	-- nobody has ice on wanders off after this many seconds and a fresh pet (normal odds) pops in where it stood
+	wave = { perIsland = 9, commonLeave = 60 },
 	sleepFreezeFactor = 0.5, -- a sleeping pet's Freeze hold is this much of the normal hold (only if petsSleep)
 	nightAt = 0.5, -- the blend (0 day, 1 night) at which the rules switch to night
 	day = { clock = 14, brightness = 2.2, ambient = Color3.fromRGB(95, 90, 85), outdoor = Color3.fromRGB(115, 115, 128), -- warm, bright day (2026-11-09)
@@ -364,8 +379,8 @@ Config.friends = { perFriend = 0.1, max = 3 }
 export type ChallengeDef = { id: string, text: string, stat: string, goals: { number }?, incomeMinutes: { number }?, floor: number? }
 Config.challenges = {
 	perDay = 3,
-	rewardMinutes = 6,
-	rewardFloor = 150,
+	rewardMinutes = 2, -- owner 2026-11-17 (night): "the challenges give way too much money" (was 6)
+	rewardFloor = 100,
 	pool = {
 		{ id = "freeze", text = "Freeze {n} pets", stat = "frozen", goals = { 8, 12, 16 } },
 		{ id = "bank", text = "Bring {n} pets home", stat = "banked", goals = { 5, 8, 10 } },
@@ -382,6 +397,21 @@ Config.challenges = {
 -- shows "Soon" and isn't checked). coins + power: a head start, power = half of Pine Forest's need.
 Config.freeGift = { coins = 2500, power = 75, -- power: half of Pine Forest's need (150 since 2026-11-16)
 	 groupId = 552866458, claimRange = 30 } -- groupId: WolfDev (owner 2026-11-12)
+
+-- The Feedback mailbox (owner 2026-11-17 night: "have a mailbox where you can send feedback"): beside the Free Gift.
+-- Pick a mood tile, optionally type a short message, Send. The server filters the text with TextService and
+-- saves it (no name, no user id) for the owner only; nobody else ever sees it (FeedbackService). kinds: id, the
+-- tile's word and icon (Config.images.icons) and colour key (Theme). cooldown / perDay: spam limits per player.
+Config.feedback = {
+	kinds = {
+		{ id = "love", label = "Love it", icon = "like", color = "go" },
+		{ id = "idea", label = "Idea", icon = "star", color = "coin" },
+		{ id = "hard", label = "Too hard", icon = "temp", color = "info" },
+		{ id = "bug", label = "Bug", icon = "gear", color = "no" },
+	},
+	maxLength = 120, cooldown = 60, perDay = 5, range = 16,
+	store = "Feedback_v1", keep = 300, -- one DataStore key per UTC day, the newest `keep` messages
+}
 
 export type RobuxItem = {
 	id: string, kind: string, name: string, text: string, icon: string, robux: number,
@@ -516,7 +546,11 @@ Config.analytics = {
 		shop_opened = { value = nil, fields = {} },
 		offer_shown = { value = nil, fields = { "offer", "pet", "tier" } },
 		offer_bought = { value = "robux", fields = { "offer" } },
-		session_end = { value = "sessionSeconds", fields = { "zone", "lastAction", "carryingCube" } },
+		-- why players leave (owner 2026-11-17 night): seconds played this visit; where they were; what they were doing;
+		-- how far they'd got ("R2 I5"). Creator Dashboard > Analytics > Custom events.
+		session_end = { value = "sessionSeconds", fields = { "zone", "doing", "stage" } },
+		island_opened = { value = nil, fields = { "zone", "rebirths" } },
+		feedback_sent = { value = nil, fields = { "kind", "stage" } },
 		train_session = { value = "gain", fields = { "station", "level" } }, -- someone stepped off a training station
 		rebirth = { value = "rebirths", fields = {} }, -- RebirthService (QA IR-13: it was dropped, not on this list)
 	} :: { [string]: { value: string?, fields: { string } } },
@@ -729,7 +763,8 @@ Config.ui = {
 	-- "you can now buy" alerts (owner 2026-11-12, from a reference): a card slides in at the top right the
 	-- first time this session you have the coins for your next gun. size = shares of the short side;
 	-- seconds = how long it stays; slide = its slide-in time
-	unlockAlert = { size = { 0.66, 0.26 }, phoneScale = 1.3, seconds = 10, slide = 0.35 },
+	-- gateArrowSeconds: after GO on a "NEW ISLAND!" card the guide arrow points at that gate this long (owner 2026-11-17 night)
+	unlockAlert = { size = { 0.66, 0.26 }, phoneScale = 1.3, seconds = 10, slide = 0.35, gateArrowSeconds = 60 },
 	topButtons = {
 		list = {
 			{ id = "equipment", label = "EQUIPMENT", icon = "ray" },
@@ -824,7 +859,7 @@ export type RayCue = { at: number, sound: string?, fx: string?, kick: string? }
 
 Config.world = {
 	maxPlayers = 6, -- one pan per server slot. Owner item: Server Size 6 in Game Settings > Places
-	mapVersion = 27, -- 27 = the fall catcher in tiles, so the hub and the end of Magma Core are covered too (QA IR-05), 26 = at most 3 lava pools per island, each in its own stretch (owner 2026-11-13), 25 = vivid colours and the giant outside decor per island (MapSpectacle, owner 2026-11-13), 24 = solid scenery (MapArt.solidify: everything you can see blocks you), 23 = smaller outside (MapArt farScenery: ground and peaks only as big as the camera needs), 22 = pan fence walls only fence-high, so you can jump them, 21 = solid pan fences (invisible PanFence walls; the gate is the only way in), 20 = Cold Power trainers in every pan (TrainingService builds them; the rink door, its beacon and the right flower box are gone, Equipment back by the tunnel mouth), 19 = open plaza: no fountain, no paved boulevard, no spawn pad, 18 = the Sell and Equipment booths no longer run into the village wall, 17 = map pass 2026-11-10 (rink door in front, its beacon, bigger snowman and waterfall), 16 = the Training Rink's door. Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges, 6 = bigger square pans, 7 = pans measured against the real avatar, 8 = open gaps, open ground behind, level pans, 9 = no flush overlapping surfaces, 10 = booth details: sign bulbs, log ends, scalloped awnings, chalk coin, 11 = wide tunnel and big entrance for big pets, a clean road, 12 = booths shaped like what they do: treasure chest, gear workshop, ring portal, 13 = the detailed sci-fi Thaw Machine, 14 = each world's own gate towers, 15 = never-visible buried parts left out (PERF-AUDIT-2026-11-09))
+	mapVersion = 30, -- 30 = the Feedback mailbox by the gift, 29 = a third Thaw Machine in every pan (2026-11-17), -- 28 = gate curtains with a padlock instead of ice bars, sun patches spread out (owner 2026-11-17), 27 = the fall catcher in tiles, so the hub and the end of Magma Core are covered too (QA IR-05), 26 = at most 3 lava pools per island, each in its own stretch (owner 2026-11-13), 25 = vivid colours and the giant outside decor per island (MapSpectacle, owner 2026-11-13), 24 = solid scenery (MapArt.solidify: everything you can see blocks you), 23 = smaller outside (MapArt farScenery: ground and peaks only as big as the camera needs), 22 = pan fence walls only fence-high, so you can jump them, 21 = solid pan fences (invisible PanFence walls; the gate is the only way in), 20 = Cold Power trainers in every pan (TrainingService builds them; the rink door, its beacon and the right flower box are gone, Equipment back by the tunnel mouth), 19 = open plaza: no fountain, no paved boulevard, no spawn pad, 18 = the Sell and Equipment booths no longer run into the village wall, 17 = map pass 2026-11-10 (rink door in front, its beacon, bigger snowman and waterfall), 16 = the Training Rink's door. Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges, 6 = bigger square pans, 7 = pans measured against the real avatar, 8 = open gaps, open ground behind, level pans, 9 = no flush overlapping surfaces, 10 = booth details: sign bulbs, log ends, scalloped awnings, chalk coin, 11 = wide tunnel and big entrance for big pets, a clean road, 12 = booths shaped like what they do: treasure chest, gear workshop, ring portal, 13 = the detailed sci-fi Thaw Machine, 14 = each world's own gate towers, 15 = never-visible buried parts left out (PERF-AUDIT-2026-11-09))
 	hubZMax = 0, -- the tunnel mouth: the hub is z < 0 (no wild pets, no heat)
 	-- wide enough for the row of six pans plus 10 studs at each end; zMin is worked out below (behind the pans' backSpace)
 	hub = { xMin = -150, xMax = 150, zMin = 0, wallHeight = 16, colliderHeight = 60 },
@@ -882,7 +917,7 @@ Config.world = {
 			near = { 10, 40 }, farFrom = 12 },
 		{ key = "beach", name = "Sunny Beach", feel = "Warm", open = true, ready = true, theme = "beach", length = 172, heat = 1.3, iceLife = 2.4, need = 40e3,
 			landmark = "lighthouse", landmarkAt = { x = -66, z = 104 },
-			trees = { kind = "palm", count = 14, r = { 4, 6 } }, sun = { count = 7, r = { 7, 11 } },
+			trees = { kind = "palm", count = 14, r = { 4, 6 } }, sun = { count = 4, r = { 7, 10 } }, -- was 7 (owner 2026-11-17: too many, too close)
 			near = { 10, 40 }, farFrom = 12 },
 		{ key = "jungle", name = "Jungle Falls", feel = "Hot and humid", open = true, ready = true, theme = "jungle", length = 210, heat = 1.6, iceLife = 3.3, need = 170e3,
 			landmark = "waterfall", landmarkAt = { x = 56, z = 130 }, landmarkScale = 2.3, -- map pass 2026-11-10: it hid behind the jungle trees -- pours from the cliff face
@@ -890,7 +925,7 @@ Config.world = {
 			near = { 10, 42 }, farFrom = 12 },
 		{ key = "desert", name = "Desert Dunes", feel = "Hot", open = true, ready = true, theme = "desert", length = 230, heat = 2.0, iceLife = 4.4, need = 700e3,
 			landmark = "cactus", landmarkAt = { x = -66, z = 136 },
-			trees = { kind = "cactus", count = 12, r = { 3.5, 5 } }, sun = { count = 12, r = { 8, 12 } },
+			trees = { kind = "cactus", count = 12, r = { 3.5, 5 } }, sun = { count = 5, r = { 8, 11 } }, -- was 12 (owner 2026-11-17: too many, too close)
 			near = { 10, 42 }, farFrom = 12 },
 		{ key = "canyon", name = "Canyon Mesa", feel = "Very hot", open = true, ready = true, theme = "canyon", length = 250, heat = 2.4, iceLife = 5.7, need = 2.5e6,
 			landmark = "arch", landmarkAt = { x = 0, z = 155 },
@@ -934,7 +969,8 @@ Config.world = {
 	} :: { Island },
 	-- rebirths needed to open an island's gate (island number -> rebirths). A rebirth gate on every odd
 	-- island from 3, the gaps widening; updates add 11 = 9, 13 = 12, 15 = 15, 17 = 18, 19 = 21.
-	rebirthGates = { [3] = 1, [5] = 2, [7] = 4, [9] = 6 } :: { [number]: number },
+	-- balance pass 2026-11-17: more, smaller rebirths (one every ~20-25 min), so the gates moved up to match (was 1 / 2 / 4 / 6)
+	rebirthGates = { [3] = 1, [5] = 2, [7] = 5, [9] = 8 } :: { [number]: number },
 	-- booths by the tunnel mouth, in front of the hub's south wall, facing the plaza. Their features
 	-- come in phases (Equipment phase 4, Sell + Pan Upgrades phase 5, Rebirth phase 7); action = what the
 	-- prompt does ("equipment" opens the Equipment Booth, "shop" the Shop, "soon" says it's coming).
@@ -953,6 +989,7 @@ Config.world = {
 	boothSign = { y = 8.8, w = 9, h = 2.2, z = -3.2, text = 1.5 }, -- a booth sign's size (text = letter height in studs); y / z are the spot for a booth without its own `sign`
 	panUpgradeAction = "pan", -- the Pan Upgrades popup (Round 4 phase 5)
 	giftBox = Vector3.new(106, 0, -10), -- the outer slot, past Equipment
+	mailbox = Vector3.new(121, 0, -10), -- the Feedback mailbox, beside the gift (owner 2026-11-17 night)
 	-- leaderboards on the hub's side walls, turned to face the plaza
 	-- owner 2026-11-15: "move the leaderboards here": side by side on the back wall, between the Rebirth
 	-- portal and the west wall, facing the pans (boardFacing)
@@ -1400,7 +1437,9 @@ Config.coinPop = {
 }
 
 -- carried cubes are held in front of you, in your hands (both arms come up while you carry)
-Config.carry = { scale = 0.62, handY = 0.4, front = 0.9, stackGap = 0.15, armRaise = 80,
+-- scale: a frozen cube's size on the ground and in your hands, x its real size. Was 0.62 ("so the stack never
+-- hides you"); owner 2026-11-17 (night): frozen pets must stay their real size, so 1.
+Config.carry = { scale = 1, handY = 0.4, front = 0.9, stackGap = 0.15, armRaise = 80,
 	-- a freeze leaves the cube on the ground where the pet stood; E picks it up (owner 2026-11-07).
 	-- Only the player who froze it can. Left alone this long, it thaws back into a dazed pet that
 	-- only you can zap, so a forgotten cube never blocks your hands.
@@ -1712,15 +1751,16 @@ Config.guns = {
 		-- pacing pass 2026-11-16 (PACING-2026-11-16.md): guns 2-10 repriced (rarity pass 2026-11-17 too);
 		-- each gun lands within about 25 min of its island (gun 8 25B -> 7.5B, gun 10 1.5T -> 200B)
 		-- 2026-11-13: 20K -> 7.5K, the first gun lands ~8 min in (guns now also freeze faster: Config.gunFreeze)
-		{ key = "snowball_blaster", name = "Snowball Blaster", training = 2, range = 11, heat = 2, beams = 1, price = 40e3, rebirths = 0 },
-		{ key = "icicle_repeater", name = "Icicle Repeater", training = 3, range = 12, heat = 4, beams = 1, price = 2e6, rebirths = 0 },
-		{ key = "glacier_cannon", name = "Glacier Cannon", training = 5, range = 13, heat = 4, beams = 2, price = 25e6, rebirths = 0 },
-		{ key = "blizzard_beam", name = "Blizzard Beam", training = 8, range = 14, heat = 6, beams = 2, price = 250e6, rebirths = 0 },
-		{ key = "aurora_ray", name = "Aurora Ray", training = 12, range = 15, heat = 6, beams = 2, price = 5e9, rebirths = 0 },
-		{ key = "cryo_lance", name = "Cryo Lance", training = 20, range = 16, heat = 8, beams = 3, price = 25e9, rebirths = 0 },
-		{ key = "polar_vortex", name = "Polar Vortex", training = 30, range = 17, heat = 8, beams = 3, price = 750e9, rebirths = 0 },
-		{ key = "absolute_zero", name = "Absolute Zero", training = 50, range = 18, heat = 10, beams = 3, price = 2.5e12, rebirths = 0 },
-		{ key = "starfrost_nova", name = "Starfrost Nova", training = 100, range = 19, heat = 10, beams = 4, price = 40e12, rebirths = 0 },
+		{ key = "snowball_blaster", name = "Snowball Blaster", training = 2, range = 11, heat = 2, beams = 1, price = 4e3, rebirths = 0 },
+		-- balance pass 2026-11-17: gun 3 (Heat 4) comes before Rebirth 1, so islands 3-4 can be caught the moment they open
+		{ key = "icicle_repeater", name = "Icicle Repeater", training = 3, range = 12, heat = 4, beams = 1, price = 20e3, rebirths = 0 },
+		{ key = "glacier_cannon", name = "Glacier Cannon", training = 5, range = 13, heat = 4, beams = 2, price = 1.2e6, rebirths = 0 },
+		{ key = "blizzard_beam", name = "Blizzard Beam", training = 8, range = 14, heat = 6, beams = 2, price = 4e6, rebirths = 0 },
+		{ key = "aurora_ray", name = "Aurora Ray", training = 12, range = 15, heat = 6, beams = 2, price = 1e9, rebirths = 0 },
+		{ key = "cryo_lance", name = "Cryo Lance", training = 20, range = 16, heat = 8, beams = 3, price = 7.5e9, rebirths = 0 },
+		{ key = "polar_vortex", name = "Polar Vortex", training = 30, range = 17, heat = 8, beams = 3, price = 3e12, rebirths = 0 },
+		{ key = "absolute_zero", name = "Absolute Zero", training = 50, range = 18, heat = 10, beams = 3, price = 15e12, rebirths = 0 },
+		{ key = "starfrost_nova", name = "Starfrost Nova", training = 100, range = 19, heat = 10, beams = 4, price = 6e15, rebirths = 0 },
 		-- owner 2026-11-09: every gun shows a coin price (the free rebirth guns read "Rebirth 2" on only some
 		-- rows and looked odd), so all guns are bought with coins in order; rebirth gates islands, not guns
 	} :: { Gun },
@@ -1734,6 +1774,7 @@ Config.guns = {
 	freezePerGun = 0.12, -- each gun after the first freezes 12% faster (Config.gunFreeze)
 	gridColumns = 2, gridGap = 0.03, phoneTileAspect = 2.3, -- phones: the gun grid scrolls, tiles this wide for their height
 	 -- the Equipment popup's gun tiles (owner 2026-11-09: bigger, themed, every price shown)
+	tileShade = 0.32, -- owner 2026-11-17 ("more contrast"): every gun tile's colour mixed this far toward ink, so the white names read
 	lockedGrey = 0.18, -- a gun you can't buy yet: its colour mixed this far toward grey (0.55 looked dull, owner 2026-11-16)
 	buyCooldown = 0.4, -- seconds between two buys (spam is dropped; a double charge can't happen anyway)
 	-- the gun's heat bar (0-1), kept on the server (GunService). Firing at a pet from an island one past the
@@ -1784,8 +1825,13 @@ Config.rebirth = {
 	-- balance pass 2026-11-12 (BALANCE-2026-11-12.md): Rebirth 1 at ~36 min, Rebirth 2 at ~67 min, then about one an hour
 	-- pacing pass 2026-11-16 (PACING-2026-11-16.md): Rebirth 1 at ~34 min, Rebirth 2 at ~69 min, then one every
 	-- 1-1.5 h; island 10 at ~8 h and the last buy at ~10 h (rarity pass 2026-11-17) for a typical kid (was everything in ~4.5 h)
-	costs = { 5e6, 250e6, 5e9, 15e9, 250e9, 500e9, 25e12 }, -- Rebirth 1, 2, 3 ... (late-game pass 2026-11-17)
-	costGrowth = 3,
+	-- balance pass 2026-11-17 (owner: "rebirth 1 like in 10 minutes", "the game can be 4-6 h"; balance_sim_v2.py):
+	-- Rebirth 1 at ~9-12 min, Rebirth 2 at ~29 min, then one every ~20-25 min; island 10 at ~3 h, the last buy at ~5.5 h
+	costs = { 30e3, 15e6, 200e6, 1.5e9, 6e9, 150e9, 2e12, 10e12, 20e12, 100e12, 750e12, 1.2e15, 6e15, 10e15, 15e15 },
+	costGrowth = 2,
+	-- the coin AND training multiplier after n rebirths (mults[n + 1]); past the list each rebirth is x1.5 more.
+	-- Was 1 + 0.5 n (Rebirth 7 only +12%); now every rebirth is a jump you feel (+50-67%).
+	mults = { 1, 1.5, 2.5, 4, 6, 9, 13, 20 },
 	fullAt = 7,
 	boothRange = 30, -- studs from the Rebirth Booth (the server's position)
 	cooldown = 1, -- seconds between two tries
@@ -1804,7 +1850,12 @@ Config.rebirth = {
 }
 
 function Config.rebirthIncome(rebirths: number): number
-	return 1 + Config.rebirth.incomePer * rebirths
+	local L = Config.rebirth.mults
+	local n = math.max(0, math.floor(tonumber(rebirths) or 0))
+	if n < #L then
+		return L[n + 1]
+	end
+	return math.round(L[#L] * 1.5 ^ (n - #L + 1))
 end
 
 -- the coins rebirth number n costs (n = 1 for the first)
@@ -1814,24 +1865,68 @@ function Config.rebirthCost(n: number): number
 	return Config.nice(list[i] * Config.rebirth.costGrowth ^ math.max(0, n - #list))
 end
 
--- Gear (owner 2026-11-13, replaces the five "Coming soon" slots): bought once with coins at the Equipment
--- Booth's Gear tab, always on, kept through rebirth (saved in d.gear[key]; the server sets the player
--- attribute Gear_<key>, which the services read). One clear job each, cheapest first; prices fill the
--- saves between the big buys (BALANCE-2026-11-12 risk 4). shape = the silhouette on its card until the
--- painted icons exist.
---   Magnet Gloves: pick up your frozen pets from rangeMult x further
---   Ice Skates:    carrying pets home, x carrySpeed and no slowdown from a full load
---   Frost Boots:   pets you shoot run away at x fleeMult
---   Cooling Vest:  your gun heats up at x heatMult
---   Cozy Hat:      your pan's coins x coinMult
-export type GearItem = { key: string, name: string, shape: string, price: number, text: string, [string]: any }
+-- Gear (owner 2026-11-17 rework, prototype ice-ray-for-pets/gear-upgrades): five gear, each upgraded level by
+-- level with coins at the Equipment Booth's Gear tab, always on, kept through rebirth. Saved as a level in
+-- d.gear[key] (0 = not owned); the server sets the player attributes GearLv_<key> (the level) and Gear_<key>
+-- (owned), which the services read through Config.gearValue. Level n costs start x gearGrowth^(n-1).
+-- field = the number its service asks for; per = how much one level adds (or takes off, for heatMult).
+--   Frost Boots:   walk speed x (1 + per x level); a new look and trail every gearBootsTierEvery levels
+--   Frost Pack:    carried cubes last x (1 + per x level) longer (CarryService)
+--   Cozy Cap:      your pan's coins x (1 + per x level)
+-- Ice Skates and the old flee-slowing Frost Boots are gone: DataService turns them into boots levels.
+-- owner 2026-11-17 (later): Magnet Gloves, Cooling Vest and Slow Gel are removed too; DataService pays
+-- back what they cost, once (gearRefund).
+Config.gearRefund = {
+	-- old = the price of the one-time buy (true in the save); start = level 1's price while it had levels
+	magnet_gloves = { old = 250e3, start = 5e3 },
+	cooling_vest = { old = 2e9, start = 50e3 },
+} :: { [string]: { old: number, start: number } }
+export type GearItem = { key: string, name: string, shape: string, start: number, field: string, per: number, word: string, [string]: any }
+Config.gearMax = 10
+Config.gearGrowth = 6
+Config.gearBootsTierEvery = 2
 Config.gear = {
-	{ key = "magnet_gloves", name = "Magnet Gloves", shape = "gloves", price = 250e3, text = "Grab frozen pets from far away", rangeMult = 2.5 },
-	{ key = "ice_skates", name = "Ice Skates", shape = "skates", price = 1.5e6, text = "Faster when carrying pets home", carrySpeed = 1.2 },
-	{ key = "frost_boots", name = "Frost Boots", shape = "boots", price = 30e6, text = "Pets run slower from you", fleeMult = 0.75 },
-	{ key = "cooling_vest", name = "Cooling Vest", shape = "vest", price = 2e9, text = "Your gun heats up slower", heatMult = 0.6 },
-	{ key = "cozy_hat", name = "Cozy Hat", shape = "hat", price = 2e12, text = "+10% coins from your pets", coinMult = 1.1 },
+	-- balance pass 2026-11-17: each level's price (prices[n] = level n), spread over the whole game so a gear level
+	-- is always one of the next few buys. Cozy Cap +3% -> +10% a level (x2 at level 10): +3% nobody could feel.
+	{ key = "frost_boots", name = "Frost Boots", shape = "boots", start = 50, field = "speedMult", per = 0.05, word = "speed",
+		prices = { 50, 2.5e3, 40e3, 1e6, 40e6, 250e6, 5e9, 500e9, 30e12, 6e15 } },
+	{ key = "frost_pack", name = "Frost Pack", shape = "pack", start = 150, field = "lifeMult", per = 0.12, word = "ice time",
+		prices = { 150, 15e3, 120e3, 4e6, 75e6, 1e9, 60e9, 7.5e12, 750e12, 12e15 } },
+	{ key = "cozy_hat", name = "Cozy Cap", shape = "hat", start = 40e3, field = "coinMult", per = 0.1, word = "coins",
+		prices = { 40e3, 120e3, 7.5e6, 20e6, 300e6, 5e9, 400e9, 20e12, 2e15, 20e15 } },
 } :: { GearItem }
+
+-- the gear's number at a level (1 = no effect at level 0)
+function Config.gearAt(key: string, level: number): number
+	local g = Config.gearItem(key)
+	return if g then 1 + g.per * math.clamp(level, 0, Config.gearMax) else 1
+end
+
+-- what the next level costs (nil at the top)
+function Config.gearPrice(key: string, level: number): number?
+	local g = Config.gearItem(key)
+	if not g or level >= Config.gearMax then
+		return nil
+	end
+	if g.prices and g.prices[level + 1] then
+		return g.prices[level + 1]
+	end
+	return g.start * Config.gearGrowth ^ level
+end
+
+-- what a level does, short, for the card: "+15% speed", "x1.5 grab reach", "-10% gun heat"
+function Config.gearText(key: string, level: number): string
+	local g = Config.gearItem(key)
+	if not g then
+		return ""
+	end
+	if g.field == "rangeMult" then
+		local x = (string.format("%.2f", Config.gearAt(key, level)):gsub("%.?0+$", ""))
+		return `x{x} {g.word}`
+	end
+	local pct = math.round(math.abs(g.per) * level * 100)
+	return `{if g.per < 0 then "-" else "+"}{pct}% {g.word}`
+end
 
 function Config.gearItem(key: string): GearItem?
 	for _, g in Config.gear do
@@ -1865,6 +1960,13 @@ Config.gearWear = {
 	boots = { main = Color3.fromRGB(92, 52, 170), fur = Color3.fromRGB(205, 210, 255) },
 	vest = { main = Color3.fromRGB(40, 132, 235), dark = Color3.fromRGB(24, 60, 140) },
 	hat = { main = Color3.fromRGB(255, 186, 30), cuff = Color3.fromRGB(232, 150, 20) },
+	pack = { main = Color3.fromRGB(58, 150, 240), dark = Color3.fromRGB(30, 76, 160) }, -- Frost Pack (2026-11-17)
+	-- the level-10 Frost Boots trail
+	aurora = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 126, 182)), ColorSequenceKeypoint.new(0.25, Color3.fromRGB(255, 210, 63)),
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(81, 207, 102)), ColorSequenceKeypoint.new(0.75, Color3.fromRGB(77, 171, 247)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(181, 123, 255)),
+	}),
 }
 
 -- owner 2026-11-15: each Index page shows a picture of its island behind the pets (Studio captures,
@@ -1883,7 +1985,45 @@ Config.zoneArt = {
 }
 
 function Config.thawMachineOffset(m: number, count: number?): number
-	return if (count or 1) >= 2 then (m - 1.5) * Config.thaw.machine.gap else 0
+	local n = math.max(1, count or 1)
+	return (m - (n + 1) / 2) * Config.thaw.machine.gap -- centred in the back row: 0 / -+half a gap / -gap, 0, +gap
+end
+
+-- how many Thaw Machines a pan has at this Slots level (Config.thaw.machinesAt)
+function Config.machinesFor(slotsLevel: number): number
+	local n = 0
+	for _, at in Config.thaw.machinesAt do
+		if slotsLevel >= at then
+			n += 1
+		end
+	end
+	return math.max(1, n)
+end
+
+-- how deep a pan is at this Slots level (it grows backwards; the front with its door stays put)
+function Config.panLength(slotsLevel: number): number
+	local lv = math.clamp(math.floor(tonumber(slotsLevel) or 1), 1, Config.upgrades.pen.maxLevel)
+	return Config.world.pans.length + Config.pan.growPerLevel * (lv - 1)
+end
+
+-- the show for reaching Slots level `level` (Config.motion.upgrade.slotsTrip), and how long it lasts in seconds
+function Config.slotsShow(level: number): ({ shot: string, grow: string, growTime: number, extra: string, extraTime: number }, number)
+	local S = Config.motion.upgrade.slotsTrip
+	local lv = math.clamp(math.floor(tonumber(level) or 2), 2, 7)
+	local s = S.levels[lv] or S.levels[2]
+	return s, S.go + s.growTime + S.settle + s.extraTime + S.watch + S.back
+end
+
+-- how deep plot i's pan is right now (the plot's "PanLength" attribute, PenService), and its middle's z
+function Config.plotLength(plot: number): number
+	local map = workspace:FindFirstChild("Map")
+	local p = map and map:FindFirstChild("Plot" .. plot)
+	local v = p and p:GetAttribute("PanLength")
+	return if typeof(v) == "number" then v else Config.world.pans.length
+end
+
+function Config.plotZ(plot: number): number
+	return Config.world.pans.frontZ - Config.plotLength(plot) / 2
 end
 
 -- the "Machines" attribute of plot i (1 when the map or the attribute isn't there yet)
@@ -1894,9 +2034,15 @@ function Config.machineCount(plot: number): number
 	return if typeof(v) == "number" then v else 1
 end
 
+-- this gear's number for a player (from the GearLv_<key> attribute the server sets), or `off` when they
+-- don't have it or the gear has no such number (old callers asking for a removed effect get `off`)
 function Config.gearValue(player: Player, key: string, field: string, off: number): number
 	local g = Config.gearItem(key)
-	return if g and player:GetAttribute("Gear_" .. key) == true then g[field] or off else off
+	local lv = player:GetAttribute("GearLv_" .. key)
+	if not g or g.field ~= field or typeof(lv) ~= "number" or lv <= 0 then
+		return off
+	end
+	return Config.gearAt(key, lv)
 end
 
 -- Pan upgrades (Round 4 phase 5): three upgrades at your own pan's Pan Upgrades stand.
@@ -1920,9 +2066,15 @@ Config.pan = {
 	-- owner 2026-11-17: Look is no longer bought; reaching Slots level lookAtSlots gives the pan its next Look,
 	-- once per rebirth run (a Look already bought is kept). The looks' prices below are unused now.
 	order = { "slots", "thaw", "trainer" },
-	lookAtSlots = 7,
+	-- owner 2026-11-17 (later): every fence type comes back, each with its show. lookAtSlots[n] = the Slots
+	-- level that brings Look n (Look 1 Garden is the start). A Look never goes down: rebirth keeps it.
+	lookAtSlots = { [2] = 3, [3] = 4, [4] = 6, [5] = 7 } :: { [number]: number },
+	-- the pan grows (owner 2026-11-17 night: "while upgrading the slots you can also add pan expansion, there's free
+	-- space behind"): every Slots level pushes the back fence (and the Thaw Machines on it) this many studs further
+	-- back, into the open ground behind the pans: 44 studs deep at Slots 1, 68 at Slots 7 (Config.panLength)
+	growPerLevel = 4,
 	-- the price of level 2, 3 ... 10 (cheap at first: a buy every minute or two in the first half hour)
-	thawPrices = { 250, 1e3, 4e3, 200e3, 2e6, 7.5e6, 300e6, 20e9, 1e12 }, -- pacing + rarity pass 2026-11-16/17, coin + late-game passes 2026-11-17
+	thawPrices = { 250, 6e3, 120e3, 4e6, 75e6, 2.5e9, 250e9, 15e12, 1e15 }, -- balance pass 2026-11-17 (balance_sim_v2.py)
 	-- what Speed level 2, 3 ... 10 cost while it was sold: DataService pays these back once and resets the level
 	speedRefund = { 120, 500, 2e3, 7.5e3, 30e3, 200e3, 2e6, 20e6, 250e6 },
 	coldStart = 2,
@@ -2043,6 +2195,33 @@ Config.motion = {
 			camBack = 15, camUp = 11, camSide = -2, lookUp = 5, arc = 6,
 			glow = 0.85, shiverDeg = 2.5, shiverHz = 18, shrinkTo = 0.3, growFrom = 0.3, burst = 36,
 			waitNew = 1.5 }, -- longest wait for the server's new trainer after the swap
+		-- the Slots shows (owner 2026-11-18: "before when we had the look animation the animation was smooth ... the
+		-- animation should be better and a different design for every upgrade"). Every Slots level grows the pan
+		-- backwards (Config.panLength) and some bring a Thaw Machine or the next fence (Config.pan.lookAtSlots), so
+		-- each level gets its own show (Show.slotsTrip): the popup and HUD hide, the camera glides to the level's
+		-- shot, a copy of the pan stretches smoothly to its new depth in the level's own way (grow), then the
+		-- level's finish plays (extra), you look (watch) and the camera glides home. The server's redrawn pan is
+		-- kept out of the world on this client until the end, so it never snaps. Seconds; reduced motion halves them.
+		--   shot: gate (high over the door), corner (front-left), low (ground level down the right side),
+		--         sky (from above), track (glides down the left side), orbit (swings round the pan)
+		--   grow: unroll (one smooth glide), ratchet (three clicks), quake (two heavy shoves, the camera shakes),
+		--         spring (overshoots and wobbles back), glide (slow-fast-slow, frost along the edge), grand (a big
+		--         push that overshoots, under a light pillar)
+		--   extra: machineDrop (Thaw Machine 2 falls in and bounces), popDrop (the fence pops off, the new one
+		--         drops in post by post), rise (the fence sinks and the new one rises out of the ground, front to
+		--         back), machineRise (Thaw Machine 3 spins up out of the ground), frostWave (a wave of frost turns
+		--         the fence to crystal ice, front to back), spiral (each piece leaps and spins round the pan in turn)
+		slotsView = true,
+		slotsTrip = { go = 0.5, watch = 0.55, back = 0.45, arc = 5, settle = 0.12, shake = 0.35,
+			levels = {
+				[2] = { shot = "gate", grow = "unroll", growTime = 1.0, extra = "machineDrop", extraTime = 0.85 },
+				[3] = { shot = "corner", grow = "ratchet", growTime = 1.05, extra = "popDrop", extraTime = 1.1 },
+				[4] = { shot = "low", grow = "quake", growTime = 1.0, extra = "rise", extraTime = 1.1 },
+				[5] = { shot = "sky", grow = "spring", growTime = 1.15, extra = "machineRise", extraTime = 0.9 },
+				[6] = { shot = "track", grow = "glide", growTime = 1.0, extra = "frostWave", extraTime = 1.1 },
+				[7] = { shot = "orbit", grow = "grand", growTime = 1.2, extra = "spiral", extraTime = 1.4 },
+			} :: { [number]: { shot: string, grow: string, growTime: number, extra: string, extraTime: number } },
+		},
 	},
 }
 
@@ -2114,7 +2293,7 @@ Config.show.rebirth = {
 -- stuckAt a pet is scared and runs away; from stuckAt on it is stuck in the ice; at 1 the cube shuts.
 Config.aim = {
 	tickSeconds = 0.1,
-	timeScale = 2.2, -- a shot freeze takes this much longer than the old prompt hold (time to see it run)
+	timeScale = 1.9, -- a shot freeze takes this much longer than the old prompt hold (time to see it run); 2.2 -> 1.9 (owner 2026-11-17 night: freezing a bit faster)
 	-- harder chase (owner 2026-11-13: "the minigame is too easy", after a reference clip where the pet runs
 	-- round while you hold the ray on it): pets run longer (stuckAt 0.5 -> 0.7), faster, rarer ones faster
 	-- still (fleeTier, x fleeSpeed; Mythic and Secret use Config.spawner.motion), they dodge (zig-zag) while
@@ -2142,14 +2321,14 @@ Config.aim = {
 Config.hotbar = {
 	slots = {
 		{ id = "ray", label = "Ice Ray", key = Enum.KeyCode.One },
-		{ id = "gel", label = "Slow Gel", key = Enum.KeyCode.Two },
 	},
 	gamepadPrev = Enum.KeyCode.ButtonL1, gamepadNext = Enum.KeyCode.ButtonR1,
 	size = 0.12, gap = 0.018, bottomInset = 0.025, -- shares of the screen's short side
 }
 
--- Slow Gel (Gear tab of the Equipment Booth): equipped, click / tap throws a puddle; pets and Heat
--- Critters in it move at x slow. A cooldown, no ammo.
+-- Slow Gel: REMOVED (owner 2026-11-17). Not sold, not on the hotbar; the server refuses it. price stays so
+-- DataService can pay it back to saves that bought it; the rest is unused.
+-- (Was: equipped, click / tap throws a puddle; pets and Heat Critters in it move at x slow.)
 -- price: a goal on the way to Rebirth 1, just before island 3 brings the Heat Critters it slows (was 3,000)
 Config.gel = { price = 1e6, -- 1M (rarity pass 2026-11-17): fills the Rebirth 1 save
 	 slow = 0.6, radius = 7, seconds = 6, cooldown = 10, throwRange = 45, flySeconds = 0.45 }
@@ -2158,16 +2337,19 @@ Config.gel = { price = 1e6, -- 1M (rarity pass 2026-11-17): fills the Rebirth 1 
 -- frozen pet. You walk to your Thaw Machine and put one in; when its time is up the pet hops out,
 -- wanders your pan and starts earning. The time is saved (os.time), so it keeps thawing while you're away.
 -- time = seconds[tier] x sizeFactor[size] x mutFactor[mutation] x islandGrowth^(island - 1), then / the
--- pan's thaw speed (each Slots level x perLevel faster). A Secret from island 1 takes 30 min (M size, no
--- mutation, Slots level 1); each island further out takes x islandGrowth longer. A second machine comes
--- with Slots level secondAt.
+-- pan's thaw speed (each Slots level x perLevel faster). Each island further out takes x islandGrowth longer.
+-- Machines 2 and 3 come with the Slots levels in machinesAt.
 Config.thaw = {
+	-- owner 2026-11-17: thawing runs this many times faster while it is night (PenService takes the extra
+	-- seconds off every running Thaw Machine each second of the night)
+	nightSpeed = 2,
 	-- juicy first half hour (owner 2026-11-13, "like Throw Food for Pets"): the low tiers thaw fast
 	-- (was 15 / 30 / 60 / 180 / 360) so the catch -> thaw -> earn loop turns over every minute or so;
 	-- Mythic and Secret stay the long waits
 	-- owner 2026-11-16 ("the pets unfreeze very hard"): about a third shorter again
 	-- owner 2026-11-17 ("still too slow for a 1st island common"): Common 4 -> 2, Uncommon 8 -> 4
-	seconds = { Common = 2, Uncommon = 4, Rare = 20, Epic = 60, Legendary = 150, Mythic = 480, Secret = 1200 } :: { [string]: number },
+	-- owner 2026-11-17 (night): "the thaw time is kinda funky, make it +30%": every thaw x1.3 (was 2 / 4 / 20 / 60 / 150 / 480 / 1200)
+	seconds = { Common = 2.6, Uncommon = 5.2, Rare = 26, Epic = 78, Legendary = 195, Mythic = 624, Secret = 1560 } :: { [string]: number },
 	sizeFactor = { S = 0.85, M = 1, L = 1.2 } :: { [string]: number },
 	mutFactor = { Frosty = 1.2, Golden = 1.5, Starry = 2 } :: { [string]: number },
 	islandGrowth = 1.3, -- island 2 x1.3, island 3 x1.69, island 8 x6.3
@@ -2175,7 +2357,10 @@ Config.thaw = {
 	swapWeakest = true, -- pan full: a thawed pet that earns more takes the weakest pan pet's place (that one goes to Storage)
 	useRange = 14, -- studs from the machine's pad the server accepts "put this pet in"
 	perLevel = 1.33, -- 7 Slots levels: about x5.5 at the top, as fast as the old 19 levels at x1.1
-	secondAt = 3, -- the second machine comes with Slots level 3 (~3 min in; was level 6), two thaws at once early (2026-11-13)
+	-- owner 2026-11-17: machine 2 comes with Slots level 2, machine 3 (the last) with Slots level 5. machinesAt[m] = the
+	-- Slots level that brings machine m (Config.machinesFor). Slots are kept through rebirth, so machines are too.
+	machinesAt = { 1, 2, 5 },
+	secondAt = 2, -- = machinesAt[2] (the Tester panel's button)
 	tickSeconds = 0.25,
 	-- machine 1 from the middle of the pan's back fence (x across, z toward the door); machine 2 is gap
 	-- further right. padTop: the cube sits on the raised heat pad this high. haloY / haloRadius: the
@@ -2357,6 +2542,9 @@ end
 -- makes the rebuild cost x rebirthGrowth more (still x costGrowth a level), so it fills the wait after a rebirth
 function Config.slotsCost(level: number, rebirths: number): number
 	local u = Config.upgrades.pen
+	if u.prices and u.prices[level - 1] then -- balance pass 2026-11-17: one price list, kept through rebirth
+		return u.prices[level - 1]
+	end
 	return Config.nice(u.baseCost * u.costGrowth ^ (level - 2) * u.rebirthGrowth ^ rebirths)
 end
 
@@ -2456,16 +2644,16 @@ Config.training = {
 	stations = {
 		{ id = "snowman", name = "Snowman Dummy", kind = "snowman", mult = 1, price = 0, aimY = 4.4, shell = { bottom = 0.9, height = 8.4, width = 4.6 } },
 		-- v3 (owner 2026-11-12): nine themed levels after the snowman, each its own gate and target (TrainingArt)
-		-- prices: pacing pass 2026-11-16 (spread through the saves, PACING-2026-11-16.md)
-		{ id = "peppermint", name = "Peppermint Pal", kind = "peppermint", mult = 2, price = 15e3, aimY = 4.9, shell = { bottom = 0.3, height = 7.8, width = 5.4 } },
-		{ id = "gingerbread", name = "Gingerbread Man", kind = "gingerbread", mult = 3, price = 2e6, aimY = 4.4, shell = { bottom = 0.3, height = 7.8, width = 4.6 } },
-		{ id = "workshop", name = "Nutcracker", kind = "workshop", mult = 4, price = 1.2e9, aimY = 4.8, shell = { bottom = 0.5, height = 8.6, width = 4.4 } },
-		{ id = "ice", name = "Penguin", kind = "ice", mult = 6, price = 15e9, aimY = 4.2, shell = { bottom = 0.4, height = 7.8, width = 4.6 } },
-		{ id = "reindeer", name = "Reindeer", kind = "reindeer", mult = 20, price = 400e9, aimY = 4.6, shell = { bottom = 0.3, height = 8.4, width = 4.4 } },
-		{ id = "crystal", name = "Amethyst Golem", kind = "crystal", mult = 75, price = 1.2e12, aimY = 5, shell = { bottom = 0.8, height = 8.6, width = 6.2 } },
+		-- prices: balance pass 2026-11-17 (balance_sim_v2.py): 750 / 40K / 250K / 25M / 1B / 75B / 4T / 60T / 15Qa
+		{ id = "peppermint", name = "Peppermint Pal", kind = "peppermint", mult = 2, price = 750, aimY = 4.9, shell = { bottom = 0.3, height = 7.8, width = 5.4 } },
+		{ id = "gingerbread", name = "Gingerbread Man", kind = "gingerbread", mult = 3, price = 40e3, aimY = 4.4, shell = { bottom = 0.3, height = 7.8, width = 4.6 } },
+		{ id = "workshop", name = "Nutcracker", kind = "workshop", mult = 4, price = 250e3, aimY = 4.8, shell = { bottom = 0.5, height = 8.6, width = 4.4 } },
+		{ id = "ice", name = "Penguin", kind = "ice", mult = 6, price = 25e6, aimY = 4.2, shell = { bottom = 0.4, height = 7.8, width = 4.6 } },
+		{ id = "reindeer", name = "Reindeer", kind = "reindeer", mult = 20, price = 1e9, aimY = 4.6, shell = { bottom = 0.3, height = 8.4, width = 4.4 } },
+		{ id = "crystal", name = "Amethyst Golem", kind = "crystal", mult = 75, price = 75e9, aimY = 5, shell = { bottom = 0.8, height = 8.6, width = 6.2 } },
 		{ id = "aurora", name = "Snow Owl", kind = "aurora", mult = 200, price = 4e12, aimY = 4.6, shell = { bottom = 1.2, height = 7.4, width = 4.6 } },
-		{ id = "citadel", name = "Knight", kind = "citadel", mult = 600, price = 7.5e12, aimY = 4.6, shell = { bottom = 0.3, height = 8.4, width = 5.0 } },
-		{ id = "northstar", name = "Star Spirit", kind = "northstar", mult = 2000, price = 50e12, aimY = 4.9, shell = { bottom = 0.4, height = 7.6, width = 5.6 } },
+		{ id = "citadel", name = "Knight", kind = "citadel", mult = 600, price = 60e12, aimY = 4.6, shell = { bottom = 0.3, height = 8.4, width = 5.0 } },
+		{ id = "northstar", name = "Star Spirit", kind = "northstar", mult = 2000, price = 15e15, aimY = 4.9, shell = { bottom = 0.4, height = 7.6, width = 5.6 } },
 	} :: { TrainStation },
 	targetTag = "TrainTarget", -- each trainer's target Model (TrainingArt); the client frosts and wobbles it
 	spot = { x = 14, z = 12 }, padSize = { 11, 12 }, padHeight = 0.8,

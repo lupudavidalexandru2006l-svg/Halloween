@@ -10,9 +10,11 @@
 -- Front view (owner 2026-11-07, Config.motion.upgrade.frontView): when the answer lands, Show.panTrip hides
 -- the popup and HUD and glides the camera to the front of your pan; the pan's upgrade plays there, the
 -- camera glides back, the popup returns and only then does the card pop (its impact waits out the trip).
--- owner 2026-11-13: that trip and the pan's floor flash are the Look's only. Slots, Thaw Speed and Speed
+-- owner 2026-11-13: that trip and the pan's floor flash are the Look's only. Thaw Speed and Speed
 -- just pop their card; a Trainer plays Show.trainerTrip (the camera watches the old trainer turn into
 -- the new one), from a still copy of the old trainer taken on the press, before the server swaps it.
+-- owner 2026-11-18: Slots plays Show.slotsTrip, a different show for every level (the pan stretches back
+-- smoothly from a copy taken on the press; a Look that comes with the level plays inside it).
 -- Prototype and timeline: prototype/ice-ray-for-pets/upgrade-demo.html. Numbers: Config.motion.upgrade.
 -- Cards are rebuilt whenever a level changes, so the motion is kept per upgrade kind and drawn on
 -- whichever card PanPopup has bound for that kind (UpgradeMotion.bind).
@@ -46,8 +48,9 @@ type Anim = {
 	strength: number,
 	big: boolean,
 	streak: number,
-	trip: boolean, -- a camera trip played (Look or Trainer): it had the hit sound, the card only chimes
-	old: Instance?, -- Trainer: a still copy of the trainer as it was on the press (Show.trainerSnapshot)
+	trip: boolean, -- a camera trip played (Look, Slots or Trainer): it had the hit sound, the card only chimes
+	old: Instance?, -- Trainer / Slots: a still copy of the trainer or pan as it was on the press (Show.trainerSnapshot, Show.panSnapshot)
+	lookTo: number?, -- Slots: the Look this level brought (its own "look" message), played inside the Slots show
 }
 type Fx = { kind: string, t0: number, life: number, gui: GuiObject, [string]: any }
 type PanFx = { t0: number, rm: number, strength: number, glow: Color3, disk: Part, slab: Part, light: PointLight, maxD: number }
@@ -495,12 +498,14 @@ local function land(kind: string, a: Anim, data: any?)
 	local landed = math.max(C.build, (now - a.t0) / a.rm)
 	-- after a camera trip the card pops when the popup comes back
 	local TT = C.trainerTrip
+	local level = if data and typeof(data.level) == "number" then data.level else a.from + 1
+	local _, slotsTime = Config.slotsShow(level)
 	local trip = if kind == "look" and C.frontView then C.trip.go + C.trip.watch + C.trip.back
 		elseif kind == "trainer" and C.trainerView then TT.go + TT.charge + TT.swap + TT.grow + TT.watch + TT.back
+		elseif kind == "slots" and C.slotsView then slotsTime
 		else nil
 	a.trip = trip ~= nil
 	a.impact = landed + (trip or 0)
-	local level = if data and typeof(data.level) == "number" then data.level else a.from + 1
 	a.glow = glowOf(kind, level)
 	a.big = level % 5 == 0 or (Config.panMax(kind) == level)
 	local since = now - lastFlash
@@ -595,6 +600,9 @@ function UpgradeMotion.press(kind: string, level: number, canAfford: boolean, se
 	local v = State.view
 	if kind == "trainer" and C.trainerView and v and typeof(v.plot) == "number" then
 		na.old = Show.trainerSnapshot(v.plot) -- the trainer as it is, before the server swaps it
+	elseif kind == "slots" and C.slotsView and v and typeof(v.plot) == "number" then
+		na.old = Show.panSnapshot(v.plot) -- the pan as it is, before the server redraws it deeper
+		PanLooks.hold(v.plot) -- and in its Look, if this level brings the next one
 	elseif kind == "look" and v and typeof(v.plot) == "number" then
 		PanLooks.hold(v.plot) -- the pan keeps its old Look until the show pops it off
 	end
@@ -617,6 +625,12 @@ function UpgradeMotion.Start()
 		if typeof(k) ~= "string" then
 			return
 		end
+		-- a Look that came with a Slots level (Config.pan.lookAtSlots) plays inside that level's show
+		local s = anims.slots
+		if k == "look" and s and s.trip and s.impact and typeof(data.level) == "number" then
+			s.lookTo = data.level
+			return
+		end
 		local a = anims[k]
 		if not a then -- bought some other way (a buffered press already ended, a second device): still answer it
 			a = {
@@ -633,6 +647,13 @@ function UpgradeMotion.Start()
 			local old = a.old
 			a.old = nil
 			task.spawn(Show.trainerTrip, data, a.rm, old)
+		elseif a.trip and k == "slots" then
+			local old = a.old
+			a.old = nil
+			local anim = a
+			task.spawn(Show.slotsTrip, data, a.rm, old, function(): number?
+				return anim.lookTo
+			end)
 		elseif a.trip then
 			local anim = a
 			task.spawn(Show.panTrip, data, a.rm, function()

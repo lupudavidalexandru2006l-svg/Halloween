@@ -338,8 +338,7 @@ local function tick(dt: number)
 			aim.extras = left
 			-- firing heats the gun: it barely moves on islands the gun is made for, and overheats in a few
 			-- seconds one island past them (the ice then melts back by itself; nothing is lost)
-			local vest = Config.gearValue(player, "cooling_vest", "heatMult", 1) -- Cooling Vest
-			if busy and GunService.addHeat(player, vest * dt / (if hot then HB.overSeconds else HB.okSeconds)) then
+			if busy and GunService.addHeat(player, dt / (if hot then HB.overSeconds else HB.okSeconds)) then
 				Remotes.notYet(player, "Gun too hot!", "pet")
 				clearAim(player)
 				continue

@@ -1692,6 +1692,766 @@ function Show.trainerTrip(data: any, rm: number, old: Instance?)
 	end
 end
 
+-- ---------- the Slots shows (Config.motion.upgrade.slotsTrip, owner 2026-11-18) ----------
+-- Every Slots level grows the pan backwards (Config.panLength), and the server redraws the whole pan at its
+-- new depth in one go. So the show keeps the server's pan folder(s) for that plot out of the world on this
+-- client while it plays and draws still copies: first the pan as it was on the press, then (the moment it
+-- has arrived) a copy of the server's new pan squeezed to the same depth. The copy stretches smoothly to the
+-- new depth in the level's own way, then the level's finish plays on it (a Thaw Machine arriving, or the next
+-- fence). At the end the real new pan goes back exactly where the copy stands, drawn in its Look this frame.
+
+local function sEaseSine(t: number): number
+	return -(math.cos(math.pi * t) - 1) / 2
+end
+local function sEaseQuad(t: number): number
+	return if t < 0.5 then 2 * t * t else 1 - (-2 * t + 2) ^ 2 / 2
+end
+local function sBack(t: number, c: number): number
+	return 1 + (c + 1) * (t - 1) ^ 3 + c * (t - 1) ^ 2
+end
+
+-- a still copy of a pan folder in a Model, without the Thaw Machines this pan doesn't have (yet)
+local function panCopy(src: Instance, plot: number, machines: number): Model
+	local m = Instance.new("Model")
+	m.Name = "SlotsShowPan"
+	local c = stillCopy(src)
+	for k = 2, #Config.thaw.machinesAt do
+		local mm = c:FindFirstChild("ThawMachine" .. k)
+		if mm and k > machines then
+			mm:Destroy()
+		end
+	end
+	c.Parent = m
+	m:SetAttribute("Length", src:GetAttribute("Length") or Config.plotLength(plot))
+	return m
+end
+
+-- UpgradeMotion takes this on the Slots card's press, before the server redraws the pan
+function Show.panSnapshot(plot: number): Instance?
+	local map = workspace:FindFirstChild("Map")
+	local f = map and map:FindFirstChild("Pan" .. plot, true)
+	if not f then
+		return nil
+	end
+	local m = panCopy(f, plot, Config.machineCount(plot))
+	local ex = workspace:FindFirstChild("PanLook" .. plot) -- its Look's crystals ride along, inside the copy
+	local inner = m:FindFirstChildWhichIsA("Folder")
+	if ex and inner then
+		ex:Clone().Parent = inner
+	end
+	return m
+end
+
+-- squeezes or stretches a pan copy drawn `base` studs deep (front at z = front) to any depth: every part
+-- keeps its place as a share of the depth, parts lying along the depth (lawn, kerb, side rails) grow with
+-- it, Models (the Thaw Machines, planters) move whole, and what stands in front of the pan stays put
+type Bit = { p: BasePart, cf: CFrame, size: Vector3, f: number, axis: number }
+type Rig = { m: Model, cf: CFrame, f: number }
+local function stretcher(root: Instance, base: number, front: number, skip: { [Instance]: boolean }): (number) -> ()
+	local bits: { Bit } = {}
+	local rigs: { Rig } = {}
+	local function walk(node: Instance)
+		for _, ch in node:GetChildren() do
+			if skip[ch] then
+				continue
+			elseif ch:IsA("Model") then
+				local cf = ch:GetPivot()
+				table.insert(rigs, { m = ch, cf = cf, f = (front - cf.Position.Z) / base })
+			elseif ch:IsA("BasePart") then
+				local cf = ch.CFrame
+				local dots = { math.abs(cf.RightVector.Z), math.abs(cf.UpVector.Z), math.abs(cf.LookVector.Z) }
+				local sizes = { ch.Size.X, ch.Size.Y, ch.Size.Z }
+				local axis = 0
+				for k = 1, 3 do
+					if dots[k] > 0.95 and sizes[k] > 2.5 then
+						axis = k
+					end
+				end
+				table.insert(bits, { p = ch, cf = cf, size = ch.Size, f = (front - cf.Position.Z) / base, axis = axis })
+			else
+				walk(ch)
+			end
+		end
+	end
+	walk(root)
+	return function(len: number)
+		local k = len / base
+		for _, b in bits do
+			if b.f <= 0 then
+				continue -- in front of the pan (the stand, the gauge, the gate's posts)
+			end
+			local pos = b.cf.Position
+			b.p.CFrame = b.cf.Rotation + Vector3.new(pos.X, pos.Y, front - b.f * len)
+			if b.axis ~= 0 then
+				local s = b.size
+				b.p.Size = if b.axis == 1 then Vector3.new(s.X * k, s.Y, s.Z)
+					elseif b.axis == 2 then Vector3.new(s.X, s.Y * k, s.Z)
+					else Vector3.new(s.X, s.Y, s.Z * k)
+			end
+		end
+		for _, r in rigs do
+			if r.f > 0 then
+				local pos = r.cf.Position
+				r.m:PivotTo(r.cf.Rotation + Vector3.new(pos.X, pos.Y, front - r.f * len))
+			end
+		end
+	end
+end
+
+type Piece = { p: BasePart, cf: CFrame, size: Vector3, tr: number, rail: boolean }
+
+function Show.slotsTrip(data: any, rm: number, old: Instance?, lookTo: () -> number?)
+	local S = Config.motion.upgrade.slotsTrip
+	local plot = if typeof(data) == "table" then data.plot else nil
+	local level = if typeof(data) == "table" then data.level else nil
+	local pl = if typeof(plot) == "number" then Config.world.plots[plot] else nil
+	if not pl or typeof(level) ~= "number" then
+		if old then
+			old:Destroy()
+		end
+		return
+	end
+	if running then
+		finish(running) -- one show at a time
+	end
+	local ctx: Ctx = {
+		name = "slotsTrip", cfg = S, data = {}, def = nil, reduced = rm < 1,
+		skipped = false, finished = false, model = nil, cube = nil, real = nil, at = CFrame.new(), size = 0,
+		color = Theme.coin, gui = nil, cam = nil, frost = nil, controls = nil, conn = nil,
+	}
+	running = ctx
+	local spec = Config.slotsShow(level)
+	local W = Config.world.pans
+	local F, cx = W.frontZ, pl.x
+	local fromLen, toLen = Config.panLength(level - 1), Config.panLength(level)
+	local name = "Pan" .. plot
+	local map = workspace:FindFirstChild("Map")
+	local real = map and map:FindFirstChild(name, true)
+	local home: Instance? = real and real.Parent -- where the pans live (the hub's art)
+	local hidden: { Instance } = {}
+	local fresh: Instance? = nil -- the server's redrawn pan, once it has arrived
+	-- the Thaw Machine this level brings (Config.thaw.machinesAt), if any
+	local arriving = 0
+	for m, at in Config.thaw.machinesAt do
+		if m > 1 and at == level then
+			arriving = m
+		end
+	end
+	if not old and real and math.abs((real:GetAttribute("Length") or W.length) - fromLen) < 0.01 then
+		old = Show.panSnapshot(plot) -- bought without a press here: the old pan is still standing
+	end
+	PanLooks.own(plot, true)
+	local function sweep()
+		if not home then
+			local r = map and map:FindFirstChild(name, true)
+			home = r and r.Parent
+		end
+		if not home then
+			return
+		end
+		for _, ch in home:GetChildren() do
+			if ch.Name == name then
+				local len = ch:GetAttribute("Length")
+				if typeof(len) == "number" and math.abs(len - toLen) < 0.01 then
+					fresh = ch
+				end
+				table.insert(hidden, ch)
+				ch.Parent = nil
+			end
+		end
+	end
+	local ok, err = pcall(function()
+		local stage = Instance.new("Model")
+		stage.Name = "SlotsShow"
+		stage.Parent = workspace
+		ctx.model = stage
+		-- the actor: the copy on stage that stretches (the old pan first, the new one once it's here)
+		local actor: Model? = nil
+		local setLen: ((number) -> ())? = nil
+		local isNew = false
+		local machine: Model? = nil -- the arriving Thaw Machine's copy (kept out of the stretch, parked below)
+		local machineCf = CFrame.new()
+		local shownLook = PanLooks.lookOf(plot)
+		local crystals: { BasePart } = {}
+		if old then
+			old.Parent = stage
+			actor = old :: Model
+			setLen = stretcher(old, fromLen, F, {})
+			old = nil
+		end
+		sweep()
+		ctx.conn = RunService.RenderStepped:Connect(sweep)
+		-- the server's new pan has arrived (and stopped growing): its copy takes over at the depth shown now
+		local lastCount, steady = -1, 0
+		local function takeFresh(len: number)
+			local src = fresh
+			if isNew or not src then
+				return
+			end
+			local n = #src:GetDescendants()
+			if n ~= lastCount then
+				lastCount, steady = n, 0
+				return
+			end
+			steady += 1
+			if steady < 3 then
+				return
+			end
+			local look = lookTo()
+			shownLook = if look then look - 1 else PanLooks.lookOf(plot)
+			local copy = panCopy(src, plot, math.max(Config.machineCount(plot), arriving))
+			local inner = copy:FindFirstChildWhichIsA("Folder")
+			local posts = {}
+			for _, d in (if inner then inner:GetChildren() else {}) do
+				if d:IsA("BasePart") and PanLooks.kindOf(d) then
+					PanLooks.paintPart(d, shownLook)
+					if PanLooks.kindOf(d) == "post" then
+						table.insert(posts, d)
+					end
+				end
+			end
+			if inner then
+				crystals = PanLooks.crystals(posts, shownLook, inner)
+			end
+			local skip: { [Instance]: boolean } = {}
+			local mm = if arriving > 0 and inner then inner:FindFirstChild("ThawMachine" .. arriving) else nil
+			if mm and mm:IsA("Model") then
+				machine = mm
+				machineCf = mm:GetPivot()
+				mm:PivotTo(machineCf + Vector3.new(0, -200, 0)) -- out of sight until its entrance
+				skip[mm] = true
+			end
+			copy.Parent = stage
+			local set = stretcher(copy, toLen, F, skip)
+			set(len)
+			if actor then
+				actor:Destroy()
+			end
+			actor, setLen, isNew = copy, set, true
+		end
+
+		local gui = Instance.new("ScreenGui")
+		gui.Name = "Show"
+		gui.ResetOnSpawn = false
+		gui.IgnoreGuiInset = true
+		gui.Parent = me:WaitForChild("PlayerGui")
+		ctx.gui = gui
+		Screen.setHidden(true) -- the popup stays open underneath and comes back as it was
+		local hum = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
+		if hum then
+			ctx.controls = { hum = hum, walk = hum.WalkSpeed, jump = hum.JumpPower, jumpH = hum.JumpHeight, rotate = hum.AutoRotate }
+			hum.WalkSpeed, hum.JumpPower, hum.JumpHeight, hum.AutoRotate = 0, 0, 0, false
+		end
+		ctx.cam = CameraController.borrow()
+
+		-- ---- the camera: each level's own shot, drifting while the pan grows; shakes on a heavy hit ----
+		local L = toLen
+		local function shotAt(u: number): CFrame
+			local s = spec.shot
+			if s == "gate" then -- high over the door, looking down the pan, easing in
+				return CFrame.lookAt(Vector3.new(cx, 23 - 3 * u, F + 19 - 5 * u), Vector3.new(cx, 0, F - L * 0.6))
+			elseif s == "corner" then -- the front-left corner, three quarters on
+				return CFrame.lookAt(Vector3.new(cx - 30 + 4 * u, 14, F + 13 - 3 * u), Vector3.new(cx, 1, F - L * 0.55))
+			elseif s == "low" then -- ground level in the gap on the right, down the side fence
+				-- (behind the front line: in front of it the lamp and gauge posts filled the middle of the shot)
+				return CFrame.lookAt(Vector3.new(cx + 24, 5, F - 3 - 3 * u), Vector3.new(cx - 3, 2, F - L * 0.82))
+			elseif s == "sky" then -- from high above, the whole pan like a map
+				return CFrame.lookAt(Vector3.new(cx, 70 - 8 * u, F - L * 0.5 + 15), Vector3.new(cx, 0, F - L * 0.52))
+			elseif s == "track" then -- glides down the left side with the frost
+				local k = sEaseSine(u)
+				return CFrame.lookAt(Vector3.new(cx - 26, 11 + 3 * k, F + 6 - L * 0.55 * k), Vector3.new(cx + 3, 1, F - L * (0.42 + 0.3 * k)))
+			end
+			-- orbit: swings round the front of the pan, high, looking at its middle
+			local c = Vector3.new(cx, 1, F - L / 2)
+			local a = math.rad(-58 + 116 * sEaseSine(u))
+			local r = L * 0.6 + 20
+			return CFrame.lookAt(c + Vector3.new(math.sin(a) * r, 26, math.cos(a) * r), c)
+		end
+		local shakeAt, shakeAmp = -9, 0
+		local function shake(amp: number)
+			if not ctx.reduced then
+				shakeAt, shakeAmp = os.clock(), amp
+			end
+		end
+		local showLen = spec.growTime + S.settle + spec.extraTime
+		local showT0 = 0
+		local function camTick()
+			local cam = ctx.cam
+			if not cam then
+				return
+			end
+			local u = math.clamp((os.clock() - showT0) / (showLen * rm), 0, 1)
+			local cf = shotAt(u)
+			local q = (os.clock() - shakeAt) / S.shake
+			if q < 1 then
+				local a = shakeAmp * (1 - q) ^ 2
+				cf *= CFrame.new(math.sin(os.clock() * 61) * a, math.sin(os.clock() * 47 + 1) * a, 0)
+			end
+			cam.CFrame = cf
+		end
+		-- a smooth glide that rises in the middle (never a spin round the player)
+		local function glide(to: CFrame, seconds: number, len: number?)
+			local cam = ctx.cam
+			if not cam then
+				hold(ctx, seconds, true)
+				return
+			end
+			local a = cam.CFrame
+			animate(ctx, seconds, function(u)
+				cam.CFrame = a:Lerp(to, sEaseQuad(u)) + Vector3.new(0, S.arc * math.sin(math.pi * u), 0)
+				if len then
+					takeFresh(len)
+				end
+			end)
+		end
+
+		-- ---- go ----
+		glide(shotAt(0), S.go * rm, fromLen)
+
+		-- ---- grow: the copy stretches to the new depth, each level in its own way ----
+		local g = spec.grow
+		local function growK(u: number): number
+			if g == "unroll" then
+				return sEaseSine(u)
+			elseif g == "ratchet" then -- three clicks: each snaps back fast and rests
+				local step = math.min(2, math.floor(u * 3))
+				return (step + sBack(math.min(1, (u * 3 - step) * 1.7), 1.6)) / 3
+			elseif g == "quake" then -- two heavy shoves that speed up and stop dead
+				local step = math.min(1, math.floor(u * 2))
+				local p = math.min(1, (u * 2 - step) * 1.45)
+				return (step + p * p) / 2
+			elseif g == "spring" then -- shoots past and wobbles back
+				return 1 - math.exp(-6 * u) * math.cos(4.5 * math.pi * u)
+			elseif g == "glide" then
+				return sEaseQuad(u)
+			end
+			return sBack(sEaseSine(u), 2.4) -- grand
+		end
+		local look0 = PanLooks.style(shownLook)
+		local edgeCols = {
+			unroll = Theme.panLooks.garden.stripe, ratchet = look0.glow, quake = Theme.panLooks.stone.post,
+			spring = Theme.upgradeGlow.slots, glide = Theme.panLooks.ice.crystal, grand = Theme.panLooks.aurora.glow,
+		}
+		local edgeCol: Color3 = edgeCols[g] or Theme.upgradeGlow.slots
+		local function backEdge(len: number, count: number)
+			for _, dx in { -W.width * 0.32, 0, W.width * 0.32 } do
+				EffectsController.burst(Vector3.new(cx + dx, 0.2, F - len), edgeCol, count)
+			end
+		end
+		showT0 = os.clock()
+		local clicks, lastPuff = -1, 0
+		local hits: { [number]: boolean } = {}
+		if g == "grand" then
+			EffectsController.pillar(Vector3.new(cx, 0, F - L / 2), Theme.panLooks.aurora.glow, (spec.growTime + spec.extraTime) * rm, 0.4 * rm)
+			SoundController.play("upgrade_charge")
+		elseif g == "spring" then
+			SoundController.play("bounce")
+		elseif g ~= "quake" and g ~= "ratchet" then
+			SoundController.play("bridge")
+		end
+		animate(ctx, spec.growTime * rm, function(u)
+			local len = fromLen + (toLen - fromLen) * growK(u)
+			takeFresh(len)
+			if setLen then
+				setLen(len)
+			end
+			if g == "ratchet" then
+				local step = math.min(2, math.floor(u * 3))
+				if step ~= clicks then
+					clicks = step
+					SoundController.play("upgrade_chime", 0.8 + 0.2 * step)
+					backEdge(fromLen + (toLen - fromLen) * (step + 1) / 3, 5)
+				end
+			elseif g == "quake" then
+				local step = math.min(1, math.floor(u * 2))
+				if (u * 2 - step) * 1.45 >= 1 and not hits[step] then
+					hits[step] = true
+					SoundController.play("slam")
+					shake(0.6 - 0.15 * step)
+					backEdge(len, 10)
+				end
+			elseif os.clock() - lastPuff > 0.14 and u < 0.9 then -- a trail along the moving back edge
+				lastPuff = os.clock()
+				backEdge(len, if g == "grand" then 6 else 4)
+			end
+			camTick()
+		end)
+		if setLen then
+			setLen(toLen)
+		end
+		if g == "spring" or g == "grand" then
+			SoundController.play("pan_up")
+		end
+		animate(ctx, S.settle * rm, function()
+			takeFresh(toLen)
+			camTick()
+		end)
+
+		-- ---- extra: the level's finish, on the copy ----
+		local newLook = lookTo() or shownLook
+		local endStyle = PanLooks.style(newLook)
+		local inner = actor and actor:FindFirstChildWhichIsA("Folder")
+		local pieces: { Piece } = {}
+		for _, d in (if inner then inner:GetChildren() else {}) do
+			local kind = PanLooks.kindOf(d)
+			if d:IsA("BasePart") and (kind == "post" or kind == "rail") then
+				table.insert(pieces, { p = d, cf = d.CFrame, size = d.Size, tr = d.Transparency, rail = kind == "rail" })
+			end
+		end
+		local centre = Vector3.new(cx, 0, F - L / 2)
+		local function angleOf(pc: Piece): number -- round the pan from the door, clockwise seen from above
+			local v = pc.cf.Position - centre
+			return (math.atan2(v.X, v.Z) + 2 * math.pi) % (2 * math.pi)
+		end
+		local function byFront(a: Piece, b: Piece): boolean
+			return a.cf.Position.Z > b.cf.Position.Z
+		end
+		local function byAngle(a: Piece, b: Piece): boolean
+			return angleOf(a) < angleOf(b)
+		end
+		local function repaint(pc: Piece)
+			PanLooks.paintPart(pc.p, newLook)
+		end
+		local function dropCrystals()
+			for _, c in crystals do
+				c:Destroy()
+			end
+			crystals = {}
+		end
+		-- the new look's crystals pop in on its posts (crystal ice, aurora)
+		local function growCrystals(seconds: number)
+			if newLook == shownLook and #crystals > 0 then
+				return
+			end
+			dropCrystals()
+			if not inner then
+				return
+			end
+			local posts = {}
+			for _, pc in pieces do
+				if PanLooks.kindOf(pc.p) == "post" then
+					table.insert(posts, pc.p)
+				end
+			end
+			crystals = PanLooks.crystals(posts, newLook, inner)
+			for _, c in crystals do
+				local size = c.Size
+				c.Size = size * 0.1
+				TweenService:Create(c, TweenInfo.new(seconds, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Size = size }):Play()
+			end
+		end
+		local e = spec.extra
+		local T = spec.extraTime * rm
+		local fired: { [string]: boolean } = {}
+		local function once(key: string, fn: () -> ())
+			if not fired[key] then
+				fired[key] = true
+				fn()
+			end
+		end
+		local stepPieces: ((number) -> ())? = nil
+		if e == "machineDrop" or e == "machineRise" then
+			local mm = machine
+			local base = machineCf
+			local ground = base.Position - Vector3.new(0, base.Position.Y, 0)
+			stepPieces = function(u)
+				if not mm then
+					return
+				end
+				if e == "machineDrop" then -- falls out of the sky, lands with a thud and one bounce
+					local fall = 0.42
+					if u < fall then
+						mm:PivotTo(base + Vector3.new(0, 42 * (1 - (u / fall) ^ 2), 0))
+					else
+						once("land", function()
+							SoundController.play("slam")
+							shake(0.55)
+							EffectsController.burst(ground, Theme.panLooks.garden.stripe, 18)
+							EffectsController.burst(ground, Theme.white, 10)
+							EffectsController.frostRing(ground, 9)
+						end)
+						local q = math.clamp((u - fall) / 0.28, 0, 1)
+						mm:PivotTo(base + Vector3.new(0, 1.4 * math.sin(math.pi * q), 0))
+						if q >= 1 then
+							once("pop", function()
+								SoundController.play("thaw_done")
+							end)
+						end
+					end
+				else -- spins up out of the ground in a burst of steam
+					once("steam", function()
+						SoundController.play("upgrade_charge")
+						EffectsController.burst(ground, Theme.white, 22)
+					end)
+					local q = math.clamp(u / 0.75, 0, 1)
+					local k = sBack(q, 1.4)
+					mm:PivotTo(base * CFrame.new(0, -14 * (1 - k), 0) * CFrame.Angles(0, -2 * math.pi * (1 - sEaseQuad(q)), 0))
+					if q >= 1 then
+						once("up", function()
+							SoundController.play("pan_up")
+							EffectsController.burst(ground + Vector3.new(0, 3, 0), Theme.upgradeGlow.slots, 24)
+						end)
+					end
+				end
+			end
+		elseif e == "popDrop" then -- the fence pops off outwards, the new one drops in post by post round the pan
+			table.sort(pieces, byAngle)
+			local n = #pieces
+			local rng = Random.new(level)
+			local spins = {}
+			for k = 1, n do
+				spins[k] = Vector3.new(rng:NextNumber(-1, 1), rng:NextNumber(-1, 1), 0) * 2.2
+			end
+			stepPieces = function(u)
+				once("pop", function()
+					SoundController.play("upgrade_hit")
+					dropCrystals()
+				end)
+				for k, pc in pieces do
+					local pos = pc.cf.Position
+					if u < 0.3 then
+						local q = u / 0.3
+						local out = (pos - centre) * Vector3.new(1, 0, 1)
+						local dir = if out.Magnitude > 0.1 then out.Unit else Vector3.new(0, 0, 1)
+						pc.p.CFrame = (pc.cf + dir * 7 * q + Vector3.new(0, 6 * q - 4 * q * q, 0)) * CFrame.Angles(spins[k].X * q, spins[k].Y * q, 0)
+						pc.p.Transparency = pc.tr + (1 - pc.tr) * q
+					else
+						once("paint", function()
+							for _, x in pieces do
+								repaint(x)
+							end
+						end)
+						local t0 = 0.32 + 0.48 * (k - 1) / math.max(1, n - 1)
+						local q = (u - t0) / 0.14
+						if q < 0 then
+							pc.p.Transparency = 1
+						elseif q < 1 then
+							pc.p.Transparency = pc.tr
+							pc.p.Size = pc.size
+							pc.p.CFrame = pc.cf + Vector3.new(0, 11 * (1 - q * q), 0)
+						else
+							local s = math.clamp((q - 1) / 0.7, 0, 1) -- squash on landing, springing back
+							local sq = 0.3 * (1 - sBack(s, 2.2))
+							pc.p.Transparency = pc.tr
+							pc.p.Size = pc.size * Vector3.new(1 + sq * 0.5, 1 - sq, 1 + sq * 0.5)
+							pc.p.CFrame = pc.cf * CFrame.new(0, -pc.size.Y * sq / 2, 0)
+							if k % 6 == 1 then
+								once("thud" .. k, function()
+									EffectsController.burst(pos - Vector3.new(0, pos.Y, 0), endStyle.glow, 4)
+								end)
+							end
+						end
+					end
+				end
+				if u > 0.85 then
+					once("crystals", function()
+						growCrystals(0.25 * rm)
+					end)
+				end
+			end
+		elseif e == "rise" then -- the fence sinks into the ground, the new one rises out of it, front to back
+			table.sort(pieces, byFront)
+			local n = #pieces
+			stepPieces = function(u)
+				once("sink", function()
+					SoundController.play("crack")
+					dropCrystals()
+				end)
+				for k, pc in pieces do
+					local r = (k - 1) / math.max(1, n - 1)
+					local depth = pc.cf.Position.Y + pc.size.Y / 2 + 1.5
+					if u < 0.38 then
+						local q = math.clamp((u - r * 0.18) / 0.2, 0, 1)
+						pc.p.CFrame = pc.cf - Vector3.new(0, depth * q * q, 0)
+					else
+						once("paint", function()
+							for _, x in pieces do
+								repaint(x)
+							end
+							SoundController.play("slam")
+							shake(0.4)
+						end)
+						local q = math.clamp((u - 0.4 - r * 0.38) / 0.2, 0, 1)
+						pc.p.CFrame = pc.cf - Vector3.new(0, depth * (1 - sBack(q, 1.8)), 0)
+						if q > 0 and k % 5 == 1 then
+							once("dust" .. k, function()
+								local pos = pc.cf.Position
+								EffectsController.burst(Vector3.new(pos.X, 0, pos.Z), Theme.panLooks.stone.rail, 6)
+							end)
+						end
+					end
+				end
+				if u > 0.9 then
+					once("crystals", function()
+						growCrystals(0.2 * rm)
+					end)
+				end
+			end
+		elseif e == "frostWave" then -- a wave of frost runs from the door to the back, turning each piece over
+			table.sort(pieces, byFront)
+			local n = #pieces
+			stepPieces = function(u)
+				once("start", function()
+					SoundController.play("crack")
+					dropCrystals()
+				end)
+				for k, pc in pieces do
+					local t0 = 0.82 * (k - 1) / math.max(1, n - 1)
+					local q = (u - t0) / 0.13
+					if q >= 0 and q < 1 then
+						once("hit" .. k, function()
+							pc.p.Material = Enum.Material.Neon
+							pc.p.Color = Theme.white
+							if k % 7 == 1 then
+								local pos = pc.cf.Position
+								EffectsController.burst(Vector3.new(pos.X, 0.5, pos.Z), endStyle.crystal or endStyle.glow, 6)
+							end
+							if k % 12 == 1 then
+								SoundController.play("tink", 0.9 + 0.4 * k / n)
+							end
+						end)
+						local b = 1 + 0.18 * math.sin(math.pi * q)
+						pc.p.Size = pc.size * Vector3.new(b, if pc.rail then 1 else b, b)
+					elseif q >= 1 then
+						once("done" .. k, function()
+							repaint(pc)
+							pc.p.Size = pc.size
+						end)
+					end
+				end
+				if u > 0.92 then
+					once("crystals", function()
+						growCrystals(0.3 * rm)
+					end)
+				end
+			end
+		elseif e == "spiral" then -- each piece in turn leaps, spins and lands in the new look, round the pan
+			table.sort(pieces, byAngle)
+			local n = #pieces
+			stepPieces = function(u)
+				once("start", function()
+					dropCrystals()
+					EffectsController.rays(centre + Vector3.new(0, 4, 0), endStyle.glow, 10, spec.extraTime * rm)
+				end)
+				for k, pc in pieces do
+					local t0 = 0.72 * (k - 1) / math.max(1, n - 1)
+					local q = (u - t0) / 0.24
+					if q >= 0 and q < 1 then
+						local lift = 5 * math.sin(math.pi * q)
+						local turn = if pc.rail then CFrame.Angles(0, 0, 0.35 * math.sin(2 * math.pi * q)) else CFrame.Angles(0, 2 * math.pi * sEaseQuad(q), 0)
+						pc.p.CFrame = (pc.cf + Vector3.new(0, lift, 0)) * turn
+						if q >= 0.5 then
+							once("paint" .. k, function()
+								repaint(pc)
+								if k % 6 == 1 then
+									EffectsController.burst(pc.cf.Position + Vector3.new(0, 3, 0), endStyle.glow, 5)
+								end
+							end)
+						end
+					elseif q >= 1 then
+						once("land" .. k, function()
+							repaint(pc)
+							pc.p.CFrame = pc.cf
+						end)
+					end
+				end
+				if u > 0.9 then
+					once("finale", function()
+						growCrystals(0.25 * rm)
+						EffectsController.flash()
+						EffectsController.burst(centre + Vector3.new(0, 2, 0), endStyle.glow, 40)
+						EffectsController.burst(centre + Vector3.new(0, 2, 0), Theme.white, 16)
+					end)
+				end
+			end
+		end
+		animate(ctx, T, function(u)
+			if stepPieces then
+				stepPieces(u)
+			end
+			camTick()
+		end)
+		-- whatever the finish did, every piece ends exactly in place and in the new look
+		for _, pc in pieces do
+			pc.p.CFrame, pc.p.Size, pc.p.Transparency = pc.cf, pc.size, pc.tr
+			repaint(pc)
+		end
+		if machine then
+			machine:PivotTo(machineCf)
+		end
+
+		-- ---- watch: what you got ----
+		SoundController.play("pan_up")
+		EffectsController.burst(centre + Vector3.new(0, 1, 0), endStyle.glow, 24)
+		local v = State.view
+		local slots = if v and typeof(v.slots) == "number" then v.slots else Config.pen.baseSlots + Config.upgrades.pen.slotsPerLevel * (level - 1)
+		local what = if arriving > 0 then `+ Thaw Machine {arriving}`
+			elseif newLook ~= shownLook then `+ {(Config.pan.looks[newLook] or Config.pan.looks[1]).name} Fence`
+			else "Bigger pan"
+		local title = Ui.label(gui, `{slots} Slots`, UDim2.fromScale(U.titleSize[1], U.titleSize[2] * 0.7), UDim2.fromScale((1 - U.titleSize[1]) / 2, 0.06))
+		title.Name = "SlotsTitle"
+		title.TextColor3 = endStyle.glow
+		local sub = Ui.label(gui, what, UDim2.fromScale(U.nameSize[1], U.nameSize[2] * 0.8), UDim2.fromScale((1 - U.nameSize[1]) / 2, 0.06 + U.titleSize[2] * 0.7))
+		sub.Name = "SlotsText"
+		for _, t in { title, sub } do
+			local s = Instance.new("UIScale")
+			s.Scale = U.slamFrom
+			s.Parent = t
+			TweenService:Create(s, TweenInfo.new(0.3 * rm, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+		end
+		animate(ctx, S.watch * rm, function()
+			camTick()
+		end)
+
+		-- ---- back: the words go, the camera glides home ----
+		for _, t in { title, sub } do
+			TweenService:Create(t, TweenInfo.new(0.2 * rm), { TextTransparency = 1 }):Play()
+			local s = t:FindFirstChildOfClass("UIStroke")
+			if s then
+				TweenService:Create(s, TweenInfo.new(0.2 * rm), { Transparency = 1 }):Play()
+			end
+		end
+		local homeCf = CameraController.homeCFrame()
+		if homeCf then
+			glide(homeCf, S.back * rm)
+		else
+			hold(ctx, S.back * rm, true)
+		end
+	end)
+	-- the pan the map says this plot has goes back into the world where the copy stood (this frame, so
+	-- nothing blinks), then the copies go and PanLooks draws it in its Look
+	if ctx.conn then
+		ctx.conn:Disconnect()
+		ctx.conn = nil
+	end
+	local want = Config.plotLength(plot)
+	local back: Instance? = nil
+	for k = #hidden, 1, -1 do
+		local h = hidden[k]
+		local len = h:GetAttribute("Length")
+		if typeof(len) == "number" and math.abs(len - want) < 0.01 then
+			back = h
+			break
+		end
+	end
+	back = back or hidden[#hidden]
+	if back and home then
+		local target = home
+		pcall(function()
+			(back :: Instance).Parent = target
+		end)
+	end
+	finish(ctx) -- removes the copies, gives back camera, HUD and controls
+	if old then
+		old:Destroy()
+	end
+	PanLooks.own(plot, false)
+	PanLooks.adopt(plot, PanLooks.lookOf(plot))
+	if not ok then
+		warn("[Show] slots show failed:", err)
+	end
+end
+
 -- ---------- the rebirth show (Config.show.rebirth) ----------
 -- Remade 2026-11-12 (owner: "it needs to be very good, sfx vfx all the things"; references in the vault:
 -- Research/Reference Clips 2026-11-12, the supernova crown aura and the rare-roll star flare). At the booth:

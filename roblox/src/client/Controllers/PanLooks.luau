@@ -27,6 +27,10 @@ local W = Config.world.pans
 type Piece = { part: BasePart, kind: string, cf: CFrame, size: Vector3 }
 type Pan = { pieces: { Piece }, look: number, extras: Folder?, busy: boolean, hold: {}? }
 local pans: { [number]: Pan } = {}
+-- a Slots show (Show.slotsTrip) owns pan i while it plays: it keeps the server's redrawn pan out of the
+-- world and draws copies, so nothing here repaints or rescans that pan until PanLooks.adopt
+local showOwned: { [number]: boolean } = {}
+local hooks: { [number]: () -> () } = {} -- per plot: watch the current pan folder for machines 2 and 3
 
 local function near(a: number, b: number): boolean
 	return math.abs(a - b) < 0.05
@@ -64,17 +68,26 @@ local function styleSecond(d: Instance, on: boolean)
 	end
 end
 
+local function owned(plot: Instance?, m: number): boolean
+	local n = plot and plot:GetAttribute("Machines")
+	return (if typeof(n) == "number" then n else 1) >= m
+end
+
 local function machines(i: number)
 	local map = workspace:FindFirstChild("Map")
 	local plot = map and map:FindFirstChild("Plot" .. i)
 	local pan = map and map:FindFirstChild("Pan" .. i, true)
-	local second = pan and pan:FindFirstChild("ThawMachine2")
-	if not plot or not second then
+	if not plot or not pan then
 		return
 	end
-	local on = plot:GetAttribute("Machines") == 2
-	for _, d in second:GetDescendants() do
-		styleSecond(d, on)
+	for m = 2, #Config.thaw.machinesAt do -- machines 2 and 3 (balance pass 2026-11-17)
+		local extra = pan:FindFirstChild("ThawMachine" .. m)
+		if extra then
+			local on = owned(plot, m)
+			for _, d in extra:GetDescendants() do
+				styleSecond(d, on)
+			end
+		end
 	end
 end
 
@@ -95,13 +108,39 @@ local function paint(piece: Piece, st: { [string]: any })
 		p.Color, p.Material = st.post, st.postMat
 	elseif piece.kind == "rail" then
 		p.Color, p.Material = st.rail, st.railMat
-	elseif piece.kind == "stripe" then
-		-- mowed stripes only on the lawn look; the other floors are plain
-		p.Color = st.stripe or st.floor
-		p.Transparency = if st.stripe then 0 else 1
 	else
-		p.Color, p.Material = st.floor, st.floorMat
+		-- owner 2026-11-17: every Look keeps the green striped lawn (the Wood planks showed as brown strips
+		-- between the stripes); only the fences change
+		local lawn = Theme.panLooks.garden
+		if piece.kind == "stripe" then
+			p.Color, p.Transparency = lawn.stripe, 0
+		else
+			p.Color, p.Material = lawn.floor, lawn.floorMat
+		end
 	end
+end
+
+-- the crystals of a look on a list of posts (every crystalEvery-th one), into `parent`
+local function crystalsOn(posts: { { cf: CFrame, size: Vector3 } }, st: { [string]: any }, parent: Instance): { BasePart }
+	local out: { BasePart } = {}
+	if not st.crystal then
+		return out
+	end
+	for n, post in posts do
+		if n % P.crystalEvery == 0 then
+			local c = Instance.new("Part")
+			c.Name = "Crystal"
+			c.Anchored, c.CanCollide, c.CanQuery, c.CanTouch, c.CastShadow = true, false, false, false, false
+			c.Material = Enum.Material.Glass
+			c.Transparency = 0.15
+			c.Color = st.crystal
+			c.Size = Vector3.new(0.55, 1.1, 0.55)
+			c.CFrame = post.cf * CFrame.new(0, post.size.Y / 2 + 0.45, 0) * CFrame.Angles(0, math.rad(45), math.rad(12))
+			c.Parent = parent
+			table.insert(out, c)
+		end
+	end
+	return out
 end
 
 -- crystals on the posts (crystal ice, aurora): made on this client, drawn over MapArt's posts
@@ -115,26 +154,68 @@ local function extras(pan: Pan, i: number, st: { [string]: any }): Folder?
 	end
 	local f = Instance.new("Folder")
 	f.Name = "PanLook" .. i
-	local n = 0
+	local posts = {}
 	for _, piece in pan.pieces do
 		if piece.kind == "post" then
-			n += 1
-			if n % P.crystalEvery == 0 then
-				local c = Instance.new("Part")
-				c.Name = "Crystal"
-				c.Anchored, c.CanCollide, c.CanQuery, c.CanTouch, c.CastShadow = true, false, false, false, false
-				c.Material = Enum.Material.Glass
-				c.Transparency = 0.15
-				c.Color = st.crystal
-				c.Size = Vector3.new(0.55, 1.1, 0.55)
-				c.CFrame = piece.cf * CFrame.new(0, piece.size.Y / 2 + 0.45, 0) * CFrame.Angles(0, math.rad(45), math.rad(12))
-				c.Parent = f
-			end
+			table.insert(posts, piece)
 		end
 	end
+	crystalsOn(posts, st, f)
 	f.Parent = workspace
 	pan.extras = f
 	return f
+end
+
+-- ---------- for the Slots shows (Show.slotsTrip), which draw copies of a pan ----------
+-- the kind of a pan part by its name (post, rail, floor, stripe), or nil for anything else
+function PanLooks.kindOf(part: Instance): string?
+	return KINDS[part.Name]
+end
+
+-- paint a copy's fence piece in a look (floor and stripes stay the lawn, as on the real pan)
+function PanLooks.paintPart(part: BasePart, look: number)
+	local kind = KINDS[part.Name]
+	if kind then
+		paint({ part = part, kind = kind, cf = part.CFrame, size = part.Size }, PanLooks.style(look))
+	end
+end
+
+-- a look's crystals on a copy's posts (the same posts the real pan gets them on)
+function PanLooks.crystals(posts: { BasePart }, look: number, parent: Instance): { BasePart }
+	local list = {}
+	for _, p in posts do
+		table.insert(list, { cf = p.CFrame, size = p.Size })
+	end
+	return crystalsOn(list, PanLooks.style(look), parent)
+end
+
+-- a show takes pan i (on) or gives it back (off: call PanLooks.adopt right after, with the pan back in place)
+function PanLooks.own(i: number, on: boolean)
+	showOwned[i] = if on then true else nil
+	local pan = pans[i]
+	if on and pan then
+		pan.busy = true
+		pan.hold = nil
+		if pan.extras then
+			pan.extras:Destroy() -- the show's copy carries its own crystals
+			pan.extras = nil
+		end
+	end
+end
+
+-- the server's redrawn pan is back in the world: take its pieces now and draw them in `look`, this frame
+function PanLooks.adopt(i: number, look: number)
+	local old = pans[i]
+	if old and old.extras then
+		old.extras:Destroy()
+	end
+	pans[i] = nil
+	PanLooks.apply(i, look)
+	machines(i)
+	local hook = hooks[i]
+	if hook then
+		hook()
+	end
 end
 
 -- draw pan i in a look (instantly)
@@ -158,7 +239,7 @@ end
 
 function PanLooks.center(i: number): Vector3
 	local pl = Config.world.plots[i]
-	return Vector3.new(pl.x, W.soilHeight, pl.z)
+	return Vector3.new(pl.x, W.soilHeight, Config.plotZ(i)) -- the pan grows backwards with its Slots
 end
 
 -- the show's build-up: a soft glowing box round the pan that brightens over `seconds`
@@ -170,8 +251,8 @@ function PanLooks.glow(i: number, color: Color3, seconds: number): BasePart
 	g.Material = Enum.Material.ForceField
 	g.Color = color
 	g.Transparency = 1
-	g.Size = Vector3.new(W.width + 1, W.fenceHeight + 1.4, W.length + 1)
-	g.CFrame = CFrame.new(pl.x, W.soilHeight + g.Size.Y / 2, pl.z)
+	g.Size = Vector3.new(W.width + 1, W.fenceHeight + 1.4, Config.plotLength(i) + 1)
+	g.CFrame = CFrame.new(pl.x, W.soilHeight + g.Size.Y / 2, Config.plotZ(i))
 	local light = Instance.new("PointLight")
 	light.Color = color
 	light.Range = 30
@@ -350,6 +431,9 @@ function PanLooks.Start()
 	-- every pan follows its PanLook<i>, unless its own upgrade show is drawing it right now
 	local function refresh()
 		for i in Config.world.plots do
+			if showOwned[i] then
+				continue -- a Slots show is drawing it
+			end
 			local pan = pans[i]
 			local look = PanLooks.lookOf(i)
 			if not pan or (not pan.busy and pan.look ~= look) then
@@ -370,21 +454,51 @@ function PanLooks.Start()
 		end)
 		for i in Config.world.plots do
 			local plot = map:WaitForChild("Plot" .. i, 10)
+			-- the server only puts machines 2 and 3 in once the pan has them (PenService), so they can
+			-- arrive after the attribute: set each up when it lands (its parts stream in after it)
+			local hooked: Instance? = nil
+			local function hook()
+				local pan = map:FindFirstChild("Pan" .. i, true)
+				if not pan or pan == hooked then
+					return
+				end
+				hooked = pan
+				pan.ChildAdded:Connect(function(child: Instance)
+					local m = tonumber(string.match(child.Name, "^ThawMachine(%d)$"))
+					if m and m >= 2 then
+						machines(i)
+						child.DescendantAdded:Connect(function(d: Instance)
+							styleSecond(d, owned(plot, m))
+						end)
+					end
+				end)
+			end
+			hooks[i] = hook
+			hook()
 			if plot then
 				plot:GetAttributeChangedSignal("Machines"):Connect(function()
 					machines(i)
 				end)
-			end
-			-- the server only puts the second machine in once the pan has it (PenService), so it can
-			-- arrive after the attribute: set it up when it lands (its parts stream in after it)
-			local pan = map:FindFirstChild("Pan" .. i, true)
-			if pan then
-				pan.ChildAdded:Connect(function(child: Instance)
-					if child.Name == "ThawMachine2" then
-						machines(i)
-						child.DescendantAdded:Connect(function(d: Instance)
-							styleSecond(d, plot ~= nil and plot:GetAttribute("Machines") == 2)
-						end)
+				-- the pan grew (Config.panLength): the server redrew it, so find its new pieces, restyle them for
+				-- its Look and watch the new folder (it can take a moment to stream in)
+				plot:GetAttributeChangedSignal("PanLength"):Connect(function()
+					for _ = 1, 6 do
+						task.wait(0.5)
+						if showOwned[i] then
+							break -- a Slots show has it, and adopts the new pan when it ends
+						end
+						local pan = pans[i]
+						local stale = pan == nil or #pan.pieces == 0 or pan.pieces[1].part.Parent == nil
+						if stale and map:FindFirstChild("Pan" .. i, true) then
+							if pan and pan.extras then
+								pan.extras:Destroy()
+							end
+							pans[i] = nil
+							PanLooks.apply(i, PanLooks.lookOf(i))
+							machines(i)
+							hook()
+							break
+						end
 					end
 				end)
 			end

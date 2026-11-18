@@ -282,8 +282,16 @@ function PanPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
 		local now, nxt, unit = values(kind, level, v.rebirths or 0, price ~= nil)
 		-- the Slots level that also brings the pan's next Look (PanService, owner 2026-11-17)
 		local look = PanPopup.level(v, "look")
-		if kind == "slots" and nxt and level + 1 == P.lookAtSlots and look < #P.looks and look <= (v.rebirths or 0) + 1 then
+		if kind == "slots" and nxt and P.lookAtSlots[look + 1] and level + 1 >= P.lookAtSlots[look + 1] then
 			unit = `pets + {P.looks[look + 1].name} Look`
+		end
+		-- the Slots levels that bring Thaw Machine 2 and 3 (balance pass 2026-11-17, Config.thaw.machinesAt)
+		if kind == "slots" and nxt then
+			for m, at in Config.thaw.machinesAt do
+				if m > 1 and at == level + 1 then
+					unit = `pets + Thaw Machine {m}`
+				end
+			end
 		end
 		-- the name and its level badge
 		local top = line(face, "Title", 0.1, 0.38)

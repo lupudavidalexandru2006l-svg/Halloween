@@ -59,11 +59,11 @@ end
 function PenService.machineSpot(plot: number, m: number): Vector3
 	local T, P = Config.thaw, Config.world.pans
 	local spot = Config.world.plots[plot]
-	return Vector3.new(spot.x + Config.thawMachineOffset(m, Config.machineCount(plot)), P.soilHeight + T.machine.padTop, P.frontZ - P.length + T.machine.z) -- on its heat pad
+	return Vector3.new(spot.x + Config.thawMachineOffset(m, Config.machineCount(plot)), P.soilHeight + T.machine.padTop, P.frontZ - Config.plotLength(plot) + T.machine.z) -- on its heat pad, at the (grown) back
 end
 
 local function machines(d: Data): number
-	return if d.upgrades.pen >= Config.thaw.secondAt then 2 else 1
+	return Config.machinesFor(d.upgrades.pen) -- 1, 2 from Slots 2, 3 from Slots 5 (Config.thaw.machinesAt)
 end
 PenService.machines = machines
 
@@ -98,11 +98,13 @@ local function drawPen(player: Player, d: Data)
 	for _, p in show do
 		table.insert(ids, p.id .. (if p.thawM then `m{p.thawM}@{p.thawEnd}` else ""))
 	end
-	local key = table.concat(ids, ",") .. "|" .. machines(d)
+	local len = Config.panLength(d.upgrades.pen)
+	local key = table.concat(ids, ",") .. "|" .. machines(d) .. "|" .. len
 	local map = workspace:FindFirstChild("Map")
 	local plotPart = map and map:FindFirstChild("Plot" .. plot)
 	if plotPart then
-		plotPart:SetAttribute("Machines", machines(d)) -- clients show the second machine from this
+		plotPart:SetAttribute("Machines", machines(d)) -- clients show machines 2 and 3 from this
+		plotPart:SetAttribute("PanLength", len) -- the pan grows with its Slots (growPan below redraws it)
 	end
 	local state = penShown[player] or { key = "", parts = {} }
 	penShown[player] = state
@@ -216,8 +218,8 @@ end
 function PenService.incomeMult(d: Data): number
 	local pass = if doubled[d] and DOUBLE then DOUBLE.mult or 2 else 1
 	local friendBonus = 1 + (friends[d] or 0) * Config.friends.perFriend
-	local hat = Config.gearItem("cozy_hat")
-	local cozy = if hat and d.gear.cozy_hat then hat.coinMult else 1 -- Cozy Hat (Config.gear)
+	local lv = d.gear.cozy_hat
+	local cozy = Config.gearAt("cozy_hat", if typeof(lv) == "number" then lv else 0) -- Cozy Cap, +3% a level (Config.gear)
 	return IndexService.multiplier(d.indexClaimed) * Config.rebirthIncome(d.rebirths) * d.tester.mult * pass * friendBonus * cozy
 end
 
@@ -727,7 +729,7 @@ local function machinePrompts()
 	end
 	for i in Config.world.plots do
 		local pan = map:FindFirstChild("Pan" .. i, true)
-		for m = 1, 2 do
+		for m = 1, #Config.thaw.machinesAt do
 			local model = pan and pan:FindFirstChild("ThawMachine" .. m)
 			if not model or model:FindFirstChild("ThawPrompt", true) then
 				continue
@@ -779,11 +781,11 @@ local function machinePrompts()
 	end
 end
 
--- The second Thaw Machine stays out of the world until its pan has it (PERF-AUDIT-2026-11-09: six
--- unowned machines were 720 hidden parts every client still received). It waits in
+-- Thaw Machines 2 and 3 stay out of the world until their pan has them (PERF-AUDIT-2026-11-09: six
+-- unowned machines were 720 hidden parts every client still received). Each waits in
 -- ServerStorage.SpareThawMachines with its prompt already made, and comes back the moment the plot's
--- "Machines" attribute says 2 (PanLooks and ThawMachines pick it up when it arrives).
-local parked: { [number]: { model: Instance, pan: Instance } } = {}
+-- "Machines" attribute reaches it (PanLooks and ThawMachines pick it up when it arrives).
+local parked: { [string]: { model: Instance, pan: Instance } } = {} -- key "plot:machine"
 local watchedPlots: { [Instance]: boolean } = {}
 
 -- owner 2026-11-15: one machine stands in the middle of the back row, two stand side by side round it.
@@ -791,9 +793,9 @@ local watchedPlots: { [Instance]: boolean } = {}
 -- built (BasePivot, remembered once) to Config.thawMachineOffset. ThawMachines (client) re-reads a moved machine.
 local function centreMachines(i: number, pan: Instance, count: number)
 	local T = Config.thaw.machine
-	for m = 1, 2 do
+	for m = 1, #Config.thaw.machinesAt do
 		local model = pan:FindFirstChild("ThawMachine" .. m)
-		if not (model and model:IsA("Model")) or m > count then -- an unowned second one is about to be parked
+		if not (model and model:IsA("Model")) or m > count then -- an unowned one is about to be parked
 			continue
 		end
 		local base = model:GetAttribute("BasePivot")
@@ -808,6 +810,44 @@ local function centreMachines(i: number, pan: Instance, count: number)
 		end
 	end
 end
+-- the pan grows with its Slots (owner 2026-11-17 night, Config.panLength): when plot i's PanLength changes, its
+-- soil, side and back colliders stretch back and MapArt redraws the pan at the new depth (the front and its
+-- door stay where they are). The Thaw Machines are rebuilt on the new back row; their prompts and parking
+-- follow at once (machinePrompts, placeSecondMachine).
+local function growPan(i: number)
+	local map = workspace:FindFirstChild("Map")
+	local plot = map and map:FindFirstChild("Plot" .. i)
+	if not plot or not plot:IsA("BasePart") then
+		return
+	end
+	local len = Config.plotLength(i)
+	local panF = map:FindFirstChild("Pan" .. i, true)
+	local drawn = panF and panF:GetAttribute("Length")
+	if math.abs((if typeof(drawn) == "number" then drawn else Config.world.pans.length) - len) < 0.01 then
+		return
+	end
+	local P, pl = Config.world.pans, Config.world.plots[i]
+	local z = P.frontZ - len / 2
+	plot.Size = Vector3.new(P.width, P.soilHeight, len)
+	plot.CFrame = CFrame.new(pl.x, P.soilHeight / 2, z)
+	for _, name in { "PanFenceL", "PanFenceR" } do
+		local c = plot:FindFirstChild(name)
+		if c and c:IsA("BasePart") then
+			c.Size = Vector3.new(c.Size.X, c.Size.Y, len)
+			c.CFrame = CFrame.new(c.Position.X, c.Position.Y, z)
+		end
+	end
+	local back = plot:FindFirstChild("PanFenceB")
+	if back and back:IsA("BasePart") then
+		back.CFrame = CFrame.new(back.Position.X, back.Position.Y, P.frontZ - len)
+	end
+	local ok, MapArt = pcall(require, script.Parent.MapArt)
+	if ok then
+		MapArt.rebuildPan(map, i, len)
+	end
+	pcall(machinePrompts)
+end
+
 local function placeSecondMachine(i: number)
 	local map = workspace:FindFirstChild("Map")
 	local plot = map and map:FindFirstChild("Plot" .. i)
@@ -820,30 +860,40 @@ local function placeSecondMachine(i: number)
 		plot:GetAttributeChangedSignal("Machines"):Connect(function()
 			placeSecondMachine(i)
 		end)
+		plot:GetAttributeChangedSignal("PanLength"):Connect(function()
+			growPan(i)
+			placeSecondMachine(i)
+		end)
 	end
-	local spare = parked[i]
-	if spare and spare.pan ~= pan then -- the map was rebuilt: the parked one belonged to the old pan
-		spare.model:Destroy()
-		parked[i], spare = nil, nil
-	end
-	local own = plot:GetAttribute("Machines") == 2
-	local inPan = pan:FindFirstChild("ThawMachine2")
-	if own and spare then
-		spare.model.Name = "ThawMachine2"
-		spare.model.Parent = pan
-		parked[i] = nil
-	elseif not own and inPan and inPan:FindFirstChild("ThawPrompt", true) then -- wait for its prompt first
-		local folder = ServerStorage:FindFirstChild("SpareThawMachines")
-		if not folder then
-			folder = Instance.new("Folder")
-			folder.Name = "SpareThawMachines"
-			folder.Parent = ServerStorage
+	growPan(i)
+	local count = plot:GetAttribute("Machines")
+	count = if typeof(count) == "number" then count else 1
+	for m = 2, #Config.thaw.machinesAt do
+		local key = i .. ":" .. m
+		local spare = parked[key]
+		if spare and spare.pan ~= pan then -- the map was rebuilt: the parked one belonged to the old pan
+			spare.model:Destroy()
+			parked[key], spare = nil, nil
 		end
-		inPan.Name = "ThawMachine2_Pan" .. i
-		inPan.Parent = folder
-		parked[i] = { model = inPan, pan = pan }
+		local own = count >= m
+		local inPan = pan:FindFirstChild("ThawMachine" .. m)
+		if own and spare then
+			spare.model.Name = "ThawMachine" .. m
+			spare.model.Parent = pan
+			parked[key] = nil
+		elseif not own and inPan and inPan:FindFirstChild("ThawPrompt", true) then -- wait for its prompt first
+			local folder = ServerStorage:FindFirstChild("SpareThawMachines")
+			if not folder then
+				folder = Instance.new("Folder")
+				folder.Name = "SpareThawMachines"
+				folder.Parent = ServerStorage
+			end
+			inPan.Name = "ThawMachine" .. m .. "_Pan" .. i
+			inPan.Parent = folder
+			parked[key] = { model = inPan, pan = pan }
+		end
 	end
-	centreMachines(i, pan, if own then 2 else 1)
+	centreMachines(i, pan, count)
 end
 
 -- ---------- zone gates ----------
@@ -893,6 +943,8 @@ local function openGate(player: Player, id: number)
 	WorldService.setReach(player, id)
 	Remotes.fire(player, "Notify", "zoneUnlocked", { zone = zone.id, need = need })
 	TutorialService.did(player, "gateOpen") -- Lesson 2's last step
+	-- the progress funnel (owner 2026-11-17 night): which islands players reach, and after how many rebirths
+	AnalyticsSvc.event(player, "island_opened", { zone = id, rebirths = d.rebirths })
 end
 
 -- ---------- the client's copy of its data ----------
@@ -913,7 +965,7 @@ local function view(player: Player, d: Data): { [string]: any }
 		upgrades = d.upgrades,
 		pets = pets,
 		slots = PenService.slots(d),
-		machines = machines(d), -- Thaw Machines in the pan (1, or 2 from Slots level Config.thaw.secondAt)
+		machines = machines(d), -- Thaw Machines in the pan (1 to 3, Config.thaw.machinesAt)
 		found = d.found,
 		pages = IndexService.pages(d.found, d.indexClaimed),
 		gift = PenService.giftState(d),
@@ -943,8 +995,42 @@ end
 
 function PenService.Init() end
 
+-- night thaw boost (Config.thaw.nightSpeed): each second of night takes extra seconds off every running thaw
+local function nightThawTick()
+	local extra = Config.thaw.nightSpeed - 1
+	if extra <= 0 or not EventService.isNight() then
+		return
+	end
+	local now = os.time()
+	for _, player in Players:GetPlayers() do
+		local d = DataService.get(player)
+		local running = false
+		for _, p in (if d then d.pets else {}) do
+			if p.thawM and (p.thawEnd or 0) > now then
+				running = true
+				break
+			end
+		end
+		if running then
+			DataService.mutate(player, function(x)
+				for _, p in x.pets do
+					if p.thawM and (p.thawEnd or 0) > now then
+						p.thawEnd = math.max(now, (p.thawEnd :: number) - extra)
+					end
+				end
+			end)
+		end
+	end
+end
+
 function PenService.Start()
 	WorldService.petsFolder("PenPets") -- made now so clients find it even before anyone banks
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			nightThawTick()
+		end
+	end)
 	DataService.Loaded:Connect(function(player: Player, d: any)
 		local data = d :: Data
 		incomeCarry[player] = 0
@@ -994,6 +1080,14 @@ function PenService.Start()
 		dirty[player] = true
 	end)
 	Players.PlayerRemoving:Connect(function(player)
+		-- their pan goes back to the start size and one machine for whoever gets the plot next
+		local plot = WorldService.plotOf(player)
+		local map = workspace:FindFirstChild("Map")
+		local plotPart = plot and map and map:FindFirstChild("Plot" .. plot)
+		if plotPart then
+			plotPart:SetAttribute("Machines", 1)
+			plotPart:SetAttribute("PanLength", Config.world.pans.length)
+		end
 		incomeCarry[player] = nil -- a pet in a Thaw Machine keeps its saved time (thawEnd) and comes out on a later join
 		sessionBest[player] = nil
 		dirty[player] = nil
@@ -1028,9 +1122,16 @@ function PenService.Start()
 			for _, player in Players:GetPlayers() do
 				local d = DataService.get(player)
 				if d then
-					-- claimByHand: a finished pet waits in its machine for Claim (claimThaw); only one left in a
-					-- second machine you no longer have (Slots reset by a rebirth) still comes out by itself
-					local onlyM = if Config.thaw.claimByHand then (if machines(d) < 2 and inMachine(d, 2) then 2 else nil) else nil
+					-- claimByHand: a finished pet waits in its machine for Claim (claimThaw); one left in a
+					-- machine you no longer have (an old save) still comes out by itself
+					local onlyM = nil
+					if Config.thaw.claimByHand then
+						for m = machines(d) + 1, #Config.thaw.machinesAt do
+							if inMachine(d, m) then
+								onlyM = m
+							end
+						end
+					end
 					-- (the very first pet ever pops out by itself: Config.thaw.firstPops)
 					if Config.thaw.claimByHand and not onlyM and not (Config.thaw.firstPops and noPetOutYet(d)) then
 						continue

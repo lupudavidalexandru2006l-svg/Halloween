@@ -35,6 +35,12 @@ local nextUid = 1
 local folder: Folder
 local groundFolder: Folder
 local leaveHandler: ((Player, Cube) -> ())? = nil -- FreezeService: keeps a pet whose show was still playing
+-- A ground cube is as big as its pet (Config.carrySizeMax), so a Large ... Cosmic one is taller than the E
+-- prompt's reach (Roblox measures it in 3D) and wider than pickUpRange (owner 2026-11-18: "I cannot pick up
+-- bigger pet"). Its prompt hangs at most PROMPT_UP above the ground, and the reach counts from the cube's
+-- side, not its middle: EDGE x its width is half its diagonal.
+local PROMPT_UP = 5
+local EDGE = 0.71
 
 function CarryService.count(player: Player): number
 	local list = carrying[player]
@@ -207,7 +213,7 @@ function CarryService.dropCube(player: Player, info: CubeInfo, petAt: Vector3, g
 	p.CFrame = CFrame.new(petAt - Vector3.new(0, PetDefs.height(def, info.sz) / 2, 0) + Vector3.new(0, s / 2, 0))
 	p.Anchored = true
 	local a = Instance.new("Attachment")
-	a.Position = Vector3.new(0, s / 2 + 0.15, 0) -- the top of the cube: the compact pill rests here, the pet stays in view
+	a.Position = Vector3.new(0, math.min(s / 2 + 0.15, PROMPT_UP - s / 2), 0) -- the top of the cube: the compact pill rests here, the pet stays in view (a big cube: at reach height)
 	a.Parent = p
 	local pp = Instance.new("ProximityPrompt")
 	pp:SetAttribute("Compact", true) -- PromptController draws it small, above the cube
@@ -216,6 +222,7 @@ function CarryService.dropCube(player: Player, info: CubeInfo, petAt: Vector3, g
 	pp.HoldDuration = 0
 	pp.KeyboardKeyCode = Enum.KeyCode.E
 	pp.MaxActivationDistance = Config.carry.pickUpRange * Config.gearValue(player, "magnet_gloves", "rangeMult", 1) -- Magnet Gloves
+	pp.MaxActivationDistance += s * EDGE -- from the cube's side
 	pp.RequiresLineOfSight = false
 	pp.Style = Enum.ProximityPromptStyle.Custom -- drawn by PromptController; other players' clients hide it (PetVisuals)
 	pp.Parent = a
@@ -243,7 +250,7 @@ function CarryService.pickUp(player: Player, uid: string, auto: boolean?)
 	local c: Cube? = nil
 	for i, g in list or {} do
 		local at = g.part and g.part.Position
-		local near = auto == true or (p ~= nil and at ~= nil and (Vector3.new(p.X, 0, p.Z) - Vector3.new(at.X, 0, at.Z)).Magnitude <= Config.carry.pickUpRange * Config.gearValue(player, "magnet_gloves", "rangeMult", 1) + 2)
+		local near = auto == true or (p ~= nil and at ~= nil and (Vector3.new(p.X, 0, p.Z) - Vector3.new(at.X, 0, at.Z)).Magnitude <= Config.carry.pickUpRange * Config.gearValue(player, "magnet_gloves", "rangeMult", 1) + 2 + (g.part :: Part).Size.X * EDGE)
 		if g.uid == uid and near then
 			c = table.remove(list :: { Cube }, i)
 			break
@@ -297,7 +304,7 @@ function CarryService.claim(who: Player, owner: Player, uid: string)
 	end
 	local old = list[i :: number]
 	local at = old.part and old.part.Position
-	local reach = Config.carry.pickUpRange * Config.gearValue(who, "magnet_gloves", "rangeMult", 1) + 2
+	local reach = Config.carry.pickUpRange * Config.gearValue(who, "magnet_gloves", "rangeMult", 1) + 2 + (if old.part then old.part.Size.X * EDGE else 0)
 	if os.clock() < openAt(old) or not at or (Vector3.new(p.X, 0, p.Z) - Vector3.new(at.X, 0, at.Z)).Magnitude > reach then
 		return
 	end

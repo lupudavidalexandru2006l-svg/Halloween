@@ -1,8 +1,8 @@
 --!strict
 -- PanService (Round 4 phase 5): owns the pan upgrades, bought at your own pan's Pan Upgrades stand.
---   Slots      = upgrades.pen (how many pets the pan holds; rebirth resets it)
---   Look       = pan.look (straw -> wood -> stone -> crystal ice -> aurora; rebirth keeps it). Not bought since
---                2026-11-17: reaching Slots level Config.pan.lookAtSlots gives the next one, once per rebirth run
+--   Slots      = upgrades.pen (how many pets the pan holds, and Thaw Machines 2-3; kept through rebirth since 2026-11-17)
+--   Look       = pan.look (garden -> wood -> stone -> crystal ice -> aurora; rebirth keeps it). Not bought since
+--                2026-11-17: the Slots levels in Config.pan.lookAtSlots each bring the next one, with its show
 --   Trainer    = pan.trainer (snowman -> peppermint ... -> north star: x1 -> x100 Cold Power;
 --                rebirth keeps it; TrainingService builds it)
 -- (Cold Level was removed with the Cold Power remake, 2026-11-10: the pan keeps every pet frozen.)
@@ -126,10 +126,11 @@ local function buy(player: Player, kind: any)
 		if kind == "slots" then
 			x.upgrades.pen = old + 1
 			PenService.fillEmptySlots(x) -- the new slots take the best pets from Storage
-			-- full Slots: the pan's next Look comes free, one per run (look <= rebirths + 1 keeps it to one)
-			if old + 1 == P.lookAtSlots and x.pan.look < #P.looks and x.pan.look <= x.rebirths + 1 then
-				x.pan.look += 1
-				newLook = x.pan.look
+			-- some Slots levels bring the pan's next fence type for free (Config.pan.lookAtSlots)
+			local nextLook = x.pan.look + 1
+			if P.lookAtSlots[nextLook] and old + 1 >= P.lookAtSlots[nextLook] then
+				x.pan.look = nextLook
+				newLook = nextLook
 			end
 		elseif kind == "trainer" then
 			x.pan.trainer = old + 1 -- TrainingService rebuilds the pan's trainer from PanTrainer<i>

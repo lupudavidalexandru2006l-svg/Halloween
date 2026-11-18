@@ -3,14 +3,17 @@
 --  - a chevron on the ground in the island's own colour (Theme.placeColor, owner 2026-11-13), 6.5 studs out: to the nearest pet while you own fewer than 3,
 --    home to your pen while you carry a cube (hidden once you're close)
 --  - a small diamond over the nearest pet you can't reach yet (hands free, arrow hidden)
---  - a soft green light pillar over your pen while you carry
+--  - (the green light pillar over your pen while you carry was removed, owner 2026-11-17)
 --  - (2026-11-15, tutorial references) a trail of smaller chevrons flowing from the lead one to the
 --    target, and a big white chevron bobbing over the target itself, pointing down
 -- Everything is local; nothing here changes the game.
 -- 2026-11-16 (owner: "after you finish the tutorial the arrows still remain", "while training the arrows keep
 -- aiming at the pets", "after you put the pet in the thaw machine the arrows guide you to another pet"): the
 -- chevrons and the target arrow show only while the tutorial runs, and only toward the current step's own
--- target (GuideController.focus). Outside it, only a short "go train" pointer after "Need more Cold Power".
+-- target (GuideController.focus).
+-- 2026-11-18 (owner: "stop showing the arrows to the base if we're not in a tutorial, for example when I do not
+-- have enough power"): the "go train" pointer after "Need more Cold Power" is gone. Outside the tutorial only the
+-- "NEW ISLAND!" gate pointer is left.
 -- One deep blue everywhere (Theme.fx.guideArrow), not the island colours, which washed out on snow.
 
 local Players = game:GetService("Players")
@@ -39,14 +42,17 @@ GuideController.focus = nil :: string?
 GuideController.extra = nil :: Target?
 local G = Config.guide
 local me = Players.LocalPlayer
--- "Need more Cold Power" (a pet or a gate said so): the arrow points at your pan's trainer for a while
-local needPowerUntil = 0
-local function trainSpot(): Vector3?
-	local v = State.view
-	if not v or not v.plot then
+-- "NEW ISLAND!" (UnlockAlert's GO): the arrow points at that island's gate until it's open or the time is up
+local gateZone, gateUntil = 0, 0
+function GuideController.pointGate(zoneId: number, seconds: number)
+	gateZone, gateUntil = zoneId, os.clock() + seconds
+end
+local function gateSpot(v: State.View): Vector3?
+	local z = Config.zone(gateZone)
+	if not z or (v.reach or 1) >= gateZone then
 		return nil
 	end
-	return (Config.trainerFrame(v.plot) * CFrame.new(0, 0, Config.training.standZ)).Position
+	return Vector3.new(0, 0, z.zMin - Config.gatePromptOffset)
 end
 local folder: Folder
 local arrow: Model
@@ -54,7 +60,6 @@ local trail: { Model } = {}
 local targetArrow: Model
 local arrowZone = -1 -- the zone whose colour the arrow wears now
 local marker: BasePart
-local beacon: BasePart
 
 local function part(size: Vector3, color: Color3, parent: Instance, class: string?): BasePart
 	local p = Instance.new((class or "Part") :: any) :: BasePart
@@ -197,7 +202,7 @@ end
 function GuideController.machineAt(plot: number, m: number): Vector3
 	local T, P = Config.thaw, Config.world.pans
 	local spot = Config.world.plots[plot]
-	return Vector3.new(spot.x + Config.thawMachineOffset(m, Config.machineCount(plot)), 0, P.frontZ - P.length + T.machine.z)
+	return Vector3.new(spot.x + Config.thawMachineOffset(m, Config.machineCount(plot)), 0, P.frontZ - Config.plotLength(plot) + T.machine.z)
 end
 
 local function step()
@@ -217,7 +222,7 @@ local function step()
 		end
 	end
 	if not root or not v then
-		arrow.Parent, marker.Parent, beacon.Parent, targetArrow.Parent = nil, nil, nil, nil
+		arrow.Parent, marker.Parent, targetArrow.Parent = nil, nil, nil
 		for _, c in trail do
 			c.Parent = nil
 		end
@@ -225,9 +230,6 @@ local function step()
 		return
 	end
 	local pos = root.Position
-	if (me:GetAttribute("TrainStation") or 0) ~= 0 then
-		needPowerUntil = 0 -- you found your trainer: the "go train" arrow has done its job
-	end
 	-- arrow
 	local goal: Vector3? = nil
 	local kind: string? = nil
@@ -254,8 +256,8 @@ local function step()
 		elseif GuideController.extra and GuideController.extra.kind == focus then
 			goal, kind = GuideController.extra.pos, GuideController.extra.kind
 		end
-	elseif t < needPowerUntil and (me:GetAttribute("TrainStation") or 0) == 0 and trainSpot() then
-		goal, kind = trainSpot(), "train" -- "Need more Cold Power": train there, then come back
+	elseif t < gateUntil and not holding and gateSpot(v) then
+		goal, kind = gateSpot(v), "gate" -- "NEW ISLAND!": walk to its gate and open it
 	end
 	GuideController.target = if goal and kind then { kind = kind, pos = goal, inst = inst } else nil
 	local flat = if goal then Vector3.new(goal.X - pos.X, 0, goal.Z - pos.Z) else Vector3.zero
@@ -319,15 +321,6 @@ local function step()
 	else
 		marker.Parent = nil
 	end
-	-- beacon over your pen while you carry
-	if holding and v.plot then
-		local c = WorldRules.plotCenter(v.plot)
-		beacon.CFrame = CFrame.new(c.X, G.beaconHeight / 2, c.Z) * CFrame.Angles(0, 0, math.pi / 2)
-		beacon.Transparency = G.beaconTransparency + (if still then 0 else math.sin(t * 3) * G.beaconPulse)
-		beacon.Parent = folder
-	else
-		beacon.Parent = nil
-	end
 end
 
 function GuideController.Init()
@@ -365,15 +358,6 @@ function GuideController.Start()
 	marker.Size = Vector3.new(1.1, 1.65, 1.1)
 	marker.Material = Enum.Material.Neon
 	marker.Anchored, marker.CanCollide, marker.CanQuery, marker.CanTouch, marker.CastShadow = true, false, false, false, false
-	beacon = part(Vector3.new(G.beaconHeight, G.beaconRadius * 2, G.beaconRadius * 2), Theme.fx.beacon, folder)
-	beacon.Name = "PenBeacon"
-	beacon.Shape = Enum.PartType.Cylinder
-	beacon.Material = Enum.Material.Neon
-	State.Notify:Connect(function(kind: string)
-		if kind == "needPower" then
-			needPowerUntil = os.clock() + Config.training.arrowSeconds
-		end
-	end)
 	RunService.RenderStepped:Connect(step)
 end
 
