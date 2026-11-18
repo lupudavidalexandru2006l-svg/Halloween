@@ -1366,7 +1366,10 @@ anim = {
 } }
 -- extra pet looks (prototype syncWild / makeCube)
 Config.petFx = {
-	ringScale = 1.8, ringSpin = 0.5, shadowScale = 1.0, starCount = 3, starRadius = 0.9, starHeight = 1.45, starSpin = 3,
+	ringScale = 1.8, ringSpin = 0.5, shadowScale = 1.0,
+	-- the wild pet's ring shows only within your gun's range + ringReach studs; it fades in over ringFade
+	-- seconds, growing from ringGrow of its size (owner 2026-11-18)
+	ringReach = 0, ringFade = 0.25, ringGrow = 0.6, starCount = 3, starRadius = 0.9, starHeight = 1.45, starSpin = 3,
 	rareSparkleRate = 2, frostySparkleRate = 6, crackBelow = 0.35, crackLines = 9, edgeTransparency = 0.45,
 	popSeconds = 0.25,
 	mutSparkleRate = 5, mutOutline = 0.35, -- Golden / Starry pets (colours in Theme.mut)

@@ -29,7 +29,8 @@ local TweenService = game:GetService("TweenService")
 
 local PetVisuals = {}
 local me = Players.LocalPlayer
-type Fx = { core: Part, ring: BasePart?, shadow: BasePart, stars: { BasePart } }
+-- ring: the tier ring under a wild pet, shown only while the pet is in your gun's reach (ringA fades it, 0..1)
+type Fx = { core: Part, ring: BasePart?, ringSize: Vector3?, ringFx: ParticleEmitter?, ringA: number, shadow: BasePart, stars: { BasePart } }
 type Pose = { x: number, y: number, z: number, pitch: number, yaw: number, roll: number, sx: number, sy: number }
 type Gait = { stride: number, hop: number, pitch: number, roll: number, yaw: number, squash: number, lean: number, bob: number, bobHz: number }
 type Anim = { key: string, start: any, t: number, clock: number, from: Pose?, blend: number, blendLen: number, last: Pose, base: CFrame,
@@ -793,12 +794,15 @@ local function addPet(root: Instance)
 	local shadow = fxPart(Vector3.new(0.1, h * P.shadowScale, h * P.shadowScale), Theme.fx.shadow, home)
 	shadow.Shape = Enum.PartType.Cylinder
 	shadow.Transparency = 0.7
-	local ring = if wild then fxPart(Vector3.new(h * P.ringScale, 0.15, h * P.ringScale), color, home, "Ring") else nil
+	local ringSize = Vector3.new(h * P.ringScale, 0.15, h * P.ringScale)
+	local ring = if wild then fxPart(ringSize, color, home, "Ring") else nil
+	local ringFx: ParticleEmitter? = nil
 	if ring then
 		ring.Material = Enum.Material.Neon
-		ring.Transparency = 0.25
+		ring.Transparency = 1 -- hidden until you're in reach (step fades it in)
 		if Config.tier(def.tier).rank >= 3 then
-			sparkles(ring, color, P.rareSparkleRate)
+			ringFx = sparkles(ring, color, P.rareSparkleRate)
+			ringFx.Enabled = false
 		end
 	end
 	local stars: { BasePart } = {}
@@ -837,7 +841,7 @@ local function addPet(root: Instance)
 		b = { edges = edges, coin = coin, coinImg = ci, phase = math.random() * PC.coinEvery }
 	end
 	mutationLook(model, img, core, root:GetAttribute("Mut"))
-	drawn[root] = { model = model, height = h, offer = nil, img = img, born = os.clock(), fx = { core = core, ring = ring, shadow = shadow, stars = stars }, banked = b,
+	drawn[root] = { model = model, height = h, offer = nil, img = img, born = os.clock(), fx = { core = core, ring = ring, ringSize = ringSize, ringFx = ringFx, ringA = 0, shadow = shadow, stars = stars }, banked = b,
 		clock = math.random() * 10, freeze = nil, zzz = zzzGui(core, h), anim = newAnim(def, model, img, root), box = box, shown = true }
 end
 
@@ -1535,6 +1539,7 @@ local function step(dt: number)
 	local char = me.Character
 	local myRoot = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
 	local myZone = if myRoot then WorldRules.zoneAt(myRoot.Position) else -1
+	local myReach = Config.gun(me:GetAttribute("GunTier") :: number?).range + P.ringReach -- wild pet rings show inside this
 	for root, d in drawn do
 		if not root.Parent then
 			removePet(root)
@@ -1652,9 +1657,26 @@ local function step(dt: number)
 		local shadowSize = d.height * P.shadowScale * (1 - 0.4 * lift)
 		d.fx.shadow.Size = Vector3.new(0.1, shadowSize, shadowSize)
 		d.fx.shadow.CFrame = CFrame.new(d.anim.base.Position - Vector3.new(0, d.height / 2 - 0.1, 0)) * CFrame.Angles(0, 0, math.pi / 2)
-		if d.fx.ring then
-			d.fx.ring.CFrame = CFrame.new(ground + Vector3.new(0, 0.14, 0)) * CFrame.Angles(0, t * P.ringSpin, 0)
-			d.fx.ring.Transparency = 0.3 + math.sin(t * 4) * 0.12
+		local ring = d.fx.ring
+		if ring then
+			-- owner 2026-11-18: the ring only shows while you're in the pet's perimeter (your gun's reach, so a
+			-- lit ring also means "you can freeze this one"); it grows and fades in, and out again as you leave
+			local near = myRoot ~= nil and Vector3.new(ground.X - myRoot.Position.X, 0, ground.Z - myRoot.Position.Z).Magnitude <= myReach
+			local fx = d.fx
+			fx.ringA = math.clamp(fx.ringA + (if near then dt else -dt) / P.ringFade, 0, 1)
+			local a = fx.ringA * fx.ringA * (3 - 2 * fx.ringA) -- smoothstep
+			if fx.ringFx then
+				fx.ringFx.Enabled = near
+			end
+			if a <= 0 then
+				ring.Transparency = 1
+			else
+				local grow = P.ringGrow + (1 - P.ringGrow) * a
+				local size = fx.ringSize :: Vector3
+				ring.Size = Vector3.new(size.X * grow, size.Y, size.Z * grow)
+				ring.CFrame = CFrame.new(ground + Vector3.new(0, 0.14, 0)) * CFrame.Angles(0, t * P.ringSpin, 0)
+				ring.Transparency = 1 - (0.7 - math.sin(t * 4) * 0.12) * a
+			end
 		end
 		for i, s in d.fx.stars do
 			local a = t * P.starSpin + i * (math.pi * 2 / #d.fx.stars)
