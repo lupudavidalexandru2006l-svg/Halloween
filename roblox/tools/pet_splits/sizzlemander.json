@@ -1,0 +1,7 @@
+{"parts": [
+  ["Tail", "y > 0.24 and z > 0.1"],
+  ["Head", "z > 0.44 and y < 0.08"],
+  ["LegFL", "z < 0.14 and y < -0.04 and x > 0"],
+  ["LegFR", "z < 0.14 and y < -0.04"],
+  ["LegBL", "z < 0.14 and x > 0"],
+  ["LegBR", "z < 0.14"]]}
