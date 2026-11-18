@@ -864,12 +864,12 @@ export type RayCue = { at: number, sound: string?, fx: string?, kick: string? }
 
 Config.world = {
 	maxPlayers = 6, -- one pan per server slot. Owner item: Server Size 6 in Game Settings > Places
-	mapVersion = 31, -- 31 = a wider hub with more room between the pans (owner 2026-11-18), 30 = the Feedback mailbox by the gift, 29 = a third Thaw Machine in every pan (2026-11-17), -- 28 = gate curtains with a padlock instead of ice bars, sun patches spread out (owner 2026-11-17), 27 = the fall catcher in tiles, so the hub and the end of Magma Core are covered too (QA IR-05), 26 = at most 3 lava pools per island, each in its own stretch (owner 2026-11-13), 25 = vivid colours and the giant outside decor per island (MapSpectacle, owner 2026-11-13), 24 = solid scenery (MapArt.solidify: everything you can see blocks you), 23 = smaller outside (MapArt farScenery: ground and peaks only as big as the camera needs), 22 = pan fence walls only fence-high, so you can jump them, 21 = solid pan fences (invisible PanFence walls; the gate is the only way in), 20 = Cold Power trainers in every pan (TrainingService builds them; the rink door, its beacon and the right flower box are gone, Equipment back by the tunnel mouth), 19 = open plaza: no fountain, no paved boulevard, no spawn pad, 18 = the Sell and Equipment booths no longer run into the village wall, 17 = map pass 2026-11-10 (rink door in front, its beacon, bigger snowman and waterfall), 16 = the Training Rink's door. Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges, 6 = bigger square pans, 7 = pans measured against the real avatar, 8 = open gaps, open ground behind, level pans, 9 = no flush overlapping surfaces, 10 = booth details: sign bulbs, log ends, scalloped awnings, chalk coin, 11 = wide tunnel and big entrance for big pets, a clean road, 12 = booths shaped like what they do: treasure chest, gear workshop, ring portal, 13 = the detailed sci-fi Thaw Machine, 14 = each world's own gate towers, 15 = never-visible buried parts left out (PERF-AUDIT-2026-11-09))
+	mapVersion = 32, -- 32 = the hub's side strips 35 studs (were 50), 31 = a wider hub with more room between the pans (owner 2026-11-18), 30 = the Feedback mailbox by the gift, 29 = a third Thaw Machine in every pan (2026-11-17), -- 28 = gate curtains with a padlock instead of ice bars, sun patches spread out (owner 2026-11-17), 27 = the fall catcher in tiles, so the hub and the end of Magma Core are covered too (QA IR-05), 26 = at most 3 lava pools per island, each in its own stretch (owner 2026-11-13), 25 = vivid colours and the giant outside decor per island (MapSpectacle, owner 2026-11-13), 24 = solid scenery (MapArt.solidify: everything you can see blocks you), 23 = smaller outside (MapArt farScenery: ground and peaks only as big as the camera needs), 22 = pan fence walls only fence-high, so you can jump them, 21 = solid pan fences (invisible PanFence walls; the gate is the only way in), 20 = Cold Power trainers in every pan (TrainingService builds them; the rink door, its beacon and the right flower box are gone, Equipment back by the tunnel mouth), 19 = open plaza: no fountain, no paved boulevard, no spawn pad, 18 = the Sell and Equipment booths no longer run into the village wall, 17 = map pass 2026-11-10 (rink door in front, its beacon, bigger snowman and waterfall), 16 = the Training Rink's door. Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges, 6 = bigger square pans, 7 = pans measured against the real avatar, 8 = open gaps, open ground behind, level pans, 9 = no flush overlapping surfaces, 10 = booth details: sign bulbs, log ends, scalloped awnings, chalk coin, 11 = wide tunnel and big entrance for big pets, a clean road, 12 = booths shaped like what they do: treasure chest, gear workshop, ring portal, 13 = the detailed sci-fi Thaw Machine, 14 = each world's own gate towers, 15 = never-visible buried parts left out (PERF-AUDIT-2026-11-09))
 	hubZMax = 0, -- the tunnel mouth: the hub is z < 0 (no wild pets, no heat)
 	-- the row of six pans plus sideSpace of open ground at each end (owner 2026-11-18: "more space in the safe
-	-- zone, wider on the sides, we will add more things"; was 10, a 300-wide hub). xMin / xMax / zMin are
-	-- worked out below (zMin behind the pans' backSpace)
-	hub = { xMin = 0, xMax = 0, zMin = 0, sideSpace = 50, wallHeight = 16, colliderHeight = 60 },
+	-- zone, wider on the sides, we will add more things"; was 10, a 300-wide hub; 50 was a bit much, so 35 the
+	-- same day). xMin / xMax / zMin are worked out below (zMin behind the pans' backSpace)
+	hub = { xMin = 0, xMax = 0, zMin = 0, sideSpace = 35, wallHeight = 16, colliderHeight = 60 },
 	spawn = Vector3.new(0, 3, -34),
 	spawnPadRadius = 6,
 	-- owner 2026-11-15: "spawn you in front of your pan": studs out from the pan's hub-side edge, facing it
@@ -1972,11 +1972,28 @@ Config.gearWear = {
 	hat = { main = Color3.fromRGB(255, 186, 30), cuff = Color3.fromRGB(232, 150, 20) },
 	pack = { main = Color3.fromRGB(58, 150, 240), dark = Color3.fromRGB(30, 76, 160) }, -- Frost Pack (2026-11-17)
 	-- mesh sizes as multiples of the limb they sit on (ServerStorage.GearMeshes, 2026-11-18)
-	-- width x the wider of foot and lower leg, length x foot; height = foot + legShare of the lower leg (feet and lower legs are hidden under it)
-	bootMesh = { width = 1.3, length = 1.2, legShare = 0.85 },
-	packMesh = { width = 0.8, height = 0.95, depth = 0.75, lift = 0 }, -- x UpperTorso size
-	-- x Head size (hair is hidden under it); bottom = cuff height above the head's middle
-	hatMesh = { width = 1.2, height = 1.2, depth = 1.2, bottom = 0.02 },
+	-- width x the wider of lower and upper leg; overlap = how far past the knee (x lower leg); toeReach = studs
+	-- past the toes; shaftBack = where the TRELLIS boot's shaft sits behind its middle (x its length)
+	bootMesh = { width = 1.12, overlap = 0.04, toeReach = 0.12, shaftBack = 0.173 },
+	packMesh = { scale = 1.03, lift = 0 }, -- lift x UpperTorso height
+	hatMesh = { scale = 1.0, lift = 0 }, -- scale x head width; lift x head height
+	-- colours of the Blender-built gear, per model and part (ServerStorage.GearMeshes)
+	meshLook = {
+		hat = {
+			cuff = { color = Color3.fromRGB(240, 156, 22), material = Enum.Material.Fabric },
+			body = { color = Color3.fromRGB(255, 192, 36), material = Enum.Material.Fabric },
+			pom = { color = Color3.fromRGB(252, 250, 244), material = Enum.Material.Fabric },
+			badge = { color = Color3.fromRGB(255, 200, 52), material = Enum.Material.Metal },
+			stars = { color = Color3.fromRGB(255, 214, 70), material = Enum.Material.Metal },
+		},
+		frost_pack = {
+			body = { color = Color3.fromRGB(36, 190, 204), material = Enum.Material.Fabric },
+			dark = { color = Color3.fromRGB(22, 132, 152), material = Enum.Material.Fabric },
+			straps = { color = Color3.fromRGB(30, 40, 92), material = Enum.Material.Fabric },
+			steel = { color = Color3.fromRGB(205, 214, 228), material = Enum.Material.Metal },
+			ice = { color = Color3.fromRGB(150, 236, 255), material = Enum.Material.Glass, transparency = 0.2 },
+		},
+	},
 	-- the level-10 Frost Boots trail
 	aurora = ColorSequence.new({
 		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 126, 182)), ColorSequenceKeypoint.new(0.25, Color3.fromRGB(255, 210, 63)),
