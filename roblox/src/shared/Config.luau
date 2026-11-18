@@ -1459,7 +1459,9 @@ Config.mapFx = { gateBarsDrop = 23, -- the bars reach into the lintel now (2026-
 -- banked pets stay frozen: ice cubes in a neat grid on the pan, the pet inside wiggles a little,
 -- frost shimmers on the ice and a coin rises from each cube now and then
 Config.panCubes = { cols = 7, gap = 5, frontMargin = 7, backMargin = 3, maxSize = 4.2, wiggle = 0.06, wiggleSpeed = 2.2,
-	shimmerSpeed = 1.3, shimmerAmount = 0.12, coinEvery = 3.2, coinRise = 2.6, coinSize = 1.1, drawDistance = 120 }
+	shimmerSpeed = 1.3, shimmerAmount = 0.12, coinEvery = 3.2, coinRise = 2.6, coinSize = 1.1, drawDistance = 120,
+	-- in a Thaw Machine the ice clears this far at most (0 = solid, 1 = gone), so the pet stays in its cube until Claim
+	thawMeltMax = 0.45 }
 -- Coin pops (owner's reference clip 2026-11-07): every `every` seconds each thawed pet in your pan
 -- shoots a "+N" (the coin and what it earned in that time) out of the spot over its head, to one side
 -- and up, tilted that way; it hangs there drifting up a little, then shrinks and fades. Sides alternate

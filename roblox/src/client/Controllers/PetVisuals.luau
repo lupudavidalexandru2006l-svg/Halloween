@@ -1577,6 +1577,9 @@ local function step(dt: number)
 			end
 			-- done and waiting for Claim (Config.thaw.claimByHand): a green READY! sign bobs over it
 			local isReady = Config.thaw.claimByHand and root:GetAttribute("Thaw") == "machine" and thawLeft <= 0
+			if isReady then
+				amp = if reduced then 0.3 else 1 -- it waits calmly in its ice, no more shaking
+			end
 			if isReady and not b.ready then
 				local RS = Config.thaw.readySign
 				local g = Instance.new("BillboardGui")
@@ -1607,9 +1610,12 @@ local function step(dt: number)
 			end
 			local shimmer = math.sin(t * PC.shimmerSpeed * math.pi * 2 + b.phase * 2)
 			-- in the machine the ice clears away round the pet as its time runs out (owner 2026-11-16: "you should see
-			-- how your pet unfreezes"): the block fades to a faint glass and its edges melt off
-			local melted = 1 - thawLeft
-			root.Transparency = math.min(0.97, 0.5 + shimmer * PC.shimmerAmount * amp * thawLeft + 0.47 * melted)
+			-- how your pet unfreezes"): the block fades toward glass and its edges soften. Owner 2026-11-18: at the
+			-- end the cube vanished and the pet looked out but stuck in the machine, so it stays a clear ice cube
+			-- (never past PC.thawMeltMax), and once it's ready it's a full cube again until you Claim it
+			local melted = if isReady then 0 else math.min(1 - thawLeft, PC.thawMeltMax)
+			local iceLeft = if isReady then 1 else thawLeft
+			root.Transparency = math.min(0.97, 0.5 + shimmer * PC.shimmerAmount * amp * iceLeft + 0.47 * melted)
 			b.edges.Transparency = math.min(1, P.edgeTransparency - shimmer * 0.2 * amp + (1 - P.edgeTransparency) * melted)
 			local u = ((t + b.phase) % PC.coinEvery) / PC.coinEvery
 			b.coin.StudsOffset = Vector3.new(0, root.Size.Y / 2 + math.min(1, u * 2) * PC.coinRise, 0)
