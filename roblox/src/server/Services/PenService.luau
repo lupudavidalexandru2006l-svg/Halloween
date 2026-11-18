@@ -119,9 +119,11 @@ local function drawPen(player: Player, d: Data)
 		local st: string?, k = if p.thawM then "machine" else nil, p.thawM or 0
 		keep[p.id] = true
 		local def = PetDefs.get(p.key)
-		-- a Big ... Cosmic pet's cube is bigger too, up to Config.carrySizeMax x the usual cap so the grid stays clear
-		local big = Config.size(p.sz)
-		local s = if def then math.min(PetDefs.cube(def, p.sz), Config.panCubes.maxSize * (if big then math.min(big.scale, Config.carrySizeMax) else 1)) else 0
+		-- a Big ... Cosmic pet's cube is bigger too, up to Config.carrySizeMax x the usual cap so the grid stays clear.
+		-- In a Thaw Machine every cube is the normal size, so a big one still fits the machine (owner 2026-11-18;
+		-- carried cubes stay big)
+		local big = if st == "machine" then nil else Config.size(p.sz)
+		local s = if def then math.min(PetDefs.cube(def, if big then p.sz else nil), Config.panCubes.maxSize * (if big then math.min(big.scale, Config.carrySizeMax) else 1)) else 0
 		local at
 		if st == "machine" then
 			at = PenService.machineSpot(plot, k)
@@ -155,6 +157,7 @@ local function drawPen(player: Player, d: Data)
 			state.parts[p.id] = cube
 		end
 		if cube then
+			cube.Size = Vector3.one * s -- before Thaw below: the client redraws the pet from this size when Thaw changes
 			cube.CFrame = CFrame.new(at + Vector3.new(0, s / 2, 0)) * CFrame.Angles(0, math.pi, 0) -- facing the door (+Z): the pet inside shows its face, not its back
 			cube:SetAttribute("Plot", plot)
 			cube:SetAttribute("Thaw", st or "out")
