@@ -147,8 +147,13 @@ Config.upgrades = { -- baseCost = the price of level 2; each step costs x1.5 the
 	-- balance pass 2026-11-17 (owner: "you don't really need slots"): Slots are a quick early ladder, all 7 levels in
 	-- the first ~8 minutes, and KEPT through rebirth (no rebuild after every rebirth). prices[n] = level n+1's price.
 	-- Level 2 brings Thaw Machine 2, level 5 Thaw Machine 3 (Config.thaw.machinesAt).
-	pen = { name = "Pan", baseCost = 25, costGrowth = 2.5, maxLevel = 7, slotsPerLevel = 1, rebirthGrowth = 1,
-		prices = { 25, 100, 500, 1.5e3, 10e3, 25e3 } },
+	-- owner 2026-11-18: "way too easy, price them like Steal an Egg, fitted to our core loop". Steal an Egg's
+	-- trails (100, 5K, 75K, 1.5M, 30M, 750M: about x20 a step, the first one nearly free), fitted by pacing_sim
+	-- so each level lands in a gap between the other ladders (typical kid): Slots 2 at 0.5 min, 3 at 2 min,
+	-- 4 at 9 min (between Gear 1 and Freeze Gel), 5 at 40 min (after Rebirth 1), 6 at 77 min (after Rebirth 2),
+	-- 7 at about 2.8 h. Rebirths, islands and the last buy didn't move; no wait over 2 min in the first 10 min.
+	pen = { name = "Pan", baseCost = 100, costGrowth = 2.5, maxLevel = 7, slotsPerLevel = 1, rebirthGrowth = 1,
+		prices = { 100, 2.5e3, 200e3, 4e6, 150e6, 7.5e9 } },
 } :: { [string]: { [string]: any } }
 Config.upgradeIds = { "ray", "boots", "backpack", "pen" } -- every saved upgrade level
 -- what the coin Shop sells: nothing since the owner removed its Upgrades list (2026-11-05); levels already
@@ -1961,6 +1966,10 @@ Config.gearWear = {
 	vest = { main = Color3.fromRGB(40, 132, 235), dark = Color3.fromRGB(24, 60, 140) },
 	hat = { main = Color3.fromRGB(255, 186, 30), cuff = Color3.fromRGB(232, 150, 20) },
 	pack = { main = Color3.fromRGB(58, 150, 240), dark = Color3.fromRGB(30, 76, 160) }, -- Frost Pack (2026-11-17)
+	-- mesh sizes as multiples of the limb they sit on (ServerStorage.GearMeshes, 2026-11-18)
+	bootMesh = { width = 1.2, height = 3.6, length = 1.25 }, -- x foot size; the sole sits at the foot's bottom
+	packMesh = { width = 0.8, height = 0.95, depth = 0.75, lift = 0 }, -- x UpperTorso size
+	hatMesh = { width = 1.18, height = 1.3, depth = 1.18, bottom = 0.12 }, -- x Head size; bottom = cuff height above the head's middle
 	-- the level-10 Frost Boots trail
 	aurora = ColorSequence.new({
 		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 126, 182)), ColorSequenceKeypoint.new(0.25, Color3.fromRGB(255, 210, 63)),
@@ -2141,7 +2150,11 @@ Config.sell = {
 	maxPerSale = 500,
 	-- the popup (2026-11-09): pet tiles, columns to a row; rowAspect = a row's width / height; the card's
 	-- pet window is this share of the card's height
-	columns = 4, phoneColumns = 3, tileGap = 0.03, rowAspect = 3.1, windowHeight = 0.38,
+	columns = 4, phoneColumns = 3, tileGap = 0.03, rowAspect = 3.1, windowHeight = 0.34,
+	-- the card's buttons stack (owner 2026-11-18): each this share of its height; the Sell all Storage bar under
+	-- the tiles is this share of the popup body, this far below them; a sale's "Sold" line shows this long
+	buttonHeight = 0.13, storageBarHeight = 0.13, storageBarGap = 0.02, soldSeconds = 4,
+	cardTopPad = 0.022, -- the card's window starts this far down, level with the tiles' tops (they sit inside a padded list)
 }
 
 function Config.sellValue(income: number, mult: number?): number

@@ -2,8 +2,8 @@
 -- SellPopup (Round 4 phase 5): the contents of the Sell Booth popup. Left: your pets, identical ones
 -- (same pet, pose and mutation) grouped into one row with how many you have and what one sells for.
 -- Right: the picked group, what you get before you sell (Config.sellValue of the pet's own income),
--- "Sell 1" (Storage first, so your pan keeps earning) and "Sell extras" (all but one, in one go).
--- "Sell all" sells every Storage pet. Epic and up, and Sell all, ask "Sure?" first. Buttons send the pets' ids; SellService decides and pays.
+-- "Sell 1" (Storage first, so your pan keeps earning) with "Sell all" (every copy of it) stacked under it.
+-- Under the tiles, "Sell all Storage" sells every Storage pet. Epic and up, and Sell all Storage, ask "Sure?" first. Buttons send the pets' ids; SellService decides and pays.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
@@ -122,9 +122,7 @@ local function groupTile(h: EquipmentPopup.Helpers, parent: Instance, k: number,
 			s.Thickness = Config.ui.stroke + 2
 		end
 	end
-	if g.def.icon ~= "" then
-		Ui.image(tile.face, g.def.icon, UDim2.fromScale(0.8, 0.5), UDim2.fromScale(0.1, 0.06))
-	end
+	Ui.petPicture(tile.face, g.def, UDim2.fromScale(0.8, 0.5), UDim2.fromScale(0.1, 0.06)) -- the painting, or its 3D model
 	local name = Ui.label(tile.face, label(g.def, g.pose, g.mut, g.sz), UDim2.fromScale(0.92, 0.18), UDim2.fromScale(0.04, 0.56))
 	role(h, name, "tiny") -- one size for every tile's name (short names grew huge on "small")
 	pill(h, tile.face, `x{#g.ids}`, false, 0.62, 0.03, 0.34, 0.15)
@@ -140,10 +138,23 @@ local function line(h: EquipmentPopup.Helpers, l: GuiObject, order: number, s: s
 	return t
 end
 
-local function card(h: EquipmentPopup.Helpers, holder: Frame, g: Group, o: any, list: { Group })
+local function card(h: EquipmentPopup.Helpers, holder: Frame, g: Group, o: any)
 	local l = h.list(holder, false)
+	-- lined up with the left side (owner 2026-11-18: "make sure the buttons are positioned good"): the rows sit
+	-- at the bottom so the last button is level with the Sell all Storage bar, and the window grows to fill the
+	-- rest, so its top meets the tiles' top whatever the buttons below it
+	local layout = l:FindFirstChildOfClass("UIListLayout")
+	if layout then
+		layout.VerticalAlignment = Enum.VerticalAlignment.Bottom
+	end
+	local pad = Instance.new("UIPadding")
+	pad.PaddingTop = UDim.new(S.cardTopPad, 0)
+	pad.Parent = l
 	-- the pet big in a window glowing in its tier colour, its tier on a chip, then its name
 	local top = h.row(l, 0, S.windowHeight)
+	local grow = Instance.new("UIFlexItem")
+	grow.FlexMode = Enum.UIFlexMode.Fill
+	grow.Parent = top
 	local glow = Theme.tierGlow[g.def.tier] or Theme.ice
 	local win = Instance.new("Frame")
 	win.Name = "Window"
@@ -157,9 +168,7 @@ local function card(h: EquipmentPopup.Helpers, holder: Frame, g: Group, o: any, 
 	grad.Color = ColorSequence.new(Theme.white, glow)
 	grad.Parent = win
 	win.Parent = top
-	if g.def.icon ~= "" then
-		Ui.image(win, g.def.icon, UDim2.fromScale(0.8, 0.86), UDim2.fromScale(0.1, 0.07))
-	end
+	Ui.petPicture(win, g.def, UDim2.fromScale(0.8, 0.86), UDim2.fromScale(0.1, 0.07))
 	local tierRow = h.row(l, 1, 0.07)
 	local tierChip = Instance.new("Frame")
 	tierChip.Name = "Tier"
@@ -174,19 +183,26 @@ local function card(h: EquipmentPopup.Helpers, holder: Frame, g: Group, o: any, 
 	tierChip.Parent = tierRow
 	local nm = Ui.label(h.row(l, 2, 0.1), label(g.def, g.pose, g.mut, g.sz), UDim2.fromScale(1, 0.9), UDim2.fromScale(0, 0.05))
 	role(h, nm, "title")
-	line(h, l, 3, `You have {#g.ids}` .. (if g.inPan > 0 then `  ({g.inPan} in your pan)` else ""), nil, "small")
+	-- a sale just now shows here for a moment, in place of the count (an extra row pushed the buttons off the card)
+	local sale = lastSale
+	if sale and os.clock() - sale.at < S.soldSeconds then
+		line(h, l, 3, `Sold {sale.count}: +{Ui.commas(sale.coins)} coins`, Theme.go, "small")
+	else
+		line(h, l, 3, `You have {#g.ids}` .. (if g.inPan > 0 then `  ({g.inPan} in your pan)` else ""), nil, "small")
+	end
 	local ask = o.data.ask
 	if ask then
 		-- Epic and up: say yes first, seeing exactly what you get
 		line(h, l, 4, if ask.all then `Sell all {ask.n} for {Ui.commas(ask.total)} coins?` else `Sell {ask.n} for {Ui.commas(ask.n * g.value)} coins?`, Theme.no, "body")
-		local r = h.row(l, 5, 0.2)
-		local yes = h.button(r, Theme.go, "Yes, sell", 0.04, 0.44, function()
+		-- the same height as the sell buttons, edge to edge like them, the last one level with the Storage bar
+		local r = h.row(l, 5, S.buttonHeight)
+		local yes = h.button(r, Theme.go, "Yes, sell", 0, 0.48, function()
 			State.send("SellPets", ask.ids, true)
 			o.data.ask = nil
 			h.refresh()
 		end)
 		yes.root.Name = "Yes"
-		local keep = h.button(r, Theme.no, "Keep", 0.52, 0.44, function()
+		local keep = h.button(r, Theme.no, "Keep", 0.52, 0.48, function()
 			o.data.ask = nil
 			h.refresh()
 		end)
@@ -202,45 +218,43 @@ local function card(h: EquipmentPopup.Helpers, holder: Frame, g: Group, o: any, 
 			State.send("SellPets", ids)
 		end
 	end
-	local r = h.row(l, 5, 0.16)
-	-- "Sell all but one" only when it sells more than one: with 2 pets it was the same as "Sell 1", so the
-	-- card showed two "Sell 1" buttons (owner 2026-11-09)
-	local extras = table.clone(g.ids)
-	table.remove(extras) -- keep one (a pan one if any, since those sort last)
-	local two = #extras >= 2
-	local one = h.button(r, Theme.coin, `Sell 1  +{Ui.short(g.value)}`, 0, if two then 0.48 else 1, function()
+	-- owner 2026-11-18: the buttons stack, "Sell all" under "Sell 1" (not beside it), each the card's full width.
+	-- "Sell all" (owner 2026-11-17) = every copy of this pet; only when there's more than one, or it's "Sell 1" again.
+	local one = h.button(h.row(l, 4, S.buttonHeight), Theme.coin, `Sell 1  +{Ui.short(g.value)}`, 0, 1, function()
 		sell({ g.ids[1] }) -- Storage ones first
 	end)
 	one.root.Name = "SellOne"
 	o.first = one.face
-	if two then
-		local all = h.button(r, Theme.coin, `Sell {#extras}  +{Ui.short(#extras * g.value)}`, 0.52, 0.48, function()
-			sell(extras)
+	if #g.ids >= 2 then
+		local ids = table.clone(g.ids)
+		local all = h.button(h.row(l, 5, S.buttonHeight), Theme.coin, `Sell all {#ids}  +{Ui.short(#ids * g.value)}`, 0, 1, function()
+			sell(ids)
 		end)
 		all.root.Name = "SellExtras"
 	end
-	-- owner 2026-11-17: Sell All = every pet in Storage in one go (the pan's pets keep earning, so they stay).
-	-- It always asks "Sure?" first with the total, since it can't be undone.
-	local allIds: { string } = {}
-	local allTotal = 0
-	for _, gg in list do
-		for n = 1, math.min(#gg.ids - gg.inPan, S.maxPerSale - #allIds) do -- Storage ones come first in each group
-			table.insert(allIds, gg.ids[n])
-			allTotal += gg.value
+end
+
+-- the bar under the pet tiles: Sell all Storage = every pet in Storage in one go (owner 2026-11-17, confirmed
+-- 2026-11-18: the pan's pets keep earning, so they stay). It always asks "Sure?" with the total first, since it
+-- can't be undone. With Storage empty it stays, greyed out, so the player knows it's there.
+local function storageBar(h: EquipmentPopup.Helpers, holder: Frame, list: { Group }, o: any)
+	local ids: { string } = {}
+	local total = 0
+	for _, g in list do
+		for n = 1, math.min(#g.ids - g.inPan, S.maxPerSale - #ids) do -- Storage ones come first in each group
+			table.insert(ids, g.ids[n])
+			total += g.value
 		end
 	end
-	if #allIds >= 1 then
-		local ar = h.row(l, 6, 0.16)
-		local sellAll = h.button(ar, Theme.coin, `Sell all {#allIds}  +{Ui.short(allTotal)}`, 0, 1, function()
-			o.data.ask = { ids = allIds, n = #allIds, total = allTotal, all = true }
-			h.refresh()
-		end)
-		sellAll.root.Name = "SellAll"
-	end
-	local sale = lastSale
-	if sale and os.clock() - sale.at < 4 then
-		line(h, l, 7, `Sold {sale.count}: +{Ui.commas(sale.coins)} coins`, Theme.go, "body")
-	end
+	local empty = #ids == 0
+	local b = h.button(holder, if empty then Theme.tutorial.skip else Theme.go, if empty then "Sell all Storage  (Storage is empty)" else `Sell all Storage ({#ids})  +{Ui.short(total)}`, 0, 1, function()
+		if empty then
+			return
+		end
+		o.data.ask = { ids = ids, n = #ids, total = total, all = true }
+		h.refresh()
+	end)
+	b.root.Name = "SellAll" -- h.button's own spot in the row: the same height as the card's buttons
 end
 
 function SellPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
@@ -273,9 +287,19 @@ function SellPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
 	local left = Instance.new("Frame")
 	left.Name = "Pets"
 	left.BackgroundTransparency = 1
-	left.Size = UDim2.fromScale(0.56, 1)
+	left.Size = UDim2.fromScale(0.56, 1 - S.storageBarHeight - S.storageBarGap)
 	left.Parent = o.body
 	local l = h.list(left, true)
+	-- the bar spans exactly the tile grid: the list's inset on each side, less its scroll bar's strip on the right
+	local inset = 0.56 * Config.ui.listInset
+	local strip = if l:IsA("ScrollingFrame") then l.ScrollBarThickness else 0
+	local bar = Instance.new("Frame")
+	bar.Name = "StorageBar"
+	bar.BackgroundTransparency = 1
+	bar.Position = UDim2.new(inset, 0, 1 - S.storageBarHeight, 0)
+	bar.Size = UDim2.new(0.56 - 2 * inset, -strip, S.storageBarHeight, 0)
+	bar.Parent = o.body
+	storageBar(h, bar, list, o)
 	-- tiles, S.columns to a row (each row sized from its width, so the scrolling list measures it)
 	local r: Frame? = nil
 	for n, g in list do
@@ -291,7 +315,7 @@ function SellPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
 	right.Position = UDim2.fromScale(0.59, 0)
 	right.Size = UDim2.fromScale(0.41, 1)
 	right.Parent = o.body
-	card(h, right, picked :: Group, o, list)
+	card(h, right, picked :: Group, o)
 end
 
 function SellPopup.Init() end

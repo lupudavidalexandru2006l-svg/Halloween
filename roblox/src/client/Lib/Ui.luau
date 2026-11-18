@@ -118,6 +118,68 @@ function Ui.image(parent: Instance, image: string, size: UDim2, pos: UDim2, silh
 	return i
 end
 
+-- a pet's picture in a list or card (owner 2026-11-17 night: "the pearlsnail doesn't have an image in the pets UI"):
+-- its painted sprite when it has one (def.icon), else its own 3D model standing in a little window, turned a
+-- bit to the side so it has depth. silhouette = the dark shape only (a pet not found yet in the Index).
+function Ui.petPicture(parent: Instance, def: any, size: UDim2, pos: UDim2, silhouette: boolean?): GuiObject?
+	if def.icon and def.icon ~= "" then
+		return Ui.image(parent, def.icon, size, pos, silhouette)
+	end
+	local models = ReplicatedStorage:FindFirstChild("PetModels")
+	local src = models and models:FindFirstChild(def.model or def.key)
+	if not (src and src:IsA("Model")) then
+		-- no painting and no model yet: a ball in the pet's own colour, like its stand-in in the world
+		local ball = Instance.new("Frame")
+		ball.Name = "Icon"
+		ball.BackgroundColor3 = if silhouette then Theme.silhouette elseif typeof(def.color) == "Color3" then def.color else Theme.info
+		ball.BorderSizePixel = 0
+		ball.Size = UDim2.fromScale(size.X.Scale * 0.7, size.Y.Scale * 0.7)
+		ball.AnchorPoint = Vector2.new(0.5, 0.5)
+		ball.Position = UDim2.fromScale(pos.X.Scale + size.X.Scale / 2, pos.Y.Scale + size.Y.Scale / 2)
+		local ba = Instance.new("UIAspectRatioConstraint")
+		ba.Parent = ball
+		Ui.corner(ball, 1)
+		Ui.stroke(ball)
+		ball.Parent = parent
+		return ball
+	end
+	local vf = Instance.new("ViewportFrame")
+	vf.Name = "Icon"
+	vf.BackgroundTransparency = 1
+	vf.Size = size
+	vf.AnchorPoint = Vector2.new(0.5, 0.5)
+	vf.Position = UDim2.fromScale(pos.X.Scale + size.X.Scale / 2, pos.Y.Scale + size.Y.Scale / 2)
+	vf.Ambient = Theme.ink:Lerp(Theme.white, 0.55)
+	vf.LightColor = Theme.white
+	vf.LightDirection = Vector3.new(1, -1, -1)
+	if silhouette then
+		vf.ImageColor3 = Theme.silhouette
+		vf.Ambient = Color3.new(0, 0, 0)
+		vf.LightColor = Color3.new(0, 0, 0)
+	end
+	local a = Instance.new("UIAspectRatioConstraint")
+	a.AspectRatio = 1
+	a.Parent = vf
+	local m = src:Clone()
+	for _, d in m:GetDescendants() do
+		if d:IsA("BaseScript") or d:IsA("Sound") or d:IsA("ParticleEmitter") then
+			d:Destroy()
+		end
+	end
+	m:PivotTo(CFrame.Angles(0, math.rad(Config.ui.petPictureYaw or 30), 0))
+	local cf, ext = m:GetBoundingBox()
+	local r = math.max(ext.X, ext.Y, ext.Z)
+	local cam = Instance.new("Camera")
+	cam.FieldOfView = 30
+	-- PetVisuals turns models to face the camera the same way: look at the pet's middle from the front, a little above
+	cam.CFrame = CFrame.lookAt(cf.Position + Vector3.new(0, r * 0.35, -r * 2.1), cf.Position)
+	cam.Parent = vf
+	vf.CurrentCamera = cam
+	m.Parent = vf
+	vf.Parent = parent
+	return vf
+end
+
 export type Block = { root: Frame, face: TextButton, text: TextLabel }
 
 -- the face's dressing: a lighter top fading into the colour, a soft shade toward the lip, and a thin

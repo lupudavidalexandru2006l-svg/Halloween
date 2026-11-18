@@ -50,6 +50,7 @@ def sim(P, hours=12, seed=1, kid=KID, stop=None, dt=1.0):
     def income(): return sum(pan[:nslots()]) * mult()
     def plevel(): return sum(1 for n in P['needs'] if 0 < n <= S['power'])
     def slots_cost():
+        if P.get('slots_prices'): return P['slots_prices'][S['slots'] - 1]  # Config.upgrades.pen.prices
         return nice(P['slots_base'] * P['slots_growth'] ** (S['slots'] - 1) * P['slots_rgrowth'] ** S['reb'])
     def shop():
         it = []
@@ -78,7 +79,7 @@ def sim(P, hours=12, seed=1, kid=KID, stop=None, dt=1.0):
             rc = rebirth_cost()
             cheap = items[0] if items else (math.inf, None)
             if want_rebirth() and S['coins'] >= rc and (cheap[0] > rc * 0.4 or S['slots'] >= 7):
-                S['coins'] = 0; S['power'] = 0; S['reb'] += 1; S['slots'] = 1; ev(f"rebirth{S['reb']}"); continue
+                S['coins'] = 0; S['power'] = 0; S['reb'] += 1; S['slots'] = S['slots'] if P.get('slots_keep') else 1; ev(f"rebirth{S['reb']}"); continue
             if want_rebirth() and cheap[0] > rc * 0.4 and cheap[0] <= S['coins']:
                 break  # saving for the rebirth
             if cheap[1] and S['coins'] >= cheap[0]:
@@ -138,7 +139,7 @@ def sim(P, hours=12, seed=1, kid=KID, stop=None, dt=1.0):
                         S['coins'] += pinc * 300 * mult()
                     trip_left += max(MINFREEZE[best], fz * 2.2 / speed)
                 trip_left += walk + kid['overhead'] + 3 * (cap - 1)
-        nm = 2 if S['slots'] >= 3 else 1
+        nm = sum(1 for a in P.get('machines_at', [1, 3]) if S['slots'] >= a)  # Config.thaw.machinesAt
         machines = [(m - dt, inc) for m, inc in machines]
         for m, inc in machines:
             if m <= 0: pan.append(inc)
@@ -202,7 +203,7 @@ FINAL = dict(
     level_value=1, needs=[0, 900, 10e3, 40e3, 170e3, 700e3, 2.5e6, 18e6, 700e6, 2.5e9],
     base=5, floor=450, tmult=[1, 2, 3, 4, 6, 20, 75, 200, 600, 2000],
     # owner 2026-11-17: Common / Uncommon thaw in 2 / 4 s; Looks come with Slots level 7 (not bought)
-    thaw_s=[2, 4, 20, 60, 150, 480, 1200], free_looks=True,
+    thaw_s=[2.6, 5.2, 26, 78, 195, 624, 1560], free_looks=True,  # every thaw x1.3 (owner 2026-11-17 night)
     # coin pass 2026-11-17 (keep the 10.4 h runway), then the late-game pass (each stage harder than the last)
     guns=[0, 40e3, 2e6, 25e6, 250e6, 5e9, 25e9, 750e9, 2.5e12, 40e12],
     trainer=[0, 15e3, 2e6, 1.2e9, 15e9, 400e9, 1.2e12, 4e12, 7.5e12, 50e12],
@@ -210,6 +211,8 @@ FINAL = dict(
     looks=[0, 500e3, 30e6, 7.5e9, 6e12],
     gear=[250e3, 1.5e6, 30e6, 2e9, 2e12],
     gel=1e6, slots_base=50, slots_growth=2.5, slots_rgrowth=15,
+    # Slots pass 2026-11-18: Config.upgrades.pen.prices, kept through rebirth; Thaw Machines at Slots 1 / 2 / 5
+    slots_prices=[100, 2.5e3, 200e3, 4e6, 150e6, 7.5e9], slots_keep=True, machines_at=[1, 2, 5],
     rebirth=[5e6, 250e6, 5e9, 15e9, 250e9, 500e9, 25e12],
     # Config.sizes (2026-11-17 size chart), rarest first: (chance, income x, thaw x), Cosmic down to Big
     sizes=[(0.000081, 343.33, 6), (0.0002, 165.48, 5), (0.0005, 79.76, 4), (0.0013, 38.44, 3), (0.0032, 18.53, 2.5),

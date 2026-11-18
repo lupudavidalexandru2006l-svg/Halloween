@@ -55,7 +55,12 @@ $head]$eq]
 			return "REFUSED: changed in Studio (not the repo's last commit); pull it into the repo first, or -Force"
 		end
 		if not child then child = Instance.new("$class") child.Name = n child.Parent = node end
-		child.Source = new
+		-- Source can't be set to 200 KB or more (Config is past it); the script editor's own update has no such cap
+		if #new >= 200000 then
+			game:GetService("ScriptEditorService"):UpdateSourceAsync(child, function() return new end)
+		else
+			child.Source = new
+		end
 		return "ok " .. child:GetFullName() .. " " .. #child.Source
 	end
 	if not child then child = Instance.new("Folder") child.Name = n child.Parent = node end
