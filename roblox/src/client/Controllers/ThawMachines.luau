@@ -445,7 +445,7 @@ local function scanModels()
 			end
 		end
 		if f then
-			for m = 1, 2 do
+			for m = 1, #Config.thaw.machinesAt do
 				local model = f:FindFirstChild("ThawMachine" .. m)
 				if model and model:IsA("Model") and not machines[model] then
 					local mc = setup(model, i, m)
@@ -472,7 +472,8 @@ local function hidden(mc: Machine): boolean
 		end
 		plotParts[mc.plot] = plot
 	end
-	return plot:GetAttribute("Machines") ~= 2
+	local n = plot:GetAttribute("Machines")
+	return (if typeof(n) == "number" then n else 1) < mc.m
 end
 
 local function sleep(mc: Machine)
@@ -502,7 +503,7 @@ local function timerFor(mc: Machine): (BillboardGui, TextLabel, Frame)
 	-- high over the machine, above its "Thaw a pet" prompt (QA 2026-11-16: at 1.6 the prompt covered it)
 	-- Roblox turns this offset with the adornee, and the core is a cylinder lying on its side (owner 2026-11-16:
 	-- the timer floated to the left of the machine), so "up" is given in the core's own axes
-	-- TopY: the machine's own top (PenService), since its invisible PadBlock wall is far taller (QA 2026-11-17)
+	-- TopY: the machine's own top (PenService), kept apart from its invisible PadBlock (QA 2026-11-17)
 	local topY = mc.model:GetAttribute("TopY")
 	local top = if typeof(topY) == "number" then topY else cf.Position.Y + size.Y / 2
 	local up = top + Config.thaw.timerSign.lift - mc.core.Position.Y

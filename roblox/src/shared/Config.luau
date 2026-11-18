@@ -864,10 +864,12 @@ export type RayCue = { at: number, sound: string?, fx: string?, kick: string? }
 
 Config.world = {
 	maxPlayers = 6, -- one pan per server slot. Owner item: Server Size 6 in Game Settings > Places
-	mapVersion = 30, -- 30 = the Feedback mailbox by the gift, 29 = a third Thaw Machine in every pan (2026-11-17), -- 28 = gate curtains with a padlock instead of ice bars, sun patches spread out (owner 2026-11-17), 27 = the fall catcher in tiles, so the hub and the end of Magma Core are covered too (QA IR-05), 26 = at most 3 lava pools per island, each in its own stretch (owner 2026-11-13), 25 = vivid colours and the giant outside decor per island (MapSpectacle, owner 2026-11-13), 24 = solid scenery (MapArt.solidify: everything you can see blocks you), 23 = smaller outside (MapArt farScenery: ground and peaks only as big as the camera needs), 22 = pan fence walls only fence-high, so you can jump them, 21 = solid pan fences (invisible PanFence walls; the gate is the only way in), 20 = Cold Power trainers in every pan (TrainingService builds them; the rink door, its beacon and the right flower box are gone, Equipment back by the tunnel mouth), 19 = open plaza: no fountain, no paved boulevard, no spawn pad, 18 = the Sell and Equipment booths no longer run into the village wall, 17 = map pass 2026-11-10 (rink door in front, its beacon, bigger snowman and waterfall), 16 = the Training Rink's door. Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges, 6 = bigger square pans, 7 = pans measured against the real avatar, 8 = open gaps, open ground behind, level pans, 9 = no flush overlapping surfaces, 10 = booth details: sign bulbs, log ends, scalloped awnings, chalk coin, 11 = wide tunnel and big entrance for big pets, a clean road, 12 = booths shaped like what they do: treasure chest, gear workshop, ring portal, 13 = the detailed sci-fi Thaw Machine, 14 = each world's own gate towers, 15 = never-visible buried parts left out (PERF-AUDIT-2026-11-09))
+	mapVersion = 31, -- 31 = a wider hub with more room between the pans (owner 2026-11-18), 30 = the Feedback mailbox by the gift, 29 = a third Thaw Machine in every pan (2026-11-17), -- 28 = gate curtains with a padlock instead of ice bars, sun patches spread out (owner 2026-11-17), 27 = the fall catcher in tiles, so the hub and the end of Magma Core are covered too (QA IR-05), 26 = at most 3 lava pools per island, each in its own stretch (owner 2026-11-13), 25 = vivid colours and the giant outside decor per island (MapSpectacle, owner 2026-11-13), 24 = solid scenery (MapArt.solidify: everything you can see blocks you), 23 = smaller outside (MapArt farScenery: ground and peaks only as big as the camera needs), 22 = pan fence walls only fence-high, so you can jump them, 21 = solid pan fences (invisible PanFence walls; the gate is the only way in), 20 = Cold Power trainers in every pan (TrainingService builds them; the rink door, its beacon and the right flower box are gone, Equipment back by the tunnel mouth), 19 = open plaza: no fountain, no paved boulevard, no spawn pad, 18 = the Sell and Equipment booths no longer run into the village wall, 17 = map pass 2026-11-10 (rink door in front, its beacon, bigger snowman and waterfall), 16 = the Training Rink's door. Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges, 6 = bigger square pans, 7 = pans measured against the real avatar, 8 = open gaps, open ground behind, level pans, 9 = no flush overlapping surfaces, 10 = booth details: sign bulbs, log ends, scalloped awnings, chalk coin, 11 = wide tunnel and big entrance for big pets, a clean road, 12 = booths shaped like what they do: treasure chest, gear workshop, ring portal, 13 = the detailed sci-fi Thaw Machine, 14 = each world's own gate towers, 15 = never-visible buried parts left out (PERF-AUDIT-2026-11-09))
 	hubZMax = 0, -- the tunnel mouth: the hub is z < 0 (no wild pets, no heat)
-	-- wide enough for the row of six pans plus 10 studs at each end; zMin is worked out below (behind the pans' backSpace)
-	hub = { xMin = -150, xMax = 150, zMin = 0, wallHeight = 16, colliderHeight = 60 },
+	-- the row of six pans plus sideSpace of open ground at each end (owner 2026-11-18: "more space in the safe
+	-- zone, wider on the sides, we will add more things"; was 10, a 300-wide hub). xMin / xMax / zMin are
+	-- worked out below (zMin behind the pans' backSpace)
+	hub = { xMin = 0, xMax = 0, zMin = 0, sideSpace = 50, wallHeight = 16, colliderHeight = 60 },
 	spawn = Vector3.new(0, 3, -34),
 	spawnPadRadius = 6,
 	-- owner 2026-11-15: "spawn you in front of your pan": studs out from the pan's hub-side edge, facing it
@@ -878,7 +880,8 @@ Config.world = {
 	-- tall, 3.3 across the arms) and the reference's 4-stud floor tiles: width about 7 avatar heights,
 	-- depth 1.1 x width, door 0.4 x width, gap 0.2 x width, about one width of open ground behind,
 	-- fence about shoulder high (0.8 avatar heights)
-	pans = { width = 40, length = 44, gap = 8, frontZ = -62, soilHeight = 0.2, backSpace = 40, doorWidth = 16, fenceHeight = 4.5, wallHeight = 5.2, -- wallHeight: the fences' invisible walls, as tall as the fence (top 4.7 + caps): you can't walk through, but a jump clears it
+	-- gap: 16 since 2026-11-18 (owner: a more spacious hub; was 8, 0.2 x width)
+	pans = { width = 40, length = 44, gap = 16, frontZ = -62, soilHeight = 0.2, backSpace = 40, doorWidth = 16, fenceHeight = 4.5, wallHeight = 5.2, -- wallHeight: the fences' invisible walls, as tall as the fence (top 4.7 + caps): you can't walk through, but a jump clears it
 		signY = 6.5, gaugeOffset = -16.5, boothOffset = -11 }, -- the gauge and the Pan Upgrades stand left of the door (x from the lane's middle); right of it stands the Cold Power trainer (Config.training.spot)
 	-- owner 2026-11-07: bigger pets are coming, so the tunnel is wide (about 34 avatar widths, was 22)
 	-- and the entrance and the island gates are scaled up with it (archScale: their towers, roofs and
@@ -1020,6 +1023,8 @@ do
 	end
 	W.penSize = Vector3.new(P.width, 1, P.length)
 	W.hub.zMin = P.frontZ - P.length - P.backSpace
+	W.hub.xMax = row / 2 + W.hub.sideSpace
+	W.hub.xMin = -W.hub.xMax
 	-- the tunnel's sections: one per open island, end to end from the mouth
 	local z = W.hubZMax
 	for _, isl in W.islands do
@@ -1967,9 +1972,11 @@ Config.gearWear = {
 	hat = { main = Color3.fromRGB(255, 186, 30), cuff = Color3.fromRGB(232, 150, 20) },
 	pack = { main = Color3.fromRGB(58, 150, 240), dark = Color3.fromRGB(30, 76, 160) }, -- Frost Pack (2026-11-17)
 	-- mesh sizes as multiples of the limb they sit on (ServerStorage.GearMeshes, 2026-11-18)
-	bootMesh = { width = 1.2, height = 3.6, length = 1.25 }, -- x foot size; the sole sits at the foot's bottom
+	-- width x the wider of foot and lower leg, length x foot; height = foot + legShare of the lower leg (feet and lower legs are hidden under it)
+	bootMesh = { width = 1.3, length = 1.2, legShare = 0.85 },
 	packMesh = { width = 0.8, height = 0.95, depth = 0.75, lift = 0 }, -- x UpperTorso size
-	hatMesh = { width = 1.18, height = 1.3, depth = 1.18, bottom = 0.12 }, -- x Head size; bottom = cuff height above the head's middle
+	-- x Head size (hair is hidden under it); bottom = cuff height above the head's middle
+	hatMesh = { width = 1.2, height = 1.2, depth = 1.2, bottom = 0.02 },
 	-- the level-10 Frost Boots trail
 	aurora = ColorSequence.new({
 		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 126, 182)), ColorSequenceKeypoint.new(0.25, Color3.fromRGB(255, 210, 63)),
@@ -2377,8 +2384,10 @@ Config.thaw = {
 	tickSeconds = 0.25,
 	-- machine 1 from the middle of the pan's back fence (x across, z toward the door); machine 2 is gap
 	-- further right. padTop: the cube sits on the raised heat pad this high. haloY / haloRadius: the
-	-- floating ring over the pad (MapArt builds it, ThawMachines spins it)
-	machine = { x = -6.25, z = 5.5, gap = 8.5, padTop = 0.75, haloY = 6.5, haloRadius = 2.55 },
+	-- floating ring over the pad (MapArt builds it, ThawMachines spins it). standTop: how high the invisible
+	-- PadBlock over the pad reaches, just over the halo (top 6.82 at its bob), so you can jump onto the machine
+	-- and on up to the arm and the tower's top (owner 2026-11-18), but never stand down on the pad (QA PT-05)
+	machine = { x = -6.25, z = 5.5, gap = 8.5, padTop = 0.75, haloY = 6.5, haloRadius = 2.55, standTop = 7 },
 	queueGap = 3.4, queueX = 2.4, queueFrom = 5.5, -- waiting cubes line up along the left fence (queueX in from it), from the machine toward the door
 	queueShown = 8, -- at most this many waiting cubes are drawn
 	-- owner 2026-11-13: a pet whose time is up waits in its machine until you press Claim there (a READY!

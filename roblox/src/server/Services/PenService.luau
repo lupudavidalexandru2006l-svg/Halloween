@@ -760,16 +760,18 @@ local function machinePrompts()
 			if not model:FindFirstChild("PadBlock") then
 				-- QA 2026-11-17: the heat pad was open to walk on, so you could stand inside the machine (under the
 				-- halo, between the pylons) and the camera pulled in to 2 studs and filled the screen with it. An
-				-- invisible wall round the deck keeps feet off it; CanQuery off, so the camera and the ray ignore it.
-				-- It is far taller than any jump (one 8.5 tall was jumped onto), so the machine's own top is kept in TopY
-				-- for the timer sign over it (ThawMachines).
+				-- invisible block over the deck keeps feet off it; CanQuery off, so the camera and the ray ignore it.
+				-- Owner 2026-11-18 "make it so you can jump on thaw machines": it was a 40-stud wall, now its top is
+				-- just over the halo (standTop), a floor you jump onto and climb on from (arm, tower top). The
+				-- machine's own top is kept in TopY for the timer sign over it (ThawMachines).
 				local bcf, bsize = model:GetBoundingBox()
 				model:SetAttribute("TopY", bcf.Position.Y + bsize.Y / 2)
+				local T = Config.thaw.machine
 				local block = Instance.new("Part")
 				block.Name = "PadBlock"
 				block.Shape = Enum.PartType.Cylinder
-				block.Size = Vector3.new(40, 7.6, 7.6) -- the deck is 7.4 across
-				block.CFrame = CFrame.new(core.Position.X, core.Position.Y - Config.thaw.machine.padTop + 20, core.Position.Z) * CFrame.Angles(0, 0, math.pi / 2)
+				block.Size = Vector3.new(T.standTop, 7.6, 7.6) -- the deck is 7.4 across
+				block.CFrame = CFrame.new(core.Position.X, core.Position.Y - T.padTop + T.standTop / 2, core.Position.Z) * CFrame.Angles(0, 0, math.pi / 2)
 				block.Anchored = true
 				block.Transparency = 1
 				block.CanQuery = false
