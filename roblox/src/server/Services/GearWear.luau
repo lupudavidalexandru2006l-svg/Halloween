@@ -1,22 +1,27 @@
 --!strict
 -- GearWear (owner 2026-11-15: "actual models for the gear so you can see it on your character"): every
 -- gear you own (the player's Gear_<key> attributes, GearService) is worn on your avatar, seen by everyone.
---  Magnet Gloves: red armoured gauntlets, a horseshoe magnet with a crackling ice bolt on each hand.
---  Ice Skates: turquoise skates with fur cuffs, gold laces, steel blades and a heel booster puffing mist.
---  Frost Boots: purple armoured boots, ice crystal spikes at toe and heel, fur cuffs. With skates too,
---  the boots get the skates' blades and boosters.
---  Cooling Vest: blue padded vest, glowing coolant tubes, two fans, a tank on the back, misty vents.
+--  Frost Boots (2026-11-17 rework): purple boots with fur cuffs that grow a new look every
+--  Config.gearBootsTierEvery levels: frost puffs, then sparkles and a glowing sole, then a glow ribbon
+--  trail and ice spikes, then crystal blades, then an aurora trail and little gold wings (level 10).
+--  Frost Pack: a chunky turquoise backpack with straps over the shoulders and an ice block on top, misty.
 --  Cozy Hat: a gold knitted beanie, a big pompom, a coin emblem and gold stars.
--- Built from parts sized off each limb (any avatar scale), welded, massless, no collisions or shadows.
+-- Meshes live in ServerStorage.GearMeshes (2026-11-18): boots, cap and pack are Blender-built Models (one MeshPart per colour, coloured from
+-- Config.gearWear.meshLook) scaled to the head / torso, their pivot = the Blender origin (head or torso
+-- centre), facing -Z. The boot level extras are parts on top. All welded, massless, no collisions or
+-- shadows. If a mesh is missing the old part-built shape is used.
+-- Worn gear replaces what it covers (owner 2026-11-18): the Cozy Cap hides hair and hat accessories, the
+-- Frost Boots hide the feet, lower legs and shoe accessories; taking the gear off shows them again.
 -- Looks only: what the gear does stays in GearService and Config.gearValue.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 
 local GearWear = {}
 local GW = Config.gearWear
-local KEYS = { "magnet_gloves", "ice_skates", "frost_boots", "cooling_vest", "cozy_hat" }
+local KEYS = { "frost_boots", "frost_pack", "cozy_hat" } -- gloves and vest removed (owner 2026-11-17)
 local UPRIGHT = CFrame.Angles(0, 0, math.pi / 2) -- a cylinder's length runs along X: stand it up
 local FACING = CFrame.Angles(0, math.pi / 2, 0) -- or point it forward / back (Z)
 
@@ -40,6 +45,79 @@ local function piece(model: Model, limb: BasePart, shape: Enum.PartType, size: V
 	w.Parent = p
 	p.Parent = model
 	return p
+end
+
+-- a clone of a GearMeshes Model, scaled, placed by its pivot and welded to the limb; each part coloured
+-- from Config.gearWear.meshLook[name][part]
+local function meshModel(model: Model, limb: BasePart, name: string, scale: number, at: CFrame): Model?
+	local folder = ServerStorage:FindFirstChild("GearMeshes")
+	local src = folder and folder:FindFirstChild(name)
+	if not (src and src:IsA("Model")) then
+		return nil
+	end
+	local g = src:Clone()
+	g:ScaleTo(scale)
+	g:PivotTo(limb.CFrame * at)
+	local looks = GW.meshLook[name] or {}
+	for _, p in g:GetChildren() do
+		if p:IsA("BasePart") then
+			local look = looks[p.Name]
+			if look then
+				p.Color = look.color
+				p.Material = look.material
+				p.Transparency = look.transparency or 0
+				p.Reflectance = look.reflectance or 0
+			end
+			p.Anchored = false
+			p.Massless = true
+			p.CanCollide, p.CanQuery, p.CanTouch, p.CastShadow = false, false, false, false
+			local w = Instance.new("WeldConstraint")
+			w.Part0 = limb
+			w.Part1 = p
+			w.Parent = p
+		end
+	end
+	g.Parent = model
+	return g
+end
+
+-- hide a body part or accessory handle under worn gear, remembering how see-through it was
+local function hide(part: BasePart, hidden: boolean)
+	local was = part:GetAttribute("GearWearShown")
+	if hidden then
+		if was == nil then
+			part:SetAttribute("GearWearShown", part.Transparency)
+		end
+		part.Transparency = 1
+	elseif typeof(was) == "number" then
+		part.Transparency = was
+		part:SetAttribute("GearWearShown", nil)
+	end
+end
+
+local HAIR_TYPES = { [Enum.AccessoryType.Hair] = true, [Enum.AccessoryType.Hat] = true }
+local SHOE_TYPES = { [Enum.AccessoryType.LeftShoe] = true, [Enum.AccessoryType.RightShoe] = true }
+
+-- cap on: hair and hats hidden; boots on: feet, lower legs and shoes hidden
+local function cover(c: Model, cap: boolean, boots: boolean)
+	for _, a in c:GetChildren() do
+		if a:IsA("Accessory") then
+			local handle = a:FindFirstChild("Handle")
+			if handle and handle:IsA("BasePart") then
+				if HAIR_TYPES[a.AccessoryType] then
+					hide(handle, cap)
+				elseif SHOE_TYPES[a.AccessoryType] then
+					hide(handle, boots)
+				end
+			end
+		end
+	end
+	for _, name in { "LeftFoot", "RightFoot", "LeftLowerLeg", "RightLowerLeg" } do
+		local limb = c:FindFirstChild(name)
+		if limb and limb:IsA("BasePart") then
+			hide(limb, boots)
+		end
+	end
 end
 
 local function block(m: Model, limb: BasePart, size: Vector3, at: CFrame, color: Color3, material: Enum.Material?): Part
@@ -80,53 +158,74 @@ local function sparkle(p: Part, color: Color3, mist: boolean?)
 	e.Parent = p
 end
 
-local function gloves(m: Model, c: Model)
-	local C = GW.gloves
-	for _, side in { -1, 1 } do
-		local hand = c:FindFirstChild(if side > 0 then "RightHand" else "LeftHand") :: BasePart?
-		if not hand then
-			continue
-		end
-		local H = hand.Size
-		local w = math.max(H.X, H.Z)
-		block(m, hand, Vector3.new(H.X * 1.15, H.Y * 0.78, H.Z * 1.15), CFrame.new(0, -H.Y * 0.06, 0), C.main)
-		ring(m, hand, H.Y * 0.42, w * 1.18, CFrame.new(0, H.Y * 0.4, 0), C.main)
-		glow(ring(m, hand, H.Y * 0.08, w * 1.22, CFrame.new(0, H.Y * 0.3, 0), GW.ice), GW.ice)
-		ring(m, hand, H.Y * 0.07, w * 1.24, CFrame.new(0, H.Y * 0.6, 0), GW.steel, Enum.Material.Metal)
-		-- silver knuckle plates along the bottom
-		for k = 1, 4 do
-			block(m, hand, Vector3.new(H.X * 0.3, H.Y * 0.2, H.Z * 0.22), CFrame.new(side * H.X * 0.45, -H.Y * 0.36, (k - 2.5) * H.Z * 0.27), GW.steel, Enum.Material.Metal)
-		end
-		-- the horseshoe magnet on the back of the hand, an ice bolt between its tips
-		local x = side * H.X * 0.66
-		for _, z in { -1, 1 } do
-			block(m, hand, Vector3.new(H.X * 0.16, H.Y * 0.36, H.Z * 0.16), CFrame.new(x, H.Y * 0.04, z * H.Z * 0.22), C.main)
-			block(m, hand, Vector3.new(H.X * 0.17, H.Y * 0.12, H.Z * 0.17), CFrame.new(x, H.Y * 0.26, z * H.Z * 0.22), GW.steel, Enum.Material.Metal)
-		end
-		block(m, hand, Vector3.new(H.X * 0.16, H.Y * 0.14, H.Z * 0.6), CFrame.new(x, -H.Y * 0.18, 0), C.dark)
-		local bolt = glow(block(m, hand, Vector3.new(H.X * 0.06, H.Y * 0.06, H.Z * 0.3), CFrame.new(x, H.Y * 0.26, 0), GW.ice), GW.ice)
-		sparkle(bolt, GW.ice)
-	end
+-- a ribbon behind a boot (Trail between two attachments on its sole)
+local function ribbon(p: Part, colors: ColorSequence, life: number)
+	local a0, a1 = Instance.new("Attachment"), Instance.new("Attachment")
+	a0.Position = Vector3.new(0, p.Size.Y * 0.5, 0)
+	a1.Position = Vector3.new(0, -p.Size.Y * 0.5, 0)
+	a0.Parent, a1.Parent = p, p
+	local t = Instance.new("Trail")
+	t.Attachment0, t.Attachment1 = a0, a1
+	t.Color = colors
+	t.LightEmission = 1
+	t.Transparency = NumberSequence.new(0.15, 1)
+	t.Lifetime = life
+	t.FaceCamera = true
+	t.Parent = p
 end
 
-local function feet(m: Model, c: Model, skates: boolean, boots: boolean)
+-- the Frost Boots at a level: tier = level // gearBootsTierEvery (0 at level 1, 5 at level 10)
+local function feet(m: Model, c: Model, level: number)
+	local tier = level // Config.gearBootsTierEvery
 	for _, side in { -1, 1 } do
 		local foot = c:FindFirstChild(if side > 0 then "RightFoot" else "LeftFoot") :: BasePart?
 		if not foot then
 			continue
 		end
 		local F = foot.Size
-		local main = if boots then GW.boots.main else GW.skates.main
-		local fur = if boots then GW.boots.fur else GW.fur
-		-- the shell, a rounded toe, the ankle and the fur cuff
-		block(m, foot, Vector3.new(F.X * 1.15, F.Y * 1.25, F.Z * 0.9), CFrame.new(0, F.Y * 0.1, F.Z * 0.08), main)
-		piece(m, foot, Enum.PartType.Cylinder, Vector3.new(F.X * 1.15, F.Y * 1.25, F.Y * 1.25), CFrame.new(0, F.Y * 0.1, -F.Z * 0.38), main)
-		ring(m, foot, F.Y * 1.6, F.X * 1.1, CFrame.new(0, F.Y * 1.2, F.Z * 0.14), main)
-		local cuff = ring(m, foot, F.Y * 0.42, F.X * 1.26, CFrame.new(0, F.Y * 2.0, F.Z * 0.14), fur, Enum.Material.Fabric)
-		if boots then
-			-- a steel strap with a buckle, ice crystal spikes at the toe and the heel
-			ring(m, foot, F.Y * 0.22, F.X * 1.2, CFrame.new(0, F.Y * 1.0, F.Z * 0.14), GW.steelDark, Enum.Material.Metal)
-			block(m, foot, Vector3.new(F.X * 0.4, F.Y * 0.36, F.Z * 0.08), CFrame.new(0, F.Y * 1.0, -F.Z * 0.24), GW.steel, Enum.Material.Metal)
+		local main, fur = GW.boots.main, GW.boots.fur
+		-- the boot (Blender-built Model, made round a reference lower leg), welded to the lower leg and scaled
+		-- so its sole sits on the foot's bottom and its fur cuff at the knee
+		local B = GW.bootMesh
+		local leg = c:FindFirstChild(if side > 0 then "RightLowerLeg" else "LeftLowerLeg") :: BasePart?
+		local boot: Model? = nil
+		if leg then
+			local sole = leg.CFrame:PointToObjectSpace((foot.CFrame * CFrame.new(0, -F.Y / 2, 0)).Position)
+			local s = (leg.Size.Y / 2 - sole.Y) / B.soleToKnee
+			boot = meshModel(m, leg, "frost_boot", s, CFrame.new(0, sole.Y + B.soleBelow * s, 0))
+		end
+		local shell = boot
+		local cuff: BasePart
+		if boot then
+			cuff = (boot:FindFirstChild("fur") or boot:FindFirstChildWhichIsA("BasePart")) :: BasePart
+		else
+			block(m, foot, Vector3.new(F.X * 1.15, F.Y * 1.25, F.Z * 0.9), CFrame.new(0, F.Y * 0.1, F.Z * 0.08), main)
+			piece(m, foot, Enum.PartType.Cylinder, Vector3.new(F.X * 1.15, F.Y * 1.25, F.Y * 1.25), CFrame.new(0, F.Y * 0.1, -F.Z * 0.38), main)
+			ring(m, foot, F.Y * 1.6, F.X * 1.1, CFrame.new(0, F.Y * 1.2, F.Z * 0.14), main)
+			cuff = ring(m, foot, F.Y * 0.42, F.X * 1.26, CFrame.new(0, F.Y * 2.0, F.Z * 0.14), fur, Enum.Material.Fabric)
+		end
+		if tier >= 1 then
+			sparkle(cuff, GW.fur, true) -- frost puffs
+		end
+		if tier >= 2 then
+			local sole = glow(block(m, foot, Vector3.new(F.X * 1.18, F.Y * 0.14, F.Z * 0.95), CFrame.new(0, -F.Y * 0.5, F.Z * 0.04), GW.ice), GW.ice)
+			sparkle(sole, GW.ice)
+			if tier >= 3 then
+				ribbon(sole, if tier >= 5 then GW.aurora else ColorSequence.new(GW.ice, GW.fur), if tier >= 5 then 0.6 else 0.35)
+			end
+		end
+		if tier >= 5 then
+			-- level 10: little gold wings at the heel
+			for _, up in { 0.55, 1.0 } do
+				block(m, foot, Vector3.new(F.X * 0.08, F.Y * 0.32, F.Z * 0.75 * up), CFrame.new(side * F.X * 0.66, F.Y * (0.9 + up * 0.5), F.Z * 0.3) * CFrame.Angles(-0.5, 0, side * 0.35), GW.gold, Enum.Material.Metal)
+			end
+		end
+		if tier >= 3 then
+			-- ice crystal spikes at the toe and the heel (the part-built boot also gets the mesh's strap and buckle)
+			if not shell then
+				ring(m, foot, F.Y * 0.22, F.X * 1.2, CFrame.new(0, F.Y * 1.0, F.Z * 0.14), GW.steelDark, Enum.Material.Metal)
+				block(m, foot, Vector3.new(F.X * 0.4, F.Y * 0.36, F.Z * 0.08), CFrame.new(0, F.Y * 1.0, -F.Z * 0.24), GW.steel, Enum.Material.Metal)
+			end
 			for k, spike in { { 0, -0.62, -0.5 }, { -0.3, -0.55, -0.3 }, { 0.3, -0.55, -0.3 }, { -0.25, 0.55, 0.45 }, { 0.25, 0.55, 0.45 } } do
 				local tilt = CFrame.Angles(spike[3], 0, spike[1] * 0.8)
 				local s = block(m, foot, Vector3.new(F.X * 0.2, F.Y * (if k == 1 then 0.9 else 0.7), F.X * 0.2), CFrame.new(spike[1] * F.X, F.Y * 0.35, spike[2] * F.Z) * tilt, GW.ice, Enum.Material.Neon)
@@ -134,14 +233,8 @@ local function feet(m: Model, c: Model, skates: boolean, boots: boolean)
 			end
 			sparkle(cuff, GW.ice)
 		end
-		if skates then
-			if not boots then
-				-- gold laces up the front
-				for k = 0, 2 do
-					block(m, foot, Vector3.new(F.X * 0.85, F.Y * 0.09, F.Z * 0.06), CFrame.new(0, F.Y * (0.7 + k * 0.4), -F.Z * 0.18) * CFrame.Angles(0, 0, (k % 2 - 0.5) * 0.4), GW.gold)
-				end
-			end
-			-- the blade on two struts, its ice edge, and the booster on the heel
+		if tier >= 4 then
+			-- crystal blades on two struts, an ice edge, and a booster on the heel
 			block(m, foot, Vector3.new(F.X * 0.14, F.Y * 0.16, F.Z * 1.35), CFrame.new(0, -F.Y * 0.72, -F.Z * 0.04), GW.steel, Enum.Material.Metal)
 			for _, z in { -0.36, 0.34 } do
 				block(m, foot, Vector3.new(F.X * 0.14, F.Y * 0.4, F.Z * 0.14), CFrame.new(0, -F.Y * 0.48, z * F.Z), GW.steelDark, Enum.Material.Metal)
@@ -155,30 +248,33 @@ local function feet(m: Model, c: Model, skates: boolean, boots: boolean)
 	end
 end
 
-local function vest(m: Model, c: Model)
+-- the Frost Pack: a backpack with an ice block in it
+local function pack(m: Model, c: Model)
 	local torso = c:FindFirstChild("UpperTorso") :: BasePart?
 	if not torso then
 		return
 	end
-	local T, C = torso.Size, GW.vest
-	block(m, torso, Vector3.new(T.X * 1.08, T.Y * 0.86, T.Z * 1.22), CFrame.new(0, -T.Y * 0.06, 0), C.main, Enum.Material.Fabric)
-	for _, s in { -1, 1 } do
-		block(m, torso, Vector3.new(T.X * 0.3, T.Y * 0.12, T.Z * 1.26), CFrame.new(s * T.X * 0.34, T.Y * 0.4, 0), C.dark)
-		-- a glowing coolant tube down each side of the front, a fan above it
-		glow(ring(m, torso, T.Y * 0.72, T.Z * 0.13, CFrame.new(s * T.X * 0.34, -T.Y * 0.06, -T.Z * 0.62), GW.ice), GW.ice)
-		disc(m, torso, T.Z * 0.06, T.X * 0.27, CFrame.new(s * T.X * 0.17, T.Y * 0.17, -T.Z * 0.63), GW.steel, Enum.Material.Metal)
-		glow(disc(m, torso, T.Z * 0.07, T.X * 0.17, CFrame.new(s * T.X * 0.17, T.Y * 0.17, -T.Z * 0.64), GW.ice), GW.ice)
-		disc(m, torso, T.Z * 0.08, T.X * 0.06, CFrame.new(s * T.X * 0.17, T.Y * 0.17, -T.Z * 0.66), GW.steelDark, Enum.Material.Metal)
-		-- misty side vents
-		local v = block(m, torso, Vector3.new(T.X * 0.05, T.Y * 0.22, T.Z * 0.5), CFrame.new(s * T.X * 0.55, -T.Y * 0.12, 0), GW.steelDark, Enum.Material.Metal)
-		sparkle(v, GW.fur, true)
+	local T = torso.Size
+	local P = GW.packMesh
+	-- built for a 2x2x1 torso; scaled so it is as wide and as deep as this one (straps on the chest)
+	local s = math.max(T.X / 2, T.Z) * P.scale
+	local bag = meshModel(m, torso, "frost_pack", s, CFrame.new(0, T.Y * P.lift, T.Z / 2 - s / 2))
+	if bag then
+		local ice = bag:FindFirstChild("ice")
+		if ice then
+			sparkle(ice :: Part, GW.fur, true)
+		end
+		return
 	end
-	block(m, torso, Vector3.new(T.X * 0.04, T.Y * 0.78, T.Z * 0.04), CFrame.new(0, -T.Y * 0.06, -T.Z * 0.62), GW.steel, Enum.Material.Metal)
-	block(m, torso, Vector3.new(T.X * 0.5, T.Y * 0.1, T.Z * 1.28), CFrame.new(0, T.Y * 0.42, 0), C.dark)
-	block(m, torso, Vector3.new(T.X * 1.12, T.Y * 0.1, T.Z * 1.28), CFrame.new(0, -T.Y * 0.44, 0), C.dark)
-	-- the coolant tank on the back
-	ring(m, torso, T.Y * 0.62, T.Z * 0.55, CFrame.new(0, 0, T.Z * 0.78), GW.steel, Enum.Material.Metal)
-	glow(ring(m, torso, T.Y * 0.4, T.Z * 0.57, CFrame.new(0, 0, T.Z * 0.78), GW.ice), GW.ice).Transparency = 0.25
+	local z = T.Z * 0.85
+	block(m, torso, Vector3.new(T.X * 0.78, T.Y * 0.82, T.Z * 0.62), CFrame.new(0, -T.Y * 0.04, z), GW.pack.main, Enum.Material.Fabric)
+	block(m, torso, Vector3.new(T.X * 0.82, T.Y * 0.16, T.Z * 0.66), CFrame.new(0, T.Y * 0.36, z), GW.pack.dark, Enum.Material.Fabric)
+	for _, s in { -1, 1 } do -- straps
+		block(m, torso, Vector3.new(T.X * 0.12, T.Y * 0.9, T.Z * 0.1), CFrame.new(s * T.X * 0.28, 0, -T.Z * 0.55), GW.pack.dark, Enum.Material.Fabric)
+	end
+	local ice = block(m, torso, Vector3.new(T.X * 0.5, T.X * 0.5, T.Z * 0.2), CFrame.new(0, -T.Y * 0.06, z + T.Z * 0.32), GW.ice, Enum.Material.Glass)
+	ice.Transparency = 0.25
+	sparkle(ice, GW.fur, true)
 end
 
 local function hat(m: Model, c: Model)
@@ -187,6 +283,16 @@ local function hat(m: Model, c: Model)
 		return
 	end
 	local D, C = head.Size, GW.hat
+	local H = GW.hatMesh
+	-- built for a 1x1x1 head
+	local cap = meshModel(m, head, "hat", D.X * H.scale, CFrame.new(0, D.Y * H.lift, 0))
+	if cap then
+		local pom = cap:FindFirstChild("pom")
+		if pom then
+			sparkle(pom :: Part, GW.gold)
+		end
+		return
+	end
 	ring(m, head, D.Y * 0.28, D.X * 1.22, CFrame.new(0, D.Y * 0.32, 0), C.cuff, Enum.Material.Fabric)
 	ring(m, head, D.Y * 0.3, D.X * 1.15, CFrame.new(0, D.Y * 0.55, 0), C.main, Enum.Material.Fabric)
 	ball(m, head, D.X * 1.15, CFrame.new(0, D.Y * 0.62, 0), C.main, Enum.Material.Fabric)
@@ -205,6 +311,11 @@ local function owns(player: Player, key: string): boolean
 	return player:GetAttribute("Gear_" .. key) == true
 end
 
+local function levelOf(player: Player, key: string): number
+	local v = player:GetAttribute("GearLv_" .. key)
+	return if typeof(v) == "number" then v else 0
+end
+
 function GearWear.refresh(player: Player)
 	local c = player.Character
 	if not c or not c:FindFirstChild("UpperTorso") then
@@ -217,15 +328,12 @@ function GearWear.refresh(player: Player)
 	local m = Instance.new("Model")
 	m.Name = "GearWear"
 	local ok, err = pcall(function()
-		if owns(player, "magnet_gloves") then
-			gloves(m, c)
+		local boots = levelOf(player, "frost_boots")
+		if boots > 0 then
+			feet(m, c, boots)
 		end
-		local skates, boots = owns(player, "ice_skates"), owns(player, "frost_boots")
-		if skates or boots then
-			feet(m, c, skates, boots)
-		end
-		if owns(player, "cooling_vest") then
-			vest(m, c)
+		if owns(player, "frost_pack") then
+			pack(m, c)
 		end
 		if owns(player, "cozy_hat") then
 			hat(m, c)
@@ -234,6 +342,8 @@ function GearWear.refresh(player: Player)
 	if not ok then
 		warn("[GearWear]", err)
 	end
+	-- only hide what a mesh really covers (the part-built fallbacks don't)
+	cover(c, m:FindFirstChild("hat") ~= nil, m:FindFirstChild("frost_boot") ~= nil)
 	m.Parent = c
 end
 
@@ -249,6 +359,10 @@ function GearWear.Start()
 				GearWear.refresh(player)
 			end)
 		end
+		-- a new boots level can bring a new look (every Config.gearBootsTierEvery levels)
+		player:GetAttributeChangedSignal("GearLv_frost_boots"):Connect(function()
+			GearWear.refresh(player)
+		end)
 		if player.Character and player:HasAppearanceLoaded() then
 			GearWear.refresh(player)
 		end

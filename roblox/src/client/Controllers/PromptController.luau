@@ -272,9 +272,9 @@ local function refreshWorldPrompts(v: State.View)
 		if pp then
 			pp.Enabled = v.plot == i
 		end
-		-- the Thaw Machine's "Thaw a pet": only at your own pan, and machine 2 once you have it
+		-- the Thaw Machine's "Thaw a pet": only at your own pan, and machines 2-3 once you have them
 		local pan = map:FindFirstChild("Pan" .. i, true)
-		for m = 1, 2 do
+		for m = 1, #Config.thaw.machinesAt do
 			local machine = pan and pan:FindFirstChild("ThawMachine" .. m)
 			local tp = machine and machine:FindFirstChild("ThawPrompt", true)
 			if tp and tp:IsA("ProximityPrompt") then
@@ -405,12 +405,14 @@ function PromptController.Start()
 			action = Config.world.panUpgradeAction -- your pan's stand (Round 4 phase 5: the Pan Upgrades popup)
 		elseif booth == "thaw" then
 			action = "thaw" -- your Thaw Machine: pick a frozen pet to put in (owner 2026-11-09)
+		elseif booth == "mail" then
+			action = "mail" -- the Feedback mailbox (owner 2026-11-17 night)
 		end
-		if action == "shop" or action == "equipment" or action == "pan" or action == "sell" or action == "rebirth" or action == "thaw" then
+		if action == "shop" or action == "equipment" or action == "pan" or action == "sell" or action == "rebirth" or action == "thaw" or action == "mail" then
 			PopupController.open(action, if action == "thaw" then { machine = prompt:GetAttribute("Machine") or 1 } else nil)
 			-- a booth's buttons only work at the booth (the server checks its own range), so its popup
 			-- closes when you walk away (final QA 2026-11-03: Buy far away did nothing, with no answer)
-			local range = ({ equipment = Config.guns.boothRange, sell = Config.sell.boothRange, rebirth = Config.rebirth.boothRange, pan = Config.pan.standRange, thaw = Config.thaw.useRange } :: { [string]: number })[action]
+			local range = ({ equipment = Config.guns.boothRange, sell = Config.sell.boothRange, rebirth = Config.rebirth.boothRange, pan = Config.pan.standRange, thaw = Config.thaw.useRange, mail = Config.feedback.range } :: { [string]: number })[action]
 			local at: Vector3? = nil
 			for _, b in Config.world.booths do
 				if b.id == booth then

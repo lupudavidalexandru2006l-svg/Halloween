@@ -323,6 +323,11 @@ local Theme = {
 		guideArrow = Color3.fromHex("1f4fd8"), guideArrowTop = Color3.fromHex("2c62ff"),
 		-- the night walls at the tunnel mouth (Config.nightClose): candy violet, never dark
 		nightWall = Color3.fromHex("9b7bff"),
+		-- owner 2026-11-17 (later): the night wall as a starry curtain under a big moon, never dark
+		nightWallDeep = Color3.fromHex("5b4bd6"), nightMoon = Color3.fromHex("ffe680"), nightStar = Color3.fromHex("fff7c2"),
+		nightFrame = Color3.fromHex("3a2f9e"),
+		-- the island gates' magic curtain (replaced the ice bars) and its padlock
+		gateLock = Color3.fromHex("ffc933"), gateLockDark = Color3.fromHex("d99a12"), gateKeyhole = Color3.fromHex("2a1e44"),
 		beamCore = Color3.new(1, 1, 1), beamGlow = Color3.fromHex("7fe3ff"),
 		gunBody = Color3.fromHex("e9f6ff"), gunTip = Color3.fromHex("7fe3ff"),
 		star = Color3.fromHex("ffd34a"), shadow = Color3.fromHex("1b1433"), frost = Color3.fromHex("dff6ff"),

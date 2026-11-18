@@ -695,7 +695,7 @@ end
 local claimAt: { [Player]: number } = {}
 local function claimThaw(player: Player, m: any)
 	local d = DataService.get(player)
-	if not d or typeof(m) ~= "number" or m ~= math.floor(m) or m < 1 or m > 2 then
+	if not d or typeof(m) ~= "number" or m ~= math.floor(m) or m < 1 or m > machines(d) then -- was "> 2": machine 3's Claim did nothing
 		return
 	end
 	local now = os.clock()

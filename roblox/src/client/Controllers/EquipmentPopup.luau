@@ -79,12 +79,14 @@ end
 function EquipmentPopup.shownKey(v: State.View): string
 	local nextGun = G.list[best() + 1]
 	local afford = nextGun ~= nil and v.coins >= nextGun.price
-	local gel = me:GetAttribute("GearGel") == true
 	local gear = ""
-	for _, g in Config.gear do -- each gear card: owned, affordable
-		gear ..= `{me:GetAttribute("Gear_" .. g.key) == true}{v.coins >= g.price}`
+	for _, g in Config.gear do -- each gear card: its level, and whether the next one is affordable
+		local lv = me:GetAttribute("GearLv_" .. g.key)
+		lv = if typeof(lv) == "number" then lv else 0
+		local p = Config.gearPrice(g.key, lv)
+		gear ..= `{lv}{p ~= nil and v.coins >= p}`
 	end
-	return `{best()},{held()},{v.rebirths},{afford},{gel},{v.coins >= Config.gel.price},{gear}`
+	return `{best()},{held()},{v.rebirths},{afford},{gear}`
 end
 
 local function textRole(h: Helpers, t: TextLabel, role: string)
@@ -156,6 +158,7 @@ local function gunTile(h: Helpers, parent: Instance, i: number, v: State.View, o
 	if st == "locked" then
 		color = color:Lerp(Theme.tiers.Common, G.lockedGrey)
 	end
+	color = color:Lerp(Theme.ink, G.tileShade) -- deeper tiles so the white names stand out
 	local b = Ui.block(parent, "Gun" .. i, color, "", function()
 		SoundController.play("click")
 		o.data.pick = i
@@ -314,7 +317,8 @@ local function biggestGunBox(fallback: Vector3): Vector3
 	return sharedBox or fallback
 end
 
-function gunView(parent: Instance, i: number, dark: boolean, spin: boolean, fade: number?, even: boolean?): ViewportFrame
+-- faceRight: the muzzle points right (the island banner's "Recommended" gun, owner 2026-11-18)
+function gunView(parent: Instance, i: number, dark: boolean, spin: boolean, fade: number?, even: boolean?, faceRight: boolean?): ViewportFrame
 	local P = G.preview
 	local vp = Instance.new("ViewportFrame")
 	vp.Name = "Gun"
@@ -361,7 +365,7 @@ function gunView(parent: Instance, i: number, dark: boolean, spin: boolean, fade
 			frame((os.clock() / seconds) % 1 * math.pi * 2, across, across * 0.5)
 		end)
 	else
-		local yaw = math.rad(G.tileYaw)
+		local yaw = math.rad(G.tileYaw) + (if faceRight then math.pi else 0)
 		local c, s = math.abs(math.cos(yaw)), math.abs(math.sin(yaw))
 		local function still()
 			frame(yaw, (size.X * c + size.Z * s) / 2, (size.X * s + size.Z * c) / 2)
@@ -417,6 +421,12 @@ local function gunCard(h: Helpers, holder: Frame, i: number, v: State.View, o: a
 	end
 	local name = Ui.label(h.row(l, 2, 0.09), g.name, UDim2.fromScale(1, 0.9), UDim2.fromScale(0, 0.05))
 	textRole(h, name, "title")
+	-- on the pale panel: dark ink letters, not white ones (owner 2026-11-17: "more contrast")
+	name.TextColor3 = Theme.ink
+	local ns = name:FindFirstChildOfClass("UIStroke")
+	if ns then
+		ns.Enabled = false
+	end
 	local sr = h.row(l, 3, if phone then G.statCard.height + 0.09 else G.statCard.height)
 	sr.Name = "Stats"
 	local panel: Instance = if h.card then h.card(sr) else sr
@@ -457,57 +467,31 @@ local SHAPES: { [string]: { { number } } } = { -- x, y, w, h (shares of the slot
 	boots = { { 0.16, 0.26, 0.24, 0.42, 0.25 }, { 0.16, 0.58, 0.34, 0.16, 0.5 }, { 0.54, 0.26, 0.24, 0.42, 0.25 }, { 0.54, 0.58, 0.34, 0.16, 0.5 } },
 	gloves = { { 0.14, 0.3, 0.3, 0.44, 0.4 }, { 0.08, 0.42, 0.1, 0.18, 0.5 }, { 0.56, 0.3, 0.3, 0.44, 0.4 }, { 0.82, 0.42, 0.1, 0.18, 0.5 } },
 	skates = { { 0.14, 0.2, 0.26, 0.4, 0.25 }, { 0.14, 0.56, 0.32, 0.12, 0.5 }, { 0.1, 0.74, 0.38, 0.05, 0.5 }, { 0.56, 0.2, 0.26, 0.4, 0.25 }, { 0.56, 0.56, 0.32, 0.12, 0.5 }, { 0.52, 0.74, 0.38, 0.05, 0.5 } },
+	pack = { { 0.22, 0.24, 0.56, 0.6, 0.2 }, { 0.32, 0.14, 0.36, 0.14, 0.5 }, { 0.34, 0.4, 0.32, 0.28, 0.15 } }, -- Frost Pack until its painted icon exists
 	suit = { { 0.34, 0.12, 0.32, 0.22, 0.5 }, { 0.28, 0.32, 0.44, 0.38, 0.2 }, { 0.3, 0.66, 0.16, 0.24, 0.3 }, { 0.54, 0.66, 0.16, 0.24, 0.3 } },
 }
 
 local function gear(h: Helpers, body: Frame, v: State.View, o: any)
-	local l = h.list(body, true) -- Slow Gel + five gear cards scroll (2026-11-13)
-	-- Slow Gel (Round 5): a card with its picture, what it does, and Buy / Owned
-	local owned = me:GetAttribute("GearGel") == true
-	-- a scrolling list sizes rows by shape (width / height), never a share of its own height
-	local gr = h.row(l, 0, 0, Config.ui.gearCardAspect)
-	gr.Name = "SlowGel"
-	local face: Instance = if h.card then h.card(gr) else gr
-	-- the same framed picture slot as every gear card under it (owner 2026-11-16: "this isn't centered": the gel
-	-- floated loose beside the boxed gear), the potion centred in it and a little bigger, popping out
-	local gelSlot = Instance.new("Frame")
-	gelSlot.Name = "Picture"
-	gelSlot.BackgroundColor3 = if owned then Theme.go else Theme.snowFar
-	gelSlot.Position = UDim2.fromScale(0.03, 0.1)
-	gelSlot.Size = UDim2.fromScale(0.16, 0.8)
-	local ga = Instance.new("UIAspectRatioConstraint")
-	ga.AspectRatio = 1
-	ga.Parent = gelSlot
-	Ui.corner(gelSlot)
-	Ui.stroke(gelSlot)
-	gelSlot.Parent = face
-	local gelImg = Ui.image(gelSlot, Config.gearIcons.gel or Config.images.icons.motion, UDim2.fromScale(1.1, 1.1), UDim2.fromScale(-0.05, -0.07))
-	gelImg.ZIndex = 2
-	local name = h.text(face, "Slow Gel", 0.2, 0.5)
-	textRole(h, name, "body")
-	name.Size = UDim2.fromScale(0.5, 0.45)
-	name.Position = UDim2.fromScale(0.2, 0.06)
-	local what = h.text(face, `Pets and critters x{Config.gel.slow}`, 0.2, 0.5, Theme.infoDeep)
-	textRole(h, what, "small")
-	what.Size = UDim2.fromScale(0.5, 0.38)
-	what.Position = UDim2.fromScale(0.2, 0.52)
-	local can = v.coins >= Config.gel.price
-	local b = h.button(face, if owned then Theme.go elseif can then Theme.coin else Theme.tiers.Common,
-		if owned then "Owned" else Ui.price(Config.gel.price), 0.72, 0.26, function()
-			if not owned then
-				State.send("BuyGear", "gel") -- the server checks the coins and the booth
-			end
-		end)
-	b.root.Name = "BuyGel"
-	if not owned and h.priceTag then
-		h.priceTag(b)
-	end
-	o.first = b.face
-	-- the always-on gear (Config.gear, 2026-11-13): one card each like Slow Gel's, the first one you can
+	-- a scrolling list sizes rows by shape (width / height), never a share of its own height. Slow Gel's card
+	-- is gone (owner 2026-11-17).
+	local l = h.list(body, true)
+	-- the always-on gear (Config.gear, levels since 2026-11-17): one card each, the cheapest level you can
 	-- afford is the focal point (it gets the selection)
-	local focus = owned
+	local focus = true
+	local cheapest: string? = nil
+	local cheapestPrice = math.huge
+	for _, item in Config.gear do
+		local lv = me:GetAttribute("GearLv_" .. item.key)
+		local p = Config.gearPrice(item.key, if typeof(lv) == "number" then lv else 0)
+		if p and p <= v.coins and p < cheapestPrice then
+			cheapest, cheapestPrice = item.key, p
+		end
+	end
 	for i, item in Config.gear do
-		local mine = me:GetAttribute("Gear_" .. item.key) == true
+		local lvAttr = me:GetAttribute("GearLv_" .. item.key)
+		local lv: number = if typeof(lvAttr) == "number" then lvAttr else 0
+		local mine = lv > 0
+		local price = Config.gearPrice(item.key, lv)
 		local row = h.row(l, i, 0, Config.ui.gearCardAspect)
 		row.Name = "Gear_" .. item.key
 		local f: Instance = if h.card then h.card(row) else row
@@ -538,26 +522,31 @@ local function gear(h: Helpers, body: Frame, v: State.View, o: any)
 			p.Parent = slot
 		end
 		slot.Parent = f
-		local nm = h.text(f, item.name, 0.2, 0.5)
+		local nm = h.text(f, `{item.name}  Lv {lv}`, 0.2, 0.5)
 		textRole(h, nm, "body")
 		nm.Size = UDim2.fromScale(0.5, 0.45)
 		nm.Position = UDim2.fromScale(0.2, 0.06)
-		local wt = h.text(f, item.text, 0.2, 0.5, Theme.infoDeep)
+		-- what it does now, and what the next level brings
+		local now = if mine then Config.gearText(item.key, lv) else "Not owned yet"
+		local wt = h.text(f, if price then `{now}  >  {Config.gearText(item.key, lv + 1)}` else `{now}  (max)`, 0.2, 0.5, Theme.infoDeep)
 		textRole(h, wt, "small")
 		wt.Size = UDim2.fromScale(0.5, 0.38)
 		wt.Position = UDim2.fromScale(0.2, 0.52)
-		local afford = v.coins >= item.price
-		local gb = h.button(f, if mine then Theme.go elseif afford then Theme.coin else Theme.tiers.Common,
-			if mine then "Owned" else Ui.price(item.price), 0.72, 0.26, function()
-				if not mine then
-					State.send("BuyGear", item.key) -- the server checks the coins and the booth
+		local afford = price ~= nil and v.coins >= price
+		local gb = h.button(f, if not price then Theme.go elseif afford then Theme.coin else Theme.tiers.Common,
+			if price then Ui.price(price) else "Max", 0.72, 0.26, function()
+				if price then
+					State.send("BuyGear", item.key) -- the server checks the level, the coins and the booth
 				end
 			end)
 		gb.root.Name = "Buy_" .. item.key
-		if not mine and h.priceTag then
+		if i == 1 then
+			o.first = gb.face -- nothing affordable: the first card has the selection
+		end
+		if price and h.priceTag then
 			h.priceTag(gb)
 		end
-		if not mine and afford and focus then
+		if cheapest == item.key and focus then
 			focus = false
 			o.first = gb.face
 		end

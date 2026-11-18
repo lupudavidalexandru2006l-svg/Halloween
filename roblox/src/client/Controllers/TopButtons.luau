@@ -3,15 +3,15 @@
 -- top bar (owner 2026-11-13; Screen falls back to the top centre where there is no top bar), that
 -- take you somewhere in the hub (Config.ui.topButtons; TravelService decides). Equipment wears its
 -- booth's blue; Pan is plain soil brown (owner 2026-11-12: no green strip on top, green means "go"). They go away while a cube
--- is in your hands ("GunLocked") and come back only once you've walked into your own pan with empty
--- hands. Screen places them (and hides them while a popup is open).
+-- is in your hands ("GunLocked") and come back as soon as your hands are empty again: banked, melted or
+-- grabbed by a Heat Critter (owner 2026-11-18: they waited until you walked into your pan, so after a critter
+-- took your cube Pan and Equipment seemed broken). Screen places them (and hides them while a popup is open).
 
 local Players = game:GetService("Players")
 local TextService = game:GetService("TextService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Theme = require(ReplicatedStorage.Shared.Theme)
-local WorldRules = require(ReplicatedStorage.Shared.WorldRules)
 local Ui = require(script.Parent.Parent.Lib.Ui)
 local State = require(script.Parent.State)
 local Screen = require(script.Parent.Screen)
@@ -21,7 +21,7 @@ local TopButtons = {}
 local TB = Config.ui.topButtons
 local me = Players.LocalPlayer
 local frame: Frame
-local away = false -- a cube was in your hands: hidden until you're home
+local away = false -- a cube is in your hands: hidden until they're empty
 local labels: { TextLabel } = {}
 local widthPer100: { [TextLabel]: number } = {} -- each word's width at text size 100
 
@@ -57,20 +57,13 @@ local function measure(l: TextLabel)
 	widthPer100[l] = if ok then bounds.X * 1.06 else #l.Text * 62 -- a little room for the outline
 end
 
-local function inMyPan(): boolean
-	local v = State.view
-	local plot = v and v.plot
-	local hrp = me.Character and me.Character:FindFirstChild("HumanoidRootPart")
-	return plot ~= nil and hrp ~= nil and hrp:IsA("BasePart") and WorldRules.inPlot(plot, hrp.Position)
-end
-
 local lockedAt = 0
 local function update()
 	-- hidden only once the cube has flown into your hands (owner 2026-11-16: it vanished before the cube arrived)
 	local carrying = me:GetAttribute("GunLocked") == true and os.clock() - lockedAt >= Config.show.freeze.flySeconds
 	if carrying then
 		away = true
-	elseif away and inMyPan() then
+	elseif away and me:GetAttribute("GunLocked") ~= true then
 		away = false
 	end
 	local want = not away

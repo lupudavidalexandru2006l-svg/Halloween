@@ -56,12 +56,18 @@ function Scenery.get(): List
 		open += 1
 		local zone = W.zones[open]
 		local z0, z1 = zone.zMin + S.startClear, zone.zMax - S.gateClear
+		-- owner 2026-11-17 ("the sun patches are very close to each other and too many"): like the lava, each
+		-- patch gets its own stretch of the island and the sides alternate, so they never bunch up
 		local s = isl.sun
 		if s then
-			for _ = 1, s.count do
-				local x = -half + 4 + r() * (half * 2 - 8)
-				local z = z0 + 10 + r() * (z1 - z0 - 10)
-				table.insert(sun, { x = x, z = z, r = s.r[1] + r() * (s.r[2] - s.r[1]) })
+			local band = (z1 - z0 - 10) / s.count
+			local startSide = if r() < 0.5 then -1 else 1
+			for i = 1, s.count do
+				local rad = s.r[1] + r() * (s.r[2] - s.r[1])
+				local side = if i % 2 == 1 then startSide else -startSide
+				local x = side * (6 + r() * math.max(0, half - 8 - rad - 6))
+				local z = z0 + 10 + (i - 1 + 0.25 + r() * 0.5) * band
+				table.insert(sun, { x = x, z = z, r = rad })
 			end
 		end
 		-- lava pools beside the path (never on it: the path stays a safe way through). Each pool gets its own

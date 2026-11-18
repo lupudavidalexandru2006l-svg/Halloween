@@ -1495,7 +1495,9 @@ local function stroll(root: BasePart, d: Drawn, dt: number, t: number)
 	end
 	if not st.to and t >= st.pauseUntil then
 		local halfW = P.width / 2 - W.margin
-		local back, front = P.frontZ - P.length + Config.thaw.machine.z + 4, P.frontZ - W.margin
+		local plotN = root:GetAttribute("Plot")
+		local len = if typeof(plotN) == "number" then Config.plotLength(plotN) else P.length -- the pan grows with its Slots
+		local back, front = P.frontZ - len + Config.thaw.machine.z + 4, P.frontZ - W.margin
 		st.to = Vector3.new(spot.x + (math.random() * 2 - 1) * halfW, st.pos.Y, back + math.random() * (front - back))
 	end
 	local to = st.to

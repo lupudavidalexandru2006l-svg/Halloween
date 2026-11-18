@@ -48,7 +48,97 @@ local function change(player: Player, fn: (DataService.Data) -> ())
 	end
 end
 
-local ACTIONS: { [string]: (Player, any, any) -> () } = {}
+local ACTIONS: { [string]: (Player, any, any, any) -> () } = {}
+
+-- the ADMIN tab (2026-11-18): everything there goes through AdminService (all servers, or this one with here)
+ACTIONS.admin = function(player, m)
+	require(script.Parent.AdminService).request(player, m)
+end
+
+-- everything unlocked at once: all islands, best gun, every upgrade maxed, Cold Power maxed, best trainer and look
+ACTIONS.maxAll = function(player)
+	local n = #Config.world.zones
+	change(player, function(d)
+		d.reach = n
+		d.forestUnlocked = true
+		d.guns.best = #Config.guns.list
+		d.guns.equipped = d.guns.best
+		for _, uid in Config.upgradeIds do
+			d.upgrades[uid] = Config.upgrades[uid].maxLevel
+		end
+		PenService.fillEmptySlots(d)
+		d.coldPower = Config.coldPower.max
+		d.pan.trainer = #Config.training.stations
+		d.pan.look = #Config.pan.looks
+		for _, g in Config.gear do
+			d.gear[g.key] = Config.gearMax
+		end
+	end)
+	WorldService.setReach(player, n)
+	PlayerTracker.updateSpeed(player)
+end
+
+-- n random pets into your Pets (Storage fills up: test a full inventory)
+ACTIONS.giveMany = function(player, n)
+	if not (finite(n) and (n == 10 or n == 50)) then
+		return
+	end
+	local pool: { PetDefs.PetDef } = {}
+	for _, z in Config.world.zones do
+		for _, def in PetDefs.inZone(z.id) do
+			table.insert(pool, def)
+		end
+	end
+	local rng = Random.new()
+	change(player, function(d)
+		for _ = 1, n do
+			if #pool == 0 or not PenService.addPet(d, pool[rng:NextInteger(1, #pool)].key, "idle", nil) then
+				break
+			end
+		end
+	end)
+end
+
+-- a chosen pet, wild, with a chosen size and mutation (o = { zone, mut, sz }; zone 0 = next to you)
+ACTIONS.spawnPetX = function(player, key, o)
+	if typeof(key) ~= "string" or not PetDefs.get(key) or typeof(o) ~= "table" then
+		return
+	end
+	local zone = o.zone
+	if not (finite(zone) and zone == math.floor(zone) and (zone == 0 or Config.zone(zone))) then
+		return
+	end
+	local mut = if typeof(o.mut) == "string" and Config.mutations[o.mut] then o.mut else nil
+	local sz = if typeof(o.sz) == "string" and Config.sizes[o.sz] then o.sz else nil
+	if not WildPetSpawner.devSpawnPet(player, key, zone, { mut = mut, sz = sz }) then
+		Remotes.notYet(player, "No spot for a pet there")
+	end
+end
+
+-- this server's wild pets: all gone, or a whole new wave now
+ACTIONS.clearWild = function()
+	WildPetSpawner.clearWild()
+end
+
+ACTIONS.newWave = function()
+	WildPetSpawner.newWave()
+end
+
+-- straight to the Secret on its clock, if one is out
+ACTIONS.toSecret = function(player)
+	for _, pet in WildPetSpawner.all() do
+		if pet.root:GetAttribute("ClockSecret") then
+			PlayerTracker.teleport(player, CFrame.new(pet.root.Position + Vector3.new(6, 3, 6)))
+			return
+		end
+	end
+	Remotes.notYet(player, "No Secret is out")
+end
+
+-- a new body at your pan (stuck, fell, broken animation)
+ACTIONS.respawn = function(player)
+	player:LoadCharacter()
+end
 
 -- money multiplier: 0.1 to 10,000x on all coin income, saved with the tester's data
 ACTIONS.mult = function(player, n)
@@ -356,11 +446,13 @@ ACTIONS.shieldOff = function(player)
 	player:SetAttribute("ShieldUntil", 0)
 end
 
--- Round 5: own Slow Gel or not
-ACTIONS.gel = function(player)
-	change(player, function(d)
-		d.gear.gel = not d.gear.gel
-	end)
+-- 2026-11-17 gear rework: set one gear's level (0 to Config.gearMax)
+ACTIONS.gearLevel = function(player, key, n)
+	if typeof(key) == "string" and Config.gearItem(key) and finite(n) then
+		change(player, function(d)
+			d.gear[key] = math.clamp(math.floor(n), 0, Config.gearMax)
+		end)
+	end
 end
 
 -- pretend this many Roblox friends are in the server (the friend bonus; Studio has no real friends)
@@ -400,6 +492,13 @@ ACTIONS.wipe = function(player, confirm)
 end
 
 -- the server's view of you, for the panel's readout
+-- the Mail tab: the Feedback mailbox's newest messages (FeedbackService, owner 2026-11-17 night)
+ACTIONS.mail = function(player)
+	local ok, FeedbackService = pcall(require, script.Parent.FeedbackService)
+	local rows = if ok then FeedbackService.latest(40) else {}
+	Remotes.fire(player, "Notify", "feedbackRows", { rows = rows })
+end
+
 ACTIONS.readout = function(player)
 	local d = DataService.get(player)
 	if not d then
@@ -415,16 +514,17 @@ ACTIONS.readout = function(player)
 		income = PenService.incomePerSecond(d), saveKey = key, qa = qa, targets = targets,
 		reach = d.reach, gun = d.guns.best, trainer = d.pan.trainer, slots = d.upgrades.pen, look = d.pan.look,
 		pets = #d.pets, frozen = d.stats.frozen, skips = d.thawSkips,
+		gear = table.clone(d.gear),
 	})
 end
 
-function TesterService.run(player: Player, action: any, a: any, b: any)
+function TesterService.run(player: Player, action: any, a: any, b: any, c: any)
 	if not Config.isTester(player.UserId) or not DataService.isLoaded(player) then
 		return -- not a tester: no answer at all
 	end
 	local fn = if typeof(action) == "string" then ACTIONS[action] else nil
 	if fn then
-		fn(player, a, b)
+		fn(player, a, b, c)
 	end
 end
 

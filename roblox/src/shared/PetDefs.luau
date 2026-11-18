@@ -89,7 +89,7 @@ local PetDefs: { PetDef } = {
 	pet("reefback_turtle", "Reefback Turtle", 4, "Legendary", "Swimmer", "L", "e8413a"),
 	pet("prismapus", "Prismapus", 4, "Mythic", "Custom", "M", "7a2fb0", { "TentacleTips", "Gem" }),
 	pet("beacon_orca", "Beacon Orca", 4, "Secret", "Swimmer", "M", "1a1a1a", { "Lamp" }),
-	-- Jungle Falls (zone 5): roster card only (vault Pet Roster), in the game as stand-ins (owner 2026-11-10)
+	-- Jungle Falls (zone 5): all 8 are 3D (friend's TRELLIS models, imported 2026-11-18 as Model > Body)
 	pet("bananabo", "Bananabo", 5, "Common", "Biped", "S", "e0a810"),
 	pet("splashfrog", "Splashfrog", 5, "Common", "Quadruped", "S", "1f4fe0"),
 	pet("tucanny", "Tucanny", 5, "Uncommon", "Bird", "S", "1c1c22"),
@@ -97,7 +97,7 @@ local PetDefs: { PetDef } = {
 	pet("glowpanther", "Glowpanther", 5, "Epic", "Quadruped", "M", "5b21a8", { "Spots" }),
 	pet("fallcrown_gorilla", "Fallcrown Gorilla", 5, "Legendary", "Biped", "L", "137a7a", { "Crown" }),
 	pet("rainbow_quetzal", "Rainbow Quetzal", 5, "Mythic", "Bird", "M", "0f8a4a", { "TailTips" }),
-	pet("vinewyrm", "Vinewyrm", 5, "Secret", "Custom", "M", "c21d4a", { "FlowerCrown" }),
+	pet("bloomsloth", "Bloomsloth", 5, "Secret", "Custom", "M", "c21d4a"),
 	-- Desert Dunes (zone 6): roster designed, no art yet
 	pet("catcus", "Catcus", 6, "Common", "Quadruped", "S", "3f9a3a"),
 	pet("fenny", "Fenny", 6, "Common", "Quadruped", "S", "f0742a"),
@@ -107,15 +107,15 @@ local PetDefs: { PetDef } = {
 	pet("dunehorn_ram", "Dunehorn Ram", 6, "Legendary", "Quadruped", "L", "d64f86"),
 	pet("solaris_sphinx", "Solaris Sphinx", 6, "Mythic", "Custom", "M", "e3a81c", { "Wings", "SunGem", "TailTip" }),
 	pet("mirage_manta", "Mirage Manta", 6, "Secret", "Swimmer", "M", "14837f", { "WingDots" }),
-	-- Canyon Mesa (zone 7): roster card only, in the game as stand-ins (owner 2026-11-10)
-	pet("yipyap", "Yipyap", 7, "Common", "Quadruped", "S", "b8481a"),
-	pet("hopalope", "Hopalope", 7, "Common", "Quadruped", "S", "2a8fd6"),
-	pet("gilly", "Gilly", 7, "Uncommon", "Quadruped", "S", "d63f86"),
-	pet("burrowl", "Burrowl", 7, "Rare", "Bird", "S", "c99a12"),
-	pet("sparkhorn_goat", "Sparkhorn Goat", 7, "Epic", "Quadruped", "M", "6a2fb0", { "Horns" }),
-	pet("mesa_tortoise", "Mesa Tortoise", 7, "Legendary", "Quadruped", "L", "b5412a", { "Crown" }),
-	pet("sandstorm_lynx", "Sandstorm Lynx", 7, "Mythic", "Custom", "M", "139a8f", { "DustTail" }),
-	pet("echo_whale", "Echo Whale", 7, "Secret", "Swimmer", "M", "1b2a6b", { "Stripes" }),
+	-- Canyon Mesa (zone 7): Pet Brief 7 line-up, all 8 are 3D (TRELLIS, 2026-11-16..18)
+	pet("hoodoo_hare", "Hoodoo Hare", 7, "Common", "Quadruped", "S", "e8742a"),
+	pet("ringo", "Ringo", 7, "Common", "Quadruped", "S", "e0357f"),
+	pet("cliffkid", "Cliffkid", 7, "Uncommon", "Quadruped", "M", "f2e6cf"),
+	pet("glowbat", "Glowbat", 7, "Rare", "Bird", "S", "3b2f9a"),
+	pet("thunderchick", "Thunderchick", 7, "Epic", "Bird", "M", "f2c21b"),
+	pet("jade_qilin", "Jade Qilin", 7, "Legendary", "Quadruped", "L", "2f9e5b"),
+	pet("starwing_griffin", "Starwing Griffin", 7, "Mythic", "Custom", "M", "2a4fd0"),
+	pet("hoodoo_golem", "Hoodoo Golem", 7, "Secret", "Custom", "M", "1fa59e"),
 	-- Volcano Slopes (zone 8): roster designed, no art yet
 	pet("emberpup", "Emberpup", 8, "Common", "Quadruped", "S", "f37a1b"),
 	pet("magmallow", "Magmallow", 8, "Common", "Blob", "S", "c4204f"),
@@ -148,6 +148,10 @@ local PetDefs: { PetDef } = {
 local byKey: { [string]: PetDef } = {}
 for _, p in PetDefs do
 	byKey[p.key] = p
+end
+-- old stand-in keys that may sit in saves: show them as the real pet of the same slot
+for old, new in { vinewyrm = "bloomsloth", yipyap = "hoodoo_hare", hopalope = "ringo", gilly = "cliffkid", burrowl = "glowbat", sparkhorn_goat = "thunderchick", mesa_tortoise = "jade_qilin", sandstorm_lynx = "starwing_griffin", echo_whale = "hoodoo_golem" } do
+	byKey[old] = byKey[new]
 end
 
 local M = {

@@ -32,12 +32,9 @@ function GearService.held(player: Player): string
 	return held[player] or "ray"
 end
 
-local function owns(player: Player, id: string): boolean
-	if id == "ray" or id == "none" then
-		return true
-	end
-	local d = DataService.get(player)
-	return d ~= nil and id == "gel" and d.gear.gel
+-- Slow Gel was removed (owner 2026-11-17): only the ray (or nothing) can be held
+local function owns(_player: Player, id: string): boolean
+	return id == "ray" or id == "none"
 end
 
 local function setHeld(player: Player, id: string)
@@ -106,7 +103,7 @@ function GearService.isStowed(player: Player): boolean
 end
 
 local function onSetGear(player: Player, id: any)
-	if typeof(id) ~= "string" or (id ~= "ray" and id ~= "gel" and id ~= "none") then
+	if typeof(id) ~= "string" or (id ~= "ray" and id ~= "none") then
 		return
 	end
 	if locked[player] and id ~= "none" then
@@ -174,8 +171,19 @@ local function boothPos(): Vector3?
 	return nil
 end
 
--- the always-on gear (Config.gear, 2026-11-13): bought once at the booth, checked again inside the one
--- change that charges; the Gear_<key> attribute (setOwned) switches its effect on in the other services
+-- the always-on gear (Config.gear, reworked 2026-11-17): one level per press at the booth, up to
+-- Config.gearMax. The price comes from the server's own level and is checked again inside the one change
+-- that charges; the GearLv_<key> / Gear_<key> attributes (publish) switch the effect on in the other services
+local function level(d: any, key: string): number
+	local v = d.gear[key]
+	return if typeof(v) == "number" then v else 0
+end
+
+local function publish(player: Player, key: string, lv: number)
+	player:SetAttribute("GearLv_" .. key, lv)
+	player:SetAttribute("Gear_" .. key, lv > 0)
+end
+
 local function buyItem(player: Player, item: Config.GearItem)
 	local d = DataService.get(player)
 	local p, b = PlayerTracker.position(player), boothPos()
@@ -183,29 +191,35 @@ local function buyItem(player: Player, item: Config.GearItem)
 		return
 	end
 	local now = os.clock()
-	if now - (lastBuy[player] or -math.huge) < Config.guns.buyCooldown or d.gear[item.key] then
+	if now - (lastBuy[player] or -math.huge) < Config.guns.buyCooldown then
 		return
 	end
-	if d.coins < item.price then
-		Remotes.notYet(player, `Need {Config.coinText(item.price - d.coins)} more`, "gear")
+	local old = level(d, item.key)
+	local price = Config.gearPrice(item.key, old)
+	if not price then
+		Remotes.notYet(player, "Max level", "gear")
+		return
+	end
+	if d.coins < price then
+		Remotes.notYet(player, `Need {Config.coinText(price - d.coins)} more`, "gear")
 		return
 	end
 	lastBuy[player] = now
 	local bought = false
 	DataService.mutate(player, function(x)
-		if x.gear[item.key] or x.coins < item.price then
+		if level(x, item.key) ~= old or x.coins < price then
 			return
 		end
-		x.coins -= item.price
-		x.gear[item.key] = true
+		x.coins -= price
+		x.gear[item.key] = old + 1
 		bought = true
 	end)
 	if bought then
 		AnalyticsSvc.funnel(player, "first_coins_spent")
 		DataService.saveNow(player)
-		player:SetAttribute("Gear_" .. item.key, true)
-		PlayerTracker.updateSpeed(player) -- Ice Skates
-		Remotes.fire(player, "Notify", "gearBought", { key = item.key, name = item.name })
+		publish(player, item.key, old + 1)
+		PlayerTracker.updateSpeed(player) -- Frost Boots
+		Remotes.fire(player, "Notify", "gearBought", { key = item.key, name = item.name, level = old + 1 })
 	end
 end
 
@@ -213,54 +227,20 @@ local function onBuy(player: Player, key: any)
 	if typeof(key) ~= "string" then
 		return
 	end
-	local item = Config.gearItem(key)
+	local item = Config.gearItem(key) -- anything else (Slow Gel, removed 2026-11-17) is refused
 	if item then
 		buyItem(player, item)
-		return
-	end
-	if key ~= "gel" then
-		return
-	end
-	local d = DataService.get(player)
-	local p, b = PlayerTracker.position(player), boothPos()
-	if not d or not p or not b or (Vector3.new(p.X, 0, p.Z) - Vector3.new(b.X, 0, b.Z)).Magnitude > Config.guns.boothRange then
-		return
-	end
-	local now = os.clock()
-	if now - (lastBuy[player] or -math.huge) < Config.guns.buyCooldown or d.gear.gel then
-		return
-	end
-	if d.coins < G.price then
-		Remotes.notYet(player, `Need {Config.coinText(G.price - d.coins)} more`, "gear")
-		return
-	end
-	lastBuy[player] = now
-	local bought = false
-	DataService.mutate(player, function(x)
-		if x.gear.gel or x.coins < G.price then -- checked again inside the one change that charges
-			return
-		end
-		x.coins -= G.price
-		x.gear.gel = true
-		bought = true
-	end)
-	if bought then
-		AnalyticsSvc.funnel(player, "first_coins_spent")
-		DataService.saveNow(player)
-		if not locked[player] then
-			setHeld(player, "gel")
-		end -- straight into your hands, so you see the new slot light up
-		Remotes.fire(player, "Notify", "gearBought", { key = "gel" })
 	end
 end
 
 local function setOwned(player: Player)
 	local d = DataService.get(player)
 	if d then
-		player:SetAttribute("GearGel", d.gear.gel) -- the hotbar unlocks its slot from it
+		player:SetAttribute("GearGel", false) -- Slow Gel removed 2026-11-17
 		for _, g in Config.gear do
-			player:SetAttribute("Gear_" .. g.key, d.gear[g.key] == true)
+			publish(player, g.key, level(d, g.key))
 		end
+		PlayerTracker.updateSpeed(player) -- a rejoin or a tester change: the boots' speed comes back
 		if held[player] == "gel" and not d.gear.gel then
 			setHeld(player, "ray")
 		end

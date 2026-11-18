@@ -209,8 +209,7 @@ function RebirthPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
 	item(h, keep, 5, I.pen, "Look")
 	local resets = column(h, o.body, R.colWidth + R.colGap, "RESETS", Theme.no)
 	item(h, resets, 1, I.coin, "Coins")
-	item(h, resets, 2, I.pen, "Slots")
-	item(h, resets, 3, I.power, "Cold Power")
+	item(h, resets, 2, I.power, "Cold Power") -- Slots are kept since the balance pass 2026-11-17
 	local get = column(h, o.body, (R.colWidth + R.colGap) * 2, "YOU GET", Theme.coin)
 	item(h, get, 1, I.coin, `x{Config.rebirthIncome(n)} coins`)
 	item(h, get, 2, I.power, `x{Config.rebirthIncome(n)} training`)
@@ -237,7 +236,7 @@ function RebirthPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
 	foot.Parent = o.body
 	local fl = h.list(foot, false)
 	if o.data.ask then
-		local q = h.text(h.row(fl, 1, 0.4), `Rebirth {n}? Your coins and Slots reset.`, 0, 1, Theme.no)
+		local q = h.text(h.row(fl, 1, 0.4), `Rebirth {n}? Your coins and Cold Power reset.`, 0, 1, Theme.no)
 		q.TextXAlignment = Enum.TextXAlignment.Center
 		if h.sized then
 			h.sized(q, "body")

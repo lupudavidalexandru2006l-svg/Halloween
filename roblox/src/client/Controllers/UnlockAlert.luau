@@ -4,6 +4,8 @@
 -- name, price and Cold Power, and a green Buy button that takes you to the Equipment Booth with that gun
 -- picked. It waits while a cube is in your hands, a popup is open or a show plays, and goes away by itself
 -- (Config.ui.unlockAlert). Only shows what's true; GunService still checks every buy.
+-- owner 2026-11-17 (night): the same card says "NEW ISLAND!" the moment your Cold Power (and rebirths) are enough
+-- to open the next island's gate: the island's picture, its name and a green GO that points the arrow at the gate.
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -17,6 +19,7 @@ local SoundController = require(script.Parent.SoundController)
 local SettingsController = require(script.Parent.SettingsController)
 local PopupController = require(script.Parent.PopupController)
 local EquipmentPopup = require(script.Parent.EquipmentPopup)
+local GuideController = require(script.Parent.GuideController)
 
 local UnlockAlert = {}
 local A = Config.ui.unlockAlert
@@ -25,6 +28,7 @@ local me = Players.LocalPlayer
 local holder: Frame
 local card: Frame? = nil
 local shownFor: { [number]: boolean } = {} -- each gun alerts once per session
+local islandShown: { [number]: boolean } = {} -- each island alerts once per session
 local showId = 0
 
 local function reduced(): boolean
@@ -182,11 +186,98 @@ local function show(i: number)
 	end)
 end
 
+-- "NEW ISLAND!": the card for an island whose gate you can open now
+local function showIsland(z: Config.Zone)
+	hide()
+	showId += 1
+	local id = showId
+	local c = Instance.new("Frame")
+	c.Name = "Card"
+	c.BackgroundTransparency = 1
+	c.Size = UDim2.fromScale(1, 1)
+	c.Position = UDim2.fromScale(1.3, 0)
+	c.Parent = holder
+	card = c
+	local body = Ui.block(c, "Body", Theme.board, "", nil, true)
+	body.root.Size = UDim2.fromScale(1, 1)
+	body.text.Visible = false
+	local head = Ui.block(body.face, "Header", Theme.go, "NEW ISLAND!", nil)
+	head.root.Size = UDim2.fromScale(1, 0.3)
+	head.text.TextXAlignment = Enum.TextXAlignment.Left
+	head.text.Position = UDim2.fromScale(0.04, 0.12)
+	head.text.Size = UDim2.fromScale(0.74, 0.72)
+	local close = Ui.block(head.face, "Close", Theme.no, "X", hide)
+	close.root.AnchorPoint = Vector2.new(1, 0.5)
+	close.root.Position = UDim2.fromScale(0.97, 0.5)
+	close.root.Size = UDim2.fromScale(0.9, 0.84)
+	local ca = Instance.new("UIAspectRatioConstraint")
+	ca.DominantAxis = Enum.DominantAxis.Height
+	ca.Parent = close.root
+	-- the island's own picture in the window (the Index page art)
+	local window = Instance.new("ImageLabel")
+	window.Name = "Window"
+	window.BackgroundColor3 = Theme.ice
+	window.BorderSizePixel = 0
+	window.Image = Config.zoneArt.images[z.id] or ""
+	window.ScaleType = Enum.ScaleType.Crop
+	window.Position = UDim2.fromScale(0.03, 0.36)
+	window.Size = UDim2.fromScale(0.3, 0.58)
+	Ui.corner(window)
+	Ui.stroke(window, Config.ui.cardStroke)
+	window.Parent = body.face
+	local small = Ui.label(body.face, "ENOUGH COLD POWER FOR", UDim2.fromScale(0.6, 0.12), UDim2.fromScale(0.37, 0.34))
+	small.TextXAlignment = Enum.TextXAlignment.Left
+	small.TextColor3 = Theme.ice
+	local name = Ui.label(body.face, string.upper(z.name), UDim2.fromScale(0.6, 0.19), UDim2.fromScale(0.37, 0.47))
+	name.TextXAlignment = Enum.TextXAlignment.Left
+	local pi = Ui.image(body.face, Config.images.icons.gate, UDim2.fromScale(0.08, 0.22), UDim2.fromScale(0.365, 0.71))
+	pi.Name = "GateIcon"
+	local hint = Ui.label(body.face, "Open its gate!", UDim2.fromScale(0.3, 0.17), UDim2.fromScale(0.45, 0.735))
+	hint.TextXAlignment = Enum.TextXAlignment.Left
+	hint.TextColor3 = Theme.go
+	local go = Ui.block(body.face, "Go", Theme.go, "GO!", function()
+		hide()
+		SoundController.play("click")
+		GuideController.pointGate(z.id, A.gateArrowSeconds or 60)
+	end)
+	go.root.AnchorPoint = Vector2.new(1, 1)
+	go.root.Position = UDim2.fromScale(0.97, 0.95)
+	go.root.Size = UDim2.fromScale(0.22, 0.26)
+	if not reduced() then
+		local s = Instance.new("UIScale")
+		s.Parent = go.root
+		TweenService:Create(s, TweenInfo.new(0.7, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Scale = 1.06 }):Play()
+	end
+	SoundController.play("unlock")
+	TweenService:Create(c, TweenInfo.new(A.slide * (if reduced() then 0.5 else 1), Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Position = UDim2.fromScale(0, 0) }):Play()
+	task.delay(A.seconds, function()
+		if showId == id then
+			hide()
+		end
+	end)
+end
+
+-- the next island, when your Cold Power and rebirths are enough for its gate (nil = not yet)
+local function readyIsland(v: State.View): Config.Zone?
+	local z = Config.zone((v.reach or 1) + 1)
+	if z and z.ready and z.need > 0 and (v.coldPower or 0) >= z.need and (v.rebirths or 0) >= z.gateRebirth then
+		return z
+	end
+	return nil
+end
+
 local function check()
 	local v = State.view
 	-- not during the tutorial either (QA 2026-11-16: the card covered the first steps' goal)
 	if not v or card or Screen.popupOpen or Screen.showHidden or Screen.menusLocked or me:GetAttribute("GunLocked") == true
 		or (v.tutorial and not v.tutorial.done) then
+		return
+	end
+	-- a new island first: it's the bigger news
+	local z = readyIsland(v)
+	if z and not islandShown[z.id] then
+		islandShown[z.id] = true
+		showIsland(z)
 		return
 	end
 	local best = me:GetAttribute("GunBest")
@@ -207,7 +298,7 @@ function UnlockAlert.Start()
 	Screen.register("alert", holder)
 	State.Changed:Connect(check)
 	me:GetAttributeChangedSignal("GunBest"):Connect(function()
-		if card then
+		if card and card:FindFirstChild("Body") and not card:FindFirstChild("GateIcon", true) then
 			hide() -- bought it: the card has done its job
 		end
 	end)

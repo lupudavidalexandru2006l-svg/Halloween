@@ -81,12 +81,9 @@ function PlayerTracker.updateSpeed(player: Player)
 	end
 	local extra = math.max(0, s.carrying - 1)
 	local slow = math.max(0.5, 1 - Config.upgrades.backpack.slowPerExtraCube * extra)
-	-- Ice Skates (Config.gear): carrying pets home is faster and a full load doesn't slow you
-	local skates = if s.carrying > 0 then Config.gearValue(player, "ice_skates", "carrySpeed", 1) else 1
-	if skates > 1 then
-		slow = 1
-	end
-	hum.WalkSpeed = Config.player.walkSpeed * slow * skates -- speed comes only from Gear (owner 2026-11-15)
+	-- Frost Boots (Config.gear, 2026-11-17): faster all the time, +5% a level
+	local boots = Config.gearValue(player, "frost_boots", "speedMult", 1)
+	hum.WalkSpeed = Config.player.walkSpeed * slow * boots -- speed comes only from Gear (owner 2026-11-15)
 end
 
 -- moves a player's character (tester teleports); the speed check starts fresh from there

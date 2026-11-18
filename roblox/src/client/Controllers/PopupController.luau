@@ -22,6 +22,7 @@ local SettingsController = require(script.Parent.SettingsController)
 local EquipmentPopup = require(script.Parent.EquipmentPopup)
 local PanPopup = require(script.Parent.PanPopup)
 local SellPopup = require(script.Parent.SellPopup)
+local MailPopup = require(script.Parent.MailPopup)
 local RebirthPopup = require(script.Parent.RebirthPopup)
 
 local PopupController = {}
@@ -32,12 +33,13 @@ local current: Open? = nil
 local queue: { { name: string, data: any } } = {}
 local shopKey: ((State.View) -> string)? = nil -- the Shop's "what it shows" key (set with the Shop below)
 local boardStamp = 0 -- goes up each time a leaderboard's rows arrive, so its open popup is drawn again
-local MENUS = { board = true, pets = true, shop = true, index = true, settings = true, tester = true, equipment = true, pan = true, sell = true, rebirth = true, thaw = true, daily = true, freeGift = true }
+local MENUS = { board = true, pets = true, shop = true, index = true, settings = true, tester = true, equipment = true, pan = true, sell = true, rebirth = true, thaw = true, daily = true, freeGift = true, mail = true }
 local giftJoined: boolean? = nil -- this session's answer to "in the group?" for the Free Gift board (nil = not asked yet)
 local TITLES: { [string]: string } = {
 	pets = "Pets", shop = "Shop", index = "Index", settings = "Settings", tester = "Tester", equipment = "Equipment", daily = "Daily Challenges",
 	pan = "Pan Upgrades", sell = "Sell Booth", rebirth = "Rebirth Booth", thaw = "Thaw Machine",
 	welcome = "Welcome back!", gift = "Free gift!", freeGift = "Free gift!", pageDone = "Page complete!",
+	mail = "Mailbox", mailThanks = "Mailbox",
 }
 
 -- what a scrolling menu shows; it's only rebuilt when this changes, so a coin tick doesn't throw
@@ -92,6 +94,10 @@ local function shownData(name: string, v: State.View): string?
 		return tostring(boardStamp)
 	elseif name == "freeGift" then
 		return `{v.gift.ready},{giftJoined}`
+	elseif name == "mail" then
+		-- nothing in the mailbox depends on your data. Before 2026-11-18 this was nil, so every coin tick redrew
+		-- the popup and destroyed the message box mid-typing (owner: "writing in the feedback is very buggy")
+		return "mail"
 	else
 		return nil
 	end
@@ -106,8 +112,9 @@ end
 local HEADER: { [string]: Color3 } = {
 	welcome = Theme.coin, gift = Theme.gift, freeGift = Theme.gift, pageDone = Theme.go, tester = Theme.info, equipment = Theme.booths.equipment,
 	pan = Theme.booths.pan, sell = Theme.booths.sell, rebirth = Theme.booths.rebirth, thaw = Theme.info,
+	mail = Theme.info, mailThanks = Theme.go,
 }
-local SMALL = { welcome = true, gift = true, pageDone = true } -- short messages get a smaller panel
+local SMALL = { welcome = true, gift = true, pageDone = true, mailThanks = true } -- short messages get a smaller panel
 local HEADER_ICONS: { [string]: string } = {
 	pets = Config.ui.tileIcons.pets, shop = Config.ui.tileIcons.shop, index = Config.ui.tileIcons.index,
 	settings = Config.ui.tileIcons.settings, welcome = Config.images.icons.coin, gift = Config.images.icons.gift, freeGift = Config.images.icons.gift,
@@ -1249,9 +1256,7 @@ end
 -- a pet's picture, name and its tier / mutation / pose line, on the left of a list card
 local function petInfo(r: Frame, p: State.PetView, def: PetDefs.PetDef)
 	local pose = Config.poses[p.pose]
-	if def.icon ~= "" then
-		Ui.image(r, def.icon, UDim2.fromScale(0.11, 0.92), UDim2.fromScale(0.01, 0.04))
-	end
+	Ui.petPicture(r, def, UDim2.fromScale(0.11, 0.92), UDim2.fromScale(0.01, 0.04)) -- the painting, or its 3D model
 	-- the name on top; under it the tier, mutation and pose, each word in its own colour
 	-- (tinting the painted sprite made Starry muddy and Golden orange, QA 2026-10-31)
 	local name = text(r, def.name, 0.13, 0.4)
@@ -1805,8 +1810,7 @@ local function index(o: Open, v: State.View)
 				b.face.BackgroundTransparency = Config.zoneArt.slotSeeThrough
 			end
 			-- the painted pet, or its dark silhouette while it's still missing (the Secret stays a mystery)
-			if def.icon ~= "" and (found or not secret) then
-				Ui.image(b.face, def.icon, UDim2.fromScale(0.8, 0.66), UDim2.fromScale(0.1, 0.02), not found)
+			if (found or not secret) and Ui.petPicture(b.face, def, UDim2.fromScale(0.8, 0.66), UDim2.fromScale(0.1, 0.02), not found) then
 				b.text.Size = UDim2.fromScale(0.9, 0.28)
 				b.text.Position = UDim2.fromScale(0.05, 0.68)
 			end
@@ -1972,13 +1976,19 @@ end
 -- item: a button (one slot), a stepper (a value with - and +, two slots), a number box with Set (two
 -- slots), an On / Off toggle (one slot). Dev tools stay quiet: grey tabs, colour only on actions.
 local testerTab = "player"
+local testerMail: { { t: number, k: string, m: string, s: string } } = {} -- the Mail tab's rows (TesterService "mail")
+-- the panel's picks, kept across tabs and redraws (2026-11-18): the pet, its mutation and size (0 = none), the
+-- spawn zone, the ADMIN tab's rain rarity / count, boost kind / x / minutes, and where admin things happen
+local pick = { pet = 1, mut = 0, size = 0, zone = 0, rainTier = 0, rainCount = 1, boost = 1, bMult = 1, bMin = 1, here = false }
+local giftArmed = false
+local adminDraft = "" -- the ADMIN tab's message, kept while the panel redraws
 
 local function tester(o: Open, v: State.View)
 	local D = Config.dev
 	local P = D.panel
 	local updates: { (State.View) -> () } = {}
-	local function send(action: string, a: any?, b: any?)
-		State.send("Tester", action, a, b)
+	local function send(action: string, a: any?, b: any?, c: any?)
+		State.send("Tester", action, a, b, c)
 	end
 	local function readNum(key: string, default: number): number
 		local n = testerReadout[key]
@@ -2104,6 +2114,78 @@ local function tester(o: Open, v: State.View)
 	local function short(n: number): string
 		return Config.coinText(n)
 	end
+	local function redrawLabels()
+		if State.view then
+			o.update(State.view :: State.View)
+		end
+	end
+	-- the pet picker (Pets and ADMIN tabs): < > walk the pets (<< >> jump ten), then the mutation and size buttons cycle
+	local allPets: { PetDefs.PetDef } = {}
+	for _, z in Config.world.zones do
+		for _, def in PetDefs.inZone(z.id) do
+			table.insert(allPets, def)
+		end
+	end
+	local muts: { string } = {}
+	for name in Config.mutations do
+		table.insert(muts, name)
+	end
+	table.sort(muts)
+	local sizes: { string } = {}
+	for i = #Config.sizeRollOrder, 1, -1 do -- Big first, Cosmic last
+		table.insert(sizes, Config.sizeRollOrder[i])
+	end
+	local function pickedPet(): PetDefs.PetDef?
+		return allPets[math.clamp(pick.pet, 1, math.max(1, #allPets))]
+	end
+	local function pickedMut(): string
+		return if pick.mut == 0 then "" else muts[pick.mut] or ""
+	end
+	local function pickedSize(): string
+		return if pick.size == 0 then "" else sizes[pick.size] or ""
+	end
+	local function petPicker()
+		local n = math.max(1, #allPets)
+		btn("<<", Theme.info, function()
+			pick.pet = (pick.pet - 11) % n + 1
+			redrawLabels()
+		end)
+		btn("<", Theme.info, function()
+			pick.pet = (pick.pet - 2) % n + 1
+			redrawLabels()
+		end)
+		local r, x, w = take(2)
+		local petName = text(r, "", x, w, nil, "small")
+		petName.TextXAlignment = Enum.TextXAlignment.Center
+		btn(">", Theme.info, function()
+			pick.pet = pick.pet % n + 1
+			redrawLabels()
+		end)
+		btn(">>", Theme.info, function()
+			pick.pet = (pick.pet + 9) % n + 1
+			redrawLabels()
+		end)
+		local mutB = btn("", Theme.events.golden or Theme.coin, function()
+			pick.mut = (pick.mut + 1) % (#muts + 1)
+			redrawLabels()
+		end, 2)
+		local sizeB = btn("", Theme.events.secret or Theme.info, function()
+			pick.size = (pick.size + 1) % (#sizes + 1)
+			redrawLabels()
+		end, 2)
+		local sizeBack = btn("Size back", Theme.tutorial.skip, function()
+			pick.size = (pick.size - 1) % (#sizes + 1)
+			redrawLabels()
+		end, 2)
+		sizeBack.root.Name = "SizeBack"
+		table.insert(updates, function()
+			local def = pickedPet()
+			petName.Text = if def then `{pick.pet}. {def.name} ({def.tier})` else "-"
+			petName.TextColor3 = if def then Ui.darker(tierColor(def.tier)) else Theme.ink
+			mutB.text.Text = if pickedMut() == "" then "Mutation: none" else `Mutation: {pickedMut()}`
+			sizeB.text.Text = if pickedSize() == "" then "Size: normal" else `Size: {pickedSize()}`
+		end)
+	end
 
 	if testerTab == "player" then
 		heading("Coins")
@@ -2204,12 +2286,37 @@ local function tester(o: Open, v: State.View)
 		toggle("No melt", function(view)
 			return view.tester ~= nil and view.tester.noMelt
 		end, "noMelt")
-		btn("Slow Gel on / off", Theme.info, function()
-			send("gel")
-		end)
 		btn("Shield off", Theme.info, function()
 			send("shieldOff")
 		end)
+		btn("Respawn me", Theme.info, function()
+			send("respawn")
+		end)
+		heading("Shortcuts")
+		btn("MAX EVERYTHING", Theme.go, function()
+			send("maxAll")
+		end, 2)
+		btn("Max all upgrades", Theme.info, function()
+			send("upgrade", "all")
+		end, 2)
+		btn("Caught 0", Theme.no, function()
+			send("caught", 0)
+		end)
+		heading("Gear levels")
+		local function gearLv(key: string): number
+			local g = testerReadout.gear
+			local lv = if typeof(g) == "table" then g[key] else nil
+			return if typeof(lv) == "number" then lv else 0
+		end
+		for _, g in Config.gear do
+			stepper(function()
+				return `{g.name} {gearLv(g.key)}/{Config.gearMax}`
+			end, function()
+				send("gearLevel", g.key, gearLv(g.key) - 1)
+			end, function()
+				send("gearLevel", g.key, gearLv(g.key) + 1)
+			end)
+		end
 	elseif testerTab == "world" then
 		heading("Teleport")
 		local targets: { { id: string, label: string } } = testerReadout.targets or {}
@@ -2229,71 +2336,57 @@ local function tester(o: Open, v: State.View)
 		btn("Critters here on / off", Theme.info, function()
 			send("critters")
 		end, 2)
+		heading("Wild pets (this server)")
+		btn("To the Secret", Theme.events.secret or Theme.info, function()
+			send("toSecret")
+		end, 2)
+		btn("New wave now", Theme.go, function()
+			send("newWave")
+		end, 2)
+		btn("Clear wild pets", Theme.no, function()
+			send("clearWild")
+		end, 2)
 	elseif testerTab == "pets" then
-		heading("Pick a pet")
-		local all: { PetDefs.PetDef } = {}
-		for _, z in Config.world.zones do
-			for _, def in PetDefs.inZone(z.id) do
-				table.insert(all, def)
-			end
-		end
-		local muts: { string } = {}
-		for name in Config.mutations do
-			table.insert(muts, name)
-		end
-		table.sort(muts)
-		local petIdx, mutIdx, zoneIdx = 1, 0, 0
+		heading("Pick a pet, a mutation and a size")
+		petPicker()
 		local zones = Config.world.zones
-		btn("<", Theme.info, function()
-			petIdx = (petIdx - 2) % #all + 1
-			o.update(State.view :: State.View)
-		end)
-		local r, x, w = take(2)
-		local petName = text(r, "", x, w, nil, "small")
-		petName.TextXAlignment = Enum.TextXAlignment.Center
-		btn(">", Theme.info, function()
-			petIdx = petIdx % #all + 1
-			o.update(State.view :: State.View)
-		end)
-		local mutB = btn("No mutation", Theme.info, function()
-			mutIdx = (mutIdx + 1) % (#muts + 1)
-			o.update(State.view :: State.View)
-		end)
 		btn("Give", Theme.go, function()
-			local def = all[petIdx]
+			local def = pickedPet()
 			if def then
-				send("givePet", def.key, if mutIdx == 0 then nil else muts[mutIdx])
+				send("givePet", def.key, if pickedMut() == "" then nil else pickedMut(), if pickedSize() == "" then nil else pickedSize())
 			end
 		end)
 		btn("Give frozen", Theme.go, function()
-			local def = all[petIdx]
+			local def = pickedPet()
 			if def then
 				send("giveFrozen", def.key)
 			end
 		end)
 		btn("<", Theme.info, function()
-			zoneIdx = (zoneIdx - 1) % (#zones + 1)
-			o.update(State.view :: State.View)
+			pick.zone = (pick.zone - 1) % (#zones + 1)
+			redrawLabels()
 		end)
 		local r2, x2, w2 = take(2)
 		local zoneName = text(r2, "", x2, w2, nil, "small")
 		zoneName.TextXAlignment = Enum.TextXAlignment.Center
 		btn(">", Theme.info, function()
-			zoneIdx = (zoneIdx + 1) % (#zones + 1)
-			o.update(State.view :: State.View)
+			pick.zone = (pick.zone + 1) % (#zones + 1)
+			redrawLabels()
 		end)
 		btn("Spawn wild", Theme.go, function()
-			local def = all[petIdx]
+			local def = pickedPet()
 			if def then
-				send("spawnPet", def.key, if zoneIdx == 0 then 0 else zones[zoneIdx].id)
+				send("spawnPetX", def.key, { zone = if pick.zone == 0 then 0 else zones[pick.zone].id, mut = pickedMut(), sz = pickedSize() })
 			end
-		end)
+		end, 2)
+		btn("+10 random pets", Theme.info, function()
+			send("giveMany", 10)
+		end, 2)
+		btn("+50 random pets", Theme.info, function()
+			send("giveMany", 50)
+		end, 2)
 		table.insert(updates, function()
-			local def = all[petIdx]
-			petName.Text = if def then `{def.name} ({def.tier})` else "-"
-			petName.TextColor3 = if def then Ui.darker(tierColor(def.tier)) else Theme.ink
-			mutB.text.Text = if mutIdx == 0 then "No mutation" else muts[mutIdx]
-			zoneName.Text = if zoneIdx == 0 then "Next to me" else `{zoneIdx}. {zones[zoneIdx].name}`
+			zoneName.Text = if pick.zone == 0 then "Next to me" else `{pick.zone}. {zones[pick.zone].name}`
 		end)
 		heading("Any pet of a rarity, next to you")
 		for _, t in Config.tiers do
@@ -2329,14 +2422,28 @@ local function tester(o: Open, v: State.View)
 			send("thawSkips", readNum("skips", 0) + 1)
 		end)
 		btn("2nd Thaw Machine", Theme.info, function()
-			send("upgrade", "pen", Config.thaw.secondAt)
+			send("upgrade", "pen", Config.thaw.machinesAt[2])
+		end)
+		btn("3rd Thaw Machine", Theme.info, function()
+			send("upgrade", "pen", Config.thaw.machinesAt[3])
 		end)
 	elseif testerTab == "events" then
-		heading("Server events")
+		heading("Server events (this server only; ADMIN tab = every server)")
+		for _, e in Config.events.list do
+			btn(e.name, Theme.events[e.id] or Theme.info, function()
+				send("admin", { op = "event", a = e.id, here = true })
+			end)
+		end
+		btn("End event", Theme.no, function()
+			send("admin", { op = "endEvent", here = true })
+		end)
+		btn("Secret now", Theme.events.secret or Theme.info, function()
+			send("admin", { op = "secret", here = true })
+		end)
 		btn("Big Chill now", Theme.info, function()
 			send("chill")
 		end)
-		btn("Night Reset now", Theme.info, function() -- the 10 s night that refreshes the islands (Config.night)
+		btn("Night / morning", Theme.info, function() -- the night that refreshes the islands (Config.night)
 			send("night")
 		end)
 		heading("Time away (welcome back)")
@@ -2350,6 +2457,199 @@ local function tester(o: Open, v: State.View)
 			btn(`{n} friends`, Theme.info, function()
 				send("friends", n)
 			end)
+		end
+	elseif testerTab == "admin" then
+		-- ADMIN ABUSE (owner 2026-11-18): AdminService runs each of these in every server of the game (or only this
+		-- one while "This server" is picked). The server takes only the presets from Config.admin.
+		local AD = Config.admin
+		local function admin(op: string, a: any?, b: any?, c: any?, d: any?)
+			send("admin", { op = op, a = a, b = b, c = c, d = d, here = pick.here })
+		end
+		heading("Where it happens")
+		local whereB = btn("", Theme.no, function()
+			pick.here = not pick.here
+			redrawLabels()
+		end, 2)
+		local rb, xb, wb = take(4)
+		local boostsNow = text(rb, "", xb, wb, Theme.infoDeep, "small")
+		table.insert(updates, function()
+			whereB.text.Text = if pick.here then "THIS server only" else "ALL SERVERS"
+			whereB.face.BackgroundColor3 = if pick.here then Theme.info else Theme.no
+			whereB.root.BackgroundColor3 = Ui.darker(whereB.face.BackgroundColor3)
+			local on: { string } = {}
+			local now = workspace:GetServerTimeNow()
+			for _, b in AD.boosts do
+				local m = workspace:GetAttribute("Admin_" .. b.id)
+				local u = workspace:GetAttribute("AdminUntil_" .. b.id)
+				if typeof(m) == "number" and typeof(u) == "number" and u > now then
+					local left = math.floor(u - now)
+					table.insert(on, `{b.label} x{m} ({left // 60}:{string.format("%02d", left % 60)})`)
+				end
+			end
+			boostsNow.Text = if #on > 0 then "Boosts: " .. table.concat(on, "  ") else "No boosts running"
+		end)
+		heading("Start an event now")
+		for _, e in Config.events.list do
+			btn(e.name, Theme.events[e.id] or Theme.info, function()
+				admin("event", e.id)
+			end)
+		end
+		btn("End event", Theme.no, function()
+			admin("endEvent")
+		end, 2)
+		heading("Boost (press to change, then START)")
+		local kindB = btn("", Theme.info, function()
+			pick.boost = pick.boost % #AD.boosts + 1
+			redrawLabels()
+		end)
+		local multB = btn("", Theme.info, function()
+			pick.bMult = pick.bMult % #AD.boostMults + 1
+			redrawLabels()
+		end)
+		local minB = btn("", Theme.info, function()
+			pick.bMin = pick.bMin % #AD.boostMinutes + 1
+			redrawLabels()
+		end)
+		btn("START BOOST", Theme.go, function()
+			admin("boost", AD.boosts[pick.boost].id, AD.boostMults[pick.bMult], AD.boostMinutes[pick.bMin])
+		end, 2)
+		btn("Stop boosts", Theme.no, function()
+			admin("clearBoosts")
+		end)
+		table.insert(updates, function()
+			kindB.text.Text = AD.boosts[pick.boost].label
+			multB.text.Text = `x{AD.boostMults[pick.bMult]}`
+			minB.text.Text = `{AD.boostMinutes[pick.bMin]} min`
+		end)
+		heading("Pets for everyone (pick a pet, mutation and size)")
+		petPicker()
+		btn("Next to everyone", Theme.go, function()
+			local def = pickedPet()
+			if def then
+				admin("petAll", def.key, pickedMut(), pickedSize())
+			end
+		end, 2)
+		local giftB: Ui.Block
+		giftB = btn("Gift to everyone", Theme.gift, function()
+			local def = pickedPet()
+			if not def then
+				return
+			end
+			if giftArmed then
+				giftArmed = false
+				giftB.text.Text = "Gift to everyone"
+				admin("giveAll", def.key, pickedMut(), pickedSize())
+			else
+				-- it goes into every player's save: press twice
+				giftArmed = true
+				giftB.text.Text = "Sure? Press again"
+				task.delay(4, function()
+					giftArmed = false
+					if giftB.text.Parent then
+						giftB.text.Text = "Gift to everyone"
+					end
+				end)
+			end
+		end, 2)
+		local tierB = btn("", Theme.info, function()
+			pick.rainTier = (pick.rainTier + 1) % (#Config.tiers + 1)
+			redrawLabels()
+		end)
+		local countB = btn("", Theme.info, function()
+			pick.rainCount = pick.rainCount % #AD.rainCounts + 1
+			redrawLabels()
+		end)
+		btn("PET RAIN", Theme.go, function()
+			local t = if pick.rainTier == 0 then "" else Config.tiers[pick.rainTier].name
+			admin("rain", t, AD.rainCounts[pick.rainCount], pickedMut(), pickedSize())
+		end, 2)
+		table.insert(updates, function()
+			tierB.text.Text = if pick.rainTier == 0 then "Any rarity" else Config.tiers[pick.rainTier].name
+			countB.text.Text = `{AD.rainCounts[pick.rainCount]} / island`
+		end)
+		heading("World")
+		btn("Night", Theme.events.night or Theme.info, function()
+			admin("night", true)
+		end)
+		btn("Morning", Theme.coin, function()
+			admin("night", false)
+		end)
+		btn("Secret now", Theme.events.secret or Theme.info, function()
+			admin("secret")
+		end)
+		btn("New wave", Theme.go, function()
+			admin("wave")
+		end)
+		heading(`Your message on everyone's screen (Roblox filters it, max {AD.messageMax})`)
+		local rm, xm, wm = take(6)
+		local holder = Ui.block(rm, "MessageBox", Theme.white, "", nil)
+		holder.root.Position = UDim2.fromScale(xm, 0.1)
+		holder.root.Size = UDim2.fromScale(wm * 0.78, 0.8)
+		holder.text.Visible = false
+		local msgBox = Instance.new("TextBox")
+		msgBox.Name = "AdminMessage"
+		msgBox.BackgroundTransparency = 1
+		msgBox.Size = UDim2.fromScale(0.96, 0.8)
+		msgBox.Position = UDim2.fromScale(0.02, 0.1)
+		msgBox.Font = Theme.font
+		msgBox.TextScaled = false -- UI Rules: a box people type into keeps one text size
+		msgBox.TextSize = 18
+		msgBox.TextColor3 = Theme.ink
+		msgBox.TextXAlignment = Enum.TextXAlignment.Left
+		msgBox.ClipsDescendants = true
+		msgBox.PlaceholderText = "Type a message for every server"
+		msgBox.PlaceholderColor3 = Theme.board
+		msgBox.ClearTextOnFocus = false
+		msgBox.Text = adminDraft
+		msgBox.Parent = holder.face
+		local function fitMsg()
+			local h = msgBox.AbsoluteSize.Y
+			if h > 0 then
+				msgBox.TextSize = math.clamp(math.floor(h * 0.7), 12, 28)
+			end
+		end
+		msgBox:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitMsg)
+		task.defer(fitMsg)
+		msgBox:GetPropertyChangedSignal("Text"):Connect(function()
+			local n = utf8.len(msgBox.Text)
+			if n and n > AD.messageMax then
+				msgBox.Text = string.sub(msgBox.Text, 1, (utf8.offset(msgBox.Text, AD.messageMax + 1) :: number) - 1)
+				return
+			end
+			adminDraft = msgBox.Text
+		end)
+		local function sendMessage()
+			local s = string.match(adminDraft, "^%s*(.-)%s*$") or ""
+			if s ~= "" then
+				admin("message", s)
+				adminDraft = ""
+				msgBox.Text = ""
+			end
+		end
+		msgBox.FocusLost:Connect(function(enter: boolean)
+			if enter then
+				sendMessage()
+			end
+		end)
+		sized(button(rm, Theme.go, "SEND", xm + wm * 0.8, wm * 0.2, sendMessage).text, "small")
+		heading("Shout (a fixed line on everyone's screen)")
+		for i, s in AD.shouts do
+			btn(s, Theme.info, function()
+				admin("shout", i)
+			end, 3)
+		end
+	elseif testerTab == "mail" then
+		-- the Feedback mailbox's messages, newest first (FeedbackService; Studio needs API access to DataStores)
+		heading("Feedback mail from players (newest first)")
+		btn("Load mail", Theme.info, function()
+			send("mail")
+		end, 2)
+		if #testerMail == 0 then
+			heading("Nothing loaded yet")
+		end
+		for _, m in testerMail do
+			local msg = if m.m ~= "" then m.m else "(no message)"
+			heading(`{os.date("!%d %b %H:%M", m.t)}  {string.upper(m.k)}  {m.s}:  {msg}`)
 		end
 	else -- save
 		heading("Save")
@@ -2727,6 +3027,8 @@ local function fill(o: Open)
 			elseif hours > 0 then `Your pets earned this in {hours} h away` else "Your pets earned this while you were away", "Collect", function()
 			State.send("CollectWelcome")
 		end)
+	elseif o.name == "mailThanks" then
+		message(o, { "Thank you!", "We read every message." }, "OK", function() end)
 	elseif o.name == "gift" then
 		reward(o, o.data.coins, `and +{Ui.commas(o.data.power or 0)} Cold Power. Thank you!`, "Yay", function() end)
 	elseif o.name == "pageDone" then
@@ -2760,6 +3062,8 @@ local function fill(o: Open)
 			SellPopup.fill(o, v, helpers)
 		elseif o.name == "rebirth" then
 			RebirthPopup.fill(o, v, helpers)
+		elseif o.name == "mail" then
+			MailPopup.fill(o, v, helpers)
 		end
 	end
 	-- nothing to press yet (Index, Daily with nothing to claim): a controller still lands on the X
@@ -3097,6 +3401,11 @@ function PopupController.Start()
 			if my ~= resizeToken or not o or o.closed then
 				return
 			end
+			-- typing: a phone's keyboard sliding up resizes the screen; don't rebuild the box under the finger
+			local typing = game:GetService("UserInputService"):GetFocusedTextBox()
+			if typing and typing:IsDescendantOf(o.frame) then
+				return
+			end
 			o.closed = true
 			o.frame:Destroy()
 			current = nil
@@ -3130,6 +3439,17 @@ function PopupController.Start()
 			PopupController.open("welcome", data)
 		elseif kind == "freeGift" then
 			PopupController.open("freeGift", data)
+		elseif kind == "feedbackSent" then
+			MailPopup.sent()
+			if current and current.name == "mail" then
+				PopupController.close()
+			end
+			PopupController.open("mailThanks", data)
+		elseif kind == "feedbackRows" then
+			testerMail = if typeof(data) == "table" and typeof(data.rows) == "table" then data.rows else {}
+			if current and current.name == "tester" then
+				PopupController.refresh()
+			end
 		elseif kind == "giftClaimed" then
 			if current and current.name == "freeGift" then
 				PopupController.close()

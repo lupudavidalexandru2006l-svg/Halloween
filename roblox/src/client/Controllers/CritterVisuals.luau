@@ -41,11 +41,13 @@ local function add(root: Instance)
 	if img then
 		img.ImageColor3 = Theme.round5.critterGlow
 	else
+		-- owner 2026-11-17: no outline (it showed through the cliffs from miles away): only the warm tint,
+		-- and only where you can really see the critter
 		local h = Instance.new("Highlight")
 		h.FillColor = Theme.round5.critter
 		h.FillTransparency = 0.55
-		h.OutlineColor = Theme.round5.critterGlow
-		h.OutlineTransparency = 0.2
+		h.OutlineTransparency = 1
+		h.DepthMode = Enum.HighlightDepthMode.Occluded
 		h.Parent = model
 	end
 	local core = part(Vector3.one * 0.2, Theme.round5.critter)

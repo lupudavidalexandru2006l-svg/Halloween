@@ -159,7 +159,9 @@ end
 
 local function newCube(def: PetDefs.PetDef, data: any, info: CubeInfo, graceSeconds: number?): Cube
 	-- worked out from the trip home (Config.cubeLife, owner 2026-11-12), so every island is a fair run
+	local pack = data.gear and data.gear.frost_pack
 	local lifeMax = Config.cubeLife(def.tier, def.zone) * (1 + Config.upgrades.ray.lifeBonus * (data.upgrades.ray - 1))
+		* Config.gearAt("frost_pack", if typeof(pack) == "number" then pack else 0) -- Frost Pack (2026-11-17)
 	local c: Cube = {
 		key = info.key, zone = info.zone, pose = info.pose, mut = info.mut, sz = info.sz, superFrozen = info.superFrozen, superUsed = info.superUsed, offered = info.offered,
 		uid = "c" .. nextUid, life = lifeMax, lifeMax = lifeMax, since = os.clock(), part = nil, shownFrac = 1,
@@ -221,7 +223,7 @@ function CarryService.dropCube(player: Player, info: CubeInfo, petAt: Vector3, g
 	pp.ObjectText = def.name
 	pp.HoldDuration = 0
 	pp.KeyboardKeyCode = Enum.KeyCode.E
-	pp.MaxActivationDistance = Config.carry.pickUpRange * Config.gearValue(player, "magnet_gloves", "rangeMult", 1) -- Magnet Gloves
+	pp.MaxActivationDistance = Config.carry.pickUpRange
 	pp.MaxActivationDistance += s * EDGE -- from the cube's side
 	pp.RequiresLineOfSight = false
 	pp.Style = Enum.ProximityPromptStyle.Custom -- drawn by PromptController; other players' clients hide it (PetVisuals)
@@ -250,7 +252,7 @@ function CarryService.pickUp(player: Player, uid: string, auto: boolean?)
 	local c: Cube? = nil
 	for i, g in list or {} do
 		local at = g.part and g.part.Position
-		local near = auto == true or (p ~= nil and at ~= nil and (Vector3.new(p.X, 0, p.Z) - Vector3.new(at.X, 0, at.Z)).Magnitude <= Config.carry.pickUpRange * Config.gearValue(player, "magnet_gloves", "rangeMult", 1) + 2 + (g.part :: Part).Size.X * EDGE)
+		local near = auto == true or (p ~= nil and at ~= nil and (Vector3.new(p.X, 0, p.Z) - Vector3.new(at.X, 0, at.Z)).Magnitude <= Config.carry.pickUpRange + 2 + (g.part :: Part).Size.X * EDGE)
 		if g.uid == uid and near then
 			c = table.remove(list :: { Cube }, i)
 			break
@@ -304,7 +306,7 @@ function CarryService.claim(who: Player, owner: Player, uid: string)
 	end
 	local old = list[i :: number]
 	local at = old.part and old.part.Position
-	local reach = Config.carry.pickUpRange * Config.gearValue(who, "magnet_gloves", "rangeMult", 1) + 2 + (if old.part then old.part.Size.X * EDGE else 0)
+	local reach = Config.carry.pickUpRange + 2 + (if old.part then old.part.Size.X * EDGE else 0)
 	if os.clock() < openAt(old) or not at or (Vector3.new(p.X, 0, p.Z) - Vector3.new(at.X, 0, at.Z)).Magnitude > reach then
 		return
 	end
@@ -394,6 +396,32 @@ function CarryService.takeAll(player: Player): { Cube }
 	end
 	changed(player)
 	return list
+end
+
+-- the night caught you out on the islands (owner 2026-11-18: "teleport with nothing if you didn't get home"):
+-- every cube in your hands is gone (free ones aren't owned pets yet). A bought Super Freeze cube stays: it's
+-- paid for and already in your save. Returns how many were lost.
+function CarryService.loseCarried(player: Player): number
+	local list = carrying[player]
+	if not list then
+		return 0
+	end
+	local kept, lost = {}, 0
+	for _, c in list do
+		if c.superFrozen then
+			table.insert(kept, c)
+		else
+			lost += 1
+			if c.part then
+				c.part:Destroy()
+			end
+		end
+	end
+	if lost > 0 then
+		carrying[player] = kept
+		changed(player)
+	end
+	return lost
 end
 
 local function melt(player: Player, c: Cube)

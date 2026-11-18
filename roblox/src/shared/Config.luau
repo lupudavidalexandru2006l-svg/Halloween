@@ -108,16 +108,18 @@ Config.mutationRollOrder = { "Starry", "Golden" } -- rarest first
 --   bonus  = coins x
 --   scale  = how much bigger the wild pet and its ice cube are drawn (owner 2026-11-17: as big as in their
 --            reference, so a Cosmic L pet stands about 160 studs; carried and pan cubes stay capped below)
---   thaw   = the Thaw Machine takes this much longer; freeze = the ray takes this much longer
+--   thaw   = the Thaw Machine takes this much longer (owner 2026-11-18 "based on the size too, some are too
+--            short": was 1.25 / 1.6 / 2 / 2.5 / 3 / 4 / 5 / 6, now about the square root of the coin bonus)
+--   freeze = the ray takes this much longer
 Config.sizes = {
-	Big = { chance = 0.15, bonus = 2.07, scale = 1.5, thaw = 1.25, freeze = 1.1 },
-	Large = { chance = 0.035, bonus = 4.3, scale = 2.25, thaw = 1.6, freeze = 1.25 },
-	Huge = { chance = 0.0098, bonus = 8.93, scale = 3.38, thaw = 2, freeze = 1.5 },
-	Colossal = { chance = 0.0032, bonus = 18.53, scale = 5.06, thaw = 2.5, freeze = 1.75 },
-	Gigantic = { chance = 0.0013, bonus = 38.44, scale = 7.59, thaw = 3, freeze = 2 },
-	Titanic = { chance = 0.0005, bonus = 79.76, scale = 11.39, thaw = 4, freeze = 2.5 },
-	Monstrous = { chance = 0.0002, bonus = 165.48, scale = 17.09, thaw = 5, freeze = 3 },
-	Cosmic = { chance = 0.000081, bonus = 343.33, scale = 25.63, thaw = 6, freeze = 3.5 },
+	Big = { chance = 0.15, bonus = 2.07, scale = 1.5, thaw = 1.5, freeze = 1.1 },
+	Large = { chance = 0.035, bonus = 4.3, scale = 2.25, thaw = 2, freeze = 1.25 },
+	Huge = { chance = 0.0098, bonus = 8.93, scale = 3.38, thaw = 3, freeze = 1.5 },
+	Colossal = { chance = 0.0032, bonus = 18.53, scale = 5.06, thaw = 4, freeze = 1.75 },
+	Gigantic = { chance = 0.0013, bonus = 38.44, scale = 7.59, thaw = 5, freeze = 2 },
+	Titanic = { chance = 0.0005, bonus = 79.76, scale = 11.39, thaw = 6.5, freeze = 2.5 },
+	Monstrous = { chance = 0.0002, bonus = 165.48, scale = 17.09, thaw = 8, freeze = 3 },
+	Cosmic = { chance = 0.000081, bonus = 343.33, scale = 25.63, thaw = 10, freeze = 3.5 },
 } :: { [string]: { chance: number, bonus: number, scale: number, thaw: number, freeze: number } }
 Config.sizeRollOrder = { "Cosmic", "Monstrous", "Titanic", "Gigantic", "Colossal", "Huge", "Large", "Big" } -- rarest first
 Config.sizeRenamed = { Giant = "Large" } :: { [string]: string } -- saved names from before the size chart
@@ -229,8 +231,37 @@ Config.dev = {
 	-- rowAspect / headAspect = a button row's / a heading's width over height
 	panel = {
 		tabs = { { id = "player", label = "Player" }, { id = "world", label = "World" }, { id = "pets", label = "Pets" },
-			{ id = "events", label = "Events" }, { id = "save", label = "Save" }, { id = "mail", label = "Mail" } },
+			{ id = "events", label = "Events" }, { id = "admin", label = "ADMIN" }, { id = "save", label = "Save" }, { id = "mail", label = "Mail" } },
 		topHeight = 0.16, perRow = 6, gap = 0.01, rowAspect = 20, headAspect = 30,
+	},
+}
+
+-- Admin abuse (owner 2026-11-18: "an admin abuse category where i can spawn shit in all of the servers: events,
+-- pets, sizes, mutations"): the Tester panel's ADMIN tab (AdminService). Sent to every server with
+-- MessagingService. Only these presets are accepted (the server checks every one). Shouts are fixed lines: no
+-- free text ever reaches players.
+Config.admin = {
+	topic = "AdminAbuse1",
+	cooldown = 0.5, -- seconds between two admin requests from one tester
+	boosts = {
+		{ id = "luck", label = "Luck", line = "Rare pets x{m} more often!" },
+		{ id = "coins", label = "Coins", line = "Your pets make x{m} coins!" },
+		{ id = "golden", label = "Golden", line = "Golden pets x{m} more often!" },
+		{ id = "size", label = "Big sizes", line = "Big pets x{m} more often!" },
+	},
+	boostMults = { 2, 5, 10, 25 },
+	boostMinutes = { 5, 15, 30, 60 },
+	rainCounts = { 1, 3, 10 }, -- pets per island
+	-- the admin's own message to every server (owner 2026-11-18): this many characters at most, filtered by Roblox's
+	-- TextService (as the admin's broadcast) in the sending server before it goes anywhere; shown this many seconds
+	messageMax = 100,
+	messageSeconds = 10,
+	shouts = {
+		"ADMIN ABUSE! Get ready!",
+		"Pet party! Go catch them all!",
+		"Something big is coming...",
+		"Thanks for playing! Have fun!",
+		"New update soon!",
 	},
 }
 
@@ -308,6 +339,7 @@ Config.bigChill = { everySeconds = 600, warnSeconds = 30, durationSeconds = 60 }
 -- (owner 2026-11-16: "only 1 in the whole map"), shared: anyone whose Cold Power and gun can freeze that
 -- island's pets may catch it. It stays lifeSeconds (or until frozen), visible
 -- from every island (PetVisuals), and the whole server gets an alert. Ice on it keeps it from leaving.
+-- Owner 2026-11-18: each one comes the same second as the Night Reset nearest its half hour (WorldRules.secretIn).
 Config.secretSpawn = { everySeconds = 1800, lifeSeconds = 300, warnSeconds = 60 }
 
 -- Server events (owner 2026-11-16: "an event every 30 mins, the current events are kinda shitty"): replaces the
@@ -331,8 +363,8 @@ Config.events = {
 }
 
 -- the islands close at night (owner 2026-11-16, "just like in steal an egg"): as the Night Reset falls, glowing
--- walls rise at the tunnel mouth and anyone out on the islands is brought home to their pan (cubes in hand come
--- too, nothing is lost). They open again at sunrise. warnSeconds: "Night soon! Head home" this long before.
+-- walls rise at the tunnel mouth and anyone out on the islands is brought home to their pan, empty-handed (owner
+-- 2026-11-18: cubes not got home in time are lost; a bought Super Freeze cube stays). They open again at sunrise. warnSeconds: "Night soon! Head home" this long before.
 Config.nightClose = { warnSeconds = 15, wallHeight = 40, wallZ = 1, homeDelay = 0.6 }
 
 -- Night (owner 2026-10-31): one 15-minute loop for the whole server, worked out from server time so
@@ -522,7 +554,9 @@ Config.leaderboards = {
 	prompt = { offset = Vector3.new(0, -6, -8), range = 16 },
 	popup = { rowAspect = 9.5, footHeight = 0.13 },
 	nameBatch = 50, -- display names are asked of Roblox this many at a time
-	loadRange = 20, -- owner 2026-11-16 (performance): a board only draws while you stand this many studs from it
+	-- owner 2026-11-16 (performance): a board only draws while you stand this many studs from it. Was 20; owner
+	-- 2026-11-18 "show it from the distance too": seen from across the hub, still off out on the islands
+	loadRange = 250,
 }
 
 Config.analytics = {
@@ -1956,6 +1990,8 @@ Config.gearIcons = {
 	magnet_gloves = "rbxassetid://125482225182830", ice_skates = "rbxassetid://74729644563221",
 	frost_boots = "rbxassetid://137780570610075", cooling_vest = "rbxassetid://78634527461413",
 	cozy_hat = "rbxassetid://132801452561040", gel = "rbxassetid://92227942664230",
+	-- painted 2026-11-18 (FLUX seed 41, icons/gear_frost_pack.png)
+	frost_pack = "rbxassetid://134712160129622",
 } :: { [string]: string }
 
 -- owner 2026-11-15: "did you make actual models for the gear so you can see it on your character":
@@ -1972,26 +2008,36 @@ Config.gearWear = {
 	hat = { main = Color3.fromRGB(255, 186, 30), cuff = Color3.fromRGB(232, 150, 20) },
 	pack = { main = Color3.fromRGB(58, 150, 240), dark = Color3.fromRGB(30, 76, 160) }, -- Frost Pack (2026-11-17)
 	-- mesh sizes as multiples of the limb they sit on (ServerStorage.GearMeshes, 2026-11-18)
-	-- width x the wider of lower and upper leg; overlap = how far past the knee (x lower leg); toeReach = studs
-	-- past the toes; shaftBack = where the TRELLIS boot's shaft sits behind its middle (x its length)
-	bootMesh = { width = 1.12, overlap = 0.04, toeReach = 0.12, shaftBack = 0.173 },
+	-- the boot model was built round a reference lower leg: sole to knee = soleToKnee, its origin soleBelow
+	-- above the sole (studs at scale 1)
+	bootMesh = { soleToKnee = 1.335, soleBelow = 0.805 },
 	packMesh = { scale = 1.03, lift = 0 }, -- lift x UpperTorso height
-	hatMesh = { scale = 1.0, lift = 0 }, -- scale x head width; lift x head height
-	-- colours of the Blender-built gear, per model and part (ServerStorage.GearMeshes)
+	-- scale x head width; lift x head height (0.25 keeps the cuff above the eyes so the face shows)
+	hatMesh = { scale = 1.0, lift = 0.25 },
+	-- colours of the Blender-built gear, per model and part (ServerStorage.GearMeshes). Owner 2026-11-18 "try to
+	-- improve how the gear looks": Fabric read grey and noisy, so the shells are smooth toy plastic with a little
+	-- sheen (reflectance), brighter Chunky Pop colours, and the ice glows (Neon); fur and knit stay Fabric
 	meshLook = {
 		hat = {
 			cuff = { color = Color3.fromRGB(240, 156, 22), material = Enum.Material.Fabric },
 			body = { color = Color3.fromRGB(255, 192, 36), material = Enum.Material.Fabric },
 			pom = { color = Color3.fromRGB(252, 250, 244), material = Enum.Material.Fabric },
-			badge = { color = Color3.fromRGB(255, 200, 52), material = Enum.Material.Metal },
-			stars = { color = Color3.fromRGB(255, 214, 70), material = Enum.Material.Metal },
+			badge = { color = Color3.fromRGB(255, 200, 52), material = Enum.Material.Metal, reflectance = 0.2 },
+			stars = { color = Color3.fromRGB(255, 220, 80), material = Enum.Material.Neon },
+		},
+		frost_boot = {
+			shell = { color = Color3.fromRGB(124, 70, 222), material = Enum.Material.SmoothPlastic, reflectance = 0.08 },
+			sole = { color = Color3.fromRGB(46, 36, 84), material = Enum.Material.SmoothPlastic },
+			fur = { color = Color3.fromRGB(236, 240, 255), material = Enum.Material.Fabric },
+			steel = { color = Color3.fromRGB(214, 222, 236), material = Enum.Material.Metal, reflectance = 0.25 },
+			crystals = { color = Color3.fromRGB(120, 236, 255), material = Enum.Material.Neon },
 		},
 		frost_pack = {
-			body = { color = Color3.fromRGB(36, 190, 204), material = Enum.Material.Fabric },
-			dark = { color = Color3.fromRGB(22, 132, 152), material = Enum.Material.Fabric },
-			straps = { color = Color3.fromRGB(30, 40, 92), material = Enum.Material.Fabric },
-			steel = { color = Color3.fromRGB(205, 214, 228), material = Enum.Material.Metal },
-			ice = { color = Color3.fromRGB(150, 236, 255), material = Enum.Material.Glass, transparency = 0.2 },
+			body = { color = Color3.fromRGB(40, 176, 255), material = Enum.Material.SmoothPlastic, reflectance = 0.06 },
+			dark = { color = Color3.fromRGB(26, 92, 200), material = Enum.Material.SmoothPlastic },
+			straps = { color = Color3.fromRGB(32, 36, 86), material = Enum.Material.SmoothPlastic },
+			steel = { color = Color3.fromRGB(214, 222, 236), material = Enum.Material.Metal, reflectance = 0.25 },
+			ice = { color = Color3.fromRGB(140, 240, 255), material = Enum.Material.Neon, transparency = 0.15 },
 		},
 	},
 	-- the level-10 Frost Boots trail
@@ -2387,6 +2433,9 @@ Config.thaw = {
 	-- owner 2026-11-17 ("still too slow for a 1st island common"): Common 4 -> 2, Uncommon 8 -> 4
 	-- owner 2026-11-17 (night): "the thaw time is kinda funky, make it +30%": every thaw x1.3 (was 2 / 4 / 20 / 60 / 150 / 480 / 1200)
 	seconds = { Common = 2.6, Uncommon = 5.2, Rare = 26, Epic = 78, Legendary = 195, Mythic = 624, Secret = 1560 } :: { [string]: number },
+	-- owner 2026-11-18 ("some are too short"): the Slots levels (perLevel) and Thaw Speed upgrade together cut a thaw
+	-- up to x14, so an Epic took 6 s. Never under minSeconds for its rarity (x its size's thaw and S/M/L factor).
+	minSeconds = { Common = 2, Uncommon = 4, Rare = 15, Epic = 45, Legendary = 120, Mythic = 360, Secret = 900 } :: { [string]: number },
 	sizeFactor = { S = 0.85, M = 1, L = 1.2 } :: { [string]: number },
 	mutFactor = { Frosty = 1.2, Golden = 1.5, Starry = 2 } :: { [string]: number },
 	islandGrowth = 1.3, -- island 2 x1.3, island 3 x1.69, island 8 x6.3
@@ -2412,8 +2461,11 @@ Config.thaw = {
 	firstPops = true, -- a player's very first pet comes out by itself, with Show.thawReveal (Config.show.firstReveal); Claim from the 2nd on
 	-- owner 2026-11-16 ("it doesn't really unfreeze ... not having to press E"): a pet whose time is up pops out by
 	-- itself again; a timer over each busy machine shows the time left (ThawMachines). true = the old Claim button
-	claimByHand = false, claimCooldown = 0.5,
-	timerSign = { lift = 5, size = { 5.2, 2 }, drawDistance = 90 }, -- lift: studs over the machine's top readySign = { y = 9.5, size = { 6, 2.2 }, bob = 0.35, bobSpeed = 2.4 },
+	-- owner 2026-11-18: "make it so you need to claim pets from the thaw machine": Claim is back (the timer
+	-- still counts down, then a READY! sign bobs over the pet until you press Claim at the machine)
+	claimByHand = true, claimCooldown = 0.5,
+	timerSign = { lift = 5, size = { 5.2, 2 }, drawDistance = 90 }, -- lift: studs over the machine's top
+	readySign = { y = 9.5, size = { 6, 2.2 }, bob = 0.35, bobSpeed = 2.4 },
 	-- Skip with Robux (owner 2026-11-12, at the machine only, never in the Shop): a big purple Skip bar under
 	-- the pet in a busy machine's popup. Waiting is always free. One price (owner 2026-11-16: "make the skip
 	-- in the thaw for like 99"; it was 5/15/29/49 stepped by the time left): the first tier whose upTo covers
@@ -2607,7 +2659,8 @@ function Config.thawSeconds(tier: string, size: string, zone: number, mut: strin
 	local base = (T.seconds[tier] or 15) * (T.sizeFactor[size] or 1) * (if mut then T.mutFactor[mut] or 1 else 1) * (if big then big.thaw else 1)
 	local far = T.islandGrowth ^ math.max(0, zone - 1)
 	local upgrade = T.upgradeFactor ^ math.max(0, (thawLevel or 1) - 1)
-	return math.max(1, math.round(base * far * upgrade / (T.perLevel ^ math.max(0, panLevel - 1))))
+	local least = (T.minSeconds[tier] or 1) * (T.sizeFactor[size] or 1) * (if big then big.thaw else 1) -- upgrades never go below this
+	return math.max(1, math.round(math.max(least, base * far * upgrade / (T.perLevel ^ math.max(0, panLevel - 1)))))
 end
 
 -- the Robux price step for skipping a thaw with this many seconds left

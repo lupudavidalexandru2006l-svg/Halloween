@@ -52,7 +52,7 @@ export type Data = {
 	guns: { best: number, equipped: number }, -- guns are bought in order, so the best one says which you own (Round 4 phase 4)
 	pan: { look: number, trainer: number, thaw: number }, -- thaw: the Thaw Speed upgrade (2026-11-13) -- the pan's Look (Round 4 phase 5; Slots is upgrades.pen; Cold Level was removed 2026-11-10) and its Cold Power trainer (2026-11-10, Config.training.stations). Rebirth keeps both
 	tester: TesterSettings,
-	gear: { [string]: boolean }, -- gel + every Config.gear key (2026-11-13) -- gear bought at the Equipment Booth's Gear tab (Round 5)
+	gear: { [string]: any }, -- gel (boolean) + every Config.gear key as a level 0-10 (2026-11-17 rework) -- bought at the Equipment Booth's Gear tab
 	codes: { [string]: boolean }, -- codes already redeemed (Round 5)
 	shieldLeft: number, -- seconds of the new-player tag shield still to use (counts down only while playing)
 	daily: DailyState,
@@ -311,9 +311,34 @@ local function migrate(old: any): Data
 		instantFreeze = te.instantFreeze == true,
 		noMelt = te.noMelt == true,
 	}
-	d.gear.gel = tbl(old.gear).gel == true
+	local og = tbl(old.gear)
+	-- removed gear (owner 2026-11-17): Slow Gel, Magnet Gloves, Cooling Vest. What they cost comes back once;
+	-- the save keeps none of them, so a save written from now on has nothing left to pay back
+	local gearBack = if og.gel == true then Config.gel.price else 0
+	for key, r in Config.gearRefund do
+		local v = og[key]
+		if v == true then
+			gearBack += r.old
+		elseif typeof(v) == "number" then
+			for n = 0, int(v, 0, Config.gearMax, 0) - 1 do
+				gearBack += r.start * Config.gearGrowth ^ n
+			end
+		end
+	end
+	d.gear.gel = false
 	for _, g in Config.gear do
-		d.gear[g.key] = tbl(old.gear)[g.key] == true
+		d.gear[g.key] = if typeof(og[g.key]) == "number" then int(og[g.key], 0, Config.gearMax, 0) else 0
+	end
+	-- gear bought once before the 2026-11-17 rework (true): at least as strong as it was, never weaker.
+	-- Ice Skates (x1.2 when carrying) and the old Frost Boots (pets flee slower) both become Frost Boots levels.
+	local function atLeast(key: string, level: number)
+		d.gear[key] = math.max(d.gear[key], level)
+	end
+	if og.cozy_hat == true then atLeast("cozy_hat", 4) end -- was +10% coins
+	atLeast("frost_boots", (if og.ice_skates == true then 4 else 0) + (if og.frost_boots == true then 2 else 0))
+	if gearBack > 0 then
+		d.coins = math.min(d.coins + gearBack, 1e15)
+		d.coldRefund = math.min(d.coldRefund + gearBack, 1e15) -- PenService says "coins back" once
 	end
 	for k, v in tbl(old.codes) do
 		if typeof(k) == "string" and #k <= Config.codes.maxLength and v == true then

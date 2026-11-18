@@ -43,14 +43,27 @@ function EventService.current(): Config.ServerEvent?
 	return (WorldRules.eventAt(workspace:GetServerTimeNow()))
 end
 
--- an event's multiplier: "luck" (Rare and up odds), "coins" (pan income), "golden" (Golden chance); 1 = none
+-- an admin boost (AdminService, owner 2026-11-18 "admin abuse"): workspace attributes Admin_<kind> = its
+-- multiplier and AdminUntil_<kind> = the server time it ends. Same in every server (one message sets them all).
+function EventService.adminMult(kind: string): number
+	local m = workspace:GetAttribute("Admin_" .. kind)
+	local untilAt = workspace:GetAttribute("AdminUntil_" .. kind)
+	if typeof(m) == "number" and typeof(untilAt) == "number" and workspace:GetServerTimeNow() < untilAt then
+		return m
+	end
+	return 1
+end
+
+-- an event's multiplier: "luck" (Rare and up odds), "coins" (pan income), "golden" (Golden chance), "size"
+-- (big sizes, admin only); 1 = none. An admin boost multiplies on top of the event.
 function EventService.mult(kind: string): number
 	local e = EventService.current()
 	local E = Config.events
+	local admin = EventService.adminMult(kind)
 	if not e or e.id ~= kind then
-		return 1
+		return admin
 	end
-	return if kind == "luck" then E.luckMult elseif kind == "coins" then E.coinMult elseif kind == "golden" then E.goldenMult else 1
+	return admin * (if kind == "luck" then E.luckMult elseif kind == "coins" then E.coinMult elseif kind == "golden" then E.goldenMult else 1)
 end
 
 function EventService.isNight(): boolean
@@ -61,6 +74,13 @@ end
 function EventService.toggleNight()
 	nightOffset = WorldRules.skipTo(workspace:GetServerTimeNow(), nightOffset, not EventService.isNight())
 	workspace:SetAttribute("NightOffset", nightOffset)
+end
+
+-- admin: night (true) or morning (false) now, whatever it is
+function EventService.setNight(on: boolean)
+	if EventService.isNight() ~= on then
+		EventService.toggleNight()
+	end
 end
 
 local function nightTick()

@@ -193,6 +193,29 @@ local function buildHub()
 	-- gift box (invisible: MapArt draws the ribboned box, the client bobs it and shows its label)
 	local gift = part("GiftBox", Vector3.new(3, 3, 3), CFrame.new(W.giftBox.X, 1.5, W.giftBox.Z), Theme.gift, map, { Transparency = 1 })
 	WorldService.giftPrompt = prompt(gift, "Open", "Free gift", Config.player.openHold)
+	-- the Feedback mailbox beside it (owner 2026-11-17 night): a chunky blue mailbox on a wooden post with a
+	-- yellow flag up. Its prompt opens the Mail popup (PromptController, Booth "mail"; FeedbackService decides)
+	local mb = W.mailbox
+	local mail = part("Mailbox", Vector3.new(3, 6, 3), CFrame.new(mb.X, 3, mb.Z), Theme.info, map, { Transparency = 1, CanCollide = false })
+	local mp = prompt(mail, "Send feedback", "Mailbox", Config.player.openHold, Vector3.new(0, 1.5, 0))
+	mp:SetAttribute("Booth", "mail")
+	local face = CFrame.lookAt(Vector3.new(mb.X, 0, mb.Z), Vector3.new(mb.X, 0, mb.Z - 10)) -- toward the plaza
+	part("MailPost", Vector3.new(0.9, 4.2, 0.9), face * CFrame.new(0, 2.1, 0), Theme.wood, mail, { Material = Enum.Material.WoodPlanks })
+	part("MailBody", Vector3.new(2.6, 2.2, 3.6), face * CFrame.new(0, 5.1, 0), Theme.info, mail)
+	local roof = part("MailRoof", Vector3.new(2.6, 2.6, 3.6), face * CFrame.new(0, 6.2, 0) * CFrame.Angles(0, 0, math.pi / 2), Theme.info, mail, { Shape = Enum.PartType.Cylinder })
+	roof.Size = Vector3.new(3.6, 2.6, 2.6)
+	roof.CFrame = face * CFrame.new(0, 6.2, 0) * CFrame.Angles(0, math.pi / 2, 0)
+	part("MailDoor", Vector3.new(2, 2.4, 0.25), face * CFrame.new(0, 5.3, -1.85), Theme.white, mail)
+	part("MailSlot", Vector3.new(1.3, 0.25, 0.3), face * CFrame.new(0, 5.9, -1.95), Theme.ink, mail)
+	part("MailFlagPole", Vector3.new(0.2, 2.2, 0.2), face * CFrame.new(1.45, 6.1, 0.6), Theme.ink, mail)
+	part("MailFlag", Vector3.new(0.2, 0.9, 1.3), face * CFrame.new(1.45, 6.75, 1.15), Theme.coin, mail, { Material = Enum.Material.Neon })
+	for _, d in mail:GetChildren() do
+		if d:IsA("BasePart") then
+			d.CanCollide = d.Name == "MailPost" or d.Name == "MailBody"
+		end
+	end
+	local sign = part("MailSign", Vector3.new(5, 1.4, 0.3), face * CFrame.new(0, 8.6, 0), Theme.info, mail)
+	surfaceText(sign, Enum.NormalId.Front, "FEEDBACK", Theme.info, 1.1)
 	-- leaderboards on the side walls, facing into the plaza
 	for i, pos in W.boards do
 		local at = Vector3.new(pos.X, 10, pos.Z)

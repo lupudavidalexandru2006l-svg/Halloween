@@ -134,15 +134,16 @@ function WorldRules.toFahrenheit(c: number): number
 	return math.round(c * 9 / 5 + 32)
 end
 
+-- the pan's middle; it moves back as the pan grows with its Slots (Config.plotZ)
 function WorldRules.plotCenter(index: number): Vector3
 	local p = Config.world.plots[index]
-	return Vector3.new(p.x, 0, p.z)
+	return Vector3.new(p.x, 0, Config.plotZ(index))
 end
 
 function WorldRules.inPlot(index: number, pos: Vector3): boolean
 	local c = WorldRules.plotCenter(index)
 	local s = Config.world.penSize
-	return math.abs(pos.X - c.X) <= s.X / 2 and math.abs(pos.Z - c.Z) <= s.Z / 2
+	return math.abs(pos.X - c.X) <= s.X / 2 and math.abs(pos.Z - c.Z) <= Config.plotLength(index) / 2
 end
 
 -- how far this player may go: islands 1..reach are open to them (Round 4 phase 6; the save's reach)
@@ -198,10 +199,31 @@ function WorldRules.nightIn(serverNow: number, offset: number): number
 	return (falls - t) % cycle
 end
 
+-- when the Secret of half hour `boundary` (Unix :00 / :30) comes: the nightfall nearest it (owner 2026-11-18:
+-- "the secret should spawn in a night reset, don't change the times, only the second it happens should be the
+-- same"), so it lands the same second as the Night Reset, 16 s before the half hour with the default loop
+local function secretAt(boundary: number, offset: number): number
+	local N = Config.night
+	local cycle = N.daySeconds + N.fadeSeconds * 2 + N.nightSeconds
+	local falls = N.daySeconds + N.fadeSeconds * N.nightAt -- the moment nightCycle turns `night`
+	local d = (falls - (boundary + offset)) % cycle
+	if d > cycle / 2 then
+		d -= cycle
+	end
+	return boundary + d
+end
+
 -- the Secret clock (Config.secretSpawn): seconds to the next one, and the slot number of the last one
+-- (the workspace attribute NightOffset moves it with the night loop)
 function WorldRules.secretIn(serverNow: number): (number, number)
 	local every = Config.secretSpawn.everySeconds
-	return every - serverNow % every, math.floor(serverNow / every)
+	local off = workspace:GetAttribute("NightOffset")
+	local offset = if typeof(off) == "number" then off else 0
+	local k = math.floor(serverNow / every) + 1
+	while secretAt(k * every, offset) > serverNow do
+		k -= 1
+	end
+	return secretAt((k + 1) * every, offset) - serverNow, k
 end
 
 -- the server event clock (Config.events): the event running now (nil = none), when it ends, the next one and

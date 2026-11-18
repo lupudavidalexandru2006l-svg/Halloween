@@ -139,8 +139,9 @@ end
 
 -- the server's size roll for a new wild pet (Config.sizes): rarest first, nil = a normal pet
 local function rollSize(): string?
+	local boost = EventService.mult("size") -- an admin size boost (AdminService); 1 normally
 	for _, name in Config.sizeRollOrder do
-		if rng:NextNumber() < Config.sizes[name].chance then
+		if rng:NextNumber() < Config.sizes[name].chance * boost then
 			return name
 		end
 	end
@@ -154,8 +155,10 @@ local function setAction(pet: WildPet, action: string)
 	pet.root:SetAttribute("ActionStart", workspace:GetServerTimeNow())
 end
 
--- one wild pet of this kind (its size and mutation are rolled here); owner = only that player sees it
-function WildPetSpawner.spawn(zone: number, at: Vector3?, key: string, near: boolean?, owner: Player?): WildPet?
+-- one wild pet of this kind (its size and mutation are rolled here); owner = only that player sees it.
+-- forced (Tester / admin, 2026-11-18): this size and mutation instead of the rolls ("" or nil in it = normal)
+export type Forced = { mut: string?, sz: string? }
+function WildPetSpawner.spawn(zone: number, at: Vector3?, key: string, near: boolean?, owner: Player?, forced: Forced?): WildPet?
 	local def = PetDefs.get(key)
 	if not def then
 		return nil
@@ -166,7 +169,7 @@ function WildPetSpawner.spawn(zone: number, at: Vector3?, key: string, near: boo
 	end
 	local id = "p" .. nextId
 	nextId += 1
-	local sz = rollSize()
+	local sz = if forced then forced.sz else rollSize()
 	local root = makeRoot(def, pos, sz)
 	root:SetAttribute("PetId", id)
 	root:SetAttribute("PetKey", def.key)
@@ -174,7 +177,7 @@ function WildPetSpawner.spawn(zone: number, at: Vector3?, key: string, near: boo
 	root:SetAttribute("Zone", zone)
 	root:SetAttribute("State", "wild")
 	root:SetAttribute("OwnerUserId", if owner then owner.UserId else 0) -- clients hide others' personal rares
-	local mut = rollMutation()
+	local mut = if forced then forced.mut else rollMutation()
 	root:SetAttribute("Mut", mut)
 	root:SetAttribute("Size", sz)
 	local pet: WildPet = {
@@ -334,8 +337,8 @@ local function tick(dt: number)
 		end
 		-- scared: it runs away from the ray, fast, its pose keeps going
 		if pet.meter > 0 and pet.fleeFrom and pet.state == "wild" then
-			local boots = if pet.fleeBy then Config.gearValue(pet.fleeBy, "frost_boots", "fleeMult", 1) else 1
-			flee(pet, dt, Config.aim.fleeSpeed * slow * boots * (if m then m.flee else Config.aim.fleeTier[pet.def.tier] or 1))
+			-- (the old Frost Boots slowed this; since the 2026-11-17 gear rework the boots make you faster instead)
+			flee(pet, dt, Config.aim.fleeSpeed * slow * (if m then m.flee else Config.aim.fleeTier[pet.def.tier] or 1))
 			pet.wanderTo = nil
 			continue
 		end
@@ -474,21 +477,58 @@ end
 
 -- Tester: this exact pet, wild, in this zone (any pet in any zone; owner 2026-11-05). zone 0 = right
 -- next to you, on the island you stand on. Rare and up is personal, like devSpawn.
-function WildPetSpawner.devSpawnPet(player: Player, key: string, zone: number): WildPet?
+function WildPetSpawner.devSpawnPet(player: Player, key: string, zone: number, forced: Forced?, personal: boolean?): WildPet?
 	local def = PetDefs.get(key)
 	if not def then
 		return nil
 	end
-	local owner = if Config.tier(def.tier).rank >= 3 then player else nil
+	local owner = if personal or Config.tier(def.tier).rank >= 3 then player else nil
 	if zone == 0 then
 		local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
 		if not root then
 			return nil
 		end
-		local at = Vector3.new(root.Position.X + 5, 0, root.Position.Z + 5)
-		return WildPetSpawner.spawn(math.max(1, WorldRules.zoneAt(root.Position)), at, key, false, owner)
+		local spread = rng:NextNumber() * math.pi * 2 -- a few at once don't stack in one spot
+		local at = Vector3.new(root.Position.X + math.cos(spread) * 7, 0, root.Position.Z + math.sin(spread) * 7)
+		return WildPetSpawner.spawn(math.max(1, WorldRules.zoneAt(root.Position)), at, key, false, owner, forced)
 	end
-	return WildPetSpawner.spawn(zone, nil, key, false, owner)
+	return WildPetSpawner.spawn(zone, nil, key, false, owner, forced)
+end
+
+-- admin rain (2026-11-18): count shared pets on every ready island, rarity tier ("" = rolled), forced size / mutation
+function WildPetSpawner.rain(tier: string, count: number, forced: Forced?): number
+	local made = 0
+	for _, z in Config.world.zones do
+		if not z.ready then
+			continue
+		end
+		for _ = 1, count do
+			local t = if tier ~= "" then tier else pickTier()
+			local pool = PetDefs.inZone(z.id, t)
+			if #pool > 0 and WildPetSpawner.spawn(z.id, nil, pool[rng:NextInteger(1, #pool)].key, false, nil, forced) then
+				made += 1
+			end
+		end
+	end
+	return made
+end
+
+-- admin: a fresh wave now (the islands' shared wild pets go and new ones roll, like a sunrise)
+function WildPetSpawner.newWave()
+	WildPetSpawner.nightReset(true)
+	WildPetSpawner.nightReset(false)
+end
+
+-- tester: every wild pet nobody is busy with goes (a clean island to test on)
+function WildPetSpawner.clearWild(): number
+	local n = 0
+	for id, pet in pets do
+		if pet.state == "wild" and pet.meter <= 0 and not pet.tutorial then
+			WildPetSpawner.remove(id)
+			n += 1
+		end
+	end
+	return n
 end
 
 function WildPetSpawner.Init()
@@ -511,6 +551,32 @@ local function rollWave()
 				local near = i <= Config.spawner.nearCount and Config.tier(tier).rank < 3
 				WildPetSpawner.spawn(z.id, nil, pool[rng:NextInteger(1, #pool)].key, near)
 			end
+		end
+	end
+end
+
+-- Commons don't hang about (owner 2026-11-17 night: "rare pets don't spawn that often, commons despawn too
+-- slowly"): a wild Common nobody has ice on wanders off after Config.night.wave.commonLeave seconds, and a fresh
+-- pet takes its place on the same island, its rarity rolled like the wave's. Never at night (the islands are
+-- shut), never a pet that's someone's (tutorial, a melted cube's), being chased, dazed or on offer.
+local function replaceStaleCommons()
+	local after = Config.night.wave.commonLeave
+	if not after or after <= 0 or EventService.isNight() then
+		return
+	end
+	local now = os.clock()
+	local gone: { number } = {}
+	for id, pet in pets do
+		if pet.state == "wild" and pet.def.tier == "Common" and pet.meter <= 0 and not pet.knocked and not pet.tutorial
+			and not pet.owner and not pet.offerFor and not pet.fleeFrom and now - (pet.bornAt or now) >= after then
+			table.insert(gone, pet.zone)
+			WildPetSpawner.remove(id)
+		end
+	end
+	for _, zone in gone do
+		local pool = PetDefs.inZone(zone, pickTier())
+		if #pool > 0 then
+			WildPetSpawner.spawn(zone, nil, pool[rng:NextInteger(1, #pool)].key, false)
 		end
 	end
 end
@@ -538,6 +604,15 @@ end
 function WildPetSpawner.Start()
 	rollWave()
 	EventService.NightChanged:Connect(WildPetSpawner.nightReset)
+	task.spawn(function()
+		while true do
+			task.wait(5)
+			local ok, err = pcall(replaceStaleCommons)
+			if not ok then
+				warn("[WildPetSpawner] common refresh:", err)
+			end
+		end
+	end)
 	-- first minute: a fluffy bunny next to the spawn, and a second and third pet right there
 	DataService.Loaded:Connect(function(player: Player, data: any)
 		if data.stats.frozen == 0 then

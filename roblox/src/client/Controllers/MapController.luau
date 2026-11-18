@@ -45,7 +45,10 @@ end
 -- MapArt's moving parts (booth gears, the portal's swirl, floating crystals): folders tagged
 -- motionTag. Each part's built CFrame is kept the first time it's seen (a part that streams in again
 -- is a new one, back at its built place), then moved from there. t = 0 puts everything back.
-local motionBase: { [BasePart]: CFrame } = setmetatable({}, { __mode = "k" }) :: any
+-- (owner 2026-11-18: "the decors on some islands tweak": the built CFrame lived in a weak table keyed by the
+-- part; Roblox can drop such a key, the part then re-read its moved CFrame as its base and drifted further
+-- every frame. World Rules: keep it in an attribute on the part, set on this screen only)
+local BASE_ATTR = "MotionBase"
 -- each tagged folder's settings, read once when it arrives (PERF-AUDIT-2026-11-09: these were looked up
 -- with GetTagged and GetAttribute every frame)
 type MotionSpec = { pivot: CFrame, spin: boolean, axis: Vector3?, speed: number?, amp: number?, hz: number?, phase: number }
@@ -97,10 +100,10 @@ local function moveMapParts(t: number, from: Vector3?)
 		end
 		for _, p in f:GetChildren() do
 			if p:IsA("BasePart") then
-				local base = motionBase[p]
-				if not base then
+				local base = p:GetAttribute(BASE_ATTR) :: CFrame?
+				if typeof(base) ~= "CFrame" then
 					base = p.CFrame
-					motionBase[p] = base
+					p:SetAttribute(BASE_ATTR, base)
 				end
 				table.insert(parts, p)
 				table.insert(cfs, move * base)

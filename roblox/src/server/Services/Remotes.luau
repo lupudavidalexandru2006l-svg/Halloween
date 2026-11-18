@@ -27,6 +27,7 @@ local NAMES = {
 	"SkipThawAll", -- thaw every frozen pet at once with Robux (MonetizationService, owner 2026-11-16)
 	"ClaimThaw", -- take a thawed pet out of its machine (PenService, owner 2026-11-13)
 	"Teleport", -- the top buttons: to the Equipment Booth or your pan (TravelService, 2026-11-12)
+	"SendFeedback", -- the Feedback mailbox: a mood and a short message (FeedbackService, owner 2026-11-17 night)
 	-- server -> client (what happened)
 	"Data", "Notify", "BoardRank", "BoardRows",
 }

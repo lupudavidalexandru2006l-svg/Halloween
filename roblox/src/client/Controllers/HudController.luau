@@ -250,7 +250,7 @@ type Clock = { root: TextButton, text: TextLabel, chip: Frame, icon: ImageLabel,
 local clocks: { [string]: Clock } = {}
 local CLOCK_ORDER = { "event", "secret", "night" }
 local clocksOpenUntil = 0 -- os.clock() until which every clock shows
-local soonestClock = "event" -- set by tickClocks
+local soonestClock = "night" -- the one clock shown while they're closed
 
 -- owner 2026-11-17: hover opens and closes at once, no delay
 local function applyClocks()
@@ -374,14 +374,9 @@ local function tickClocks()
 	local offset = (workspace:GetAttribute("NightOffset") or 0) :: number
 	local nightIn = WorldRules.nightIn(now, offset)
 	clocks.night.text.Text = if nightIn <= 0 then "Night!" else `Night in {Config.timeText(nightIn)}`
-	-- one clock unless open: the soonest (something happening now counts as 0)
-	local soonIn = { event = if cur then 0 else nextIn, secret = if out then 0 else secretIn, night = math.max(0, nightIn) }
-	local soonest = "event"
-	for _, k in CLOCK_ORDER do
-		if soonIn[k] < soonIn[soonest] then
-			soonest = k
-		end
-	end
+	-- one clock unless open: always the night (owner 2026-11-18: it was the soonest, so an event or the Secret
+	-- took its place; those show only on hover / tap now)
+	local soonest = "night"
 	soonestClock = soonest
 	applyClocks()
 	local moreText = `+{#CLOCK_ORDER - 1}`
@@ -618,7 +613,7 @@ local function buildIsland()
 	-- every gun's window is built now and only switched on when its island shows, and their meshes are
 	-- fetched up front: built on show, the gun popped in a moment after the banner (owner 2026-11-17)
 	for i in Config.guns.list do
-		local vp = EquipmentPopup.gunView(gunBox, i, false, false, nil, true)
+		local vp = EquipmentPopup.gunView(gunBox, i, false, false, nil, true, true)
 		vp.Name = `Gun{i}`
 		vp.AnchorPoint = Vector2.new(0.5, 0.5)
 		vp.Position = UDim2.fromScale(0.5, 0.5)
@@ -900,6 +895,102 @@ function HudController.Start()
 			SoundController.play("unlock")
 		elseif kind == "eventEnd" then
 			HudController.banner("The event is over. Next one soon!", Theme.info)
+		elseif kind == "adminAbuse" and typeof(data) == "table" and typeof(data.text) == "string" then
+			-- admin abuse (AdminService, 2026-11-18): a preset line from the server, in the event's colour
+			local secs = if typeof(data.seconds) == "number" then math.clamp(data.seconds, 3, 15) else 7
+			-- no pulse (owner 2026-11-18: "dont make it pulsate")
+			HudController.banner(data.text, Theme.events[data.color] or Theme.events.secret, secs, "star", false)
+			SoundController.play("unlock")
+		elseif kind == "adminChat" and typeof(data) == "table" and typeof(data.name) == "string" and typeof(data.text) == "string" then
+			-- the admin's message as a chat line, like the big pet games: a bold red name with the verified badge,
+			-- then the (server-filtered) text. Escaped so the text can't add its own rich-text tags.
+			local function esc(s: string): string
+				return (s:gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"):gsub('"', "&quot;"):gsub("'", "&apos;"))
+			end
+			local line = `<font color="#FF3B3B"><b>{esc(data.name)}</b></font> <font color="#3B9BFF">\u{E000}</font>: <b>{esc(data.text)}</b>`
+			-- on screen too, like Grow a Garden (owner 2026-11-18: "the alert is not it"): no panel, just the line in
+			-- big white outlined text near the top, red name and badge, fading out after a while
+			local pg = game:GetService("Players").LocalPlayer:FindFirstChildOfClass("PlayerGui")
+			if pg then
+				local gui = pg:FindFirstChild("AdminLines") :: ScreenGui?
+				if not gui then
+					local g = Instance.new("ScreenGui")
+					g.Name = "AdminLines"
+					g.ResetOnSpawn = false
+					g.DisplayOrder = 50
+					g.IgnoreGuiInset = true
+					local holder = Instance.new("Frame")
+					holder.Name = "Lines"
+					holder.BackgroundTransparency = 1
+					holder.AnchorPoint = Vector2.new(0.5, 0)
+					holder.Position = UDim2.fromScale(0.5, 0.15)
+					holder.Size = UDim2.fromScale(0.8, 0.3)
+					local list = Instance.new("UIListLayout")
+					list.SortOrder = Enum.SortOrder.LayoutOrder
+					list.HorizontalAlignment = Enum.HorizontalAlignment.Center
+					list.Padding = UDim.new(0, 4)
+					list.Parent = holder
+					holder.Parent = g
+					g.Parent = pg
+					gui = g
+				end
+				local holder = (gui :: ScreenGui):FindFirstChild("Lines") :: Frame
+				local n = 0
+				for _, c in holder:GetChildren() do
+					if c:IsA("TextLabel") then
+						n += 1
+					end
+				end
+				if n >= 3 then -- at most three lines: the oldest goes
+					local oldest: TextLabel? = nil
+					for _, c in holder:GetChildren() do
+						if c:IsA("TextLabel") and (not oldest or c.LayoutOrder < oldest.LayoutOrder) then
+							oldest = c
+						end
+					end
+					if oldest then
+						oldest:Destroy()
+					end
+				end
+				local cam = workspace.CurrentCamera
+				local screenH = if cam then cam.ViewportSize.Y else 720
+				local lab = Instance.new("TextLabel")
+				lab.Name = "AdminLine"
+				lab.LayoutOrder = math.floor(os.clock() * 100)
+				lab.BackgroundTransparency = 1
+				lab.Size = UDim2.new(1, 0, 0, 0)
+				lab.AutomaticSize = Enum.AutomaticSize.Y
+				lab.Font = Theme.font
+				lab.TextSize = math.clamp(math.floor(screenH * 0.04), 20, 40)
+				lab.TextWrapped = true
+				lab.RichText = true
+				lab.TextColor3 = Color3.new(1, 1, 1)
+				lab.Text = `<font color="#FF3B3B">{esc(data.name)}</font> <font color="#3B9BFF">\u{E000}</font>: {esc(data.text)}`
+				local stroke = Instance.new("UIStroke")
+				stroke.Thickness = math.max(2, math.floor(lab.TextSize / 12))
+				stroke.Color = Color3.new(0, 0, 0)
+				stroke.Parent = lab
+				lab.Parent = holder
+				SoundController.play("unlock")
+				local secs = if typeof(data.seconds) == "number" then math.clamp(data.seconds, 3, 20) else 10
+				task.delay(secs, function()
+					if lab.Parent then
+						local ti = TweenInfo.new(0.6)
+						game:GetService("TweenService"):Create(lab, ti, { TextTransparency = 1 }):Play()
+						game:GetService("TweenService"):Create(stroke, ti, { Transparency = 1 }):Play()
+						task.delay(0.7, function()
+							lab:Destroy()
+						end)
+					end
+				end)
+			end
+			pcall(function()
+				local channels = game:GetService("TextChatService"):FindFirstChild("TextChannels")
+				local sys = channels and channels:FindFirstChild("RBXSystem")
+				if sys and sys:IsA("TextChannel") then
+					sys:DisplaySystemMessage(line)
+				end
+			end)
 		elseif kind == "secretSpawned" then
 			-- the server-wide alert (owner 2026-11-16): one Secret on the whole map, and where it is
 			local where = if typeof(data.islands) == "table" and typeof(data.islands[1]) == "string" then data.islands[1] else "an island"
@@ -920,7 +1011,8 @@ function HudController.Start()
 		elseif kind == "nightWarn" then
 			HudController.banner(`Night in {data.inSeconds}s! The islands close`, Theme.events.night, 4, "star")
 		elseif kind == "nightHome" then
-			HudController.banner("Night! Back home until sunrise", Theme.events.night, 4, "star")
+			local lost = typeof(data) == "table" and typeof(data.lost) == "number" and data.lost > 0
+			HudController.banner(if lost then "Night! Your pet got away. Get home before dark" else "Night! Back home until sunrise", Theme.events.night, 4, "star")
 		elseif kind == "chillStart" and data.quiet then
 			-- the Big Chill as a server event: eventStart already says it
 		elseif kind == "chillStart" then
@@ -930,8 +1022,8 @@ function HudController.Start()
 				HudController.banner("Big Chill! Nothing melts", Theme.info, data.seconds)
 			end
 		elseif kind == "nightStart" then
-			-- the Night Reset (Config.night) and the closed islands (Config.nightClose): one message for both
-			HudController.banner("Night! Back home until sunrise", Theme.events.night, 4, "star")
+			-- the Night Reset (Config.night), the closed islands (Config.nightClose) and the night thaw boost
+			HudController.banner(`Night! Thawing {Config.thaw.nightSpeed}x faster`, Theme.events.night, 4, "star")
 		elseif kind == "nightEnd" then
 			HudController.banner("Good morning! New pets are here", Theme.go)
 		elseif kind == "bigWin" then
@@ -994,7 +1086,9 @@ function HudController.Start()
 			end
 		elseif kind == "gearBought" then
 			if typeof(data) == "table" and typeof(data.name) == "string" then
-				HudController.banner(`{data.name} on!`, Theme.go) -- an always-on gear (Config.gear)
+				-- an always-on gear's new level (Config.gear, 2026-11-17)
+				local lv = if typeof(data.level) == "number" then data.level else 1
+				HudController.banner(`{data.name} Lv {lv}! {Config.gearText(data.key, lv)}`, Theme.go)
 			else
 				HudController.banner("Slow Gel is on your hotbar!", Theme.go)
 			end
