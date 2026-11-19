@@ -1,0 +1,9 @@
+{"parts": [
+  ["WingGlowL", "x > 0.25 and 0.18 < z < 0.62 and 180 < h < 215 and s > 0.3 and v > 0.75"],
+  ["WingGlowR", "x < -0.25 and 0.18 < z < 0.62 and 180 < h < 215 and s > 0.3 and v > 0.75"],
+  ["WingL", "x > 0.25 and 0.18 < z < 0.62 and (z < 0.46 or x > 0.31 or 180 < h < 260)"],
+  ["WingR", "x < -0.25 and 0.18 < z < 0.62 and (z < 0.46 or x < -0.31 or 180 < h < 260)"],
+  ["Head", "z > 0.46"],
+  ["Tail", "y > 0.18 and z < 0.36"],
+  ["LegFL", "z < 0.07 and x > 0"],
+  ["LegFR", "z < 0.07"]]}
