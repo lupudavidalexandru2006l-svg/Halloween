@@ -165,7 +165,8 @@ end
 
 local function requestSkip(player: Player, m: any)
 	local d = DataService.get(player)
-	if not d or typeof(m) ~= "number" or m ~= math.floor(m) or m < 1 or m > 2 then
+	-- was "> 2": machine 3's Skip did nothing (the same slip ClaimThaw had)
+	if not d or typeof(m) ~= "number" or m ~= math.floor(m) or m < 1 or m > PenService.machines(d) then
 		return
 	end
 	local asked = skipAsked[player]

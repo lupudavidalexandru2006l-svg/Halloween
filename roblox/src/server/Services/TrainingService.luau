@@ -91,7 +91,7 @@ end
 
 -- why this player can't train right now (nil = they can)
 local function blocker(player: Player): string?
-	if CarryService.load(player) > 0 then
+	if CarryService.count(player) > 0 then -- hands only: frozen pets waiting on the ground don't block training
 		return "Bring your pets home first"
 	end
 	if player:GetAttribute("Tagged") then

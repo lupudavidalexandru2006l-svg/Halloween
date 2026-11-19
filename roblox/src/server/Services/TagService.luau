@@ -39,10 +39,11 @@ local function hrpOf(p: Player): BasePart?
 	return PlayerTracker.rootPart(p)
 end
 
--- can be tagged right now: carrying, outside the hub, no shield, not already tumbling
+-- can be tagged right now: carrying a cube that can be knocked loose (never only a Super Freeze cube), outside the
+-- hub, no shield, not already tumbling
 local function taggable(p: Player): boolean
 	local pos = PlayerTracker.position(p)
-	return pos ~= nil and CarryService.count(p) > 0 and not WorldRules.inHub(pos) and not shielded(p) and p:GetAttribute("Tagged") ~= true
+	return pos ~= nil and CarryService.knockable(p) and not WorldRules.inHub(pos) and not shielded(p) and p:GetAttribute("Tagged") ~= true
 end
 
 local function setMeter(p: Player, v: Victim, meter: number, by: Player?)
