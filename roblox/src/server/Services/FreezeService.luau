@@ -138,6 +138,8 @@ local function canFreeze(player: Player, pet: any, data: any, loud: boolean?): b
 		end
 		return false
 	end
+	-- owner 2026-11-18 (later): "make it so i can freeze how many pets i want": frozen pets wait on the ground as
+	-- before (you still carry one at a time), up to the sane cap
 	if CarryService.groundCount(player) >= Config.carry.groundMax then
 		if loud then
 			Remotes.notYet(player, "Pick up some frozen pets first!", "pet")
@@ -155,7 +157,9 @@ end
 -- you aim at, so two shows never start at once.
 local function pickExtras(player: Player, main: any, data: any, gun: number): { string }
 	local extras: { string } = {}
-	local want = math.min(Config.gun(gun).beams - 1, Config.carry.groundMax - CarryService.groundCount(player) - 1)
+	-- owner 2026-11-18: one pet at a time, so a many-beam gun no longer freezes the pets around the one you aim at
+	-- (they dropped as extra cubes you couldn't carry and thawed away). Its beams are only its look now.
+	local want = 0
 	local p = PlayerTracker.position(player)
 	if want <= 0 or not p then
 		return extras

@@ -90,6 +90,9 @@ local function buy(player: Player, index: any)
 		x.guns.equipped = index -- a new gun goes straight into your hand; the old one waits in the locker
 		bought = true
 	end)
+	if bought then
+		AnalyticsSvc.coinsOut(player, g.price, "gun")
+	end
 	if not bought then
 		return
 	end

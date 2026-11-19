@@ -296,7 +296,10 @@ local function inReach(t: Target, from: Vector3): boolean
 	return d <= range and (skip[t.part] or 0) < os.clock() and typeof(t.id) == "string"
 end
 
--- the target nearest a spot on the screen (a forgiving pick for small fingers)
+-- the target nearest a spot on the screen (a forgiving pick for small fingers). `screen` is an
+-- InputObject.Position, which starts under Roblox's top bar, so targets are placed with WorldToScreenPoint
+-- (same space), never WorldToViewportPoint: that was 58 px off, more than a phone's whole pick radius, so a
+-- finger right on a pet never picked it (owner 2026-11-19: "couldn't freeze animals on the phone")
 local function pickAt(screen: Vector2): Target?
 	local cam = workspace.CurrentCamera
 	local root = myRoot()
@@ -307,7 +310,7 @@ local function pickAt(screen: Vector2): Target?
 	local best, bestD = nil, A.pickRadius * short
 	for _, t in candidates() do
 		if inReach(t, root.Position) then
-			local v, onScreen = cam:WorldToViewportPoint(t.part.Position)
+			local v, onScreen = cam:WorldToScreenPoint(t.part.Position)
 			local d = (Vector2.new(v.X, v.Y) - screen).Magnitude
 			if onScreen and d < bestD then
 				best, bestD = t, d
@@ -1500,7 +1503,7 @@ local function pickAny(screen: Vector2?): Target?
 			local d = to.Magnitude
 			local ok = false
 			if screen then
-				local v, onScreen = cam:WorldToViewportPoint(t.part.Position)
+				local v, onScreen = cam:WorldToScreenPoint(t.part.Position)
 				d = (Vector2.new(v.X, v.Y) - screen).Magnitude
 				ok = onScreen and d < A.pickRadius * short
 			else
@@ -1514,6 +1517,22 @@ local function pickAny(screen: Vector2?): Target?
 	return best
 end
 
+
+-- Roblox's phone move stick (bottom left) doesn't mark its finger as handled (`processed` stays false),
+-- so a touch that starts inside its area is the walking thumb, not a shot
+local function onMoveStick(input: InputObject): boolean
+	local pg = me:FindFirstChildOfClass("PlayerGui")
+	local touchGui = pg and pg:FindFirstChild("TouchGui")
+	if not touchGui or not touchGui:IsA("ScreenGui") or not touchGui.Enabled then
+		return false
+	end
+	local stick = touchGui:FindFirstChild("DynamicThumbstickFrame", true)
+	if not stick or not stick:IsA("GuiObject") or not stick.Visible then
+		return false
+	end
+	local p = Vector2.new(input.Position.X, input.Position.Y) - stick.AbsolutePosition
+	return p.X >= 0 and p.Y >= 0 and p.X <= stick.AbsoluteSize.X and p.Y <= stick.AbsoluteSize.Y
+end
 
 -- the gun is full of heat: a puff of steam from its tip and a fizz (it cools by itself)
 local function watchSteam()
@@ -1554,6 +1573,8 @@ function RayController.Start()
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
 			pointer = { pos = Vector2.new(input.Position.X, input.Position.Y), touch = nil }
 			locked, shot = nil, false -- a new click picks again (clicking the same pet keeps the shot going)
+		elseif input.UserInputType == Enum.UserInputType.Touch and onMoveStick(input) then
+			return -- that thumb walks; it never aims (or the ray shot whatever pet walked under it)
 		elseif input.UserInputType == Enum.UserInputType.Touch and (not pointer or (pointer.touch ~= nil and not locked)) then
 			-- a drag turns the camera: the shot keeps going. A new finger takes over from one that isn't on a
 			-- target (only turning the camera), so a tap on a pet still shoots (mobile QA 2026-11-10)

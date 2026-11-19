@@ -1,0 +1,226 @@
+--!strict
+-- OfferController (owner 2026-11-18: "the monetizations are good, you can add them"; vault Games/Ice Ray for Pets/
+-- Monetization Plan 2026-11-18). The in-the-moment offers and the boost timers, all small and on the side, never a
+-- full-screen pop-up, never a countdown on an offer, and the free way always still works:
+--  - Keep It Frozen: while the cube in your hands has less than Config.monetization.keepFrozenBelow of its ice, a
+--    pulsing ice-blue button over the hotbar. Gone once it's safe, banked or melted.
+--  - Boost timers: small pills bottom right for a running Speed Potion, Lucky Ray, Server Luck, Critter Shields.
+--  - Short on coins: after the needOffer.after-th "Need X more" of a session, a small Coin Bag card for a few
+--    seconds (at most needOffer.max a session), with an X.
+-- Every button only asks: the server shows Roblox's own purchase prompt and grants in ProcessReceipt.
+
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Config = require(ReplicatedStorage.Shared.Config)
+local Theme = require(ReplicatedStorage.Shared.Theme)
+local Ui = require(script.Parent.Parent.Lib.Ui)
+local State = require(script.Parent.State)
+local SoundController = require(script.Parent.SoundController)
+
+local OfferController = {}
+local M = Config.monetization
+local me = Players.LocalPlayer
+local gui: ScreenGui
+
+-- a Robux button: words on the left, Roblox's mark and the price on the right
+local function robuxButton(parent: Instance, name: string, color: Color3, words: string, item: Config.RobuxItem?): Ui.Block
+	local b = Ui.block(parent, name, color, words, function()
+		SoundController.play("click")
+		if item then
+			State.send("BuyRobux", item.id)
+		end
+	end)
+	b.text.Size = UDim2.fromScale(0.64, 0.8)
+	b.text.Position = UDim2.fromScale(0.04, 0.1)
+	local mark = Ui.image(b.face, Config.images.icons.robux, UDim2.fromScale(0.12, 0.6), UDim2.fromScale(0.71, 0.2))
+	mark.ZIndex = 2
+	local price = Ui.label(b.face, if item then tostring(item.robux) else "", UDim2.fromScale(0.2, 0.7), UDim2.fromScale(0.78, 0.15))
+	price.TextXAlignment = Enum.TextXAlignment.Left
+	price.ZIndex = 2
+	return b
+end
+
+local function aspect(obj: GuiObject, ratio: number)
+	local a = Instance.new("UIAspectRatioConstraint")
+	a.AspectRatio = ratio
+	a.Parent = obj
+end
+
+-- ---------- Keep It Frozen ----------
+local keepB: Ui.Block
+local keepTween: Tween? = nil
+
+local function myLowCube(): boolean
+	local f = workspace:FindFirstChild("Cubes", true)
+	if not f then
+		return false
+	end
+	for _, c in f:GetChildren() do
+		if c:GetAttribute("OwnerUserId") == me.UserId and c:GetAttribute("SuperFrozen") ~= true then
+			local frac = c:GetAttribute("LifeFrac")
+			if typeof(frac) == "number" and frac < M.keepFrozenBelow then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+local function syncKeep()
+	local show = myLowCube()
+	if keepB.root.Visible == show then
+		return
+	end
+	keepB.root.Visible = show
+	local sc = keepB.root:FindFirstChildOfClass("UIScale") :: UIScale
+	if show then
+		sc.Scale = 1
+		keepTween = TweenService:Create(sc, TweenInfo.new(0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Scale = 1.1 })
+		;(keepTween :: Tween):Play()
+	elseif keepTween then
+		keepTween:Cancel()
+		keepTween = nil
+	end
+end
+
+-- ---------- boost timers ----------
+local pills: Frame
+local pillLabels: { [string]: TextLabel } = {}
+
+local function clock(secs: number): string
+	secs = math.max(0, math.floor(secs))
+	return `{secs // 60}:{string.format("%02d", secs % 60)}`
+end
+
+local function pill(id: string, order: number, color: Color3, text: string?)
+	local l = pillLabels[id]
+	if not text then
+		if l then
+			(l.Parent :: Instance):Destroy()
+			pillLabels[id] = nil
+		end
+		return
+	end
+	if not l then
+		local f = Instance.new("Frame")
+		f.Name = id
+		f.LayoutOrder = order
+		f.BackgroundColor3 = color
+		f.BorderSizePixel = 0
+		f.Size = UDim2.fromScale(1, 0.3)
+		Ui.corner(f, 0.5)
+		Ui.stroke(f, 2)
+		f.Parent = pills
+		l = Ui.label(f, "", UDim2.fromScale(0.92, 0.78), UDim2.fromScale(0.04, 0.11))
+		pillLabels[id] = l
+	end
+	(l :: TextLabel).Text = text
+end
+
+local function syncPills()
+	local now = workspace:GetServerTimeNow()
+	local su = me:GetAttribute("BoostSpeedUntil")
+	local sm = me:GetAttribute("BoostSpeedMult")
+	pill("speed", 1, Theme.go, if typeof(su) == "number" and su > now and typeof(sm) == "number"
+		then `Speed +{math.round((sm - 1) * 100)}%  {clock(su - now)}` else nil)
+	local lu = me:GetAttribute("BoostLuckUntil")
+	pill("luck", 2, Theme.events.luck or Theme.go, if typeof(lu) == "number" and lu > now then `Lucky Ray  {clock(lu - now)}` else nil)
+	local sl = workspace:GetAttribute("BoughtLuckUntil")
+	pill("server", 3, Theme.skipAll, if typeof(sl) == "number" and sl > now then `Server Luck x{M.serverLuckMult}  {clock(sl - now)}` else nil)
+	local sh = me:GetAttribute("BoostShields")
+	pill("shield", 4, Theme.info, if typeof(sh) == "number" and sh > 0 then `Critter Shield x{sh}` else nil)
+end
+
+-- ---------- short on coins ----------
+local needCount, needShown = 0, 0
+local card: Frame
+
+local function showNeedCard()
+	card.Visible = true
+	local shownAt = os.clock()
+	card:SetAttribute("ShownAt", shownAt)
+	task.delay(M.needOffer.seconds, function()
+		if card:GetAttribute("ShownAt") == shownAt then
+			card.Visible = false
+		end
+	end)
+end
+
+function OfferController.Init() end
+
+function OfferController.Start()
+	gui = Instance.new("ScreenGui")
+	gui.Name = "Offers"
+	gui.ResetOnSpawn = false
+	gui.DisplayOrder = 4
+	gui.ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets
+	gui.Parent = me:WaitForChild("PlayerGui")
+	-- Keep It Frozen, over the hotbar
+	keepB = robuxButton(gui, "KeepFrozen", Theme.iceDeep, "Keep it frozen!", Config.robuxItem("keepFrozen"))
+	keepB.root.AnchorPoint = Vector2.new(0.5, 1)
+	keepB.root.Position = UDim2.fromScale(0.5, 0.82)
+	keepB.root.Size = UDim2.fromScale(0.3, 0.09)
+	aspect(keepB.root, 4.2)
+	Instance.new("UIScale").Parent = keepB.root
+	keepB.root.Visible = false
+	-- the boost timers, bottom right over the clock
+	pills = Instance.new("Frame")
+	pills.Name = "BoostPills"
+	pills.BackgroundTransparency = 1
+	pills.AnchorPoint = Vector2.new(1, 1)
+	pills.Position = UDim2.fromScale(0.985, 0.86)
+	pills.Size = UDim2.fromScale(0.2, 0.2)
+	aspect(pills, 2.4)
+	local list = Instance.new("UIListLayout")
+	list.SortOrder = Enum.SortOrder.LayoutOrder
+	list.VerticalAlignment = Enum.VerticalAlignment.Bottom
+	list.Padding = UDim.new(0.04, 0)
+	list.Parent = pills
+	pills.Parent = gui
+	-- the short-on-coins card, right side
+	card = Instance.new("Frame")
+	card.Name = "ShortOnCoins"
+	card.BackgroundColor3 = Theme.panel
+	card.BorderSizePixel = 0
+	card.AnchorPoint = Vector2.new(1, 0.5)
+	card.Position = UDim2.fromScale(0.985, 0.5)
+	card.Size = UDim2.fromScale(0.24, 0.2)
+	aspect(card, 2.2)
+	Ui.corner(card)
+	Ui.stroke(card, 3)
+	card.Visible = false
+	card.Parent = gui
+	local title = Ui.inkLabel(card, "Short on coins?", UDim2.fromScale(0.74, 0.34), UDim2.fromScale(0.05, 0.06))
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	local x = Ui.block(card, "Close", Theme.no, "X", function()
+		card.Visible = false
+	end)
+	x.root.Position = UDim2.fromScale(0.8, 0.06)
+	x.root.Size = UDim2.fromScale(0.16, 0.34)
+	local bag = Config.robuxItem("coinsSmall")
+	local buy = robuxButton(card, "CoinBag", Theme.coin, "Coin Bag", bag)
+	buy.root.Position = UDim2.fromScale(0.05, 0.48)
+	buy.root.Size = UDim2.fromScale(0.9, 0.44)
+	State.Notify:Connect(function(kind: string, data: any)
+		if kind == "notYet" and typeof(data) == "table" and typeof(data.reason) == "string"
+			and string.find(data.reason, "^Need .+ more") and not string.find(data.reason, "Cold Power") then
+			needCount += 1
+			if needCount % M.needOffer.after == 0 and needShown < M.needOffer.max then
+				needShown += 1
+				showNeedCard()
+			end
+		elseif kind == "robuxBought" then
+			card.Visible = false
+		end
+	end)
+	task.spawn(function()
+		while true do
+			pcall(syncKeep)
+			pcall(syncPills)
+			task.wait(0.25)
+		end
+	end)
+end
+
+return OfferController

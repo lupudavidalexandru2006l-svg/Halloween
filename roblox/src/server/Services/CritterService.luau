@@ -4,7 +4,8 @@
 -- you). They wander like pets; when someone on their island carries a cube within aggroRange, the
 -- nearest one runs after them (a bit slower than walking). Each critter stays on its own island, so
 -- a long trip home is a relay: island 5's critters chase you to island 4's edge, then island 4's take
--- over, down to island 3 (islands 1-2 and the hub are safe). A catch knocks your top cube loose and
+-- over (owner 2026-11-18: on every island now, faster and more of them the further out: Config.chasers.byIsland;
+-- the hub is safe, and so is a kid still in the tutorial). A catch knocks your top cube loose and
 -- its pet is dazed (only you can zap it back, like a melt). Shoot them with the ray to freeze them for
 -- Config.chasers.frozenBase / the island's heat seconds. Slow Gel slows them too.
 -- Each critter is an invisible anchored "Critter" part in workspace.Critters; clients draw it
@@ -26,8 +27,23 @@ local CritterService = {}
 local C = Config.chasers
 type Critter = {
 	id: string, zone: number, root: Part, state: string, meter: number, pushedAt: number,
-	untilT: number, wanderTo: Vector3?, target: Player?,
+	untilT: number, wanderTo: Vector3?, target: Player?, lungeUntil: number, lungeReady: number,
 }
+
+-- this island's critters (Config.chasers.byIsland, owner 2026-11-18): how many, chase speed (studs/s), aggro
+local function tuning(zone: number): (number, number, number)
+	local t = C.byIsland[zone]
+	if not t then
+		return C.perIsland, C.chaseSpeed, C.aggroRange
+	end
+	return t.n, t.speed * Config.player.walkSpeed, t.aggro
+end
+
+-- kids still in the tutorial are never chased (they're learning to carry a cube home)
+local function learning(p: Player): boolean
+	local d = DataService.get(p)
+	return d ~= nil and d.tutorial ~= nil and not d.tutorial.done
+end
 local critters: { [string]: Critter } = {}
 local forced: { [number]: boolean } = {} -- tester: critters on an island before 3
 local folder: Folder
@@ -92,7 +108,8 @@ local function spawnOne(zone: number): Critter?
 	root:SetAttribute("PetKey", C.look[tostring(zone)] or C.look.pet)
 	root:SetAttribute("State", "wander")
 	root.Parent = folder
-	local c: Critter = { id = id, zone = zone, root = root, state = "wander", meter = 0, pushedAt = 0, untilT = 0, wanderTo = nil, target = nil }
+	local c: Critter = { id = id, zone = zone, root = root, state = "wander", meter = 0, pushedAt = 0, untilT = 0, wanderTo = nil, target = nil,
+		lungeUntil = 0, lungeReady = 0 }
 	critters[id] = c
 	return c
 end
@@ -104,10 +121,12 @@ end
 
 -- the nearest player on this critter's island carrying a cube (never in the hub)
 local function quarry(c: Critter): Player?
-	local best, bestD = nil, C.aggroRange
+	local _, _, aggro = tuning(c.zone)
+	local best, bestD = nil, aggro
 	for _, p in Players:GetPlayers() do
 		local pos = PlayerTracker.position(p)
-		if pos and CarryService.count(p) > 0 and WorldRules.zoneAt(pos) == c.zone and not WorldRules.inHub(pos) and p:GetAttribute("Tagged") ~= true then
+		if pos and CarryService.count(p) > 0 and WorldRules.zoneAt(pos) == c.zone and not WorldRules.inHub(pos) and p:GetAttribute("Tagged") ~= true
+			and not learning(p) then
 			local d = (Vector3.new(pos.X, 0, pos.Z) - Vector3.new(c.root.Position.X, 0, c.root.Position.Z)).Magnitude
 			if d < bestD then
 				best, bestD = p, d
@@ -155,12 +174,27 @@ local function tick(dt: number)
 		local pos = p and PlayerTracker.position(p)
 		if p and pos then
 			setState(c, "chase")
-			stepToward(c, pos, C.chaseSpeed * slow, dt)
+			local _, speed = tuning(c.zone)
+			local gap = (Vector3.new(pos.X, 0, pos.Z) - Vector3.new(c.root.Position.X, 0, c.root.Position.Z)).Magnitude
+			-- close up: a lunge (the clients see "Lunge" and stretch it forward)
+			if gap <= C.lunge.range and now >= c.lungeReady then
+				c.lungeUntil = now + C.lunge.seconds
+				c.lungeReady = now + C.lunge.seconds + C.lunge.cooldown
+				c.root:SetAttribute("Lunge", workspace:GetServerTimeNow())
+			end
+			if now < c.lungeUntil then
+				speed *= C.lunge.mult
+			end
+			stepToward(c, pos, speed * slow, dt)
 			local d = (Vector3.new(pos.X, 0, pos.Z) - Vector3.new(c.root.Position.X, 0, c.root.Position.Z)).Magnitude
 			if d <= C.catchRange then
-				local key = CarryService.knockOff(p, false)
-				if key then
-					Remotes.fire(p, "Notify", "critterCaught", { key = key })
+				-- a Critter Shield (bought, 2026-11-18) takes the catch: the critter still gets its happy cool-down
+				local BoostService = require(script.Parent.BoostService) :: any
+				if not BoostService.useShield(p) then
+					local key = CarryService.knockOff(p, false)
+					if key then
+						Remotes.fire(p, "Notify", "critterCaught", { key = key })
+					end
 				end
 				setState(c, "happy")
 				c.untilT = now + C.afterCatch
@@ -181,7 +215,7 @@ local function tick(dt: number)
 					n += 1
 				end
 			end
-			if n < C.perIsland then
+			if n < (tuning(z.id)) then
 				spawnOne(z.id)
 			end
 		end

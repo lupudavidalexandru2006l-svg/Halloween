@@ -1472,4 +1472,48 @@ function TrainingArt.build(parent: Instance, plot: number, tier: number): Folder
 	return f
 end
 
+-- ADMIN TRAINER dress (owner 2026-11-18, Config.admin.trainer): while an admin trainer runs, every pan's trainer
+-- gets a gold neon frame round its pad, a gold beam into the sky (seen from far away, like the speed sims'
+-- admin treadmills), gold sparkles and a big "ADMIN TRAINER xN" sign. Added to the trainer's folder `f`.
+function TrainingArt.adminDress(f: Folder, plot: number, mult: number)
+	local d = folder("AdminDress", f)
+	local gold = Color3.fromRGB(255, 205, 40)
+	local at = Config.trainerFrame(plot)
+	local y = H + 0.12
+	for _, e in { { 0, D / 2, W + 0.6, 0.5 }, { 0, -D / 2, W + 0.6, 0.5 }, { W / 2, 0, 0.5, D + 0.6 }, { -W / 2, 0, 0.5, D + 0.6 } } do
+		glow(quiet(block(Vector3.new(e[3], 0.3, e[4]), at * CFrame.new(e[1], y, e[2]), gold, d)))
+	end
+	local beam = glow(quiet(cyl(2.2, 140, at * CFrame.new(0, 70, T.targetZ), gold, d)), 0.65)
+	beam.CanQuery = false
+	light(beam, gold, 22, 2)
+	sparkles(d, Vector3.new(W, 1, D), at * CFrame.new(0, H + 0.5, 0), gold, 18, 4, 0.5)
+	local anchor = quiet(block(Vector3.one * 0.2, at * CFrame.new(0, H + 13, T.targetZ), gold, d))
+	anchor.Transparency = 1
+	anchor.CanQuery = false
+	local bb = Instance.new("BillboardGui")
+	bb.Name = "AdminSign"
+	bb.Size = UDim2.fromScale(14, 5)
+	bb.MaxDistance = 220
+	bb.LightInfluence = 0
+	bb.AlwaysOnTop = false
+	bb.Parent = anchor
+	local function label(text: string, y0: number, h: number, color: Color3)
+		local t = Instance.new("TextLabel")
+		t.BackgroundTransparency = 1
+		t.Size = UDim2.fromScale(1, h)
+		t.Position = UDim2.fromScale(0, y0)
+		t.Font = Theme.font
+		t.TextScaled = true
+		t.Text = text
+		t.TextColor3 = color
+		local s = Instance.new("UIStroke")
+		s.Thickness = 3
+		s.Color = Color3.fromRGB(90, 40, 0)
+		s.Parent = t
+		t.Parent = bb
+	end
+	label("ADMIN TRAINER", 0, 0.42, gold)
+	label(`x{mult} POWER!`, 0.42, 0.58, Color3.fromRGB(255, 255, 255))
+end
+
 return TrainingArt

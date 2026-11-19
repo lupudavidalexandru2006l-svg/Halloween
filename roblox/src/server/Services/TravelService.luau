@@ -180,9 +180,10 @@ function TravelService.nightClose(night: boolean)
 			if cf then
 				-- you didn't make it home: the pets in your hands stay behind (owner 2026-11-18)
 				local lost = CarryService.loseCarried(player)
+				-- home at once (owner 2026-11-18: "when it is night the teleport back to the pan isn't instant")
+				PlayerTracker.teleport(player, cf)
 				task.delay(Config.nightClose.homeDelay, function()
 					if player.Parent then
-						PlayerTracker.teleport(player, cf)
 						-- after the server-wide nightStart banner, so this one (with "your pet got away") is the one seen
 						Remotes.fire(player, "Notify", "nightHome", { lost = lost })
 					end

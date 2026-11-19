@@ -83,7 +83,10 @@ function PlayerTracker.updateSpeed(player: Player)
 	local slow = math.max(0.5, 1 - Config.upgrades.backpack.slowPerExtraCube * extra)
 	-- Frost Boots (Config.gear, 2026-11-17): faster all the time, +5% a level
 	local boots = Config.gearValue(player, "frost_boots", "speedMult", 1)
-	hum.WalkSpeed = Config.player.walkSpeed * slow * boots -- speed comes only from Gear (owner 2026-11-15)
+	-- a Speed Potion (2026-11-18, owner: "the monetizations are good, add them"): x its mult until it ends
+	local b = data.boosts
+	local potion = if b and os.time() < b.speedUntil then b.speedMult else 1
+	hum.WalkSpeed = Config.player.walkSpeed * slow * boots * potion
 end
 
 -- moves a player's character (tester teleports); the speed check starts fresh from there
@@ -194,15 +197,7 @@ function PlayerTracker.Start()
 		PlayerTracker.updateSpeed(player)
 	end)
 	Players.PlayerRemoving:Connect(function(player)
-		local s = states[player]
-		if s then
-			AnalyticsSvc.event(player, "session_end", {
-				sessionSeconds = os.clock() - s.joinedAt,
-				zone = zoneKey(math.max(0, s.zone)),
-				lastAction = s.lastAction,
-				carryingCube = tostring(s.carrying > 0),
-			})
-		end
+		-- session_end is AnalyticsSvc's (one per visit; this second copy, with fields it doesn't take, was dropped 2026-11-18)
 		states[player] = nil
 	end)
 	Remotes.on("SetMenuOpen", function(player, open)

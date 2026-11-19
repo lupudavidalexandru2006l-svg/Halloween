@@ -419,7 +419,8 @@ end
 local function shopItems(tab: ShopTab): { Config.RobuxItem }
 	local out: { Config.RobuxItem } = {}
 	for _, item in Config.monetization.shop do
-		if tab.kinds[item.kind] and (Config.robuxReady(item) or RunService:IsStudio()) then
+		local gone = item.kind == "deal" and State.view ~= nil and State.view.dealBought == true -- one time only
+		if tab.kinds[item.kind] and not gone and (Config.robuxReady(item) or RunService:IsStudio()) then
 			table.insert(out, item)
 		end
 	end
@@ -483,6 +484,17 @@ local function cardInfo(v: State.View, item: Config.RobuxItem): CardInfo
 		return { big = `{item.mult or 2}x`, name = name, chip = `x1{ARROW}` .. string.format(good, `x{item.mult or 2}`) }
 	elseif item.kind == "charges" then
 		return { big = `x{item.charges or 1}`, name = name, chip = item.chip or item.text }
+	-- the 2026-11-18 boosts
+	elseif item.kind == "speed" then
+		return { big = `+{math.round((item.speed or 0) * 100)}%`, name = name, chip = string.format(good, hours(item.minutes or 0)) .. " of speed" }
+	elseif item.kind == "luck" then
+		return { big = hours(item.minutes or 0), name = "Lucky Ray", chip = "Bonus rare pets near you" }
+	elseif item.kind == "serverLuck" then
+		return { big = `{Config.monetization.serverLuckMult}x`, name = "Server Luck", chip = string.format(good, "Everyone") .. ` for {hours(item.minutes or 0)}` }
+	elseif item.kind == "shield" then
+		return { big = `x{item.charges or 1}`, name = name, chip = "Critters can't take your pet" }
+	elseif item.kind == "deal" then
+		return { big = "DEAL", name = name, chip = string.format(good, "One time") .. ": 3 Super Freeze + Luck + Coins" }
 	end
 	return { big = item.big or "", name = name, chip = item.chip or item.text }
 end
@@ -509,6 +521,7 @@ end
 
 -- the open tab: reset each time the Shop opens (it starts on Forever while a pass is unowned)
 local shopTab: string? = nil
+local shopWant: string? = nil -- the tab a "+" button asked for (owner 2026-11-18: "+" next to coins and Cold Power)
 local function defaultTab(v: State.View, tabs: { ShopTab }): string
 	for _, t in tabs do
 		if t.kinds.pass then
@@ -1009,7 +1022,8 @@ local function shop(o: Open, v: State.View)
 		return
 	end
 	local fresh = shopTab == nil -- a new visit starts at its default section; a redraw keeps the scroll
-	shopTab = shopTab or defaultTab(v, tabs)
+	shopTab = shopTab or shopWant or defaultTab(v, tabs)
+	shopWant = nil
 	local rail = Instance.new("Frame")
 	rail.Name = "Tabs"
 	rail.BackgroundTransparency = 1
@@ -1670,7 +1684,8 @@ local function pets(o: Open, v: State.View)
 		local r = card(row(l, if barAt and i >= barAt then i + 1 else i, 0, 7.5))
 		petInfo(r, p, def)
 		Ui.image(r, Config.images.icons.coin, UDim2.fromScale(0.07, 0.6), UDim2.fromScale(0.52, 0.2))
-		text(r, `{Ui.short(p.income)}/s`, 0.585, 0.13)
+		-- owner 2026-11-18: a pet still in its cube keeps its income a surprise until it thaws
+		text(r, if p.frozen or p.thawM then "???/s" else `{Ui.short(p.income)}/s`, 0.585, 0.13)
 		if p.thawM then
 			table.insert(timers, { label = iceTag(r, ""), at = p.thawAt or 0 }) -- in a Thaw Machine: the time left
 		elseif p.frozen then
@@ -1851,7 +1866,7 @@ local function settings(o: Open)
 	local rows = {
 		{ key = "music", label = "Music" }, { key = "sound", label = "Sound" },
 		{ key = "reducedMotion", label = "Reduced motion" }, { key = "lowGraphics", label = "Low graphics" },
-		{ key = "unit", label = "Temperature in F" },
+		{ key = "unit", label = "Temperature in F" }, { key = "skipShows", label = "Auto-skip cutscenes" },
 	}
 	-- the rows share the panel: 5 settings, the tutorial and codes (0.128 x 7 plus the gaps fits in 1)
 	local rowH = Config.ui.settingsRow
@@ -1979,7 +1994,7 @@ local testerTab = "player"
 local testerMail: { { t: number, k: string, m: string, s: string } } = {} -- the Mail tab's rows (TesterService "mail")
 -- the panel's picks, kept across tabs and redraws (2026-11-18): the pet, its mutation and size (0 = none), the
 -- spawn zone, the ADMIN tab's rain rarity / count, boost kind / x / minutes, and where admin things happen
-local pick = { pet = 1, mut = 0, size = 0, zone = 0, rainTier = 0, rainCount = 1, boost = 1, bMult = 1, bMin = 1, here = false }
+local pick = { pet = 1, mut = 0, size = 0, zone = 0, rainTier = 0, rainCount = 1, boost = 1, bMult = 1, bMin = 1, tMult = 2, tMin = 1, here = false }
 local giftArmed = false
 local adminDraft = "" -- the ADMIN tab's message, kept while the panel redraws
 
@@ -2486,6 +2501,12 @@ local function tester(o: Open, v: State.View)
 					table.insert(on, `{b.label} x{m} ({left // 60}:{string.format("%02d", left % 60)})`)
 				end
 			end
+			local tm = workspace:GetAttribute("Admin_trainer")
+			local tu = workspace:GetAttribute("AdminUntil_trainer")
+			if typeof(tm) == "number" and typeof(tu) == "number" and tu > now then
+				local left = math.floor(tu - now)
+				table.insert(on, `TRAINER x{tm} ({left // 60}:{string.format("%02d", left % 60)})`)
+			end
 			boostsNow.Text = if #on > 0 then "Boosts: " .. table.concat(on, "  ") else "No boosts running"
 		end)
 		heading("Start an event now")
@@ -2520,6 +2541,26 @@ local function tester(o: Open, v: State.View)
 			kindB.text.Text = AD.boosts[pick.boost].label
 			multB.text.Text = `x{AD.boostMults[pick.bMult]}`
 			minB.text.Text = `{AD.boostMinutes[pick.bMin]} min`
+		end)
+		-- ADMIN TRAINER (owner 2026-11-18): every pan's trainer turns gold and gives xN of its own power
+		heading("ADMIN TRAINER (every pan's trainer gives xN)")
+		local tMultB = btn("", Theme.coin, function()
+			pick.tMult = pick.tMult % #AD.trainer.mults + 1
+			redrawLabels()
+		end)
+		local tMinB = btn("", Theme.info, function()
+			pick.tMin = pick.tMin % #AD.trainer.minutes + 1
+			redrawLabels()
+		end)
+		btn("SPAWN ADMIN TRAINER", Theme.go, function()
+			admin("trainer", AD.trainer.mults[pick.tMult], AD.trainer.minutes[pick.tMin])
+		end, 2)
+		btn("Remove trainer", Theme.no, function()
+			admin("endTrainer")
+		end)
+		table.insert(updates, function()
+			tMultB.text.Text = `Trainer x{AD.trainer.mults[pick.tMult]}`
+			tMinB.text.Text = `{AD.trainer.minutes[pick.tMin]} min`
 		end)
 		heading("Pets for everyone (pick a pet, mutation and size)")
 		petPicker()
@@ -2718,7 +2759,7 @@ local function message(o: Open, lines: { string }, okText: string, onOk: () -> (
 end
 
 -- a coin reward: the coin and "+2,487" big, one short line under it, then the button
-local function reward(o: Open, coins: number, sub: string, okText: string, onOk: () -> ())
+local function reward(o: Open, coins: number, sub: string, okText: string, onOk: () -> (), double: Config.RobuxItem?)
 	local l = list(o.body, false)
 	local top = row(l, 1, 0.38)
 	local coin = Ui.image(top, Config.images.icons.coin, UDim2.fromScale(0.2, 0.9), UDim2.fromScale(0.24, 0.05))
@@ -2736,11 +2777,31 @@ local function reward(o: Open, coins: number, sub: string, okText: string, onOk:
 	end)
 	local t = text(row(l, 2, 0.2), sub, 0.02, 0.96, nil, "small")
 	t.TextXAlignment = Enum.TextXAlignment.Center
-	local b = button(row(l, 3, 0.34), Theme.go, okText, 0.28, 0.44, function()
+	local r3 = row(l, 3, 0.34)
+	local b = button(r3, Theme.go, okText, if double then 0.04 else 0.28, if double then 0.44 else 0.44, function()
 		onOk()
 		PopupController.close()
 	end)
 	o.first = b.face
+	if double then
+		-- 2x Welcome Back (owner 2026-11-18, the monetization plan): beside Collect, never instead of it. Closing
+		-- Roblox's prompt without buying still collects the normal amount (MonetizationService)
+		local x2 = button(r3, Theme.skipAll, "Collect x2", 0.52, 0.44, function()
+			State.send("BuyRobux", double.id)
+			PopupController.close()
+		end)
+		x2.text.Size = UDim2.fromScale(0.62, x2.text.Size.Y.Scale)
+		x2.text.Position = UDim2.fromScale(0.04, x2.text.Position.Y.Scale)
+		local mark = robuxMark(x2.face)
+		mark.Position = UDim2.fromScale(0.72, 0.5)
+		local price = x2.text:Clone()
+		price.Name = "Price"
+		price.Text = tostring(double.robux)
+		price.TextXAlignment = Enum.TextXAlignment.Left
+		price.Size = UDim2.fromScale(0.22, x2.text.Size.Y.Scale)
+		price.Position = UDim2.fromScale(0.78, x2.text.Position.Y.Scale)
+		price.Parent = x2.face
+	end
 end
 
 -- The one-time Free Gift board (owner 2026-11-12, from hit games' "free reward" boards): what you get, big,
@@ -3026,7 +3087,7 @@ local function fill(o: Open)
 		reward(o, w.coins, if w.capped then "Your pets earned this while you were away (8 h max)"
 			elseif hours > 0 then `Your pets earned this in {hours} h away` else "Your pets earned this while you were away", "Collect", function()
 			State.send("CollectWelcome")
-		end)
+		end, if w.coins >= Config.monetization.welcomeDoubleMin then Config.robuxItem("welcomeDouble") else nil)
 	elseif o.name == "mailThanks" then
 		message(o, { "Thank you!", "We read every message." }, "OK", function() end)
 	elseif o.name == "gift" then
@@ -3319,6 +3380,7 @@ function PopupController.open(name: string, data: any?, rebuilt: boolean?)
 	State.send("SetMenuOpen", true)
 	if name == "shop" and not rebuilt then
 		shopTab = nil -- each visit starts on its default tab
+		shopWant = if typeof(data) == "table" and typeof(data.tab) == "string" then data.tab else nil
 		State.send("ShopOpened")
 	end
 	if name == "board" and not rebuilt then

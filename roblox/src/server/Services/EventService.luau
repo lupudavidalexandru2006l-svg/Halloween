@@ -60,6 +60,11 @@ function EventService.mult(kind: string): number
 	local e = EventService.current()
 	local E = Config.events
 	local admin = EventService.adminMult(kind)
+	-- Server Luck, bought by a player for everyone in this server (2026-11-18, MonetizationService)
+	local bought = workspace:GetAttribute("BoughtLuckUntil")
+	if kind == "luck" and typeof(bought) == "number" and workspace:GetServerTimeNow() < bought then
+		admin *= Config.monetization.serverLuckMult
+	end
 	if not e or e.id ~= kind then
 		return admin
 	end

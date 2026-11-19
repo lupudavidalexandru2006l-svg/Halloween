@@ -86,8 +86,10 @@ local function valid(m: any): boolean
 	local op, a, b, c, d = m.op, m.a, m.b, m.c, m.d
 	if op == "event" then
 		return (eventDef(a)) ~= nil
-	elseif op == "endEvent" or op == "secret" or op == "wave" or op == "clearBoosts" then
+	elseif op == "endEvent" or op == "secret" or op == "wave" or op == "clearBoosts" or op == "endTrainer" then
 		return true
+	elseif op == "trainer" then
+		return table.find(A.trainer.mults, a) ~= nil and table.find(A.trainer.minutes, b) ~= nil
 	elseif op == "night" then
 		return typeof(a) == "boolean"
 	elseif op == "boost" then
@@ -188,6 +190,12 @@ local function run(m: Msg)
 		for _, b in A.boosts do
 			setBoost(b.id, 1, 0)
 		end
+	elseif op == "trainer" then
+		-- TrainingService turns every pan's trainer into the ADMIN TRAINER while this runs
+		setBoost("trainer", m.a, m.t + m.b * 60)
+		shout(`ADMIN ABUSE! ADMIN TRAINER x{m.a} for {m.b} min! Go train at your pan!`, "golden")
+	elseif op == "endTrainer" then
+		setBoost("trainer", 1, 0)
 	elseif op == "night" then
 		EventService.setNight(m.a)
 	elseif op == "secret" then
@@ -238,6 +246,11 @@ local function boostTick()
 		end
 		wasOn[b.id] = on
 	end
+	local on = EventService.adminMult("trainer") ~= 1
+	if wasOn.trainer and not on then
+		shout("The ADMIN TRAINER is gone. Thanks for playing!", "night")
+	end
+	wasOn.trainer = on
 end
 
 -- TesterService "admin": the tester's own server runs it now, then every other server gets it
@@ -283,6 +296,16 @@ function AdminService.request(player: Player, m: any)
 		local store = boostStore :: MemoryStoreSortedMap
 		task.spawn(pcall, function()
 			store:SetAsync(msg.a, { m = msg.b, u = msg.t + msg.c * 60 }, msg.c * 60 + 5)
+		end)
+	elseif msg.op == "trainer" and not m.here and boostStore then
+		local store = boostStore :: MemoryStoreSortedMap
+		task.spawn(pcall, function()
+			store:SetAsync("trainer", { m = msg.a, u = msg.t + msg.b * 60 }, msg.b * 60 + 5)
+		end)
+	elseif msg.op == "endTrainer" and not m.here and boostStore then
+		local store = boostStore :: MemoryStoreSortedMap
+		task.spawn(pcall, function()
+			store:RemoveAsync("trainer")
 		end)
 	elseif msg.op == "clearBoosts" and not m.here and boostStore then
 		local store = boostStore :: MemoryStoreSortedMap
@@ -342,6 +365,13 @@ function AdminService.Start()
 				and v.u > workspace:GetServerTimeNow() then
 				setBoost(b.id, v.m, v.u)
 			end
+		end
+		local got, v = pcall(function()
+			return store:GetAsync("trainer")
+		end)
+		if got and typeof(v) == "table" and table.find(A.trainer.mults, v.m) and typeof(v.u) == "number"
+			and v.u > workspace:GetServerTimeNow() then
+			setBoost("trainer", v.m, v.u)
 		end
 	end
 	task.spawn(function()

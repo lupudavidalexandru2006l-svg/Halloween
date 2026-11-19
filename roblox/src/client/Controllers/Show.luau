@@ -819,6 +819,11 @@ local function finish(ctx: Ctx)
 end
 
 local function skipButton(ctx: Ctx)
+	-- the Auto-skip cutscenes setting (owner 2026-11-18): skipped from the start, no button
+	if SettingsController.get("skipShows") == true then
+		ctx.skipped = true
+		return
+	end
 	local gui = ctx.gui
 	if not gui then
 		return
@@ -908,7 +913,7 @@ function Show.play(name: string, data: any)
 		if cfg.camera then
 			ctx.cam = CameraController.borrow()
 		end
-		if State.view and State.view.seenShows and State.view.seenShows[name] then
+		if SettingsController.get("skipShows") == true or State.view and State.view.seenShows and State.view.seenShows[name] then
 			skipButton(ctx)
 		end
 		local scale = if ctx.reduced then 0.5 else 1
@@ -939,6 +944,9 @@ function Show.thawReveal(data: any)
 	local def = PetDefs.get(data.key)
 	if not def or not (data.first or cfg.tiers[def.tier]) or typeof(data.at) ~= "Vector3" then
 		return
+	end
+	if SettingsController.get("skipShows") == true then
+		return -- Auto-skip cutscenes (owner 2026-11-18): the pet is already in your pan; only the show is left out
 	end
 	if running then
 		finish(running)
@@ -1155,7 +1163,7 @@ function Show.gunBuy(data: any)
 		dim.Size = UDim2.fromScale(1, 1)
 		dim.ZIndex = 0
 		dim.Parent = gui
-		if State.view and State.view.seenShows and State.view.seenShows.gunBuy then
+		if SettingsController.get("skipShows") == true or State.view and State.view.seenShows and State.view.seenShows.gunBuy then
 			skipButton(ctx)
 		end
 		local scale = if ctx.reduced then 0.5 else 1
@@ -1326,7 +1334,7 @@ function Show.panUpgrade(data: any)
 			hum.WalkSpeed, hum.JumpPower, hum.JumpHeight, hum.AutoRotate = 0, 0, 0, false
 		end
 		ctx.cam = CameraController.borrow()
-		if State.view and State.view.seenShows and State.view.seenShows.panUpgrade then
+		if SettingsController.get("skipShows") == true or State.view and State.view.seenShows and State.view.seenShows.panUpgrade then
 			skipButton(ctx)
 		end
 		-- bigger upgrades get longer shows (Animation Rules 3); reduced motion halves it all
@@ -3313,7 +3321,7 @@ function Show.rebirth(data: any)
 		end
 		ctx.cam = CameraController.borrow()
 		buildStage(ctx)
-		if State.view and State.view.seenShows and State.view.seenShows.rebirth then
+		if SettingsController.get("skipShows") == true or State.view and State.view.seenShows and State.view.seenShows.rebirth then
 			skipButton(ctx)
 		end
 		local scale = if ctx.reduced then 0.5 else 1

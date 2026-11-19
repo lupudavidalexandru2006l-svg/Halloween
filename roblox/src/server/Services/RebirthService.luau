@@ -78,6 +78,7 @@ local function rebirth(player: Player, yes: any)
 	end
 	local old = d.rebirths
 	local done, gun = false, nil :: number?
+	local coinsBefore = d.coins -- a rebirth resets your coins: the economy chart counts them as spent on it
 	DataService.mutate(player, function(x)
 		-- checked again inside the change itself: nothing runs between this check and the reset
 		if x.rebirths ~= old or RebirthService.blocker(x) then
@@ -94,6 +95,9 @@ local function rebirth(player: Player, yes: any)
 		end
 		done = true
 	end)
+	if done then
+		AnalyticsSvc.coinsOut(player, coinsBefore, "rebirth")
+	end
 	if not done then
 		return
 	end

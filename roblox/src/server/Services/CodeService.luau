@@ -56,6 +56,9 @@ local function redeem(player: Player, raw: any)
 		granted = true
 	end)
 	if granted then
+		require(script.Parent.AnalyticsSvc).coinsIn(player, reward.coins, "code")
+	end
+	if granted then
 		DataService.saveNow(player) -- the coins and the "used" stamp in the same save
 		answer(player, true, "Code redeemed!", reward.coins)
 	end

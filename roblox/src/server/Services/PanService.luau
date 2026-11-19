@@ -146,6 +146,7 @@ local function buy(player: Player, kind: any)
 	AnalyticsSvc.funnel(player, "first_coins_spent")
 	publish(player)
 	-- the show plays first, then the save marks it seen (SKIP from the second upgrade on)
+	AnalyticsSvc.coinsOut(player, paid, "pan")
 	Remotes.fire(player, "Notify", "panUpgraded", { kind = kind, level = old + 1, old = old, price = paid, plot = WorldService.plotOf(player) })
 	if newLook then
 		Remotes.fire(player, "Notify", "panUpgraded", { kind = "look", level = newLook, old = newLook - 1, price = 0, plot = WorldService.plotOf(player) })

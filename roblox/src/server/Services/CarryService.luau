@@ -42,6 +42,18 @@ local leaveHandler: ((Player, Cube) -> ())? = nil -- FreezeService: keeps a pet 
 local PROMPT_UP = 5
 local EDGE = 0.71
 
+-- how much of a ground cube's ice is left (1 = fresh). Owner 2026-11-18: "make how much the pet froze before you've
+-- picked it up count towards the block, so it counts from there, not back to fully frozen": a cube that sat
+-- thawing on the ground keeps that thaw when you pick it up (never under GROUND_KEEP_MIN, so it can't pop in your hands)
+local GROUND_KEEP_MIN = 0.12
+local function groundLeft(c: Cube): number
+	local G = Config.carry.groundSeconds
+	if G <= 0 then
+		return 1
+	end
+	return math.clamp((G - (os.clock() - math.max(c.since, c.graceUntil))) / G, GROUND_KEEP_MIN, 1)
+end
+
 function CarryService.count(player: Player): number
 	local list = carrying[player]
 	return if list then #list else 0
@@ -67,7 +79,8 @@ function CarryService.capacity(player: Player): number
 	if not data then
 		return 1
 	end
-	return math.max(data.upgrades.backpack, Config.gun(data.guns.equipped).beams)
+	-- owner 2026-11-18: "you shouldn't be able to carry more pets at once": one cube in your hands, always
+	return 1
 end
 
 local function cubeSize(player: Player, def: PetDefs.PetDef, sz: string?): number
@@ -272,7 +285,11 @@ function CarryService.pickUp(player: Player, uid: string, auto: boolean?)
 	if cube.part then
 		cube.part:Destroy()
 	end
+	local left = groundLeft(cube)
+	cube.life = cube.lifeMax * left
+	cube.shownFrac = left
 	cube.part = makePart(player, cube)
+	cube.part:SetAttribute("LifeFrac", left)
 	cube.since = os.clock()
 	local hands = carrying[player] or {}
 	table.insert(hands, cube)
@@ -319,6 +336,7 @@ function CarryService.claim(who: Player, owner: Player, uid: string)
 		return
 	end
 	table.remove(list, i :: number)
+	local left = groundLeft(old)
 	local from = if old.part then old.part.CFrame else CFrame.new()
 	if old.part then
 		old.part:Destroy()
@@ -326,7 +344,10 @@ function CarryService.claim(who: Player, owner: Player, uid: string)
 	-- a fresh cube for the new carrier: its life comes from their own ray upgrade
 	local cube = newCube(def, data, { key = old.key, zone = old.zone, pose = old.pose, mut = old.mut, sz = old.sz,
 		superFrozen = false, superUsed = old.superUsed, offered = old.offered })
+	cube.life = cube.lifeMax * left
+	cube.shownFrac = left
 	cube.part = makePart(who, cube)
+	cube.part:SetAttribute("LifeFrac", left)
 	local hands = carrying[who] or {}
 	table.insert(hands, cube)
 	carrying[who] = hands
@@ -448,6 +469,7 @@ local function melt(player: Player, c: Cube)
 	DataService.mutate(player, function(d)
 		d.stats.melts += 1
 	end)
+	AnalyticsSvc.melted(player) -- a leave right after this reads "left_after_melt" (session_end)
 	local plot = WorldService.plotOf(player)
 	local home = if plot then WorldRules.plotCenter(plot) else Config.world.spawn
 	AnalyticsSvc.event(player, "cube_melted", {
@@ -501,6 +523,29 @@ function CarryService.devMeltAll(player: Player)
 			c.graceUntil = 0
 		end
 	end
+end
+
+-- Keep It Frozen (bought, 2026-11-18): the cube in your hands becomes a Super Freeze cube right now, before it melts.
+-- It goes into the save like any bought cube (superCubes), so a crash never loses it. false = nothing to freeze.
+function CarryService.keepFrozen(player: Player): boolean
+	for _, c in carrying[player] or {} do
+		if not c.superFrozen then
+			c.superFrozen, c.superUsed, c.offered = true, true, true
+			c.life = c.lifeMax
+			DataService.mutate(player, function(d)
+				table.insert(d.superCubes, { key = c.key, pose = c.pose, mut = c.mut, sz = c.sz })
+			end)
+			if c.part then
+				c.part.Color = Theme.iceDeep
+				c.part.Transparency = 0.35
+				c.part:SetAttribute("SuperFrozen", true)
+				c.part:SetAttribute("LifeFrac", 1)
+				c.shownFrac = 1
+			end
+			return true
+		end
+	end
+	return false
 end
 
 -- called from ProcessReceipt: turn this player's dazed offer pet into a never-melting cube

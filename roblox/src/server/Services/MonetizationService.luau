@@ -25,6 +25,7 @@ local WildPetSpawner = require(script.Parent.WildPetSpawner)
 local CarryService = require(script.Parent.CarryService)
 local PenService = require(script.Parent.PenService)
 local EventService = require(script.Parent.EventService)
+local BoostService = require(script.Parent.BoostService)
 
 local MonetizationService = {}
 
@@ -290,15 +291,65 @@ local function grantItem(player: Player, item: Config.RobuxItem): { [string]: an
 	if not d then
 		return nil
 	end
-	local coins = if item.kind == "coins" then Config.robuxCoins(item, PenService.incomePerSecond(d)) else 0
-	local charges = if item.kind == "charges" then item.charges or 0 else 0
-	local power = if item.kind == "power" then Config.powerPack(item, d.coldPower) else 0 -- sized from the Cold Power you have right now
+	local kind = item.kind
+	local coins = if kind == "coins" then Config.robuxCoins(item, PenService.incomePerSecond(d)) else 0
+	local charges = if kind == "charges" then item.charges or 0 else 0
+	local power = if kind == "power" then Config.powerPack(item, d.coldPower) else 0 -- sized from the Cold Power you have right now
+	local now = os.time()
+	local minutes = (item.minutes or 0) * 60
+	-- the 2026-11-18 boosts (BoostService runs them)
+	if kind == "deal" then
+		local bag = Config.robuxItem("coinsSmall")
+		coins = if bag then Config.robuxCoins(bag, PenService.incomePerSecond(d)) else 0
+		charges = 3
+	elseif kind == "welcomeDouble" then
+		-- still on the card: collected now at x2; already collected: that amount once more
+		coins = if d.welcome then d.welcome.coins * 2 else d.boosts.lastWelcome
+	end
+	local kept = false -- Keep It Frozen with no cube left to freeze: a Super Freeze charge instead
+	if kind == "keepFrozen" and not CarryService.keepFrozen(player) then
+		charges = 1
+		kept = true
+	end
 	DataService.mutate(player, function(x)
 		x.coins = math.min(x.coins + coins, 1e15)
 		x.superFreezeCharges = math.min(x.superFreezeCharges + charges, 999)
 		x.coldPower = math.min(x.coldPower + power, Config.coldPower.max)
+		local b = x.boosts
+		if kind == "speed" then
+			local mult = 1 + (item.speed or 0)
+			if now < b.speedUntil and b.speedMult >= mult then
+				b.speedUntil += minutes -- the same or a stronger one already running: it lasts longer
+			else
+				b.speedMult, b.speedUntil = mult, now + minutes
+			end
+		elseif kind == "luck" then
+			b.luckUntil = math.max(now, b.luckUntil) + minutes
+		elseif kind == "shield" then
+			b.shields = math.min(b.shields + (item.charges or 0), 999)
+		elseif kind == "deal" then
+			b.deal = true
+			b.luckUntil = math.max(now, b.luckUntil) + 30 * 60
+		elseif kind == "welcomeDouble" then
+			x.welcome = nil
+			b.lastWelcome = 0
+		end
 	end)
-	local chill = item.kind == "chill"
+	if kind == "serverLuck" then
+		local cur = workspace:GetAttribute("BoughtLuckUntil")
+		local from = math.max(workspace:GetServerTimeNow(), if typeof(cur) == "number" then cur else 0)
+		workspace:SetAttribute("BoughtLuckUntil", from + minutes)
+		Remotes.fireAll("Notify", "adminAbuse", { text = `{player.DisplayName} bought SERVER LUCK! 2x luck for everyone for {item.minutes} min!`, color = "luck", seconds = 6 })
+	end
+	if kind == "welcomeDouble" and coins > 0 then
+		Remotes.fire(player, "Notify", "welcomeCollected", { coins = coins })
+	end
+	if kind == "keepFrozen" and kept then
+		Remotes.fire(player, "Notify", "chargeSaved", {})
+	end
+	AnalyticsSvc.coinsIn(player, coins, "robux_pack")
+	BoostService.refresh(player)
+	local chill = kind == "chill"
 	if chill then
 		EventService.startBought(player.DisplayName) -- for everyone, at once; its shout-out is the thank-you
 	end
@@ -326,6 +377,17 @@ local function buyRobux(player: Player, id: any)
 	end
 	local item = Config.robuxItem(id)
 	if not item or not DataService.get(player) then
+		return
+	end
+	local d0 = DataService.get(player) :: any
+	if item.kind == "deal" and d0.boosts.deal then
+		Remotes.notYet(player, "You already have the Welcome Deal")
+		return
+	end
+	if item.kind == "welcomeDouble" and not d0.welcome then
+		return -- nothing waiting on the card
+	end
+	if item.kind == "keepFrozen" and CarryService.count(player) == 0 then
 		return
 	end
 	if item.kind == "pass" then
@@ -443,6 +505,17 @@ function MonetizationService.Init() end
 
 function MonetizationService.Start()
 	MarketplaceService.ProcessReceipt = processReceipt
+	-- 2x Welcome Back closed without buying: the card's coins are collected as usual, so they're never left behind
+	local wd = Config.robuxItem("welcomeDouble")
+	MarketplaceService.PromptProductPurchaseFinished:Connect(function(userId: number, productId: number, bought: boolean)
+		if bought or not wd or productId ~= wd.productId then
+			return
+		end
+		local p = Players:GetPlayerByUserId(userId)
+		if p then
+			PenService.collectWelcome(p)
+		end
+	end)
 	Remotes.on("RequestSuperFreeze", requestSuperFreeze)
 	Remotes.on("BuyRobux", buyRobux)
 	Remotes.on("SkipThaw", requestSkip)

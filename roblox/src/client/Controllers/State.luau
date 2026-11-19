@@ -29,8 +29,9 @@ export type View = {
 	reach: number?, -- Round 4 phase 6: islands 1..reach have their gates open
 	coldPower: number?, -- the endless stat trained in the Frost Training Yard (decided on the server)
 	welcome: { coins: number, awaySeconds: number, capped: boolean, best: string? }?,
-	settings: { music: boolean, sound: boolean, reducedMotion: boolean, lowGraphics: boolean, unit: string },
+	settings: { music: boolean, sound: boolean, reducedMotion: boolean, lowGraphics: boolean, unit: string, skipShows: boolean? },
 	superFreezeCharges: number,
+	dealBought: boolean?, -- the one-time Welcome Deal was bought (2026-11-18)
 	thawSkips: number?, -- paid Thaw Machine skips kept for later (used free on the next Skip)
 	thawSkipAlls: number?, -- paid Skip alls kept for later (used free on the next Skip all)
 	doubleCoins: boolean?, -- owns the 2x Coins game pass (the server checks it with Roblox)

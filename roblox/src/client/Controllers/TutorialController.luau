@@ -405,6 +405,13 @@ local function frame()
 	if v.plot then
 		if s.focus == "stand" then
 			extra = { kind = "stand", pos = standOf(v.plot) }
+		elseif s.focus == "booth" then
+			-- the gear step (2026-11-18): the arrow to the Equipment Booth
+			for _, b in Config.world.booths do
+				if b.id == "equipment" then
+					extra = { kind = "booth", pos = Vector3.new(b.pos.X, 0, b.pos.Z) }
+				end
+			end
 		elseif s.focus == "train" and (me:GetAttribute("TrainStation") or 0) == 0 then
 			extra = { kind = "train", pos = trainSpotOf(v.plot) }
 		elseif s.focus == "gate" then

@@ -29,6 +29,7 @@ local GearService = require(script.Parent.GearService)
 local WorldService = require(script.Parent.WorldService)
 local TrainingArt = require(script.Parent.TrainingArt)
 local TutorialService = require(script.Parent.TutorialService)
+local EventService = require(script.Parent.EventService)
 
 local TrainingService = {}
 local T = Config.training
@@ -46,7 +47,7 @@ type State = {
 }
 local states: { [Player]: State } = {}
 local folder: Folder
-local built: { [number]: { tier: number, f: Folder } } = {}
+local built: { [number]: { tier: number, f: Folder, admin: number } } = {}
 
 local function hasPass(player: Player, id: string): boolean
 	return player:GetAttribute("Pass_" .. id) == true -- set by MonetizationService
@@ -163,17 +164,21 @@ end
 -- each pan's trainer at its owner's level (PanTrainer<i>, PanService); a free pan shows level 1
 local function syncTrainers()
 	local map = workspace:FindFirstChild("Map")
+	local admin = EventService.adminMult("trainer") -- the ADMIN TRAINER (AdminService): 1 = none
 	for i in Config.world.plots do
 		local want = map and map:GetAttribute("PanTrainer" .. i)
 		local tier = if typeof(want) == "number" and T.stations[want] then want else 1
 		local b = built[i]
-		if not b or b.tier ~= tier or not b.f.Parent then
+		if not b or b.tier ~= tier or b.admin ~= admin or not b.f.Parent then
 			if b then
 				b.f:Destroy()
 			end
 			local f = TrainingArt.build(folder, i, tier)
+			if admin > 1 then
+				TrainingArt.adminDress(f, i, admin)
+			end
 			addPrompt(f, i)
-			built[i] = { tier = tier, f = f }
+			built[i] = { tier = tier, f = f, admin = admin }
 		end
 	end
 end
@@ -185,7 +190,9 @@ local function shoot(player: Player, s: State, click: boolean)
 		return
 	end
 	local tier = tierOf(player)
-	local gain = Config.trainGain(tier, GunService.equipped(player), d.rebirths, hasPass(player, "doublePower"))
+	-- the ADMIN TRAINER (owner 2026-11-18): xN on top of your own best trainer while an admin runs it
+	local gain = math.min(Config.coldPower.max, Config.trainGain(tier, GunService.equipped(player), d.rebirths, hasPass(player, "doublePower"))
+		* EventService.adminMult("trainer"))
 	s.hits += 1
 	local bonus = 0
 	if s.hits >= T.shatterHits then

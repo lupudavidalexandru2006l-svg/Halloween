@@ -55,7 +55,9 @@ local function isDone(d: Data, i: number): boolean
 end
 
 function ChallengeService.reward(d: Data): number
-	return math.max(C.rewardFloor, Config.nice(pen().incomePerSecond(d) * 60 * C.rewardMinutes))
+	local byIncome = pen().incomePerSecond(d) * 60 * C.rewardMinutes
+	local cap = Config.rebirthCost(d.rebirths + 1) * C.rewardRebirthShare
+	return math.max(C.rewardFloor, Config.nice(math.min(byIncome, cap)))
 end
 
 -- hands out today's goals if the day has turned (call inside DataService.mutate); returns coins auto-paid
@@ -121,6 +123,7 @@ local function check(player: Player)
 			paid = handOut(player, x)
 		end)
 		if paid > 0 then
+			require(script.Parent.AnalyticsSvc).coinsIn(player, paid, "daily")
 			DataService.saveNow(player)
 			Remotes.fire(player, "Notify", "challengeClaimed", { coins = paid, auto = true })
 		end
@@ -154,6 +157,7 @@ local function claim(player: Player, i: any)
 		x.daily.claimed[i] = true
 		pen().addCoins(x, coins)
 	end)
+	require(script.Parent.AnalyticsSvc).coinsIn(player, coins, "daily")
 	DataService.saveNow(player) -- the coins and the claim stamp in the same save
 	Remotes.fire(player, "Notify", "challengeClaimed", { coins = coins, index = i })
 end

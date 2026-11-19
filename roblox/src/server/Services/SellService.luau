@@ -89,6 +89,7 @@ local function sell(player: Player, ids: any, confirmed: any)
 		coins = total
 		PenService.addCoins(x, total)
 	end)
+	require(script.Parent.AnalyticsSvc).coinsIn(player, coins, "sell")
 	if needsYes then
 		Remotes.notYet(player, "Say yes first", "sell")
 		return

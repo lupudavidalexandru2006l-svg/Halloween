@@ -106,7 +106,16 @@ function Screen.layout()
 	local topH = 0
 	if top then
 		local TB = U.topButtons
-		local n = #TB.list
+		local ib = top:FindFirstChild("IslandBar") :: GuiObject?
+		local under = if ib and ib.Visible then TB.under else 0 -- the bar shows only while training
+		-- only the travel buttons make the row (owner 2026-11-18: "center them, they're off by much": the Cold Power
+		-- quick-buy hangs under the row, it isn't a slot in it)
+		local n = 0
+		for _, b in TB.list do
+			if not (b :: any).product then
+				n += 1
+			end
+		end
 		local want = top:GetAttribute("Want") == true and not Screen.popupOpen
 		local bar = Screen.topbar
 		local barSize = if bar then bar.AbsoluteSize else Vector2.zero
@@ -138,7 +147,8 @@ function Screen.layout()
 			top.Size = UDim2.fromScale(rowW / barW, bh / barH)
 			top.Position = UDim2.fromScale(cx, TB.barTop)
 			-- the part hanging below the bar pushes the island banner and the message banner down with it
-			local overhang = barH * TB.barTop + bh - barH
+			-- (+ the next-island bar under the buttons, TB.under of their height)
+			local overhang = barH * TB.barTop + bh - barH + bh * under
 			if top.Visible and overhang > 0 then
 				topH = overhang / short
 			end
@@ -153,7 +163,7 @@ function Screen.layout()
 			top.Size = UDim2.fromScale(math.min(0.96, sx(bw * n + TB.gap * (n - 1) * bh / TB.size[2])), sy(bh))
 			top.Position = UDim2.fromScale(0.5, sy(U.topInset))
 			if top.Visible then
-				topH = bh + U.tileGap
+				topH = bh * (1 + under) + U.tileGap
 			end
 		end
 	end

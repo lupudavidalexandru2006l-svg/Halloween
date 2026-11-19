@@ -43,6 +43,7 @@ local function buy(player: Player, id: any)
 		x.coins -= cost
 		x.upgrades[id] = level + 1
 	end)
+	AnalyticsSvc.coinsOut(player, cost, "shop")
 	if id == "boots" or id == "backpack" then
 		PlayerTracker.updateSpeed(player)
 	end

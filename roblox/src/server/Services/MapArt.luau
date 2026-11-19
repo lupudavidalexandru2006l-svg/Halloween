@@ -331,6 +331,54 @@ local function house(parent: Instance, cf: CFrame, w: number, d: number, h: numb
 			end
 		end
 	end
+	-- ---------- the 2026-11-18 detail pass (owner: "step up the base like the rest of the map, more detailed
+	-- houses"): snow blankets on the roof, a trim board under the eaves, icicles, a string of fairy lights, a
+	-- wreath on the door, a lit window on each side, a dormer on the bigger roofs and a porch lamp. All small
+	-- parts cast no shadow (phones) ----------
+	local half = d / 2 + 0.8
+	for _, s in { -1, 1 } do
+		-- snow on the upper half of each roof slope (the roof colour still shows below it)
+		local sd = half * 0.5
+		local sh = rh * 0.5
+		local at = cf * CFrame.new(0, top + rh - sh / 2 + 0.12, s * sd / 2)
+		quiet(wedge(Vector3.new(w + 1.55, sh, sd), if s < 0 then at else at * CFrame.Angles(0, math.pi, 0), A.snowCap, m))
+		-- the trim board along the eave
+		quiet(block(Vector3.new(w + 1.5, 0.35, 0.25), cf * CFrame.new(0, top + 0.05, s * (half + 0.05)), V.trim, m))
+	end
+	-- icicles hanging off the front eave
+	local ice = Color3.fromRGB(200, 236, 255)
+	for i = 1, 3 do -- 3 (was 5): the lag pass the same day
+		local ix = -w / 2 + (i - 0.5) * w / 3 + (rng() - 0.5) * 0.6
+		local len = 0.6 + rng() * 0.8
+		quiet(shape("Cone", Vector3.new(0.35, len, 0.35), cf * CFrame.new(ix, top - len / 2, -half + 0.15) * CFrame.Angles(math.pi, 0, 0), ice, m))
+	end
+	-- fairy lights along the front eave, warm colours that glow at night
+	local bulbs = { Color3.fromRGB(255, 90, 90), Color3.fromRGB(255, 210, 70), Color3.fromRGB(110, 230, 120), Color3.fromRGB(90, 170, 255) }
+	for i = 0, 4 do -- 5 bulbs (was 7)
+		local bx = -w / 2 - 0.4 + i * (w + 0.8) / 4
+		local sag = math.sin(i / 4 * math.pi) * 0.35
+		quiet(glow(ball(0.17, (cf * CFrame.new(bx, top - 0.3 - sag, -half - 0.1)).Position, bulbs[i % #bulbs + 1], m), 0.05))
+	end
+	-- a wreath on the door
+	quiet(shape("Ring", Vector3.new(1.1, 0.3, 1.1), cf * CFrame.new(0, 3.5, front - 0.22) * CFrame.Angles(math.pi / 2, 0, 0), V.hedge, m))
+	quiet(ball(0.16, (cf * CFrame.new(0, 3.05, front - 0.3)).Position, Color3.fromRGB(230, 60, 70), m))
+	-- a lit window on each side wall
+	for _, s in { -1, 1 } do
+		local sx = s * (w / 2 + 0.05)
+		quiet(glow(block(Vector3.new(0.22, 1.4, 1.4), cf * CFrame.new(sx + s * 0.03, 1 + h * 0.6, 0), V.window, m), 0.1))
+	end
+	-- a dormer window on the front slope of the wider roofs
+	if w >= 10.5 then
+		local dz = -half * 0.42
+		local dy = top + rh * 0.42
+		block(Vector3.new(2.4, 1.9, 1.6), cf * CFrame.new(w * 0.2, dy + 0.5, dz), wall, m)
+		quiet(glow(block(Vector3.new(1.3, 1, 0.1), cf * CFrame.new(w * 0.2, dy + 0.55, dz - 0.82), V.window, m), 0.1))
+		local dr = cf * CFrame.new(w * 0.2, dy + 1.75, dz)
+		quiet(wedge(Vector3.new(1.9, 0.9, 1.45), dr * CFrame.new(-0.72, 0, 0) * CFrame.Angles(0, math.pi / 2, 0), roof, m))
+		quiet(wedge(Vector3.new(1.9, 0.9, 1.45), dr * CFrame.new(0.72, 0, 0) * CFrame.Angles(0, -math.pi / 2, 0), roof, m))
+	end
+	-- a porch lamp beside the door (glow only: no light, for phones)
+	quiet(glow(block(Vector3.new(0.5, 0.7, 0.5), cf * CFrame.new(1.6, 3.6, front - 0.35), A.lanternGlow, m), 0.1))
 	for _, d0 in m:GetDescendants() do
 		if d0:IsA("BasePart") then
 			d0.CanQuery = false -- outside the walls: never between the camera and you
@@ -2812,12 +2860,47 @@ local function endCap(parent: Instance)
 end
 
 -- ---------- far scenery: snowy peaks, rolling hills and ground all round ----------
+-- owner 2026-11-18 ("we need more detailed mountains"): a mountain is now a main peak with two lower shoulders
+-- (a bit darker, so the ridges read), its own snow cap on each, and snow tongues running down from the main
+-- cap so the snow line is jagged, not a ruler-straight ring. Turned and sized from its spot, so the same map
+-- builds every time. About 9 parts a mountain (was 2), no shadows, never in the camera's way.
+local function cap(parent: Instance, x: number, z: number, base: number, r: number, h: number, snowLine: number)
+	local top = 1 - snowLine
+	far(shape("Cone", Vector3.new(r * 2 * top + 0.5, h * top + 0.2, r * 2 * top + 0.5), CFrame.new(x, base + h - h * top / 2 + 0.1, z), A.peakSnow, parent))
+end
+
 local function peak(parent: Instance, x: number, z: number, r: number, h: number, snowLine: number, low: Color3)
 	local cy = h / 2 - 4
+	local base = cy - h / 2
+	local turn = (x * 0.37 + z * 0.11) % (math.pi * 2)
+	local dark = low:Lerp(Color3.new(0, 0, 0), 0.12)
 	far(shape("Cone", Vector3.new(r * 2, h, r * 2), CFrame.new(x, cy, z), low, parent))
+	-- two shoulders, lower and to the sides
+	for k, s in { 1, -1 } do
+		local a = turn + s * 1.9
+		local sr, shh = r * (0.62 - k * 0.05), h * (0.62 - k * 0.07)
+		local sx, sz = x + math.cos(a) * r * 0.62, z + math.sin(a) * r * 0.45
+		far(shape("Cone", Vector3.new(sr * 2, shh, sr * 2), CFrame.new(sx, base + shh / 2, sz), dark, parent))
+		if snowLine < 1 then
+			cap(parent, sx, sz, base, sr, shh, math.min(0.8, snowLine + 0.15))
+		end
+	end
 	if snowLine < 1 then
-		local top = 1 - snowLine
-		far(shape("Cone", Vector3.new(r * 2 * top + 0.5, h * top + 0.2, r * 2 * top + 0.5), CFrame.new(x, cy + h / 2 - h * top / 2 + 0.1, z), A.peakSnow, parent))
+		cap(parent, x, z, base, r, h, snowLine)
+		-- snow tongues: thin upside-down cones lying on the slope, running down from the cap
+		local y = base + h * snowLine
+		local ry = r * (1 - snowLine) -- the cone's radius at the snow line
+		local phi = math.atan(r / h) -- the slope, from straight up
+		for i = 0, 3 do
+			local a = turn + i * math.pi / 2 + 0.4
+			local len = h * (0.12 + ((i * 7 + math.floor(math.abs(x))) % 3) * 0.05)
+			local wid = ry * 0.36
+			local dir = Vector3.new(math.cos(a) * math.sin(phi), -math.cos(phi), math.sin(a) * math.sin(phi))
+			local out = Vector3.new(math.cos(a) * math.cos(phi), math.sin(phi), math.sin(a) * math.cos(phi)) -- off the slope
+			local top = Vector3.new(x + math.cos(a) * ry, y + 0.4, z + math.sin(a) * ry)
+			local mid = top + dir * (len / 2) - out * (wid * 0.28) -- mostly sunk in: a thin tongue of snow, not a flap
+			far(shape("Cone", Vector3.new(wid, len, wid), CFrame.new(mid) * CFrame.Angles(0, -a, 0) * CFrame.Angles(0, 0, phi) * CFrame.Angles(math.pi, 0, 0), A.peakSnow, parent))
+		end
 	end
 end
 

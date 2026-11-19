@@ -60,6 +60,20 @@ local function setStep(player: Player, step: number, done: boolean, why: string)
 		-- the upgrade step: coins topped up to the price of that upgrade's next level, once per save (a
 		-- replay can't farm it), so the first upgrade is bought right away (Game Psychology: endowed progress)
 		local s = T.steps[step]
+		-- the gear step (2026-11-18): coins topped up to that gear's next level, once per save
+		if not done and s.gearGift then
+			d.tutorial.paid = d.tutorial.paid or {}
+			local paid = d.tutorial.paid :: { [string]: boolean }
+			if not paid.gearGift then
+				paid.gearGift = true
+				local lv = d.gear[s.gearGift]
+				local price = Config.gearPrice(s.gearGift, if typeof(lv) == "number" then lv else 0)
+				if price and d.coins < price then
+					gift = price - math.floor(d.coins)
+					d.coins += gift
+				end
+			end
+		end
 		if not done and s.gift and not d.tutorial.gift then
 			local price = Config.panPrice(s.gift, panLevel(d, s.gift), d.rebirths)
 			d.tutorial.gift = true
@@ -71,6 +85,14 @@ local function setStep(player: Player, step: number, done: boolean, why: string)
 	end)
 	if not changed then
 		return
+	end
+	AnalyticsSvc.coinsIn(player, gift + reward, "tutorial")
+	if why == "did" or why == "next" then
+		local st = T.steps[step]
+		AnalyticsSvc.tutorialStep(player, step, if done then "done" elseif st then st.id else "?")
+	elseif why == "skip" then
+		local st = T.steps[step]
+		AnalyticsSvc.tutorialStep(player, #T.steps + 1, "skipped_at_" .. (if st then st.id else "?"))
 	end
 	Remotes.fire(player, "Notify", "tutorial", { step = step, done = done, why = why, gift = if gift > 0 then gift else nil, reward = if reward > 0 then reward else nil })
 	if done or why == "replay" or gift > 0 or reward > 0 then

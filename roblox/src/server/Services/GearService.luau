@@ -12,6 +12,7 @@ local Remotes = require(script.Parent.Remotes)
 local DataService = require(script.Parent.DataService)
 local PlayerTracker = require(script.Parent.PlayerTracker)
 local AnalyticsSvc = require(script.Parent.AnalyticsSvc)
+local TutorialService = require(script.Parent.TutorialService)
 
 local GearService = {}
 local G = Config.gel
@@ -216,10 +217,12 @@ local function buyItem(player: Player, item: Config.GearItem)
 	end)
 	if bought then
 		AnalyticsSvc.funnel(player, "first_coins_spent")
+		AnalyticsSvc.coinsOut(player, price, "gear")
 		DataService.saveNow(player)
 		publish(player, item.key, old + 1)
 		PlayerTracker.updateSpeed(player) -- Frost Boots
 		Remotes.fire(player, "Notify", "gearBought", { key = item.key, name = item.name, level = old + 1 })
+		TutorialService.did(player, "gearBuy") -- the tutorial's gear step (2026-11-18)
 	end
 end
 

@@ -14,7 +14,11 @@ local SettingsController = require(script.Parent.SettingsController)
 
 local CritterVisuals = {}
 local C = Config.chasers
-type Look = { model: PVInstance, img: ImageLabel?, steam: ParticleEmitter, glow: PointLight, ice: Part, phase: number, at: CFrame }
+type Look = { model: PVInstance, img: ImageLabel?, steam: ParticleEmitter, ice: Part, phase: number, at: CFrame, alert: BillboardGui, shown: boolean }
+-- owner 2026-11-18 ("the game is so laggy"): with chasers on all 10 islands, every client drew and moved all ~49 of
+-- them every frame, each with a light and a highlight. Now only the ones within DRAW studs of the camera are in the
+-- world and animated (a chaser further off can't reach you anyway), and none carries a light.
+local DRAW = 140
 local looks: { [BasePart]: Look } = {}
 local folder: Folder
 
@@ -63,16 +67,33 @@ local function add(root: Instance)
 	steam.EmissionDirection = Enum.NormalId.Top
 	steam.Rate = 4
 	steam.Parent = core
-	local glow = Instance.new("PointLight")
-	glow.Color = Theme.round5.critterGlow
-	glow.Range = 8
-	glow.Brightness = 1.2
-	glow.Parent = core
+	-- owner 2026-11-18 ("the dopamine from running from something"): a big bouncing "!" over it while it chases you
+	local alert = Instance.new("BillboardGui")
+	alert.Name = "ChaseAlert"
+	alert.Size = UDim2.fromScale(1.6, 2)
+	alert.StudsOffset = Vector3.new(0, C.size * 0.95, 0)
+	alert.LightInfluence = 0
+	alert.MaxDistance = 90
+	alert.Enabled = false
+	local bang = Instance.new("TextLabel")
+	bang.BackgroundTransparency = 1
+	bang.Size = UDim2.fromScale(1, 1)
+	bang.Font = Theme.font
+	bang.TextScaled = true
+	bang.Text = "!"
+	bang.TextColor3 = Theme.coin
+	local bs = Instance.new("UIStroke")
+	bs.Thickness = 3
+	bs.Color = Theme.ink
+	bs.Parent = bang
+	bang.Parent = alert
+	alert.Adornee = core
+	alert.Parent = core
 	local ice = part(Vector3.one * C.size * 1.25, Theme.ice)
 	ice.Material = Enum.Material.SmoothPlastic -- not Glass: it would hide the critter's sprite inside (World Rules)
 	ice.Transparency = 1
 	ice.Name = "CritterIce"
-	looks[root] = { model = model, img = img, steam = steam, glow = glow, ice = ice, phase = math.random() * 6, at = root.CFrame }
+	looks[root] = { model = model, img = img, steam = steam, ice = ice, phase = math.random() * 6, at = root.CFrame, alert = alert, shown = true }
 end
 
 local function remove(root: Instance)
@@ -88,9 +109,22 @@ local function step(dt: number)
 	local t = os.clock()
 	local reduced = SettingsController.get("reducedMotion") == true
 	local amp = if reduced then 0.35 else 1
+	local cam = workspace.CurrentCamera
+	local camPos = if cam then cam.CFrame.Position else Vector3.zero
 	for root, l in looks do
 		if not root.Parent then
 			remove(root)
+			continue
+		end
+		-- far from the camera: out of the world and not animated
+		local near = (root.Position - camPos).Magnitude <= DRAW
+		if near ~= l.shown then
+			l.shown = near
+			l.model.Parent = if near then folder else nil
+			l.ice.Parent = if near then folder else nil
+			l.at = root.CFrame
+		end
+		if not near then
 			continue
 		end
 		local state = root:GetAttribute("State")
@@ -100,10 +134,16 @@ local function step(dt: number)
 		l.at = l.at:Lerp(root.CFrame, math.min(1, dt * 12))
 		local hz = if state == "chase" then 9 elseif state == "happy" then 5 else 4
 		local hop = if frozen then 0 else math.abs(math.sin(t * hz + l.phase)) * 0.35 * amp * (1 - meter)
+		-- a lunge (CritterService, close up): one big leap at you
+		local lungeAt = root:GetAttribute("Lunge")
+		local sinceLunge = if typeof(lungeAt) == "number" then workspace:GetServerTimeNow() - lungeAt else math.huge
+		if sinceLunge < C.lunge.seconds and not frozen then
+			hop += math.sin(sinceLunge / C.lunge.seconds * math.pi) * 1.4 * amp
+		end
+		l.alert.Enabled = state == "chase"
 		local base = l.at - Vector3.new(0, C.size / 2, 0) + Vector3.new(0, C.size / 2 + hop, 0)
 		l.model:PivotTo(base)
 		l.steam.Rate = if frozen then 0 elseif state == "chase" then 14 else 4
-		l.glow.Enabled = not frozen
 		-- the ice: a block while frozen (it clears as it thaws), creeping up while being shot
 		if frozen then
 			local untilT = root:GetAttribute("FrozenUntil")

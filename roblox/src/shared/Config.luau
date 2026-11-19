@@ -201,7 +201,9 @@ Config.shopOpenedCooldown = 2
 -- windowSeconds (after settleSeconds of loading) switches Low graphics on by itself, once per session.
 Config.performance = { autoLowFps = 40, windowSeconds = 6, settleSeconds = 12 }
 
-Config.settingsDefault = { music = true, sound = true, reducedMotion = false, lowGraphics = false, unit = "C" }
+-- skipShows (owner 2026-11-18: "a setting that autoskips all cutscenes"): every show (freeze, gun, pan, rebirth,
+-- Secret reveal) jumps straight to its end
+Config.settingsDefault = { music = true, sound = true, reducedMotion = false, lowGraphics = false, unit = "C", skipShows = false }
 -- Tester tools (Round 4 phase 1): only these accounts get the Tester panel ("T" tile / T key) and the
 -- "/dev" chat commands; every tester remote checks the caller's UserId on the server.
 -- 1929450116 = the place owner (LupusorCoiotul, game.CreatorId), 520039727 = n2012haidu.
@@ -252,6 +254,10 @@ Config.admin = {
 	boostMults = { 2, 5, 10, 25 },
 	boostMinutes = { 5, 15, 30, 60 },
 	rainCounts = { 1, 3, 10 }, -- pets per island
+	-- ADMIN TRAINER (owner 2026-11-18: "an admin abuse trainer that gives x2-x5 your best one"; like the admin
+	-- treadmills of speed sims): every pan's trainer turns gold with a big "ADMIN xN" sign for `minutes`, and each
+	-- bolt gives xN of what your own (best) trainer gives. Workspace Admin_trainer / AdminUntil_trainer.
+	trainer = { mults = { 2, 3, 4, 5 }, minutes = { 5, 10, 15, 30 } },
 	-- the admin's own message to every server (owner 2026-11-18): this many characters at most, filtered by Roblox's
 	-- TextService (as the admin's broadcast) in the sending server before it goes anywhere; shown this many seconds
 	messageMax = 100,
@@ -292,6 +298,8 @@ Config.melt = {
 	homeShare = { Common = 0.5, Uncommon = 0.6, Rare = 0.7, Epic = 0.78, Legendary = 0.85, Mythic = 0.9, Secret = 0.93 } :: { [string]: number },
 	homeFrom = 0.75, -- Rare and up spawn in an island's far half
 	slackSeconds = 4,
+	-- owner 2026-11-18 ("pets melt too unquickly, make them 10-20% faster"): every carried cube melts this much faster
+	speedUp = 1.15, shareCap = 0.97,
 }
 
 -- Temperature: a readable version of the melt speed (owner request 2026-10-30). Worked out from the
@@ -416,8 +424,12 @@ Config.friends = { perFriend = 0.1, max = 3 }
 export type ChallengeDef = { id: string, text: string, stat: string, goals: { number }?, incomeMinutes: { number }?, floor: number? }
 Config.challenges = {
 	perDay = 3,
-	rewardMinutes = 2, -- owner 2026-11-17 (night): "the challenges give way too much money" (was 6)
+	rewardMinutes = 1, -- owner 2026-11-17 (night): "the challenges give way too much money" (was 6, then 2)
 	rewardFloor = 100,
+	-- owner 2026-11-18 ("daily gives too much money at the start, i can rebirth off one daily"): your income climbs
+	-- fast early, so a few minutes of it is most of a rebirth. One claim never pays more than this share of your
+	-- next rebirth's price (three claims = 15% at most)
+	rewardRebirthShare = 0.05,
 	pool = {
 		{ id = "freeze", text = "Freeze {n} pets", stat = "frozen", goals = { 8, 12, 16 } },
 		{ id = "bank", text = "Bring {n} pets home", stat = "banked", goals = { 5, 8, 10 } },
@@ -455,6 +467,7 @@ export type RobuxItem = {
 	productId: number?, passId: number?, -- a developer product, or a game pass (kind "pass")
 	mult: number?, minutes: number?, floor: number?, stack: number?, charges: number?,
 	share: number?, -- a Cold Power pack: this share of your next island's need (Config.powerPack)
+	speed: number?, -- a Speed Potion: walk x (1 + speed) for minutes (2026-11-18)
 	big: string?, chip: string?, -- the shop card's big number and its white chip, when the game can't work them out
 }
 Config.monetization = {
@@ -484,7 +497,29 @@ Config.monetization = {
 		{ id = "doublePower", kind = "pass", passId = 2088923504, robux = 199, mult = 2, name = "2x Cold Power", text = "Double Cold Power, forever", icon = "power", stack = 2 },
 		{ id = "powerSmall", kind = "power", productId = 3732434754, robux = 49, share = 0.25, name = "Cold Power Pack", text = "", icon = "power", stack = 1 },
 		{ id = "powerBig", kind = "power", productId = 3732434775, robux = 149, share = 1, name = "Big Cold Power Pack", text = "", icon = "power", stack = 3 },
+		-- owner 2026-11-18 ("the monetizations are good, you can add them"; vault Games/Ice Ray for Pets/Monetization
+		-- Plan 2026-11-18): cheap consumables for the pains of the loop. Created with icons through Open Cloud
+		-- (tools/rbx_create_products_v2.py). Timed ones are saved as an end time (d.boosts), so a rejoin keeps them.
+		-- Speed: walk x(1 + speed) for minutes. Luck: a bonus Rare-or-better pet of your own every luckEvery seconds.
+		{ id = "speedSmall", kind = "speed", productId = 3733126675, robux = 15, speed = 0.1, minutes = 10, name = "Speed Potion", text = "+10% speed, 10 min", icon = "boots", stack = 1 },
+		{ id = "speedMid", kind = "speed", productId = 3733126705, robux = 39, speed = 0.25, minutes = 10, name = "Big Speed Potion", text = "+25% speed, 10 min", icon = "boots", stack = 2 },
+		{ id = "speedBig", kind = "speed", productId = 3733126733, robux = 99, speed = 0.5, minutes = 10, name = "Mega Speed Potion", text = "+50% speed, 10 min", icon = "boots", stack = 3 },
+		{ id = "luckSmall", kind = "luck", productId = 3733126769, robux = 25, minutes = 10, name = "Lucky Ray", text = "Bonus rare pets, 10 min", icon = "star", stack = 1 },
+		{ id = "luckBig", kind = "luck", productId = 3733126804, robux = 59, minutes = 30, name = "Lucky Ray 30", text = "Bonus rare pets, 30 min", icon = "star", stack = 2 },
+		{ id = "serverLuck", kind = "serverLuck", productId = 3733126832, robux = 99, minutes = 15, name = "Server Luck", text = "2x luck for everyone, 15 min", icon = "star", stack = 3, chip = "For everyone" },
+		{ id = "critterShield", kind = "shield", productId = 3733126846, robux = 15, charges = 3, name = "Critter Shield", text = "3 critter catches blocked", icon = "lock", stack = 1 },
+		{ id = "welcomeDeal", kind = "deal", productId = 3733126870, robux = 49, name = "Welcome Deal", text = "3 Super Freeze + Lucky Ray 30 + Coin Bag", icon = "gift", stack = 3, chip = "One time only" },
+		-- in-the-moment only (no Shop tab shows these kinds): Keep It Frozen while your cube melts (CarryUi), 2x on
+		-- the Welcome back card
+		{ id = "keepFrozen", kind = "keepFrozen", productId = 3733126606, robux = 19, name = "Keep It Frozen", text = "", icon = "ray", stack = 1 },
+		{ id = "welcomeDouble", kind = "welcomeDouble", productId = 3733126642, robux = 19, name = "2x Welcome Back", text = "", icon = "coin", stack = 1 },
 	} :: { RobuxItem },
+	-- Lucky Ray: one bonus pet every luckEvery seconds while you stand on an island you can freeze on; Server Luck
+	-- multiplies everyone's Rare-and-up odds by serverLuckMult. keepFrozenBelow: the Keep It Frozen button shows
+	-- while your carried cube has less ice than this share. welcomeDoubleMin: the x2 button only for at least this
+	-- many coins. needOffer: after this many "Need X more" in a session a small Coin Bag card shows (at most max)
+	luckEvery = 45, serverLuckMult = 2, keepFrozenBelow = 0.4, welcomeDoubleMin = 100,
+	needOffer = { after = 3, max = 3, seconds = 8 },
 	-- the Shop's tabs (shop v2, 2026-11-10: mobile-store layout), top to bottom on the left rail.
 	-- kinds = the items each tab shows; colour = Theme.shopCards[colour]. The shop opens on Forever
 	-- while a pass is still unowned, else on Coins.
@@ -492,7 +527,7 @@ Config.monetization = {
 		{ id = "forever", label = "Forever", icon = "star", colour = "pass", kinds = { pass = true }, title = "Forever passes", sub = "Buy once, keep it for good" },
 		{ id = "coins", label = "Coins", icon = "coin", colour = "coins", kinds = { coins = true }, title = "Coins", sub = "Bigger packs give more coins for each Robux" },
 		{ id = "power", label = "Power", icon = "power", colour = "power", kinds = { power = true }, title = "Cold Power", sub = "" },
-		{ id = "boosts", label = "Boosts", icon = "ray", colour = "charges", kinds = { charges = true, chill = true }, title = "Boosts", sub = "Use them when you need them" },
+		{ id = "boosts", label = "Boosts", icon = "ray", colour = "charges", kinds = { charges = true, chill = true, speed = true, luck = true, serverLuck = true, shield = true, deal = true }, title = "Boosts", sub = "Use them when you need them" },
 	} :: { { id: string, label: string, icon: string, colour: string, kinds: { [string]: boolean }, title: string, sub: string } },
 }
 
@@ -789,7 +824,7 @@ Config.ui = {
 	-- the tutorial's goal pill, top centre (shares of the short side): icon tile, goal words, a count bar on
 	-- counted steps, step dots under it, Skip at the right end
 	tutorialGoal = { wide = { 0.8, 0.12 }, phone = { 1.2, 0.16 }, dots = 0.022 },
-	settingsRow = 0.128, -- a Settings row's height (share of the list): 7 rows and their gaps fit
+	settingsRow = 0.112, -- a Settings row's height (share of the list): 8 rows and their gaps fit (was 0.128 for 7)
 	gamepadKeys = { close = Enum.KeyCode.ButtonB, superFreeze = Enum.KeyCode.ButtonY, menu = Enum.KeyCode.ButtonSelect, skip = Enum.KeyCode.ButtonA },
 	keys = { pets = Enum.KeyCode.P, shop = Enum.KeyCode.B, index = Enum.KeyCode.I, close = Enum.KeyCode.Backspace, superFreeze = Enum.KeyCode.F, tester = Enum.KeyCode.T, skip = Enum.KeyCode.Return }, -- Escape belongs to Roblox's own menu,
 	testerTile = { id = "tester", label = "Tester" }, -- only testers see it
@@ -808,13 +843,26 @@ Config.ui = {
 		list = {
 			{ id = "equipment", label = "EQUIPMENT", icon = "ray" },
 			{ id = "pan", label = "PAN", icon = "pen" },
+			-- (the ISLAND teleport button of 2026-11-18 was removed the same day: owner "remove the island teleport button")
+			-- owner 2026-11-18 ("purchase cold power on the top of the top bar, just like Steal an Egg"; then "appear it
+			-- after your pet unfreezes from running back home, make it pulsate"): a Robux quick-buy of the Cold Power Pack
+			-- (Config.monetization powerSmall) showing how much it gives you right now. Hidden until a cube melts in your
+			-- hands; then it pops up, pulsing, for powerShowSeconds. Roblox's own purchase prompt; never auto-opened.
+			{ id = "power", label = "+POWER", icon = "power", product = "powerSmall" },
 		},
+		powerPulse = { scale = 1.14, seconds = 0.45 }, powerShowSeconds = 15,
+		-- owner 2026-11-18 (later): the "% to the next island" bar sits right under EQUIPMENT and PAN, and the pulsing
+		-- Cold Power quick-buy under that. Shares of a button's height: bar = { gap above, height, width share of the
+		-- row }; power = { gap above the quick-buy, its width share of the row }. under = what the bar adds below the
+		-- row (Screen pushes the banners down by it)
+		bar = { gap = 0.1, height = 0.42, width = 0.9 }, power = { gap = 0.1, width = 0.5 }, under = 0.55,
 		-- owner 2026-11-13 "make them bigger": 1.3x (was size { 0.34, 0.1 } and 76% of the top bar's height).
 		-- barFill = their height as a share of Roblox's top bar (over 1 = they hang below it); barTop = their
 		-- top edge down the bar (share of its height), level with Roblox's own buttons
 		-- barShort = the most they take of the screen's short side (laptops: 1.3x the bar was too big on a
 		-- ~650 px tall window); barMin = never smaller than this share of the bar (the old size)
-		size = { 0.44, 0.13 }, gap = 0.03, iconSize = 0.86, barFill = 1.3, barTop = 0.12, barShort = 0.085, barMin = 0.76,
+		-- size 0.38 (was 0.44) since +POWER joined (2026-11-18)
+		size = { 0.38, 0.13 }, gap = 0.03, iconSize = 0.86, barFill = 1.3, barTop = 0.12, barShort = 0.085, barMin = 0.76,
 		equipment = { at = Vector3.new(80, 3, -19), face = Vector3.new(80, 3, -8) },
 		panFront = 7,
 		cooldown = 2,
@@ -898,7 +946,7 @@ export type RayCue = { at: number, sound: string?, fx: string?, kick: string? }
 
 Config.world = {
 	maxPlayers = 6, -- one pan per server slot. Owner item: Server Size 6 in Game Settings > Places
-	mapVersion = 33, -- 33 = the hub's side strips 25 studs, 32 = the hub's side strips 35 studs (were 50), 31 = a wider hub with more room between the pans (owner 2026-11-18), 30 = the Feedback mailbox by the gift, 29 = a third Thaw Machine in every pan (2026-11-17), -- 28 = gate curtains with a padlock instead of ice bars, sun patches spread out (owner 2026-11-17), 27 = the fall catcher in tiles, so the hub and the end of Magma Core are covered too (QA IR-05), 26 = at most 3 lava pools per island, each in its own stretch (owner 2026-11-13), 25 = vivid colours and the giant outside decor per island (MapSpectacle, owner 2026-11-13), 24 = solid scenery (MapArt.solidify: everything you can see blocks you), 23 = smaller outside (MapArt farScenery: ground and peaks only as big as the camera needs), 22 = pan fence walls only fence-high, so you can jump them, 21 = solid pan fences (invisible PanFence walls; the gate is the only way in), 20 = Cold Power trainers in every pan (TrainingService builds them; the rink door, its beacon and the right flower box are gone, Equipment back by the tunnel mouth), 19 = open plaza: no fountain, no paved boulevard, no spawn pad, 18 = the Sell and Equipment booths no longer run into the village wall, 17 = map pass 2026-11-10 (rink door in front, its beacon, bigger snowman and waterfall), 16 = the Training Rink's door. Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges, 6 = bigger square pans, 7 = pans measured against the real avatar, 8 = open gaps, open ground behind, level pans, 9 = no flush overlapping surfaces, 10 = booth details: sign bulbs, log ends, scalloped awnings, chalk coin, 11 = wide tunnel and big entrance for big pets, a clean road, 12 = booths shaped like what they do: treasure chest, gear workshop, ring portal, 13 = the detailed sci-fi Thaw Machine, 14 = each world's own gate towers, 15 = never-visible buried parts left out (PERF-AUDIT-2026-11-09))
+	mapVersion = 35, -- 35 = lighter cottages (lag pass), 34 = detailed cottages and mountains (owner 2026-11-18), 33 = the hub's side strips 25 studs, 32 = the hub's side strips 35 studs (were 50), 31 = a wider hub with more room between the pans (owner 2026-11-18), 30 = the Feedback mailbox by the gift, 29 = a third Thaw Machine in every pan (2026-11-17), -- 28 = gate curtains with a padlock instead of ice bars, sun patches spread out (owner 2026-11-17), 27 = the fall catcher in tiles, so the hub and the end of Magma Core are covered too (QA IR-05), 26 = at most 3 lava pools per island, each in its own stretch (owner 2026-11-13), 25 = vivid colours and the giant outside decor per island (MapSpectacle, owner 2026-11-13), 24 = solid scenery (MapArt.solidify: everything you can see blocks you), 23 = smaller outside (MapArt farScenery: ground and peaks only as big as the camera needs), 22 = pan fence walls only fence-high, so you can jump them, 21 = solid pan fences (invisible PanFence walls; the gate is the only way in), 20 = Cold Power trainers in every pan (TrainingService builds them; the rink door, its beacon and the right flower box are gone, Equipment back by the tunnel mouth), 19 = open plaza: no fountain, no paved boulevard, no spawn pad, 18 = the Sell and Equipment booths no longer run into the village wall, 17 = map pass 2026-11-10 (rink door in front, its beacon, bigger snowman and waterfall), 16 = the Training Rink's door. Workspace.Map carries this; an older saved map is rebuilt (3 = Round 5 map remake, 4 = 10 islands, 5 = clear centre / rich edges, 6 = bigger square pans, 7 = pans measured against the real avatar, 8 = open gaps, open ground behind, level pans, 9 = no flush overlapping surfaces, 10 = booth details: sign bulbs, log ends, scalloped awnings, chalk coin, 11 = wide tunnel and big entrance for big pets, a clean road, 12 = booths shaped like what they do: treasure chest, gear workshop, ring portal, 13 = the detailed sci-fi Thaw Machine, 14 = each world's own gate towers, 15 = never-visible buried parts left out (PERF-AUDIT-2026-11-09))
 	hubZMax = 0, -- the tunnel mouth: the hub is z < 0 (no wild pets, no heat)
 	-- the row of six pans plus sideSpace of open ground at each end (owner 2026-11-18: "more space in the safe
 	-- zone, wider on the sides, we will add more things"; was 10, a 300-wide hub; 50 and then 35 were a bit
@@ -1133,7 +1181,7 @@ Config.ui.tileIcons = { pets = Config.images.pets.snowbun, shop = Config.images.
 -- painted icons on the Shop and Settings rows
 local I = Config.images.icons
 Config.ui.upgradeIcons = { ray = I.ray, boots = I.boots, backpack = I.bag, pen = I.pen } :: { [string]: string }
-Config.ui.settingIcons = { music = I.music, sound = I.sound, reducedMotion = I.motion, lowGraphics = I.graphics, unit = I.temp } :: { [string]: string }
+Config.ui.settingIcons = { music = I.music, sound = I.sound, reducedMotion = I.motion, lowGraphics = I.graphics, unit = I.temp, skipShows = I.arrow } :: { [string]: string }
 Config.ui.silhouetteTransparency = 0
 Config.ui.shopPerRow = 5 -- the Robux shop's product tiles to a row
 -- shop v2 (2026-11-10): the tab rail's width (share of the body), the card row's top, a card's widest share,
@@ -1207,7 +1255,7 @@ Config.guide = {
 	-- targetBob studs at targetBobSpeed; hidden when you're closer than targetHideNear (you're there)
 	targetScale = 1.6, targetY = 3, targetBob = 0.8, targetBobSpeed = 4, targetHideNear = 5,
 	-- how high the target's top is, by kind (pets and cubes use their own size)
-	targetTop = { pan = 9, machine = 7, stand = 6, train = 5, gate = 12 } :: { [string]: number },
+	targetTop = { pan = 9, machine = 7, stand = 6, train = 5, gate = 12, booth = 10 } :: { [string]: number },
 }
 -- The tutorial (owner 2026-11-10; no guide character since 2026-11-15, owner: "get rid of captain frost").
 -- The world teaches: the goal pill at the top centre (TutorialGoal), the chevron trail and the arrow over
@@ -1255,6 +1303,13 @@ Config.tutorial = {
 			maxedSay = "Buy any upgrade", maxedGoal = "Buy any upgrade at your pan",
 			cheer = "More room for pets!",
 			hints = { keyboard = "Press E at the stand, then Buy!", touch = "Tap the stand, then tap Buy!", gamepad = "Press X at the stand, then Buy!" } },
+		-- gear (owner 2026-11-18: "add gear and equipment to the tutorial, no more than 30-60 seconds"): one quick
+		-- buy. The EQUIPMENT top button takes you there in a blink, the booth opens on its Gear tab, and your coins
+		-- are topped up to Frost Boots' price once per save (gearGift). Boots = faster runs home, felt at once.
+		{ id = "gear", on = "gearBuy", only = true, focus = "booth", icon = "boots", gearGift = "frost_boots", say = "",
+			goal = "Get Frost Boots at the Equipment Booth", giftSay = "+{coins} coins! Get Frost Boots at the Equipment Booth",
+			cheer = "Zoom! You run faster now!",
+			hints = { keyboard = "Click EQUIPMENT at the top, then Gear!", touch = "Tap EQUIPMENT at the top, then Gear!", gamepad = "Go to the Equipment Booth, then Gear!" } },
 		-- peek (reworked 2026-11-16, owner: "it's weird how it goes to that pet"): the camera looks at the next
 		-- island's gate and the bigger pets waiting behind it, while the pill says what opens it: Cold Power.
 		-- So the next step (train) has a reason (Config.tutorial.tease)
@@ -1270,7 +1325,7 @@ Config.tutorial = {
 			hints = { keyboard = "Walk up to the gate and press E!", touch = "Walk up to the gate and tap its button!", gamepad = "Walk up to the gate and press X!" } },
 		-- reward = coins paid once per save as the tutorial ends, shown on the TUTORIAL COMPLETE card
 		{ id = "done", on = "next", icon = "trophy", say = "Tutorial complete!", reward = 900, rewardTitle = "TUTORIAL COMPLETE!" },
-	} :: { { id: string, on: string, say: string, focus: string?, goal: string?, goals: { [string]: string }?, hints: { [string]: string }?, cheer: string?, only: boolean?, gift: string?, giftSay: string?, maxedSay: string?, maxedGoal: string?, quiet: boolean?, hintOnce: boolean?, tease: boolean?, icon: string?, count: string?, reward: number?, rewardTitle: string? } },
+	} :: { { id: string, on: string, say: string, focus: string?, goal: string?, goals: { [string]: string }?, hints: { [string]: string }?, cheer: string?, only: boolean?, gift: string?, gearGift: string?, giftSay: string?, maxedSay: string?, maxedGoal: string?, quiet: boolean?, hintOnce: boolean?, tease: boolean?, icon: string?, count: string?, reward: number?, rewardTitle: string? } },
 	-- the goal pill (references: one short goal at the top centre, always on, with step dots; nothing to
 	-- dismiss). icon = Config.images.icons key, or "pet" = the first island's Common sprite. A cheer, hint or
 	-- reaction replaces the goal for messageSeconds, then the goal comes back. Skip lives on the pill.
@@ -1281,7 +1336,7 @@ Config.tutorial = {
 	lockMenus = true, lockUntil = "upgrade",
 	-- the TUTORIAL COMPLETE card: a trophy pops over a turning sunburst, the coins count up, confetti, a green OK
 	complete = { pop = 0.35, countSeconds = 0.9, confetti = 40, confettiReduced = 12, fall = { 1.4, 2.4 }, sunSpin = 20 },
-	actions = { zap = true, freeze = true, pickup = true, bank = true, thawStart = true, thawed = true, upgrade = true,
+	actions = { zap = true, freeze = true, pickup = true, bank = true, thawStart = true, thawed = true, upgrade = true, gearBuy = true,
 		trainStart = true, powerReady = true, gateOpen = true } :: { [string]: boolean },
 	-- the peek (step "peek"): the camera flies to look over the next island's gate at one of its Rares, glowing
 	-- (a real pet of that island, shown as a picture of what lives there), holds, then flies back
@@ -2516,10 +2571,24 @@ Config.thaw = {
 -- relay), knock the top cube loose if they reach you (its pet is dazed: only you can zap it back), and
 -- can be frozen with the ray for frozenBase / the island's heat seconds.
 Config.chasers = {
-	fromIsland = 3,
-	perIsland = 3,
+	-- owner 2026-11-18 ("add hedgehogs to every island, progressively harder, even faster: the dopamine from running
+	-- from something matters"): on every island now, and each island's are more, faster and keener. They were 13
+	-- studs/s against a 40 walk, so they never caught anyone. byIsland[i]: n = how many, speed = chase speed as a
+	-- share of the base walk (Config.player.walkSpeed; Frost Boots make you faster still), aggro = studs they notice
+	-- you from. Always under 1: a straight run home always gets away. Close up they lunge (lunge) for the "it
+	-- nearly got me!" moment. Kids still learning (tutorial running) are never chased.
+	fromIsland = 1,
+	perIsland = 3, -- an island missing from byIsland
+	byIsland = {
+		{ n = 2, speed = 0.5, aggro = 28 }, { n = 3, speed = 0.58, aggro = 32 }, { n = 3, speed = 0.65, aggro = 36 },
+		{ n = 4, speed = 0.7, aggro = 40 }, { n = 4, speed = 0.75, aggro = 44 }, { n = 5, speed = 0.8, aggro = 48 },
+		{ n = 5, speed = 0.84, aggro = 52 }, { n = 6, speed = 0.88, aggro = 56 }, { n = 6, speed = 0.9, aggro = 60 },
+		{ n = 7, speed = 0.92, aggro = 64 },
+	} :: { { n: number, speed: number, aggro: number } },
+	-- the lunge: within range studs, a burst of mult x its chase speed for seconds, then cooldown seconds
+	lunge = { range = 11, mult = 1.3, seconds = 0.7, cooldown = 3 },
 	wanderSpeed = 3,
-	chaseSpeed = 13, -- a bit slower than walking (16), so you can always get away
+	chaseSpeed = 13, -- only for an island missing from byIsland
 	aggroRange = 45,
 	catchRange = 3.5,
 	afterCatch = 4, -- seconds a critter sits happily cooling down after a catch
@@ -2899,7 +2968,8 @@ function Config.cubeLife(tier: string, zoneId: number): number
 			home += (z.zMax - z.zMin) * M.homeFrom * z.heat / speed
 		end
 	end
-	return (home + M.slackSeconds * own) / (M.homeShare[tier] or 0.5)
+	-- never past shareCap: a straight run home must still make it, even for a Secret
+	return (home + M.slackSeconds * own) / math.min(M.shareCap, (M.homeShare[tier] or 0.5) * M.speedUp)
 end
 
 -- the Cold Power one training bolt gives: the base value x the trainer's xN x the

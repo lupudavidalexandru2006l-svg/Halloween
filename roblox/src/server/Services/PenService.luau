@@ -426,6 +426,7 @@ local function claimGift(player: Player)
 		PenService.addCoins(x, G.coins)
 		x.coldPower = math.min(x.coldPower + G.power, Config.coldPower.max)
 	end)
+	AnalyticsSvc.coinsIn(player, G.coins, "free_gift")
 	DataService.saveNow(player)
 	Remotes.fire(player, "Notify", "giftClaimed", { coins = G.coins, power = G.power })
 end
@@ -458,10 +459,16 @@ local function collectWelcome(player: Player)
 	DataService.mutate(player, function(x)
 		PenService.addCoins(x, coins)
 		x.welcome = nil
+		x.boosts.lastWelcome = coins -- 2x Welcome Back bought just after collecting pays this once more
 	end)
+	AnalyticsSvc.coinsIn(player, coins, "away")
 	DataService.saveNow(player) -- grant and clear in the same save
 	Remotes.fire(player, "Notify", "welcomeCollected", { coins = coins })
 end
+
+-- the Welcome back card, collected by the server (MonetizationService: after a 2x Welcome Back prompt the player
+-- closed without buying, so the coins are never left behind)
+PenService.collectWelcome = collectWelcome
 
 -- dev command: pretend the player was away this long
 function PenService.devAway(player: Player, seconds: number)
@@ -980,6 +987,7 @@ local function view(player: Player, d: Data): { [string]: any }
 		welcome = d.welcome,
 		settings = d.settings,
 		superFreezeCharges = d.superFreezeCharges,
+		dealBought = d.boosts.deal, -- the one-time Welcome Deal is gone from the Shop once bought (2026-11-18)
 		thawSkips = d.thawSkips, -- paid Thaw Machine skips kept for later (MonetizationService)
 		thawSkipAlls = d.thawSkipAlls, -- paid Skip alls kept for later
 		doubleCoins = doubled[d] == true,
@@ -1173,6 +1181,7 @@ function PenService.Start()
 						DataService.mutate(player, function(x)
 							PenService.addCoins(x, whole)
 						end)
+						AnalyticsSvc.coinsIn(player, whole, "income")
 					end
 				end
 			end

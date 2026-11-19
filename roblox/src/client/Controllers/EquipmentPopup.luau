@@ -554,7 +554,10 @@ local function gear(h: Helpers, body: Frame, v: State.View, o: any)
 end
 
 function EquipmentPopup.fill(o: any, v: State.View, h: Helpers)
-	o.data = if typeof(o.data) == "table" then o.data else { tab = "guns" }
+	-- the tutorial's gear step (2026-11-18) opens straight on the Gear tab
+	local tu = v.tutorial
+	local step = tu and not tu.done and Config.tutorial.steps[tu.step]
+	o.data = if typeof(o.data) == "table" then o.data else { tab = if step and step.id == "gear" then "gear" else "guns" }
 	local body: Frame = o.body
 	-- the tabs
 	local tabs = Instance.new("Frame")

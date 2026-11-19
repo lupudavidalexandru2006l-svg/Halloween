@@ -253,12 +253,22 @@ local function nameTag(parent: Instance, def: PetDefs.PetDef, height: number, mu
 	local look = if typeof(mut) == "string" then Theme.mut[mut] else nil
 	local big = if Config.size(sz) then sz :: string else nil
 	local T = Config.worldText.tag
-	local text = (if big then big .. " " else "") .. (if look then `{mut} ` else "") .. def.name
-	local color = if look then look.tint elseif big then Theme.sizes[big] else (Theme.tiers[def.tier] or Theme.info)
-	local g = Ui.pill(text, color, T)
+	-- owner 2026-11-18 ("when pets have a mutation, you cannot see their rarity"): the name pill always wears the
+	-- rarity's colour; the size and mutation ride on a small pill of their own just over it
+	local g = Ui.pill(def.name, Theme.tiers[def.tier] or Theme.info, T)
 	g.Name = "NameTag"
 	g.StudsOffset = Vector3.new(0, height / 2 + T.offset, 0)
 	g.Parent = parent
+	if look or big then
+		local small = { textPx = math.floor(T.textPx * 0.8), heightPx = math.floor(T.heightPx * 0.8), padPx = math.floor(T.padPx * 0.7), maxDistance = T.maxDistance }
+		local words = (if big then big .. " " else "") .. (if look then mut :: string else "")
+		local tagColor = if look then look.tint else Theme.sizes[big :: string]
+		local m = Ui.pill(string.upper((words:gsub("%s+$", ""))), tagColor or Theme.info, small)
+		m.Name = "MutTag"
+		m.StudsOffset = g.StudsOffset
+		m.SizeOffset = Vector2.new(0, 1.3) -- its own height and a bit over the name pill, at any distance
+		m.Parent = parent
+	end
 end
 
 local function offerButton(root: BasePart): BillboardGui

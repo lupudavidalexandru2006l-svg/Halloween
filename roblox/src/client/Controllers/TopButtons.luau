@@ -24,6 +24,12 @@ local frame: Frame
 local away = false -- a cube is in your hands: hidden until they're empty
 local labels: { TextLabel } = {}
 local widthPer100: { [TextLabel]: number } = {} -- each word's width at text size 100
+local travel: { GuiObject } = {} -- the buttons that take you somewhere (they step aside while you carry)
+local powerBtn: any = nil -- the Cold Power quick-buy (owner 2026-11-18): { root, amount, scale }
+local powerUntil = 0 -- it shows only until this (os.clock) after a cube melted in your hands
+local islandFill: Frame -- the "% to the next island" bar under the buttons (owner 2026-11-18)
+local islandText: TextLabel
+local powerTween: Tween? = nil
 
 -- owner 2026-11-13: "PAN is bigger than EQUIPMENT". TextScaled grew the short word; now every label
 -- uses the one size the longest word still fits at.
@@ -66,18 +72,128 @@ local function update()
 	elseif away and me:GetAttribute("GunLocked") ~= true then
 		away = false
 	end
-	local want = not away
+	-- carrying: the travel buttons step aside; the Cold Power quick-buy shows only after a melt (owner 2026-11-18)
+	for _, g in travel do
+		g.Visible = not away
+	end
+	local showPower = powerBtn ~= nil and os.clock() < powerUntil
+	if powerBtn and powerBtn.root.Visible ~= showPower then
+		powerBtn.root.Visible = showPower
+		if not showPower and powerTween then
+			powerTween:Cancel()
+			powerTween = nil
+			powerBtn.scale.Scale = 1
+		end
+	end
+	-- the island bar only while you train (owner 2026-11-18: "this should only appear when you are in the trainer")
+	if islandFill then
+		local training = me:GetAttribute("TrainLocked") == true or (me:GetAttribute("TrainStation") or 0) ~= 0
+		local bar = islandFill.Parent :: Frame
+		if bar.Visible ~= training then
+			bar.Visible = training
+		end
+		if powerBtn then -- the quick-buy sits right under the buttons when the bar is away
+			local y = 1 + TB.power.gap + (if training then TB.bar.gap + TB.bar.height else 0)
+			if powerBtn.root.Position.Y.Scale ~= y then
+				powerBtn.root.Position = UDim2.fromScale(0.5, y)
+			end
+		end
+	end
+	local want = true -- the frame stays (bar, quick-buy); only the travel buttons step aside while you carry
 	if frame:GetAttribute("Want") ~= want then
 		frame:SetAttribute("Want", want)
 	end
 end
 
+-- how much Cold Power the pack gives you right now (a share of your next island's need), and the island bar
+local function refreshPower()
+	local item = Config.robuxItem("powerSmall")
+	local v = State.view
+	if powerBtn and item and v then
+		powerBtn.amount.Text = `+{Config.powerText(Config.powerPack(item, v.coldPower or 0))}`
+	end
+	if v and islandFill then
+		local power = v.coldPower or 0
+		local nextZone = Config.zone((v.reach or 1) + 1)
+		local need = if nextZone and nextZone.need > 0 then nextZone.need else Config.nextNeed(power)
+		local frac = math.clamp(power / math.max(1, need), 0, 1)
+		islandFill.Size = UDim2.fromScale(math.max(frac, 0.04), 1)
+		islandFill.BackgroundColor3 = if nextZone and frac >= 1 then Theme.go else Theme.training.power
+		islandText.Text = if nextZone and frac >= 1 then `{nextZone.name}: READY!`
+			elseif nextZone then `{math.floor(frac * 100)}% to {nextZone.name}`
+			else `{math.floor(frac * 100)}% to Power Lv {Config.powerLevel(power) + 1}`
+	end
+end
+
+-- the "% to the next island" bar, centred under EQUIPMENT and PAN (owner 2026-11-18)
+local function makeIslandBar()
+	local B = TB.bar
+	local track = Instance.new("Frame")
+	track.Name = "IslandBar"
+	track.BackgroundColor3 = Theme.ink
+	track.BackgroundTransparency = 0.2
+	track.BorderSizePixel = 0
+	track.AnchorPoint = Vector2.new(0.5, 0)
+	track.Position = UDim2.fromScale(0.5, 1 + B.gap)
+	track.Size = UDim2.fromScale(B.width, B.height)
+	track.ClipsDescendants = true
+	Ui.corner(track, 0.5)
+	local ts = Instance.new("UIStroke")
+	ts.Thickness = 2
+	ts.Color = Theme.white
+	ts.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	ts.Parent = track
+	track.Parent = frame
+	islandFill = Instance.new("Frame")
+	islandFill.Name = "Fill"
+	islandFill.BackgroundColor3 = Theme.training.power
+	islandFill.BorderSizePixel = 0
+	islandFill.Size = UDim2.fromScale(0.04, 1)
+	Ui.corner(islandFill, 0.5)
+	local shine = Instance.new("UIGradient")
+	shine.Rotation = 90
+	shine.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(190, 190, 190))
+	shine.Parent = islandFill
+	islandFill.Parent = track
+	islandText = Ui.label(track, "", UDim2.fromScale(0.92, 0.84), UDim2.fromScale(0.04, 0.08))
+	islandText.TextXAlignment = Enum.TextXAlignment.Center
+	islandText.ZIndex = 2
+end
+
+-- your cube melted on the way home: the quick-buy pops up and pulses for powerShowSeconds (owner 2026-11-18)
+local function pulsePower()
+	if not powerBtn then
+		return
+	end
+	powerUntil = os.clock() + TB.powerShowSeconds
+	if not powerTween then
+		local P = TB.powerPulse
+		powerBtn.scale.Scale = 1
+		powerTween = game:GetService("TweenService"):Create(powerBtn.scale,
+			TweenInfo.new(P.seconds, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Scale = P.scale })
+		;(powerTween :: Tween):Play()
+	end
+	update()
+end
+
 local function makeButton(i: number, b: { id: string, label: string, icon: string })
-	local n = #TB.list
-	local colour = if b.id == "pan" then Theme.topButtons.soil else Theme.topButtons.equipment
+	-- the row is only the travel buttons (the quick-buy hangs under it), so they're centred
+	local n = 0
+	for _, x in TB.list do
+		if not (x :: any).product then
+			n += 1
+		end
+	end
+	local product = (b :: any).product :: string?
+	local colour = if b.id == "pan" then Theme.topButtons.soil
+		elseif product then Theme.training.power else Theme.topButtons.equipment
 	local block = Ui.block(frame, "Top_" .. b.id, colour, b.label, function()
 		SoundController.play("click")
-		State.send("Teleport", b.id)
+		if product then
+			State.send("BuyRobux", product) -- Roblox's own prompt; the server checks and grants
+		else
+			State.send("Teleport", b.id)
+		end
 	end)
 	-- each button's share of the row, the gap between them a share of the same short-side units
 	local unit = 1 / (n * TB.size[1] + (n - 1) * TB.gap)
@@ -88,11 +204,34 @@ local function makeButton(i: number, b: { id: string, label: string, icon: strin
 		local img = Ui.image(block.face, icon, UDim2.fromScale(0.3, TB.iconSize), UDim2.fromScale(0.02, (1 - TB.iconSize) / 2))
 		img.ZIndex = 2
 	end
+	local s = block.text:FindFirstChildOfClass("UIStroke") :: UIStroke
+	s.Thickness = Config.ui.floatingStroke -- big words over a busy face read with a firmer outline
+	if product then
+		-- the amount on top (sized on its own), Roblox's Robux mark and the price under it
+		local item = Config.robuxItem(product)
+		block.text.Size = UDim2.fromScale(0.68, 0.52)
+		block.text.Position = UDim2.fromScale(0.28, 0.04)
+		block.text.ZIndex = 2
+		block.text.TextScaled = true
+		local mark = Ui.image(block.face, Config.images.icons.robux, UDim2.fromScale(0.14, 0.36), UDim2.fromScale(0.34, 0.58))
+		mark.ZIndex = 2
+		local price = Ui.label(block.face, if item then tostring(item.robux) else "", UDim2.fromScale(0.46, 0.38), UDim2.fromScale(0.5, 0.57))
+		price.TextXAlignment = Enum.TextXAlignment.Left
+		price.ZIndex = 2
+		local sc = Instance.new("UIScale")
+		sc.Parent = block.root
+		-- under the island bar, centred (owner 2026-11-18)
+		block.root.AnchorPoint = Vector2.new(0.5, 0)
+		block.root.Position = UDim2.fromScale(0.5, 1 + TB.bar.gap + TB.bar.height + TB.power.gap)
+		block.root.Size = UDim2.fromScale(TB.power.width, 1)
+		powerBtn = { root = block.root, amount = block.text, scale = sc }
+		block.root.Visible = false -- hidden until a cube melts (pulsePower)
+		return
+	end
+	table.insert(travel, block.root)
 	block.text.Size = UDim2.fromScale(0.68, 0.78)
 	block.text.Position = UDim2.fromScale(0.28, 0.11)
 	block.text.ZIndex = 2
-	local s = block.text:FindFirstChildOfClass("UIStroke") :: UIStroke
-	s.Thickness = Config.ui.floatingStroke -- big words over a busy face read with a firmer outline
 	table.insert(labels, block.text)
 	block.text:GetPropertyChangedSignal("AbsoluteSize"):Connect(syncTextSize)
 end
@@ -104,10 +243,22 @@ function TopButtons.Start()
 	frame.Name = "TopButtons"
 	frame.BackgroundTransparency = 1
 	frame:SetAttribute("Want", true)
-	for i, b in TB.list do
-		makeButton(i, b)
+	local slot = 0
+	for _, b in TB.list do
+		if not (b :: any).product then
+			slot += 1
+		end
+		makeButton(if (b :: any).product then 1 else slot, b)
 	end
+	makeIslandBar()
 	Screen.register("top", frame)
+	State.Changed:Connect(refreshPower)
+	refreshPower()
+	State.Notify:Connect(function(kind: string)
+		if kind == "melted" then
+			pulsePower()
+		end
+	end)
 	task.spawn(function()
 		for _, l in labels do
 			measure(l)

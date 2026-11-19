@@ -16,7 +16,7 @@ local PetDefs = require(ReplicatedStorage.Shared.PetDefs)
 -- machine it's in and when it comes out. A frozen pet is never eq and earns nothing.
 export type PetEntry = { id: string, key: string, pose: string, mut: string?, sz: string?, at: number, eq: boolean,
 	frozen: boolean?, thawM: number?, thawEnd: number?, thawTotal: number? }
-export type Settings = { music: boolean, sound: boolean, reducedMotion: boolean, lowGraphics: boolean, unit: string }
+export type Settings = { music: boolean, sound: boolean, reducedMotion: boolean, lowGraphics: boolean, unit: string, skipShows: boolean? }
 -- tester switches, saved per tester; reset to these defaults on load for everyone else
 export type TesterSettings = { mult: number, walk: number, instantFreeze: boolean, noMelt: boolean }
 -- today's challenges (ChallengeService): which ones, each one's goal and the stat's value when handed out
@@ -43,6 +43,9 @@ export type Data = {
 	superFreezeCharges: number,
 	thawSkips: number, -- paid Thaw Machine skips not used yet (a skip bought just as the pet came out is kept for later)
 	thawSkipAlls: number, -- paid Skip alls not used yet (bought just as every pet came out: kept for later)
+	-- bought boosts (2026-11-18, MonetizationService): Speed Potion (mult, ends at os.time), Lucky Ray (ends), Critter
+	-- Shield charges, the one-time Welcome Deal, and the last Welcome back coins (for 2x Welcome Back after collecting)
+	boosts: { speedMult: number, speedUntil: number, luckUntil: number, shields: number, deal: boolean, lastWelcome: number },
 	superCubes: { { key: string, pose: string, mut: string?, sz: string? } }, -- bought Super Freeze cubes not yet banked (back on your back after a rejoin)
 	lastBest: string?, -- best pet banked last session, shown in the welcome back (end on a high, on the return)
 	receipts: { string },
@@ -101,6 +104,7 @@ local function defaults(): Data
 		superFreezeCharges = 0,
 		thawSkips = 0,
 		thawSkipAlls = 0,
+		boosts = { speedMult = 1, speedUntil = 0, luckUntil = 0, shields = 0, deal = false, lastWelcome = 0 },
 		superCubes = {},
 		lastBest = nil,
 		receipts = {},
@@ -261,6 +265,11 @@ local function migrate(old: any): Data
 	d.superFreezeCharges = int(old.superFreezeCharges, 0, 999)
 	d.thawSkips = int(old.thawSkips, 0, 999)
 	d.thawSkipAlls = int(old.thawSkipAlls, 0, 99)
+	local bo = tbl(old.boosts)
+	d.boosts = {
+		speedMult = num(bo.speedMult, 1, 2, 1), speedUntil = num(bo.speedUntil, 0, 4e9, 0), luckUntil = num(bo.luckUntil, 0, 4e9, 0),
+		shields = int(bo.shields, 0, 999, 0), deal = bo.deal == true, lastWelcome = num(bo.lastWelcome, 0, 1e15, 0),
+	}
 	for _, c in tbl(old.superCubes) do
 		if #d.superCubes < 5 and typeof(c) == "table" and typeof(c.key) == "string" and PetDefs.get(c.key) then
 			table.insert(d.superCubes, { key = c.key, pose = knownPose(c.pose), mut = knownMut(c.mut), sz = knownSize(c.sz) })

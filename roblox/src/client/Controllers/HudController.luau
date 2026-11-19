@@ -389,6 +389,23 @@ end
 -- (white-to-gold fill, the firm outline) a size smaller, starts just past the number's visible end
 -- (owner 2026-11-05: it sat on the last digit in flat yellow), pops in, then drifts up and fades.
 -- power = true: the same pop beside the Cold Power number, fading white to its cyan
+-- a small green "+" on a currency's icon that opens the Shop on that tab (owner 2026-11-18, the monetization plan:
+-- a way in next to every currency, like the hit games' "+" by the cash counter)
+local function plusBadge(root: Frame, x: number, y: number, h: number, tab: string)
+	local b = Ui.block(root, "Plus", Theme.go, "+", function()
+		SoundController.play("click")
+		PopupController.open("shop", { tab = tab })
+	end)
+	b.root.AnchorPoint = Vector2.new(0.5, 0.5)
+	b.root.Position = UDim2.fromScale(x, y)
+	b.root.Size = UDim2.fromScale(h, h)
+	local a = Instance.new("UIAspectRatioConstraint")
+	a.DominantAxis = Enum.DominantAxis.Height
+	a.Parent = b.root
+	b.root.ZIndex = 4
+	Ui.roundBlock(b, 0.5)
+end
+
 local function floatGain(amount: number, power: boolean?)
 	local G = Config.ui.gain
 	local root, number = if power then powerRoot else coinsRoot, if power then powerText else coinsText
@@ -474,10 +491,10 @@ local function render(v: State.View)
 	coinsRate.Visible = v.income > 0
 	-- Cold Power: the number, a "+N" beside it and a small bounce when it goes up (not on the first sync)
 	local power = v.coldPower or 0
-	powerText.Text = Config.powerText(power)
+	powerText.Text = Config.powerText(power) -- the total (the % to the next island is under the top buttons)
 	if lastPower and power > lastPower then
 		floatGain(power - lastPower, true)
-		showGain(power - lastPower)
+		-- (the big "+N" Cold Power box at the top, showGain, is gone: owner 2026-11-18 "remove this thing from the trainer")
 		if SettingsController.get("reducedMotion") ~= true then
 			local P = Config.ui.powerPop
 			powerScale.Scale = P.scale
@@ -750,6 +767,34 @@ end
 function HudController.Init() end
 
 function HudController.Start()
+	-- owner 2026-11-18 ("maybe there should be some alert that the thaw machine has finished"): when a pet in one of
+	-- your Thaw Machines is done, a green banner and a chime, wherever you are. Each pet once a session; several at
+	-- once make one banner.
+	task.spawn(function()
+		local told: { [string]: boolean } = {}
+		while true do
+			task.wait(0.5)
+			local v = State.view
+			if v then
+				local now = workspace:GetServerTimeNow()
+				local fresh: { string } = {}
+				for _, p in v.pets do
+					if p.thawM and p.thawAt and p.thawAt <= now and not told[p.id] then
+						told[p.id] = true
+						local def = PetDefs.get(p.key)
+						table.insert(fresh, if def then def.name else "pet")
+					end
+				end
+				if #fresh == 1 then
+					HudController.banner(`Your {fresh[1]} is thawed! Claim it at your Thaw Machine`, Theme.go, 4, "star", true)
+					SoundController.play("unlock")
+				elseif #fresh > 1 then
+					HudController.banner(`{#fresh} pets are thawed! Claim them at your Thaw Machines`, Theme.go, 4, "star", true)
+					SoundController.play("unlock")
+				end
+			end
+		end
+	end)
 	-- tiles
 	local tiles = Instance.new("Frame")
 	tiles.Name = "Tiles"
@@ -838,11 +883,15 @@ function HudController.Start()
 	coinsText:GetPropertyChangedSignal("TextBounds"):Connect(placeRate)
 	coinsRoot:GetPropertyChangedSignal("AbsoluteSize"):Connect(placeRate)
 	Screen.register("coins", coinsRoot)
+	plusBadge(coinsRoot, 0.3, 0.84, 0.36, "coins") -- smaller than the icon (owner 2026-11-18: "too big")
 	-- Cold Power under the coins, the same look a size smaller: icon, then the number in white-to-cyan
 	powerRoot = Instance.new("Frame")
 	powerRoot.Name = "Power"
 	powerRoot.BackgroundTransparency = 1
+	-- the Cold Power icon and the total in big white-to-cyan (as before), and under the number a slim bar: how far
+	-- your Cold Power is toward the next island's need, "62% to Jungle Falls" (owner 2026-11-18)
 	Ui.image(powerRoot, Config.images.icons.power, UDim2.fromScale(0.26, 0.96), UDim2.fromScale(0.04, 0.02))
+	plusBadge(powerRoot, 0.28, 0.84, 0.36, "power")
 	powerText = Ui.label(powerRoot, "0", UDim2.fromScale(1.4, 0.84), UDim2.fromScale(0.34, 0.08))
 	powerText.TextXAlignment = Enum.TextXAlignment.Left
 	local cyan = Instance.new("UIGradient")
@@ -851,6 +900,7 @@ function HudController.Start()
 	cyan.Parent = powerText
 	local ps = powerText:FindFirstChildOfClass("UIStroke") :: UIStroke
 	ps.Thickness = Config.ui.floatingStroke
+	-- (the "% to the next island" bar moved under EQUIPMENT and PAN: TopButtons, owner 2026-11-18)
 	powerScale = Instance.new("UIScale")
 	powerScale.Parent = powerText
 	Screen.register("power", powerRoot)
@@ -907,7 +957,9 @@ function HudController.Start()
 			local function esc(s: string): string
 				return (s:gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"):gsub('"', "&quot;"):gsub("'", "&apos;"))
 			end
-			local line = `<font color="#FF3B3B"><b>{esc(data.name)}</b></font> <font color="#3B9BFF">\u{E000}</font>: <b>{esc(data.text)}</b>`
+			-- the badge right against the name (owner 2026-11-18: "move the verified thing closer, it's off-centered"):
+			-- no space, and drawn in Roblox's own font, which has the badge glyph sitting on the text's middle
+			local line = `<font color="#FF3B3B"><b>{esc(data.name)}</b></font><font color="#3B9BFF" face="BuilderSans">\u{E000}</font>: <b>{esc(data.text)}</b>`
 			-- on screen too, like Grow a Garden (owner 2026-11-18: "the alert is not it"): no panel, just the line in
 			-- big white outlined text near the top, red name and badge, fading out after a while
 			local pg = game:GetService("Players").LocalPlayer:FindFirstChildOfClass("PlayerGui")
@@ -965,7 +1017,7 @@ function HudController.Start()
 				lab.TextWrapped = true
 				lab.RichText = true
 				lab.TextColor3 = Color3.new(1, 1, 1)
-				lab.Text = `<font color="#FF3B3B">{esc(data.name)}</font> <font color="#3B9BFF">\u{E000}</font>: {esc(data.text)}`
+				lab.Text = `<font color="#FF3B3B">{esc(data.name)}</font><font color="#3B9BFF" face="BuilderSans" weight="bold">\u{E000}</font>: {esc(data.text)}`
 				local stroke = Instance.new("UIStroke")
 				stroke.Thickness = math.max(2, math.floor(lab.TextSize / 12))
 				stroke.Color = Color3.new(0, 0, 0)
