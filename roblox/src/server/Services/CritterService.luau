@@ -210,16 +210,14 @@ local function tick(dt: number)
 			c.wanderTo = if rng:NextNumber() < 0.03 then spotIn(c.zone) else nil
 		end
 	end
-	-- keep each critter island topped up
+	-- keep each critter island topped up (counted in one pass, not once per island)
+	local count: { [number]: number } = {}
+	for _, c in critters do
+		count[c.zone] = (count[c.zone] or 0) + 1
+	end
 	for _, z in Config.world.zones do
 		if wantsCritters(z.id) then
-			local n = 0
-			for _, c in critters do
-				if c.zone == z.id then
-					n += 1
-				end
-			end
-			if n < (tuning(z.id)) then
+			if (count[z.id] or 0) < (tuning(z.id)) then
 				spawnOne(z.id)
 			end
 		end

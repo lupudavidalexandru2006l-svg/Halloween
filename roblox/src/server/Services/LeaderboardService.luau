@@ -480,6 +480,7 @@ function LeaderboardService.Start()
 		lastWrite[player] = os.clock()
 	end)
 	DataService.Changed:Connect(updateLeaderstats)
+	DataService.LightChanged:Connect(updateLeaderstats) -- the pan's income moves Coins every second
 	-- the top-100 popup: the server's last read of that board, names and score text made here, and the
 	-- asker's own place (nil = not in the top 100). Read-only; its own rate limit (Config.player.rateLimits)
 	Remotes.on("GetBoard", function(player: Player, id: any)

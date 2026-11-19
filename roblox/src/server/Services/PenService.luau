@@ -30,6 +30,7 @@ local PenService = {}
 local incomeCarry: { [Player]: number } = {}
 local sessionBest: { [Player]: number } = {}
 local dirty: { [Player]: boolean } = {}
+local lightDirty: { [Player]: boolean } = {} -- only coins / Cold Power / stats moved (DataService.LightChanged)
 local bankingNow: { [Player]: boolean } = {}
 local penShown: { [Player]: { key: string, parts: { [string]: Part } } } = {}
 -- The Thaw Machine (owner 2026-11-09): banked pets go into your Pets still frozen (PetEntry.frozen, not
@@ -1001,6 +1002,19 @@ local function view(player: Player, d: Data): { [string]: any }
 	}
 end
 
+-- the part of the view a light change can move (DataService.mutateLight); the client merges it into its copy.
+-- daily: a challenge's progress counts coins earned and pets frozen
+local function numbersView(d: Data): { [string]: any }
+	return {
+		partial = true,
+		coins = math.floor(d.coins),
+		income = PenService.incomePerSecond(d),
+		coldPower = d.coldPower,
+		stats = d.stats,
+		daily = ChallengeService.view(d),
+	}
+end
+
 -- tester tool: send the client its data on the next sync
 function PenService.markDirty(player: Player)
 	dirty[player] = true
@@ -1092,6 +1106,9 @@ function PenService.Start()
 	DataService.Changed:Connect(function(player: Player)
 		dirty[player] = true
 	end)
+	DataService.LightChanged:Connect(function(player: Player)
+		lightDirty[player] = true
+	end)
 	Players.PlayerRemoving:Connect(function(player)
 		-- their pan goes back to the start size and one machine for whoever gets the plot next
 		local plot = WorldService.plotOf(player)
@@ -1104,6 +1121,7 @@ function PenService.Start()
 		incomeCarry[player] = nil -- a pet in a Thaw Machine keeps its saved time (thawEnd) and comes out on a later join
 		sessionBest[player] = nil
 		dirty[player] = nil
+		lightDirty[player] = nil
 		bankingNow[player] = nil
 		gateCooldown[player] = nil
 		clearPen(player)
@@ -1178,7 +1196,7 @@ function PenService.Start()
 					local whole = math.floor(total)
 					incomeCarry[player] = total - whole
 					if whole > 0 then
-						DataService.mutate(player, function(x)
+						DataService.mutateLight(player, function(x) -- only coins: the client gets just the numbers
 							PenService.addCoins(x, whole)
 						end)
 						AnalyticsSvc.coinsIn(player, whole, "income")
@@ -1192,10 +1210,19 @@ function PenService.Start()
 			task.wait(Config.sync.seconds)
 			for player in dirty do
 				dirty[player] = nil
+				lightDirty[player] = nil -- the whole view carries the numbers too
 				local d = DataService.get(player)
 				if d and player.Parent then
 					Remotes.fire(player, "Data", view(player, d))
 					drawPen(player, d)
+				end
+			end
+			-- only the numbers moved (income every second, training shots): send just them, not every pet
+			for player in lightDirty do
+				lightDirty[player] = nil
+				local d = DataService.get(player)
+				if d and player.Parent then
+					Remotes.fire(player, "Data", numbersView(d))
 				end
 			end
 		end

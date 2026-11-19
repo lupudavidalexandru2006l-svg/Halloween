@@ -92,8 +92,23 @@ function State.Start()
 end
 
 function State.connect(data: RemoteEvent, note: RemoteEvent, rank: RemoteEvent)
-	data.OnClientEvent:Connect(function(v: View)
-		State.view = v
+	data.OnClientEvent:Connect(function(v: any)
+		if v.partial then
+			-- only the numbers moved (coins, Cold Power, stats, daily): a fresh copy of the last view with them
+			-- swapped in, so a listener holding the old view still compares old against new
+			local cur = State.view
+			if not cur then
+				return -- the whole view comes first; numbers on their own mean nothing yet
+			end
+			local nv = table.clone(cur) :: any
+			for k, x in v do
+				if k ~= "partial" then
+					nv[k] = x
+				end
+			end
+			v = nv
+		end
+		State.view = v :: View
 		changed:Fire(v)
 	end)
 	note.OnClientEvent:Connect(function(kind: string, payload: any)

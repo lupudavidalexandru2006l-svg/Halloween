@@ -200,7 +200,7 @@ local function shoot(player: Player, s: State, click: boolean)
 		bonus = math.min(Config.coldPower.max, gain * T.shatterBonus)
 	end
 	local total = gain + bonus
-	DataService.mutate(player, function(x)
+	DataService.mutateLight(player, function(x) -- only Cold Power: the client gets just the numbers
 		x.coldPower = math.min(Config.coldPower.max, x.coldPower + total)
 	end)
 	if d.coldPower >= Config.need(d.reach + 1) then

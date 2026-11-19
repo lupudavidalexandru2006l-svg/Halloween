@@ -166,6 +166,7 @@ function PanService.Start()
 		task.defer(publish, player) -- after PenService has given the player a pan
 	end)
 	DataService.Changed:Connect(publish) -- a tester change or a rejoin puts it back too
+	DataService.LightChanged:Connect(publish) -- the pan's Cold Power gauge moves with every training shot
 	Players.PlayerRemoving:Connect(function(player)
 		lastBuy[player] = nil
 		local plot = shownOn[player]

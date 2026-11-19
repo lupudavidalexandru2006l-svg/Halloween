@@ -80,6 +80,10 @@ local loadedEvent = Instance.new("BindableEvent")
 local changedEvent = Instance.new("BindableEvent")
 DataService.Loaded = loadedEvent.Event -- (player, data)
 DataService.Changed = changedEvent.Event -- (player)
+-- (player): only coins, Cold Power or stats moved (the pan's income every second, a training shot). Listeners
+-- that only show those numbers hear this too; the client then gets just those numbers, not the whole save
+local lightChangedEvent = Instance.new("BindableEvent")
+DataService.LightChanged = lightChangedEvent.Event
 
 local function defaults(): Data
 	return {
@@ -613,6 +617,17 @@ function DataService.mutate(player: Player, fn: (Data) -> ()): boolean
 	end
 	fn(s.data)
 	changedEvent:Fire(player)
+	return true
+end
+
+-- a change that only touches coins, coldPower or stats (anything else must go through mutate): fires LightChanged
+function DataService.mutateLight(player: Player, fn: (Data) -> ()): boolean
+	local s = sessions[player]
+	if not s or s.wiping then
+		return false
+	end
+	fn(s.data)
+	lightChangedEvent:Fire(player)
 	return true
 end
 
