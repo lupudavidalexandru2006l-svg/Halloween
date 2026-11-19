@@ -1,7 +1,7 @@
 -- rig_pet.luau: turn an imported split pet (split_pet.py -> Studio Import 3D, model named <key> in Workspace)
 -- into a PetModels entry PetVisuals can animate. Run with execute_luau (Edit) after setting KEY / HANG / GLOW:
 --   local KEY, HANG, GLOW = "dunehorn_ram", true, nil   -- prepended by the caller
--- Parts come named Body, Head, EarL/EarR, FrillL/FrillR (+ FrillGlowL/R), Tail, LegFL/FR/BL/BR (L = the pet's
+-- Parts come named Body, Head, EarL/EarR, FrillL/FrillR (+ FrillGlowL/R), Tail, ArmL/R, LegFL/FR/BL/BR (L = the pet's
 -- left = Roblox -X). Sets: 1 stud tall, pivot at the box centre, anchored, DoubleSided, and the rig attributes
 -- (Role, Hip/Swing/Front/Side for legs, Pivot for head/ears/tail). GLOW = { color, light = Color3 } makes every
 -- *Glow* part an untextured Neon piece (it really glows) with sparkles, plus a warm light at the head.
@@ -61,6 +61,15 @@ for n, p in parts do
 		-- diagonal pairs swing together (FL with BR)
 		p:SetAttribute("Swing", if front == left then 1 else -1)
 		p:SetAttribute("Hip", Vector3.new(c.X, c.Y + s.Y * 0.3, c.Z))
+	elseif n:match("^Arm") then
+		-- a biped's arms (Hoodoo Golem): swing round the shoulder against the leg on their own side,
+		-- and the hand on the scratching side comes up to the head (PetVisuals role "arm")
+		local left = n:sub(-1) == "L"
+		p:SetAttribute("Role", "arm")
+		p:SetAttribute("Front", true)
+		p:SetAttribute("Side", if left then -1 else 1)
+		p:SetAttribute("Swing", if left then -1 else 1)
+		p:SetAttribute("Hip", Vector3.new(c.X, c.Y + s.Y * 0.35, c.Z))
 	elseif n == "Head" then
 		p:SetAttribute("Role", "head")
 		p:SetAttribute("Pivot", Vector3.new(0, c.Y - s.Y * 0.3, c.Z + s.Z * 0.2)) -- the neck: low and toward the back

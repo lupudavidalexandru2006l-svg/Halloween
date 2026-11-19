@@ -1,0 +1,12 @@
+{"parts": [
+  ["GemGlow", "z > 0.8 and abs(x) < 0.17 and v > 0.65 and (20 < h < 70 or s < 0.25)"],
+  ["WingGlowL", "((x > 0.17 and y > -0.02) or x > 0.26 or (x > 0.11 and y > 0.06 and z > 0.4)) and (y < 0.3 or z > 0.5) and 0.3 < z < 0.92 and v > 0.65 and (20 < h < 70 or s < 0.25)"],
+  ["WingGlowR", "((x < -0.17 and y > -0.02) or x < -0.26 or (x < -0.11 and y > 0.06 and z > 0.4)) and (y < 0.3 or z > 0.5) and 0.3 < z < 0.92 and v > 0.65 and (20 < h < 70 or s < 0.25)"],
+  ["WingL", "((x > 0.17 and y > -0.02) or x > 0.26 or (x > 0.11 and y > 0.06 and z > 0.4)) and (y < 0.3 or z > 0.5) and 0.3 < z < 0.92"],
+  ["WingR", "((x < -0.17 and y > -0.02) or x < -0.26 or (x < -0.11 and y > 0.06 and z > 0.4)) and (y < 0.3 or z > 0.5) and 0.3 < z < 0.92"],
+  ["Head", "(z > 0.52 and y < 0.1) or z > 0.8"],
+  ["Tail", "y > 0.28 and 0.08 < z < 0.5"],
+  ["LegFL", "z < 0.15 and y < 0 and x > 0"],
+  ["LegFR", "z < 0.15 and y < 0"],
+  ["LegBL", "z < 0.15 and x > 0"],
+  ["LegBR", "z < 0.15"]]}

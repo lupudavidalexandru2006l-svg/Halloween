@@ -1,0 +1,7 @@
+{"parts": [
+  ["GemGlow", "z > 0.8 or (z > 0.7 and 170 < h < 215 and s > 0.35 and v > 0.45)"],
+  ["ArmL", "x > 0.17 and 0.1 < z < 0.355"],
+  ["ArmR", "x < -0.17 and 0.1 < z < 0.355"],
+  ["Head", "z > 0.355"],
+  ["LegFL", "z < 0.1 and x > 0"],
+  ["LegFR", "z < 0.1"]]}
