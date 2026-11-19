@@ -65,6 +65,11 @@ local function luckyPet(player: Player, d: any)
 	if zone < 1 or zone > d.reach or d.coldPower < Config.need(zone) or WorldRules.inHub(pos) then
 		return -- only where you can freeze what appears
 	end
+	-- and only where your gun works: one island past its Heat it overheats, two past it fizzles (FreezeService)
+	local GunService = require(script.Parent.GunService) :: any
+	if zone > Config.gun(GunService.equipped(player)).heat then
+		return
+	end
 	local CarryService = require(script.Parent.CarryService) :: any
 	if CarryService.count(player) > 0 or CarryService.groundCount(player) > 0 then
 		return

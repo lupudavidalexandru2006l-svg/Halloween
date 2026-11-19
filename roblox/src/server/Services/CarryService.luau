@@ -486,6 +486,16 @@ end
 -- ray tagged you). Its pet lands dazed next to you, like a melt: open = anyone can zap it (ray-tag),
 -- otherwise only you can (critters). A bought Super Freeze cube is never knocked loose. Returns the
 -- pet's key, or nil when there was nothing to knock off.
+-- is there a cube in your hands that knockOff could take? (not a Super Freeze cube, not one whose show still plays)
+function CarryService.knockable(player: Player): boolean
+	for _, c in carrying[player] or {} do
+		if not c.superFrozen and os.clock() >= c.graceUntil then
+			return true
+		end
+	end
+	return false
+end
+
 function CarryService.knockOff(player: Player, open: boolean): string?
 	local list = carrying[player]
 	if not list then
@@ -557,7 +567,7 @@ function CarryService.superFreezeOffer(player: Player): boolean
 	for _, root in WildPets:GetChildren() do
 		if root:GetAttribute("OfferUserId") == player.UserId then
 			local pet = WildPetSpawner.get(root:GetAttribute("PetId") :: string)
-			if pet and CarryService.load(player) < CarryService.capacity(player) then
+			if pet and CarryService.count(player) < CarryService.capacity(player) then -- hands only, not cubes on the ground
 				local info = { key = pet.def.key, zone = pet.zone, pose = pet.pose or "idle", mut = pet.mut, sz = pet.sz, superFrozen = true, superUsed = true, offered = true }
 				WildPetSpawner.remove(pet.id)
 				CarryService.addCube(player, info)

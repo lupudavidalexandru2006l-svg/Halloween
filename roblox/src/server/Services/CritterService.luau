@@ -119,13 +119,14 @@ local function wantsCritters(zone: number): boolean
 	return (zone >= C.fromIsland and z ~= nil and z.ready) or forced[zone] == true -- Round 4 phase 6: not on "Coming soon" islands
 end
 
--- the nearest player on this critter's island carrying a cube (never in the hub)
+-- the nearest player on this critter's island carrying a cube it could take (never in the hub; a Super Freeze
+-- cube can't be knocked loose, so its carrier isn't chased, and a Critter Shield is never spent on it)
 local function quarry(c: Critter): Player?
 	local _, _, aggro = tuning(c.zone)
 	local best, bestD = nil, aggro
 	for _, p in Players:GetPlayers() do
 		local pos = PlayerTracker.position(p)
-		if pos and CarryService.count(p) > 0 and WorldRules.zoneAt(pos) == c.zone and not WorldRules.inHub(pos) and p:GetAttribute("Tagged") ~= true
+		if pos and CarryService.knockable(p) and WorldRules.zoneAt(pos) == c.zone and not WorldRules.inHub(pos) and p:GetAttribute("Tagged") ~= true
 			and not learning(p) then
 			local d = (Vector3.new(pos.X, 0, pos.Z) - Vector3.new(c.root.Position.X, 0, c.root.Position.Z)).Magnitude
 			if d < bestD then
@@ -190,7 +191,7 @@ local function tick(dt: number)
 			if d <= C.catchRange then
 				-- a Critter Shield (bought, 2026-11-18) takes the catch: the critter still gets its happy cool-down
 				local BoostService = require(script.Parent.BoostService) :: any
-				if not BoostService.useShield(p) then
+				if CarryService.knockable(p) and not BoostService.useShield(p) then
 					local key = CarryService.knockOff(p, false)
 					if key then
 						Remotes.fire(p, "Notify", "critterCaught", { key = key })

@@ -93,7 +93,8 @@ local function requestSuperFreeze(player: Player, petId: any)
 	if not d or not pet then
 		return
 	end
-	if CarryService.load(player) >= CarryService.capacity(player) then
+	-- only your hands count: frozen pets waiting on the ground don't block it (2026-11-19 bug check)
+	if CarryService.count(player) >= CarryService.capacity(player) then
 		Remotes.notYet(player, "Take your pet home first!", "offer")
 		return
 	end

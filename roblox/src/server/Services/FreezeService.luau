@@ -253,6 +253,28 @@ local function winnerOf(pet: any, fallback: Player): Player
 	return best
 end
 
+-- this tick: which players' beams are on each pet. A share whose player stopped beaming melts away like the
+-- meter does (2026-11-19 bug check: a player who put 60% on the Secret and walked off still won it when
+-- someone else finished it)
+local beamedNow: { [any]: { [Player]: boolean } } = {}
+
+local function fadeShares(dt: number)
+	for _, pet in WildPetSpawner.all() do
+		local ice = (pet :: any).ice :: { [Player]: number }?
+		if ice then
+			local on = beamedNow[pet]
+			for p, share in ice do
+				if not p.Parent then
+					ice[p] = nil
+				elseif not (on and on[p]) then
+					local left = share - A.thawPerSecond * dt
+					ice[p] = if left > 0 then left else nil
+				end
+			end
+		end
+	end
+end
+
 local function pushPet(player: Player, pet: any, data: any, gun: number, dt: number, pushed: { [any]: boolean }): string?
 	if not canFreeze(player, pet, data) then
 		return nil
@@ -265,6 +287,9 @@ local function pushPet(player: Player, pet: any, data: any, gun: number, dt: num
 	local share = if seconds <= 0 then 1 else dt / seconds
 	pet.ice = pet.ice or {}
 	pet.ice[player] = (pet.ice[player] or 0) + share
+	local who = beamedNow[pet] or {}
+	beamedNow[pet] = who
+	who[player] = true
 	if pushed[pet] then
 		return "pushed" -- another beam already moved the meter this tick; this one still counts toward its share
 	end
@@ -307,6 +332,7 @@ FreezeService.stopAim = clearAim
 
 local function tick(dt: number)
 	local pushed: { [any]: boolean } = {}
+	beamedNow = {}
 	for player, aim in aims do
 		local data = DataService.get(player)
 		if not data or GearService.held(player) ~= "ray" or player:GetAttribute("Tagged") then
@@ -358,6 +384,7 @@ local function tick(dt: number)
 			end
 		end
 	end
+	fadeShares(dt)
 	-- nobody aims at it: the ice melts back
 	for _, pet in WildPetSpawner.all() do
 		if pet.meter > 0 and not pushed[pet] then
