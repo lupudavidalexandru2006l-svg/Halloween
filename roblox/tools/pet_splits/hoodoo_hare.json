@@ -1,0 +1,9 @@
+{"parts": [
+  ["EarL", "x > 0.13 and z > 0.66 and not (28 < h < 50 and s < 0.6 and v > 0.5)"],
+  ["EarR", "x < -0.13 and z > 0.66 and not (28 < h < 50 and s < 0.6 and v > 0.5)"],
+  ["Head", "z > 0.38"],
+  ["Tail", "y > 0.16 and z < 0.26 and s < 0.45"],
+  ["LegFL", "z < 0.12 and y < -0.05 and x > 0"],
+  ["LegFR", "z < 0.12 and y < -0.05"],
+  ["LegBL", "z < 0.1 and x > 0"],
+  ["LegBR", "z < 0.1"]]}

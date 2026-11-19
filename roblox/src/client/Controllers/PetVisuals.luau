@@ -37,7 +37,8 @@ type Anim = { key: string, start: any, t: number, clock: number, from: Pose?, bl
 	walk: number, phase: number, gait: Gait, parts: { { part: BasePart, size: Vector3, rel: CFrame, hip: Vector3?, swing: number, front: boolean,
 	role: string, pivot: Vector3?, side: number, hang: boolean, liftedOnly: boolean } }, sneezed: boolean, culled: boolean,
 	seed: number, scratchy: boolean, hasArms: boolean, headPivot: Vector3?, -- seed: from the pet's id (the scratch pick); scratchy: it has back legs or arms
-	lids: { BasePart }, shut: boolean, awake: number } -- lids: closed eyelids (shown while shut); awake: 1 awake, 0 asleep (head, ears and tail fade still)
+	lids: { BasePart }, shut: boolean, awake: number, -- lids: closed eyelids (shown while shut); awake: 1 awake, 0 asleep (head, ears and tail fade still)
+	own: { [string]: any }?, ownN: number, sparks: { ParticleEmitter }, lights: { { light: PointLight, base: number } } } -- own: Config.petAnim.ownIdle entry; ownN: which beat last burst
 type Banked = { edges: SelectionBox, coin: BillboardGui, coinImg: ImageLabel, phase: number, ready: BillboardGui? } -- ready: the READY! sign over a finished thaw
 type Fleck = { part: BasePart, round: number, angle: number, y: number, reach: number }
 type FreezeLook = { bands: { { part: BasePart, jitter: number, turn: number } }, highlight: Highlight?, crystals: { BasePart }, cracks: { { part: BasePart, face: number, u: number, v: number, turn: number } }, nextChip: number, style: string, cracked: number,
@@ -460,6 +461,8 @@ end
 local function newAnim(def: PetDefs.PetDef, model: PVInstance, img: ImageLabel?, root: BasePart): Anim
 	local parts = {}
 	local lids: { BasePart } = {}
+	local sparks: { ParticleEmitter } = {} -- the glow parts' sparkles and the pet's light: its own idle bursts and flashes them
+	local lights: { { light: PointLight, base: number } } = {}
 	local headPivot: Vector3? = nil
 	local scratchy, hasArms = false, false
 	-- the same number on every client for this pet (its scratches line up for everyone)
@@ -496,6 +499,10 @@ local function newAnim(def: PetDefs.PetDef, model: PVInstance, img: ImageLabel?,
 				if p:GetAttribute("Lid") == true then
 					table.insert(lids, p)
 				end
+			elseif p:IsA("ParticleEmitter") and p.Name == "Sparkles" then
+				table.insert(sparks, p)
+			elseif p:IsA("PointLight") then
+				table.insert(lights, { light = p, base = p.Brightness })
 			end
 		end
 	elseif not img and model:IsA("BasePart") then -- the coloured ball stand-in
@@ -506,7 +513,7 @@ local function newAnim(def: PetDefs.PetDef, model: PVInstance, img: ImageLabel?,
 	return { key = "", start = nil, t = 0, clock = math.random() * 10, from = nil, blend = 0, blendLen = 0, last = REST,
 		base = root.CFrame, walk = 0, phase = 0, gait = gaits[A.gaitFor[def.key] or def.rig] or gaits.Custom, parts = parts,
 		sneezed = false, culled = false, seed = seed, scratchy = scratchy, hasArms = hasArms, headPivot = headPivot,
-		lids = lids, shut = false, awake = 1 }
+		lids = lids, shut = false, awake = 1, own = A.ownIdle[def.key], ownN = -1, sparks = sparks, lights = lights }
 end
 
 -- closes or opens a 3D pet's eyes (its lids show only while shut)
@@ -579,6 +586,8 @@ local function animate(root: BasePart, d: Drawn, dt: number, now: number, cam: C
 	local legSwing, legTuck = 0, 0 -- rigged legs: the diagonal swing, and the reach / kick in the air
 	local scratch, scratchSide, rub = 0, 1, 0 -- the scratch: how far in (0-1), which side, the rubbing wave
 	local headRot, earTwitch, earWhich, earFlop, tailYaw = CFrame.identity, 0, 0, 0, 0
+	-- its own idle on the parts: extra wing flap, arms out, front legs pawing, head nod, tail beat (radians)
+	local ownWing, ownArms, ownFront, ownNod, ownTail = 0, 0, 0, 0, 0
 	if near then
 		local k = if SettingsController.get("reducedMotion") == true then A.reducedAmp else 1
 		pose = actionPose(key, a.t, a.clock, h, a.gait, k)
@@ -595,10 +604,10 @@ local function animate(root: BasePart, d: Drawn, dt: number, now: number, cam: C
 		if key == "dance" then
 			legSwing += L.dance * math.sin(math.pi * A.dance.beats * a.t / Config.poses.dance.seconds) * k
 		end
-		legTuck = L.tuck * math.clamp(pose.y / (h * L.tuckHeight), 0, 1)
-		-- a scratch: some idles, standing still, picked from the pet's id and this idle's start
+		-- a scratch: some idles, standing still, picked from the pet's id and this idle's start. A pet with its own
+		-- idle does that instead (a scratch in the middle of a roll or a spin would fight it)
 		local S = A.scratch
-		if key == "idle" and a.scratchy and a.walk < 0.2 and typeof(a.start) == "number" then
+		if key == "idle" and a.scratchy and not a.own and a.walk < 0.2 and typeof(a.start) == "number" then
 			local r = Random.new(a.seed + math.floor(a.start * 10))
 			if r:NextNumber() < S.chance then
 				scratchSide = if r:NextNumber() < 0.5 then -1 else 1
@@ -611,11 +620,88 @@ local function animate(root: BasePart, d: Drawn, dt: number, now: number, cam: C
 			pose = table.clone(pose)
 			pose.roll -= S.lean * scratch * scratchSide -- leans into the scratch
 		end
+		-- its own idle (Config.petAnim.ownIdle): standing idle, every `every` seconds on its own beat.
+		-- sig: how far in (0-1, eased in and out), su: how far through (0-1)
+		local own = a.own
+		local ownSig = 0
+		if own and key == "idle" and a.walk < 0.2 then
+			local tt = a.clock + (a.seed % 89) / 89 * own.every
+			local cyc = tt % own.every
+			if cyc < own.seconds then
+				local su = cyc / own.seconds
+				local sig = smooth(seg(su, 0, 0.15)) * (1 - smooth(seg(su, 0.85, 1))) * k
+				local full = k >= 1 -- reduced motion: no full turns
+				local beat = math.floor(tt / own.every)
+				if beat ~= a.ownN then
+					a.ownN = beat
+					for _, e in a.sparks do
+						e:Emit(math.max(1, math.round(own.spark * k)))
+					end
+				end
+				local wave = function(hz: number): number
+					return math.sin(2 * math.pi * hz * cyc)
+				end
+				pose = table.clone(pose)
+				local kind = own.kind
+				if kind == "flap" then
+					pose.y += own.hop * h * math.sin(math.pi * su) * k
+					pose.pitch += 0.1 * sig
+					ownWing = own.flap * sig * wave(own.flapHz)
+				elseif kind == "rear" then
+					pose.pitch += own.rear * sig -- nose up, lifted so the back feet stay down
+					pose.y += own.rear * sig * h * 0.25
+					ownFront = own.paw * sig * (0.6 + 0.4 * wave(own.pawHz))
+					ownNod = own.nod * sig
+				elseif kind == "soar" then
+					pose.y += own.rise * h * math.sin(math.pi * su) ^ 0.7 * k
+					pose.pitch -= 0.08 * sig
+					ownWing = own.flap * sig * wave(own.flapHz)
+				elseif kind == "balance" then
+					pose.roll += own.sway * sig * wave(own.swayHz)
+					ownArms = own.arms * sig * (0.85 + 0.15 * wave(own.swayHz * 2))
+				elseif kind == "puff" then
+					pose.sx += own.puff * sig
+					pose.sy += own.puff * 0.8 * sig
+					pose.roll += own.shake * sig * wave(own.shakeHz) * smooth(seg(su, 0.4, 0.6))
+					ownWing = own.flap * sig * wave(own.flapHz)
+				elseif kind == "roll" then
+					-- a forward roll round the middle of the pet (the pose turns round its feet, so shift it back)
+					local th = if full then -2 * math.pi * smooth(seg(su, 0.15, 0.85)) else -0.3 * sig * math.sin(math.pi * su)
+					local c = h / 2
+					pose.pitch += th
+					pose.y += c * (1 - math.cos(th))
+					pose.z -= c * math.sin(th)
+					pose.sy -= own.squash * sig
+					pose.sx += own.squash * 0.5 * sig
+				elseif kind == "leap" then
+					local u = seg(su, 0.1, 0.9)
+					pose.y += own.height * h * math.sin(math.pi * u) * k
+					pose.pitch += own.tilt * math.cos(math.pi * u) * sig -- nose up going up, down coming down
+					ownTail = own.wag * sig * wave(own.wagHz)
+					ownWing = 0.5 * own.wag * sig * wave(own.wagHz)
+				elseif kind == "bloop" then
+					local s = math.sin(math.pi * su)
+					pose.sy += own.stretch * s * k
+					pose.sx -= own.stretch * 0.5 * s * k
+					pose.y += own.float * h * s * k
+					if full then
+						pose.yaw += own.spin * 2 * math.pi * smooth(su)
+					end
+				end
+				ownSig = sig
+			end
+		end
+		if own then
+			for _, l in a.lights do
+				l.light.Brightness = l.base * (1 + own.flash * ownSig)
+			end
+		end
+		legTuck = L.tuck * math.clamp(pose.y / (h * L.tuckHeight), 0, 1)
 		-- head, ears and tail
 		local PA = A.parts
 		local still = (1 - 0.6 * a.walk) * a.awake -- asleep: the head stops looking round
 		local hYaw = PA.headLook * math.sin(a.clock * 2 * math.pi / PA.headLookPeriod) * still * k
-		local hPitch = PA.headNod * a.walk * math.sin(2 * math.pi * a.phase) * k - S.headPitch * scratch
+		local hPitch = PA.headNod * a.walk * math.sin(2 * math.pi * a.phase) * k - S.headPitch * scratch + ownNod
 		local hRoll = -scratchSide * S.headRoll * scratch + 0.04 * scratch * rub
 		headRot = CFrame.Angles(hPitch, hYaw, hRoll)
 		-- one ear at a time flicks now and then (each pet on its own beat)
@@ -627,7 +713,7 @@ local function animate(root: BasePart, d: Drawn, dt: number, now: number, cam: C
 		earFlop = PA.earFlop * (a.walk * math.sin(2 * math.pi * a.phase) + math.clamp(pose.y / h, 0, 1)) * k
 		local dancing = key == "dance"
 		tailYaw = (if dancing then PA.tailDanceWag else PA.tailWag)
-			* math.sin(a.clock * 2 * math.pi * (if dancing then PA.tailDanceHz else PA.tailHz)) * k * a.awake
+			* math.sin(a.clock * 2 * math.pi * (if dancing then PA.tailDanceHz else PA.tailHz)) * k * a.awake + ownTail
 		if a.culled then
 			a.from, a.blend, a.blendLen = REST, 0, A.blendSeconds
 		end
@@ -704,6 +790,11 @@ local function animate(root: BasePart, d: Drawn, dt: number, now: number, cam: C
 				local hipAt = CFrame.new(hp.X * sx, feet + (hp.Y - feet) * sy, hp.Z * sx)
 				local angle = part.swing * legSwing + (if part.front then legTuck else -legTuck)
 				local out = 0
+				if role == "arm" then
+					out = part.side * ownArms -- its own idle: arms out to the sides (Hoodoo Golem's balance)
+				elseif role == "leg" and part.front then
+					angle += ownFront -- its own idle: the front feet paw the air (Jade Qilin rearing)
+				end
 				if scratch > 0 and part.side == scratchSide then
 					local S = A.scratch
 					if role == "arm" then
@@ -735,7 +826,7 @@ local function animate(root: BasePart, d: Drawn, dt: number, now: number, cam: C
 				local outward = if part.hang then part.side else -part.side
 				local twitch = if part.side == 0 or part.side == earWhich or role == "wing" then earTwitch else 0
 				local flap = if part.side == scratchSide then A.scratch.earFlap * scratch * (0.5 + 0.5 * rub) else 0
-				local roll = outward * (A.parts.earTwitch * twitch + flap)
+				local roll = outward * (A.parts.earTwitch * twitch + flap + (if role == "wing" then ownWing else 0))
 				local pitch = if part.hang then earFlop else earFlop * 0.3
 				place = (if role == "wing" then CFrame.identity else headTurn) * base * CFrame.Angles(pitch, 0, roll)
 					* base:Inverse() * place

@@ -1,0 +1,9 @@
+{"parts": [
+  ["LanternGlow", "y < -0.15 and 0.18 < z < 0.46 and abs(x) < 0.16 and 15 < h < 50 and s > 0.5 and v > 0.6"],
+  ["EarL", "x > 0.13 and z > 0.72"],
+  ["EarR", "x < -0.13 and z > 0.72"],
+  ["WingL", "x > 0.2 and 0.1 < z < 0.46 and y > -0.12"],
+  ["WingR", "x < -0.2 and 0.1 < z < 0.46 and y > -0.12"],
+  ["Head", "z > 0.44"],
+  ["LegFL", "z < 0.1 and y < 0 and x > 0"],
+  ["LegFR", "z < 0.1 and y < 0"]]}

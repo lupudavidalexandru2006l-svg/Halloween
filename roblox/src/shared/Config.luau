@@ -1504,6 +1504,28 @@ Config.petAnim = {
 		Custom = { stride = 0.4, hop = 0.09, pitch = 0.08, roll = 0.06, yaw = 0.05, squash = 0.08, lean = 0.08, bob = 0, bobHz = 0 },
 	},
 	gaitFor = { snowbun = "Hopper", hopsprout = "Hopper", shimmerfrog = "Hopper" } :: { [string]: string }, -- bunnies and frogs hop
+	-- own idles (Pet Rules 12.2: from island 7 every Epic and up has its own idle; from island 9 every pet). While it
+	-- stands idle, each pet plays its signature move every `every` seconds (on its own beat, from its id) for
+	-- `seconds`, bursting `spark` sparkles from its glow parts and flashing its light by `flash`. Heights are
+	-- fractions of the pet's height, angles radians, Hz per second. Reduced motion: smaller, and no full turns.
+	ownIdle = {
+		-- a thunder hop: up on a burst of fast wingbeats, the storm-stripe wings flicker
+		thunderchick = { kind = "flap", every = 7, seconds = 1.6, hop = 0.25, flap = 0.9, flapHz = 6, spark = 8, flash = 1.5 },
+		-- rears up proudly and paws the air, mane gems sparkling
+		jade_qilin = { kind = "rear", every = 8, seconds = 2, rear = 0.38, paw = 0.7, pawHz = 3, nod = 0.15, spark = 10, flash = 1 },
+		-- lifts off on big slow wingbeats, hangs in the air, lands
+		starwing_griffin = { kind = "soar", every = 8, seconds = 2.6, rise = 0.4, flap = 0.8, flapHz = 2.2, spark = 12, flash = 1.2 },
+		-- a balancing rock stack: wobbles side to side with its arms out, the crystal crown pulsing
+		hoodoo_golem = { kind = "balance", every = 7, seconds = 2.4, sway = 0.16, swayHz = 1.1, arms = 1, spark = 10, flash = 2 },
+		-- puffs up its feathers, shakes, the crest flares
+		flarechick = { kind = "puff", every = 6, seconds = 1.4, puff = 0.18, shake = 0.12, shakeHz = 9, flap = 0.6, flapHz = 7, spark = 8, flash = 1.5 },
+		-- an armadillo roll: tucks into a ball and rolls forward once
+		geodillo = { kind = "roll", every = 9, seconds = 1.8, squash = 0.15, spark = 10, flash = 1 },
+		-- a koi leap: arcs up nose first, dives back down, tail beating
+		pyrokoi = { kind = "leap", every = 7, seconds = 1.6, height = 0.55, tilt = 0.6, wag = 0.8, wagHz = 4, spark = 10, flash = 1.2 },
+		-- a lava-lamp bloop: stretches tall and floats up, turning slowly, then settles
+		lavalamp_jelly = { kind = "bloop", every = 7, seconds = 3, stretch = 0.25, float = 0.12, spin = 1, spark = 10, flash = 1.5 },
+	} :: { [string]: { [string]: any } },
 }
 Config.mapFx = { gateBarsDrop = 23, -- the bars reach into the lintel now (2026-11-17), so they sink further
 	 gateBarsSeconds = 1.2, giftBob = 0.6, giftSway = 0.15,

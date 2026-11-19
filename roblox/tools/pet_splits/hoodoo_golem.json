@@ -1,5 +1,5 @@
 {"parts": [
-  ["GemGlow", "z > 0.8 or (z > 0.7 and 170 < h < 215 and s > 0.35 and v > 0.45)"],
+  ["GemGlow", "z > 0.8 or (z > 0.7 and 188 < h < 220 and s > 0.45 and v > 0.55)"],
   ["ArmL", "x > 0.17 and 0.1 < z < 0.355"],
   ["ArmR", "x < -0.17 and 0.1 < z < 0.355"],
   ["Head", "z > 0.355"],

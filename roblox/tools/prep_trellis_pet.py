@@ -291,6 +291,40 @@ if "whitefill" in OPTS:
         img.pack()
         print("WHITEFILL", int(big.sum()), "of", int(pale.sum()), "pale pixels")
 
+# the texture pixels under the triangles keep(t, zf) picks (zf: the triangle's height, 0 = feet, 1 = top)
+def uv_region(me, W, H, keep):
+    import numpy as np
+    me.calc_loop_triangles()
+    zs = [v.co.z for v in me.vertices]
+    z0, z1 = min(zs), max(zs)
+    uvl = me.uv_layers.active.data
+    region = np.zeros((H, W), bool)
+    for t in me.loop_triangles:
+        zf = (sum(me.vertices[i].co.z for i in t.vertices) / 3 - z0) / (z1 - z0)
+        if not keep(t, zf):
+            continue
+        p = np.array([[uvl[l].uv.x * W, uvl[l].uv.y * H] for l in t.loops])
+        x0, y0 = np.floor(p.min(0)).astype(int); x1, y1 = np.ceil(p.max(0)).astype(int)
+        x0, y0, x1, y1 = max(x0, 0), max(y0, 0), min(x1, W - 1), min(y1, H - 1)
+        if x1 < x0 or y1 < y0:
+            continue
+        gx, gy = np.meshgrid(np.arange(x0, x1 + 1) + 0.5, np.arange(y0, y1 + 1) + 0.5)
+        (ax, ay), (bx, by), (cx, cy) = p
+        den = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
+        if abs(den) < 1e-9:
+            continue
+        l1 = ((by - cy) * (gx - cx) + (cx - bx) * (gy - cy)) / den
+        l2 = ((cy - ay) * (gx - cx) + (ax - cx) * (gy - cy)) / den
+        e = -1.5 / max(abs(den) ** 0.5, 1)  # a pixel's slack so seams between triangles are covered
+        region[y0:y1 + 1, x0:x1 + 1] |= (l1 >= e) & (l2 >= e) & (1 - l1 - l2 >= e)
+    return region
+
+
+def textures(obj):
+    return {n.image for m in obj.data.materials if m and m.use_nodes
+            for n in m.node_tree.nodes if n.type == "TEX_IMAGE" and n.image}
+
+
 # backface=<rrggbb|auto>: paint out a face TRELLIS mirrored onto the back from a front-only painting (Lavalamp
 # Jelly 2026-11-19: eyes and smile on both sides). On triangles facing backwards (+Y) whose middle sits in the
 # backz=<lo>-<hi> height band (default 0.35-0.85), dark pixels (value < backdark, default 0.3) and the
@@ -298,34 +332,11 @@ if "whitefill" in OPTS:
 if "backface" in OPTS:
     import numpy as np
     me = obj.data
-    me.calc_loop_triangles()
-    zs = [v.co.z for v in me.vertices]
-    z0, z1 = min(zs), max(zs)
     blo, bhi = (float(x) for x in OPTS.get("backz", "0.35-0.85").split("-"))
-    uvl = me.uv_layers.active.data
-    for img in {n.image for m in obj.data.materials if m and m.use_nodes
-                for n in m.node_tree.nodes if n.type == "TEX_IMAGE" and n.image}:
+    for img in textures(obj):
         W, H = img.size
         px = np.array(img.pixels[:], dtype=np.float32).reshape(H, W, 4)
-        region = np.zeros((H, W), bool)
-        for t in me.loop_triangles:
-            zf = (sum(me.vertices[i].co.z for i in t.vertices) / 3 - z0) / (z1 - z0)
-            if t.normal.y < 0.3 or not (blo <= zf <= bhi):
-                continue
-            p = np.array([[uvl[l].uv.x * W, uvl[l].uv.y * H] for l in t.loops])
-            x0, y0 = np.floor(p.min(0)).astype(int); x1, y1 = np.ceil(p.max(0)).astype(int)
-            x0, y0, x1, y1 = max(x0, 0), max(y0, 0), min(x1, W - 1), min(y1, H - 1)
-            if x1 < x0 or y1 < y0:
-                continue
-            gx, gy = np.meshgrid(np.arange(x0, x1 + 1) + 0.5, np.arange(y0, y1 + 1) + 0.5)
-            (ax, ay), (bx, by), (cx, cy) = p
-            den = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
-            if abs(den) < 1e-9:
-                continue
-            l1 = ((by - cy) * (gx - cx) + (cx - bx) * (gy - cy)) / den
-            l2 = ((cy - ay) * (gx - cx) + (ax - cx) * (gy - cy)) / den
-            e = -1.5 / max(abs(den) ** 0.5, 1)  # a pixel's slack so seams between triangles are covered
-            region[y0:y1 + 1, x0:x1 + 1] |= (l1 >= e) & (l2 >= e) & (1 - l1 - l2 >= e)
+        region = uv_region(me, W, H, lambda t, zf: t.normal.y >= 0.3 and blo <= zf <= bhi)
         mx = px[..., :3].max(2)
         dark = region & (mx < float(OPTS.get("backdark", 0.3)))
 
@@ -351,6 +362,25 @@ if "backface" in OPTS:
         img.pixels[:] = px.ravel()
         img.pack()
         print("BACKFACE", int(fill.sum()), "pixels painted", [round(float(x) * 255) for x in tgt])
+
+# feet=<rrggbb>: paints the bottom feetz (default 0.06) of the pet's height that colour, keeping the shading
+# (hooves and paws TRELLIS left the body colour: Cliffkid's brown hooves)
+if "feet" in OPTS:
+    import numpy as np
+    me = obj.data
+    fz = float(OPTS.get("feetz", 0.06))
+    c = OPTS["feet"]
+    tgt = np.array([int(c[i:i + 2], 16) / 255.0 for i in (0, 2, 4)], dtype=np.float32)
+    for img in textures(obj):
+        W, H = img.size
+        px = np.array(img.pixels[:], dtype=np.float32).reshape(H, W, 4)
+        region = uv_region(me, W, H, lambda t, zf: zf <= fz)
+        mx = px[..., :3].max(2)
+        shade = mx[region] / max(float(np.median(mx[region])), 1e-3)
+        px[..., :3][region] = np.clip(tgt[None, :] * shade[:, None], 0, 1)
+        img.pixels[:] = px.ravel()
+        img.pack()
+        print("FEET", int(region.sum()), "pixels painted", c)
 
 tris =sum(len(p.vertices) - 2 for p in obj.data.polygons)
 if tris > MAX_TRIS:
