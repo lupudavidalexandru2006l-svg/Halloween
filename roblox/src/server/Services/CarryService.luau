@@ -24,7 +24,9 @@ local WildPetSpawner = require(script.Parent.WildPetSpawner)
 local EventService = require(script.Parent.EventService)
 local GearService = require(script.Parent.GearService)
 
-export type CubeInfo = { key: string, zone: number, pose: string, mut: string?, sz: string?, superFrozen: boolean, superUsed: boolean, offered: boolean }
+-- personal: frozen from a pet only its freezer could see and catch (the tutorial pet, a Lucky Ray pet, a melted
+-- Rare): its ground cube never opens to anyone else (2026-11-19 bug check: others could grab it after openAfter)
+export type CubeInfo = { key: string, zone: number, pose: string, mut: string?, sz: string?, superFrozen: boolean, superUsed: boolean, offered: boolean, personal: boolean? }
 export type Cube = CubeInfo & { uid: string, life: number, lifeMax: number, since: number, part: Part? , shownFrac: number,
 	graceUntil: number } -- no melting before this (os.clock): the freeze show for this cube is still playing
 
@@ -177,7 +179,7 @@ local function newCube(def: PetDefs.PetDef, data: any, info: CubeInfo, graceSeco
 		* Config.gearAt("frost_pack", if typeof(pack) == "number" then pack else 0) -- Frost Pack (2026-11-17)
 	local c: Cube = {
 		key = info.key, zone = info.zone, pose = info.pose, mut = info.mut, sz = info.sz, superFrozen = info.superFrozen, superUsed = info.superUsed, offered = info.offered,
-		uid = "c" .. nextUid, life = lifeMax, lifeMax = lifeMax, since = os.clock(), part = nil, shownFrac = 1,
+		personal = info.personal, uid = "c" .. nextUid, life = lifeMax, lifeMax = lifeMax, since = os.clock(), part = nil, shownFrac = 1,
 		graceUntil = os.clock() + (graceSeconds or 0),
 	}
 	nextUid += 1
@@ -301,6 +303,9 @@ end
 
 -- the freezer left it: Config.carry.openAfter seconds after it lands (after its show), anyone near can take it
 local function openAt(c: Cube): number
+	if c.personal then
+		return math.huge -- a personal pet's cube stays its freezer's
+	end
 	return math.max(c.since, c.graceUntil) + Config.carry.openAfter
 end
 
@@ -462,7 +467,8 @@ local function melt(player: Player, c: Cube)
 	local pos = PlayerTracker.position(player) or Vector3.zero
 	local angle = math.random() * math.pi * 2
 	local half = Config.world.tunnel.width / 2 - Config.spawner.wallMargin
-	local at = Vector3.new(math.clamp(pos.X + math.cos(angle) * 3, -half, half), 0, pos.Z + math.sin(angle) * 3)
+	local z = math.clamp(pos.Z + math.sin(angle) * 3, Config.world.hubZMax + 2, Config.world.tunnelEnd - 2) -- never in the safe hub
+	local at = Vector3.new(math.clamp(pos.X + math.cos(angle) * 3, -half, half), 0, z)
 	-- Rare and up, never after a Super Freeze, and at most once per run (the flag rides along through a free re-freeze)
 	local offer = Config.tier(def.tier).rank >= Config.tier(Config.monetization.superFreeze.minTier).rank and not c.superUsed and not c.offered
 	WildPetSpawner.spawnDazed({ key = c.key, zone = c.zone, pose = c.pose, mut = c.mut, sz = c.sz, superUsed = c.superUsed, offered = c.offered }, at, player, offer)

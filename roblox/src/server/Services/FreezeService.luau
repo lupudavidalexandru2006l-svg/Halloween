@@ -112,6 +112,9 @@ local function canFreeze(player: Player, pet: any, data: any, loud: boolean?): b
 		return false -- someone else's personal rare (their client draws it, yours doesn't)
 	end
 	if pet.state == "dazed" and pet.dazedOwner and pet.dazedOwner ~= player then
+		if loud then -- a little shake, so the client lets go of it and picks another (it held on with nothing happening)
+			Remotes.fire(player, "Notify", "tooWarm", { id = pet.id })
+		end
 		return false -- only the player who carried it can zap a dazed pet back (nobody takes it from them)
 	end
 	if pet.zone - Config.gun(FreezeService.gunTier(player)).heat >= 2 then
@@ -189,7 +192,8 @@ local function freezeOne(player: Player, pet: any)
 	if not dazed and EventService.isChill() and (not mut or Config.mutations[mut].bonus < Config.mutations.Frosty.bonus) then
 		mut = "Frosty"
 	end
-	local info = { key = pet.def.key, zone = pet.zone, pose = pose, mut = mut, sz = pet.sz, superFrozen = false, superUsed = pet.superUsed, offered = pet.offered }
+	local info = { key = pet.def.key, zone = pet.zone, pose = pose, mut = mut, sz = pet.sz, superFrozen = false, superUsed = pet.superUsed, offered = pet.offered,
+		personal = pet.owner ~= nil } -- a personal pet's cube (tutorial, Lucky Ray, a melted Rare) never opens to others
 	local at = pet.root.Position
 	local gun = FreezeService.gunTier(player)
 	local data = DataService.get(player)
@@ -246,7 +250,9 @@ end
 local function winnerOf(pet: any, fallback: Player): Player
 	local best, most = fallback, -1
 	for p, share in (pet.ice or {}) :: { [Player]: number } do
-		if p.Parent and share > most then
+		-- only someone who could freeze it right now (hands free, room on the ground, gun and Cold Power)
+		local d = if p ~= fallback then DataService.get(p) else nil
+		if p.Parent and share > most and (p == fallback or (d ~= nil and canFreeze(p, pet, d))) then
 			best, most = p, share
 		end
 	end

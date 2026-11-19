@@ -42,7 +42,10 @@ end
 -- kids still in the tutorial are never chased (they're learning to carry a cube home)
 local function learning(p: Player): boolean
 	local d = DataService.get(p)
-	return d ~= nil and d.tutorial ~= nil and not d.tutorial.done
+	-- a replay doesn't count (2026-11-19 bug check: replaying the tutorial made you safe from critters until you
+	-- finished it again); someone who already finished it once has the last lesson's reward paid
+	local paid = d and d.tutorial and d.tutorial.paid
+	return d ~= nil and d.tutorial ~= nil and not d.tutorial.done and not (paid and paid.done)
 end
 local critters: { [string]: Critter } = {}
 local forced: { [number]: boolean } = {} -- tester: critters on an island before 3

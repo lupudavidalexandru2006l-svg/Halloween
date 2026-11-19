@@ -284,6 +284,7 @@ end
 -- A restless pet zig-zags: it swerves a random amount every few tenths of a second
 local function flee(pet: WildPet, dt: number, speed: number)
 	local from = pet.root.Position
+	local here = WorldRules.zoneAt(from) -- the island it stands on (a melted pet can land on one nearer home)
 	local away = Vector3.new(from.X - (pet.fleeFrom :: Vector3).X, 0, from.Z - (pet.fleeFrom :: Vector3).Z)
 	if away.Magnitude < 0.01 then
 		away = pet.root.CFrame.LookVector * Vector3.new(1, 0, 1)
@@ -303,7 +304,7 @@ local function flee(pet: WildPet, dt: number, speed: number)
 	for _, turn in { 0, 0.7, -0.7, 1.4, -1.4, 2.1, -2.1 } do
 		local dir = (CFrame.Angles(0, turn, 0) * CFrame.new(away)).Position
 		local to = from + dir * step
-		if WorldRules.zoneAt(to) == pet.zone and WorldRules.inTunnel(to, Config.spawner.wallMargin) then
+		if WorldRules.zoneAt(to) == here and WorldRules.inTunnel(to, Config.spawner.wallMargin) then
 			pet.root.CFrame = CFrame.lookAt(to, to + dir)
 			return
 		end
@@ -373,7 +374,7 @@ local function tick(dt: number)
 			setAction(pet, nextAction)
 			if nextAction == "idle" and rng:NextNumber() < 0.5 then
 				local t = pet.root.Position + Vector3.new((rng:NextNumber() - 0.5) * 10, 0, (rng:NextNumber() - 0.5) * 10)
-				if WorldRules.zoneAt(t) == pet.zone and WorldRules.inTunnel(t, Config.spawner.wallMargin) then
+				if WorldRules.zoneAt(t) == WorldRules.zoneAt(pet.root.Position) and WorldRules.inTunnel(t, Config.spawner.wallMargin) then
 					pet.wanderTo = t
 				end
 			end
@@ -384,7 +385,7 @@ local function tick(dt: number)
 			local a = rng:NextNumber() * math.pi * 2
 			local r = m.dartRadius * (0.4 + 0.6 * rng:NextNumber())
 			local t = pet.root.Position + Vector3.new(math.cos(a) * r, 0, math.sin(a) * r)
-			if WorldRules.zoneAt(t) == pet.zone and WorldRules.inTunnel(t, Config.spawner.wallMargin) then
+			if WorldRules.zoneAt(t) == WorldRules.zoneAt(pet.root.Position) and WorldRules.inTunnel(t, Config.spawner.wallMargin) then
 				pet.wanderTo = t
 			end
 		end
@@ -602,7 +603,9 @@ function WildPetSpawner.nightReset(night: boolean)
 end
 
 function WildPetSpawner.Start()
-	rollWave()
+	if not EventService.isNight() then
+		rollWave() -- a server that starts in the night waits for sunrise's wave, like every other server
+	end
 	EventService.NightChanged:Connect(WildPetSpawner.nightReset)
 	task.spawn(function()
 		while true do
