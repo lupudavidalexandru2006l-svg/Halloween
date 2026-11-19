@@ -187,7 +187,8 @@ local function migrate(old: any): Data
 			local entry: PetEntry = { id = id :: string, key = p.key, pose = knownPose(p.pose), mut = knownMut(p.mut), sz = knownSize(p.sz), at = num(p.at, 0, 1e12), eq = eq }
 			if frozen then
 				entry.frozen = true
-				local m = int(p.thawM, 0, 2, 0)
+				-- every machine a pan can have (was 2: a pet in Thaw Machine 3 moved into machine 2 on every rejoin)
+				local m = int(p.thawM, 0, #Config.thaw.machinesAt, 0)
 				if m >= 1 and typeof(p.thawEnd) == "number" then -- in a Thaw Machine: keeps its time (PenService checks the machine is still free)
 					entry.thawM = m
 					entry.thawEnd = num(p.thawEnd, 0, 1e12)
@@ -379,6 +380,11 @@ local function migrate(old: any): Data
 				paid[s.id] = true
 			end
 		end
+		-- the gear step's coin top-up (TutorialService) is once per save too: it was dropped here, so replaying the
+		-- tutorial after a rejoin topped your coins up to your next gear level's price again and again
+		if typeof(tu.paid) == "table" and tu.paid.gearGift == true then
+			paid.gearGift = true
+		end
 		d.tutorial = { step = int(tu.step, 1, #Config.tutorial.steps, 1), done = tu.done == true, gift = tu.gift == true, paid = paid }
 	else
 		-- nothing to earn on a replay: every lesson reward counts as given
@@ -388,7 +394,8 @@ local function migrate(old: any): Data
 				paid[s.id] = true
 			end
 		end
-		d.tutorial = { step = #Config.tutorial.steps, done = true, paid = paid }
+		paid.gearGift = true
+		d.tutorial = { step = #Config.tutorial.steps, done = true, gift = true, paid = paid }
 	end
 	d.createdAt = num(old.createdAt, 0, 1e12, os.time())
 	d.lastBest = if typeof(old.lastBest) == "string" and PetDefs.get(old.lastBest) then old.lastBest else nil
