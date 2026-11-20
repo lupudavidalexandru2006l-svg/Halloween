@@ -15,6 +15,7 @@ local Remotes = require(script.Parent.Remotes)
 local DataService = require(script.Parent.DataService)
 local AnalyticsSvc = require(script.Parent.AnalyticsSvc)
 local IndexService = require(script.Parent.IndexService)
+local PenService = require(script.Parent.PenService)
 
 local T = Config.trade
 local TradeService = {}
@@ -256,18 +257,14 @@ local function execute(t: Trade)
 	end
 	t.done = true
 	local da, db = DataService.get(t.a) :: any, DataService.get(t.b) :: any
-	-- take both sides out first, then hand them over: one pass, nothing runs in between (no yields)
+	-- take both sides out first, then hand them over: one pass, nothing runs in between (no yields).
+	-- removePets is selling's own path, so a traded-away pan pet's slot is refilled from Storage.
 	local function take(d: any, ids: { string }): { any }
-		local out = {}
+		local set = {}
 		for _, id in ids do
-			for i, p in d.pets do
-				if p.id == id then
-					table.insert(out, table.remove(d.pets, i))
-					break
-				end
-			end
+			set[id] = true
 		end
-		return out
+		return PenService.removePets(d, set)
 	end
 	local fromA, fromB = {}, {}
 	DataService.mutate(t.a, function(x)
@@ -290,6 +287,7 @@ local function execute(t: Trade)
 				end
 			end
 			x.extra.trades += 1
+			PenService.fillEmptySlots(x) -- a pet that came in goes straight into a free pan slot
 		end)
 		local d = DataService.get(player)
 		if d then

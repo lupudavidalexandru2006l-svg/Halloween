@@ -1153,7 +1153,14 @@ function PenService.Start()
 		gateCooldown[player] = nil
 		clearPen(player)
 	end)
-	PlayerTracker.EnteredPen:Connect(bank)
+	PlayerTracker.EnteredPen:Connect(function(player: Player)
+		-- an error mid-bank must still clear the flag, or this player could never bank again this visit
+		local ok, err = pcall(bank, player)
+		if not ok then
+			bankingNow[player] = nil
+			warn(`[PenService] bank failed for {player.UserId}: {err}`)
+		end
+	end)
 	Remotes.on("CollectWelcome", collectWelcome)
 	Remotes.on("EquipPet", equipPet)
 	Remotes.on("EquipBest", equipBest)
