@@ -342,6 +342,8 @@ local Theme = {
 		superFrozen = Color3.fromHex("5f8dff"),
 		zzz = Color3.fromHex("e6e9ff"),
 		sleepLash = Color3.fromHex("2a1e24"), -- the closed-eye curve on a sleeping 3D pet's eyelid
+		statueEye = Color3.fromHex("161219"), -- a Golden / Starry statue pet's eyes (Config.petFx.mutStatue)
+		statueShine = Color3.fromHex("ffffff"),
 		coinPopTop = Color3.fromHex("d8ff6b"), coinPopBottom = Color3.fromHex("3ccf6e"), -- the "+N" pop: lime fading to go-green
 		frostTint = Color3.fromHex("a9dcff"), -- a freezing pet's colour cools to this
 		crystal = Color3.fromHex("d9f6ff"), crack = Color3.fromHex("ffffff"), flash = Color3.new(1, 1, 1),
@@ -350,9 +352,11 @@ local Theme = {
 
 	-- mutations: a tint over the whole pet + sparkles in this colour (PetVisuals)
 	mut = {
-		Golden = { tint = Color3.fromHex("ffc21f"), sparkle = Color3.fromHex("fff2a8"), fill = 0.45 },
-		Starry = { tint = Color3.fromHex("2b2a8f"), sparkle = Color3.fromHex("fffbe0"), fill = 0.35 },
-	} :: { [string]: { tint: Color3, sparkle: Color3, fill: number } },
+		-- statue: a 3D pet's whole colour (PetVisuals mutationLook). Golden's is warmer than its tint: under the
+		-- islands' cool sky light a plain gold statue read lemon-green (2026-11-20)
+		Golden = { tint = Color3.fromHex("ffc21f"), sparkle = Color3.fromHex("fff2a8"), fill = 0.45, statue = Color3.fromHex("ff9f1a") },
+		Starry = { tint = Color3.fromHex("2b2a8f"), sparkle = Color3.fromHex("fffbe0"), fill = 0.35, statue = Color3.fromHex("2b2a8f") },
+	} :: { [string]: { tint: Color3, sparkle: Color3, fill: number, statue: Color3 } },
 
 	-- sizes (Config.sizes): the word's colour on name tags, the Pets list and the reveal card; none is a tier colour
 	sizes = {

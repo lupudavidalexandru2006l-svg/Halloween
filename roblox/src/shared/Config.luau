@@ -1499,6 +1499,13 @@ Config.petFx = {
 	rareSparkleRate = 2, frostySparkleRate = 6, crackBelow = 0.35, crackLines = 9, edgeTransparency = 0.45,
 	popSeconds = 0.25,
 	mutSparkleRate = 5, mutOutline = 0.35, -- Golden / Starry pets (colours in Theme.mut)
+	-- Golden / Starry 3D pets are solid statues in the mutation's colour (Pet Rules 7: "shiny gold metal"), with
+	-- round black eyes and a white shine dot put back where the painted eyes were (Shared.PetEyes). Owner
+	-- 2026-11-20: the old look, a coloured Highlight over the pet, made them see-through ghosts (gold over a cyan
+	-- Frostfox came out a washed-out green, its shadow showing through). eye: size of the eye from PetEyes' radius,
+	-- depth (how far it bulges, of its radius), shine (the dot's size, of the radius). A pet with no eye spots
+	-- keeps its painted colours and gets only a light tint (noEyesFill) and the sparkles.
+	mutStatue = { material = Enum.Material.Foil, eye = 1.05, depth = 0.6, shine = 0.34, noEyesFill = 0.8 },
 	mutSparkleSize = { Golden = 0.3, Starry = 0.6 } :: { [string]: number }, -- Starry's twinkles are big enough to read on a phone
 	sleepTilt = 0.4, -- radians a sleeping pet leans over onto its side
 	-- a cube's ice melts away from the top down as its life runs out (owner 2026-11-17: "slowly unfreeze it
@@ -1523,8 +1530,17 @@ Config.petAnim = {
 	reducedAmp = 0.35, -- reduced motion: every hop, lean and squash this much smaller, no twirls
 	blendSeconds = 0.15, -- quick crossfade between actions, so nothing pops
 	sleepBlendSeconds = 0.9, -- lying down at night and getting up are slow
-	follow = 12, turn = 7, -- how fast the drawn pet glides after and turns to its server root (10 Hz steps)
+	turn = 7, -- how fast the drawn pet turns toward the way its root faces
 	snapDistance = 8, -- farther than this from its root it jumps there instead of gliding
+	-- smooth movement (owner 2026-11-20: "much more better and fluid"): the root's 10 Hz server steps are replayed
+	-- `delay` seconds late in straight lines (step = the server's step, Config.spawner tick), so a pet walks at an
+	-- even speed instead of lunging after every step. smooth: how fast speed / turn rate / speeding-up are tracked.
+	-- While walking it banks into turns (radians per rad/s of turning, up to bankMax), leans forward setting off and
+	-- back pulling up (accelLean radians at accelRef studs/s²), its head looks into the turn and its tail trails.
+	-- Running scared (toward Config.aim.fleeSpeed) makes every step up to runBoost bigger and runStride longer;
+	-- faster still (the island chasers) the stride grows with the square root of the speed.
+	move = { delay = 0.15, step = 0.1, smooth = 10, bank = 0.05, bankMax = 0.2, accelLean = 0.1, accelRef = 8,
+		headLead = 0.08, headLeadMax = 0.35, tailDrag = 0.1, tailDragMax = 0.4, runBoost = 0.5, runStride = 1.2 },
 	walkAt = 0.5, -- full walk cycle from this fraction of Config.spawner.wanderSpeed
 	walkFade = 6, -- how fast the walk fades in and out as it starts and stops
 	-- pets split into a body and legs (a Model with Leg parts that carry Hip / Swing / Front attributes,
@@ -1566,13 +1582,14 @@ Config.petAnim = {
 	dazed = { tilt = 0.25, wobble = 3, spin = 1.6, sway = 0.06 },
 	-- walk cycle per rig family (PetDefs.rig, or gaitFor): stride = pet heights per step; bob/bobHz = idle hover
 	gait = {
-		Quadruped = { stride = 0.35, hop = 0.08, pitch = 0.1, roll = 0.04, yaw = 0.04, squash = 0.08, lean = 0.1, bob = 0, bobHz = 0 },
+		-- smooth = true: the body rolls over each step instead of bouncing off the ground (walkers, not hoppers)
+		Quadruped = { stride = 0.35, hop = 0.08, pitch = 0.1, roll = 0.04, yaw = 0.04, squash = 0.08, lean = 0.1, bob = 0, bobHz = 0, smooth = true },
 		Hopper = { stride = 0.6, hop = 0.24, pitch = 0.15, roll = 0, yaw = 0, squash = 0.2, lean = 0.12, bob = 0, bobHz = 0 },
-		Biped = { stride = 0.28, hop = 0.05, pitch = 0.03, roll = 0.18, yaw = 0.12, squash = 0.05, lean = 0.04, bob = 0, bobHz = 0 },
+		Biped = { stride = 0.28, hop = 0.05, pitch = 0.03, roll = 0.18, yaw = 0.12, squash = 0.05, lean = 0.04, bob = 0, bobHz = 0, smooth = true },
 		Bird = { stride = 0.5, hop = 0.18, pitch = 0.08, roll = 0.03, yaw = 0.03, squash = 0.14, lean = 0.12, bob = 0.06, bobHz = 1.4 },
 		Blob = { stride = 0.55, hop = 0.2, pitch = 0.02, roll = 0.03, yaw = 0, squash = 0.24, lean = 0.05, bob = 0, bobHz = 0 },
-		Swimmer = { stride = 0.4, hop = 0.05, pitch = 0.05, roll = 0.08, yaw = 0.25, squash = 0.12, lean = 0.03, bob = 0, bobHz = 0 },
-		Custom = { stride = 0.4, hop = 0.09, pitch = 0.08, roll = 0.06, yaw = 0.05, squash = 0.08, lean = 0.08, bob = 0, bobHz = 0 },
+		Swimmer = { stride = 0.4, hop = 0.05, pitch = 0.05, roll = 0.08, yaw = 0.25, squash = 0.12, lean = 0.03, bob = 0, bobHz = 0, smooth = true },
+		Custom = { stride = 0.4, hop = 0.09, pitch = 0.08, roll = 0.06, yaw = 0.05, squash = 0.08, lean = 0.08, bob = 0, bobHz = 0, smooth = true },
 	},
 	gaitFor = { snowbun = "Hopper", hopsprout = "Hopper", shimmerfrog = "Hopper" } :: { [string]: string }, -- bunnies and frogs hop
 	-- own idles (Pet Rules 12.2: from island 7 every Epic and up has its own idle; from island 9 every pet). While it

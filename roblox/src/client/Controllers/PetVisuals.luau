@@ -32,13 +32,16 @@ local me = Players.LocalPlayer
 -- ring: the tier ring under a wild pet, shown only while the pet is in your gun's reach (ringA fades it, 0..1)
 type Fx = { core: Part, ring: BasePart?, ringSize: Vector3?, ringFx: ParticleEmitter?, ringA: number, shadow: BasePart, stars: { BasePart } }
 type Pose = { x: number, y: number, z: number, pitch: number, yaw: number, roll: number, sx: number, sy: number }
-type Gait = { stride: number, hop: number, pitch: number, roll: number, yaw: number, squash: number, lean: number, bob: number, bobHz: number }
+type Gait = { stride: number, hop: number, pitch: number, roll: number, yaw: number, squash: number, lean: number, bob: number, bobHz: number, smooth: boolean? }
 type Anim = { key: string, start: any, t: number, clock: number, from: Pose?, blend: number, blendLen: number, last: Pose, base: CFrame,
 	walk: number, phase: number, gait: Gait, parts: { { part: BasePart, size: Vector3, rel: CFrame, hip: Vector3?, swing: number, front: boolean,
 	role: string, pivot: Vector3?, side: number, hang: boolean, liftedOnly: boolean } }, sneezed: boolean, culled: boolean,
 	seed: number, scratchy: boolean, hasArms: boolean, headPivot: Vector3?, -- seed: from the pet's id (the scratch pick); scratchy: it has back legs or arms
 	lids: { BasePart }, shut: boolean, awake: number, -- lids: closed eyelids (shown while shut); awake: 1 awake, 0 asleep (head, ears and tail fade still)
-	own: { [string]: any }?, ownN: number, sparks: { ParticleEmitter }, lights: { { light: PointLight, base: number } } } -- own: Config.petAnim.ownIdle entry; ownN: which beat last burst
+	own: { [string]: any }?, ownN: number, sparks: { ParticleEmitter }, lights: { { light: PointLight, base: number } }, -- own: Config.petAnim.ownIdle entry; ownN: which beat last burst
+	-- smooth movement (2026-11-20): snaps = the root's last CFrames as they arrived (os.clock), replayed a moment late
+	-- so the drawn pet walks at an even speed; speed / turnRate / accel = smoothed, for leaning into turns and starts
+	snaps: { { t: number, cf: CFrame } }, lastRoot: CFrame, speed: number, turnRate: number, accel: number, run: number }
 type Banked = { edges: SelectionBox, coin: BillboardGui, coinImg: ImageLabel, phase: number, ready: BillboardGui? } -- ready: the READY! sign over a finished thaw
 type Fleck = { part: BasePart, round: number, angle: number, y: number, reach: number }
 type FreezeLook = { bands: { { part: BasePart, jitter: number, turn: number } }, highlight: Highlight?, crystals: { BasePart }, cracks: { { part: BasePart, face: number, u: number, v: number, turn: number } }, nextChip: number, style: string, cracked: number,
@@ -205,22 +208,77 @@ local function standIn(def: PetDefs.PetDef, size: number, shut: boolean?): (PVIn
 	return p, nil
 end
 
--- Golden / Starry: sprites are tinted, 3D models get a coloured Highlight; both sparkle
-local function mutationLook(model: PVInstance, img: ImageLabel?, sparkleAt: Instance, mut: any)
+-- a round black eye with a white shine dot (top left, where the light comes from), over a painted eye
+-- that a statue pet lost with its texture. Rides on the head like the lids.
+local function statueEyes(def: PetDefs.PetDef, model: Model, size: number)
+	local spec = PetEyes[def.model]
+	local anchor = spec and model:FindFirstChild(spec.part, true)
+	if not spec or not anchor then
+		return
+	end
+	local S, L = P.mutStatue, A.lids
+	local role = anchor:GetAttribute("Role")
+	local piv = model:GetPivot()
+	local function ball(name: string, s: Vector3, cf: CFrame, color: Color3)
+		local p = Instance.new("Part")
+		p.Name = name
+		p.Size = s
+		p.CFrame = cf
+		p.Color = color
+		p.Material = Enum.Material.SmoothPlastic
+		p.Anchored, p.CanCollide, p.CanQuery, p.CanTouch, p.CastShadow = true, false, false, false, false
+		local mesh = Instance.new("SpecialMesh") -- an ellipsoid that follows the part's size (squashes with the pet)
+		mesh.MeshType = Enum.MeshType.Sphere
+		mesh.Parent = p
+		if typeof(role) == "string" then
+			p:SetAttribute("Role", role)
+		end
+		p.Parent = model
+	end
+	for _, e in spec.eyes do
+		local r = e.r * size
+		local n = piv:VectorToWorldSpace((e.normal + Vector3.new(0, 0, -L.faceBlend)).Unit)
+		local frame = CFrame.lookAt(piv:PointToWorldSpace(e.at * size), piv:PointToWorldSpace(e.at * size) + n)
+		ball("StatueEye", Vector3.new(2 * r * S.eye, 2 * r * S.eye, 2 * r * S.depth), frame, Theme.fx.statueEye)
+		local shine = 2 * r * S.shine
+		ball("StatueShine", Vector3.new(shine, shine, shine * 0.6),
+			frame * CFrame.new(0.3 * r, 0.35 * r, -0.8 * S.depth * r), Theme.fx.statueShine)
+	end
+end
+
+-- Golden / Starry. A sprite is tinted. A 3D pet becomes a solid statue in the mutation's colour, shiny,
+-- with its eyes put back; one with no eye spots (Shared.PetEyes) keeps its colours under a light tint.
+-- Both sparkle. (The old coloured Highlight over the whole pet looked see-through, owner 2026-11-20.)
+local function mutationLook(def: PetDefs.PetDef, size: number, model: PVInstance, img: ImageLabel?, sparkleAt: Instance, mut: any)
 	local look = if typeof(mut) == "string" then Theme.mut[mut] else nil
 	if not look then
 		return
 	end
 	if img then
 		img.ImageColor3 = Theme.white:Lerp(look.tint, 1 - look.fill)
-	else
+	elseif model:IsA("Model") and PetEyes[def.model] then
+		local spec = PetEyes[def.model]
+		for _, p in model:GetDescendants() do
+			if p:IsA("MeshPart") and p.Transparency == 0 then
+				p.TextureID = ""
+				p.Color = look.statue
+				if p.Material ~= Enum.Material.Neon then
+					p.Material = P.mutStatue.material
+				end
+			elseif p:IsA("BasePart") and p:GetAttribute("Lid") == true and p.Color == spec.lid then
+				p.Color = look.statue -- the sleeping eyelids are statue-coloured too
+			end
+		end
+		statueEyes(def, model :: Model, size)
+	elseif model:IsA("Model") then
 		local h = Instance.new("Highlight")
 		h.FillColor = look.tint
-		h.FillTransparency = look.fill
-		h.OutlineColor = look.sparkle
-		h.OutlineTransparency = P.mutOutline
+		h.FillTransparency = P.mutStatue.noEyesFill
+		h.OutlineTransparency = 1
 		h.DepthMode = Enum.HighlightDepthMode.Occluded
 		h.Parent = model
+	elseif model:IsA("BasePart") then
+		model.Color = look.tint -- the coloured ball stand-in
 	end
 	local e = sparkles(sparkleAt, look.sparkle, P.mutSparkleRate)
 	e.Size = NumberSequence.new(P.mutSparkleSize[mut] or 0.25, 0)
@@ -438,7 +496,9 @@ end
 -- the walk on top, w = how much it's walking (0-1): a bounce per step, rocking, waddling and leaning in
 local function addWalk(p: Pose, w: number, phase: number, h: number, g: Gait, k: number)
 	local s = phase % 1
-	local arc = math.sin(math.pi * s)
+	-- hoppers bounce off the ground (a sharp kick at each landing); walkers and trotters roll smoothly over
+	-- each step, with no kink at the footfall
+	local arc = if g.smooth then 0.5 - 0.5 * math.cos(2 * math.pi * s) else math.sin(math.pi * s)
 	local side = math.sin(math.pi * phase) -- swaps sides every step
 	local wk = w * k
 	p.y += g.hop * h * arc * wk
@@ -514,7 +574,8 @@ local function newAnim(def: PetDefs.PetDef, model: PVInstance, img: ImageLabel?,
 	return { key = "", start = nil, t = 0, clock = math.random() * 10, from = nil, blend = 0, blendLen = 0, last = REST,
 		base = root.CFrame, walk = 0, phase = 0, gait = gaits[A.gaitFor[def.key] or def.rig] or gaits.Custom, parts = parts,
 		sneezed = false, culled = false, seed = seed, scratchy = scratchy, hasArms = hasArms, headPivot = headPivot,
-		lids = lids, shut = false, awake = 1, own = A.ownIdle[def.key], ownN = -1, sparks = sparks, lights = lights }
+		lids = lids, shut = false, awake = 1, own = A.ownIdle[def.key], ownN = -1, sparks = sparks, lights = lights,
+		snaps = { { t = os.clock(), cf = root.CFrame } }, lastRoot = root.CFrame, speed = 0, turnRate = 0, accel = 0, run = 0 }
 end
 
 -- closes or opens a 3D pet's eyes (its lids show only while shut)
@@ -541,22 +602,72 @@ local function flushMoves()
 	table.clear(moveCFs)
 end
 
-local function animate(root: BasePart, d: Drawn, dt: number, now: number, cam: Camera, speed: number, wiggle: number): number
+-- where the drawn pet stands this frame. The server moves a wild pet in 10 Hz steps; chasing each step made the
+-- drawn pet lunge and brake ten times a second (and its walk cycle flicker). Instead the root's CFrames are kept
+-- as they arrive and replayed Config.petAnim.move.delay seconds late, in straight lines between them, so it walks
+-- at an even speed. Owner 2026-11-20: "make the movement animation much more better and fluid".
+local function replay(a: Anim, root: BasePart, clock: number): CFrame
+	local M = A.move
+	local snaps = a.snaps
+	local cf = root.CFrame
+	if cf ~= a.lastRoot then
+		if (cf.Position - a.lastRoot.Position).Magnitude > A.snapDistance then
+			table.clear(snaps) -- a jump (respawn, sent home): it's simply there
+			table.insert(snaps, { t = clock - M.delay, cf = cf })
+		else
+			if clock - snaps[#snaps].t > M.step * 1.5 then
+				-- it stood still a while: the walk starts one step ago, not back when it stopped
+				table.insert(snaps, { t = clock - M.step, cf = a.lastRoot })
+			end
+			table.insert(snaps, { t = clock, cf = cf })
+			if #snaps > 8 then
+				table.remove(snaps, 1)
+			end
+		end
+		a.lastRoot = cf
+	end
+	local at = clock - M.delay
+	while #snaps >= 2 and snaps[2].t <= at do
+		table.remove(snaps, 1)
+	end
+	local s0, s1 = snaps[1], snaps[2]
+	if not s1 or at <= s0.t then
+		return s0.cf
+	end
+	return s0.cf:Lerp(s1.cf, (at - s0.t) / (s1.t - s0.t))
+end
+
+-- lift: extra height on top of the pose (a chaser's lunge); legs tuck in while it's up
+local function animate(root: BasePart, d: Drawn, dt: number, now: number, cam: Camera, speed: number, wiggle: number, lift: number?): number
 	local a = d.anim
 	local h = d.height
 	local feet = -h / 2
-	-- the drawn pet glides after the server's root (it moves in 10 Hz steps) and turns smoothly
-	local prev = a.base.Position
-	local target = root.CFrame
-	if (target.Position - prev).Magnitude > A.snapDistance then
+	local M = A.move
+	-- the drawn pet walks the replayed path at an even speed and turns smoothly toward the way it's going
+	local prev = a.base
+	local target = replay(a, root, os.clock())
+	if (target.Position - prev.Position).Magnitude > A.snapDistance then
 		a.base = target
 	else
-		a.base = a.base.Rotation:Lerp(target.Rotation, 1 - math.exp(-A.turn * dt)) + prev:Lerp(target.Position, 1 - math.exp(-A.follow * dt))
+		a.base = prev.Rotation:Lerp(target.Rotation, 1 - math.exp(-A.turn * dt)) + target.Position
 	end
-	local stepped = ((a.base.Position - prev) * Vector3.new(1, 0, 1)).Magnitude
-	local walking = math.clamp(stepped / math.max(dt, 1e-3) / (Config.spawner.wanderSpeed * A.walkAt), 0, 1)
+	local step = math.max(dt, 1e-3)
+	local stepped = ((a.base.Position - prev.Position) * Vector3.new(1, 0, 1)).Magnitude
+	-- smoothed speed, speeding up / slowing down, and how fast it's turning: it leans into starts and turns
+	local f = 1 - math.exp(-M.smooth * dt)
+	local newSpeed = a.speed + (stepped / step - a.speed) * f
+	a.accel += ((newSpeed - a.speed) / step - a.accel) * f
+	a.speed = newSpeed
+	local _, y0 = prev:ToOrientation()
+	local _, y1 = a.base:ToOrientation()
+	a.turnRate += (wrap(y1 - y0) / step - a.turnRate) * f
+	local wander = Config.spawner.wanderSpeed
+	local walking = math.clamp(a.speed / (wander * A.walkAt), 0, 1)
 	a.walk += (walking - a.walk) * (1 - math.exp(-A.walkFade * dt))
-	a.phase += stepped / (a.gait.stride * h)
+	a.run = math.clamp((a.speed - wander) / math.max(0.1, Config.aim.fleeSpeed - wander), 0, 1) -- scared: a bouncier run
+	-- running takes longer strides (a gallop), so fast feet don't blur; past a run they lengthen with speed
+	local over = math.max(1, a.speed / math.max(0.1, Config.aim.fleeSpeed))
+	a.phase += stepped / (a.gait.stride * h * (1 + M.runStride * a.run) * math.sqrt(over))
 
 	local action = root:GetAttribute("Action")
 	local start = root:GetAttribute("ActionStart")
@@ -592,8 +703,14 @@ local function animate(root: BasePart, d: Drawn, dt: number, now: number, cam: C
 	if near then
 		local k = if SettingsController.get("reducedMotion") == true then A.reducedAmp else 1
 		pose = actionPose(key, a.t, a.clock, h, a.gait, k)
+		local stride = a.walk * (1 + M.runBoost * a.run) -- running: bigger bounces and steps
 		if a.walk > 0.01 then
-			addWalk(pose, a.walk, a.phase, h, a.gait, k)
+			addWalk(pose, stride, a.phase, h, a.gait, k)
+			-- banks into a turn (a left turn tips it left) and leans forward setting off, back pulling up
+			pose.roll += math.clamp(a.turnRate * M.bank, -M.bankMax, M.bankMax) * a.walk * k
+		end
+		if key ~= "sleep" then
+			pose.pitch -= M.accelLean * math.clamp(a.accel / M.accelRef, -1, 1) * k
 		end
 		-- the legs step with the walk cycle (one step per phase unit, like addWalk's side swap), tap
 		-- along to the dance's beats, and tuck in while the pet is off the ground. cos, not sin: the feet
@@ -601,6 +718,8 @@ local function animate(root: BasePart, d: Drawn, dt: number, now: number, cam: C
 		-- high point, while the body leans onto the leg that's on the ground (owner 2026-11-04: with sin
 		-- the penguin's legs moved reversed)
 		local L = A.limbs
+		-- never past L.walk, even running: the split pets were tear-checked at that swing (Pet Rules), and a
+		-- wider one opens see-through gaps at the hips
 		legSwing = L.walk * a.walk * math.cos(math.pi * a.phase) * k
 		if key == "dance" then
 			legSwing += L.dance * math.sin(math.pi * A.dance.beats * a.t / Config.poses.dance.seconds) * k
@@ -701,7 +820,8 @@ local function animate(root: BasePart, d: Drawn, dt: number, now: number, cam: C
 		-- head, ears and tail
 		local PA = A.parts
 		local still = (1 - 0.6 * a.walk) * a.awake -- asleep: the head stops looking round
-		local hYaw = PA.headLook * math.sin(a.clock * 2 * math.pi / PA.headLookPeriod) * still * k
+		local lead = math.clamp(a.turnRate * M.headLead, -M.headLeadMax, M.headLeadMax) * k -- looks where it's turning
+		local hYaw = PA.headLook * math.sin(a.clock * 2 * math.pi / PA.headLookPeriod) * still * k + lead
 		local hPitch = PA.headNod * a.walk * math.sin(2 * math.pi * a.phase) * k - S.headPitch * scratch + ownNod
 		local hRoll = -scratchSide * S.headRoll * scratch + 0.04 * scratch * rub
 		headRot = CFrame.Angles(hPitch, hYaw, hRoll)
@@ -715,6 +835,7 @@ local function animate(root: BasePart, d: Drawn, dt: number, now: number, cam: C
 		local dancing = key == "dance"
 		tailYaw = (if dancing then PA.tailDanceWag else PA.tailWag)
 			* math.sin(a.clock * 2 * math.pi * (if dancing then PA.tailDanceHz else PA.tailHz)) * k * a.awake + ownTail
+			- math.clamp(a.turnRate * M.tailDrag, -M.tailDragMax, M.tailDragMax) * k -- the tail trails behind a turn
 		if a.culled then
 			a.from, a.blend, a.blendLen = REST, 0, A.blendSeconds
 		end
@@ -730,6 +851,10 @@ local function animate(root: BasePart, d: Drawn, dt: number, now: number, cam: C
 	if wiggle ~= 0 then
 		pose = table.clone(pose)
 		pose.roll += wiggle
+	end
+	if lift and lift ~= 0 then
+		pose = table.clone(pose)
+		pose.y += lift
 	end
 	a.culled = not near
 	a.last = pose
@@ -942,7 +1067,7 @@ local function addPet(root: Instance)
 		coin.Parent = folder
 		b = { edges = edges, coin = coin, coinImg = ci, phase = math.random() * PC.coinEvery }
 	end
-	mutationLook(model, img, core, root:GetAttribute("Mut"))
+	mutationLook(def, h, model, img, core, root:GetAttribute("Mut"))
 	drawn[root] = { model = model, height = h, offer = nil, img = img, born = os.clock(), fx = { core = core, ring = ring, ringSize = ringSize, ringFx = ringFx, ringA = 0, shadow = shadow, stars = stars }, banked = b,
 		clock = math.random() * 10, freeze = nil, zzz = zzzGui(core, h), anim = newAnim(def, model, img, root), box = box, shown = true }
 end
@@ -1112,9 +1237,10 @@ local function addCube(part: Instance)
 			part:GetAttributeChangedSignal("OpenToAll"):Connect(sync) -- goes with the part
 		end
 	end
-	local model, img = standIn(def, part.Size.Y * 0.6, part:GetAttribute("Pose") == "sleep") -- frozen asleep: eyes shut
+	local cubeSize = part.Size.Y * 0.6
+	local model, img = standIn(def, cubeSize, part:GetAttribute("Pose") == "sleep") -- frozen asleep: eyes shut
 	model.Parent = folder
-	mutationLook(model, img, part, part:GetAttribute("Mut"))
+	mutationLook(def, cubeSize, model, img, part, part:GetAttribute("Mut"))
 	-- the ice we draw (the server's cube is hidden on this screen): it melts from the top down
 	local M = P.melt
 	local ice = fxPart(part.Size, Theme.ice, folder)
@@ -1577,6 +1703,26 @@ function PetVisuals.model(key: string, size: number): (PVInstance?, ImageLabel?)
 	end
 	return standIn(def, size)
 end
+
+-- moves a PetVisuals.model on its root the way a wild pet moves: the smooth glide after the server's steps,
+-- the walk cycle from real movement, stepping legs, leaning into turns (owner 2026-11-20: the island chasers
+-- slid about with still legs, bouncing on the spot). Call the returned function every frame with the clock
+-- speed (0 = frozen still) and any extra lift, then PetVisuals.flushMoves() once after the batch.
+function PetVisuals.driver(key: string, root: BasePart, model: PVInstance, img: ImageLabel?, size: number): ((dt: number, speed: number, lift: number) -> ())?
+	local def = PetDefs.get(key)
+	if not def then
+		return nil
+	end
+	local d = { model = model, height = size, img = img, born = os.clock(), anim = newAnim(def, model, img, root) } :: any
+	return function(dt: number, speed: number, lift: number)
+		local cam = workspace.CurrentCamera
+		if cam then
+			animate(root, d, dt, os.clock(), cam, speed, 0, lift)
+		end
+	end
+end
+
+PetVisuals.flushMoves = flushMoves
 
 -- a thawed pan pet's stroll: a slow walk to a random spot in its pan, a little pause, again. Only this
 -- client moves the root (the server's copy stays on its grid spot), and the ice cube is hidden here.

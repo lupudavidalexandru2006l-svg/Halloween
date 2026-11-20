@@ -97,6 +97,164 @@ local function restyleSign(p: Instance?, maxStuds: number)
 	end
 end
 
+-- a gate sign is built, not a flat slab (owner 2026-11-18, World Rules): navy back plate, gold rails,
+-- end posts with glowing tops and flags, a round crest with the island's picture, and a text plate with
+-- a gradient, a shine and a white rim. Lives in code so a map rebuild keeps it (it was lost once).
+local SIGN_GOLD = Color3.fromHex("ffcd3c")
+local SIGN_NAVY = Color3.fromHex("2b2560")
+local function signPiece(par: Instance, shape: Enum.PartType?, size: Vector3, cf: CFrame, col: Color3, neon: boolean?): Part
+	local p = Instance.new("Part")
+	p.Shape = shape or Enum.PartType.Block
+	p.Size = size
+	p.CFrame = cf
+	p.Color = col
+	p.Material = if neon then Enum.Material.Neon else Enum.Material.SmoothPlastic
+	if not neon and col == SIGN_GOLD then
+		p.Reflectance = 0.12
+	end
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.CastShadow = false
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.Parent = par
+	return p
+end
+
+local function dressGateSign(s: BasePart, id: number)
+	local par = s.Parent :: Instance
+	local old = par:FindFirstChild("SignArt")
+	if old then
+		old:Destroy()
+	end
+	local m = Instance.new("Model")
+	m.Name = "SignArt"
+	local acc = s.Color
+	local glow = acc:Lerp(Color3.new(1, 1, 1), 0.45)
+	local cf = s.CFrame
+	local W, H = s.Size.X, s.Size.Y
+	signPiece(m, nil, Vector3.new(W + 2.4, H + 2.2, 1.1), cf * CFrame.new(0, 0, 0.75), SIGN_NAVY) -- back plate
+	for _, y in { H / 2 + 0.75, -(H / 2 + 0.75) } do -- rounded rails
+		signPiece(m, Enum.PartType.Cylinder, Vector3.new(W + 3.2, 1.5, 1.5), cf * CFrame.new(0, y, 0.1), SIGN_GOLD)
+	end
+	for _, sx in { -1, 1 } do -- end posts: glowing ball tops, gold feet, side gems, little flags
+		local x = sx * (W / 2 + 1.9)
+		signPiece(m, Enum.PartType.Cylinder, Vector3.new(H + 3.6, 2.4, 2.4), cf * CFrame.new(x, 0, 0.3) * CFrame.Angles(0, 0, math.pi / 2), SIGN_NAVY)
+		signPiece(m, Enum.PartType.Ball, Vector3.new(2.9, 2.9, 2.9), cf * CFrame.new(x, H / 2 + 2.9, 0.3), glow, true)
+		signPiece(m, Enum.PartType.Ball, Vector3.new(2, 2, 2), cf * CFrame.new(x, -(H / 2 + 2.3), 0.3), SIGN_GOLD)
+		signPiece(m, Enum.PartType.Cylinder, Vector3.new(0.35, 2.6, 2.6), cf * CFrame.new(x, 0, -0.98) * CFrame.Angles(0, math.pi / 2, 0), glow, true)
+		signPiece(m, nil, Vector3.new(0.3, 4, 0.3), cf * CFrame.new(x, H / 2 + 5.9, 0.3), SIGN_NAVY)
+		local flag = Instance.new("WedgePart")
+		flag.Size = Vector3.new(0.2, 1.8, 2.6)
+		flag.CFrame = cf * CFrame.new(x + sx * 1.4, H / 2 + 7, 0.3) * CFrame.Angles(0, sx * math.pi / 2, 0)
+		flag.Color = acc
+		flag.Anchored = true
+		flag.CanCollide = false
+		flag.CanQuery = false
+		flag.CanTouch = false
+		flag.CastShadow = false
+		flag.Parent = m
+	end
+	-- round crest on top with the island's picture
+	local cy = H / 2 + 3.9
+	signPiece(m, Enum.PartType.Cylinder, Vector3.new(1.2, 8.6, 8.6), cf * CFrame.new(0, cy, 0.45) * CFrame.Angles(0, math.pi / 2, 0), SIGN_GOLD)
+	signPiece(m, Enum.PartType.Cylinder, Vector3.new(1.3, 7.6, 7.6), cf * CFrame.new(0, cy, 0.4) * CFrame.Angles(0, math.pi / 2, 0), SIGN_NAVY)
+	local face = signPiece(m, nil, Vector3.new(6.6, 6.6, 0.1), cf * CFrame.new(0, cy, -0.32), SIGN_NAVY)
+	face.Name = "CrestFace"
+	face.Transparency = 1
+	local g = Instance.new("SurfaceGui")
+	g.Face = Enum.NormalId.Front
+	g.LightInfluence = 0
+	g.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	g.PixelsPerStud = 40
+	g.MaxDistance = 250
+	g.Parent = face
+	local img = Instance.new("ImageLabel")
+	img.Size = UDim2.fromScale(1, 1)
+	img.BackgroundColor3 = acc
+	img.Image = Config.zoneArt.images[id] or ""
+	img.ScaleType = Enum.ScaleType.Crop
+	img.Parent = g
+	local uc = Instance.new("UICorner")
+	uc.CornerRadius = UDim.new(1, 0)
+	uc.Parent = img
+	local ist = Instance.new("UIStroke")
+	ist.Color = Color3.new(1, 1, 1)
+	ist.Thickness = 10
+	ist.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	ist.Parent = img
+	m.Parent = par
+	-- the text plate: rounded, a top-to-bottom gradient, a white rim and a shine, big bold words
+	local sg = s:FindFirstChildOfClass("SurfaceGui")
+	local lbl = sg and sg:FindFirstChild("Text")
+	if not sg or not lbl or not lbl:IsA("TextLabel") then
+		return
+	end
+	sg.PixelsPerStud = 24 -- TextScaled stops at 100 px; 24 lets the words fill the plate (Lessons 2026-11-18)
+	for _, n in { "UICorner", "UIGradient" } do
+		local x = lbl:FindFirstChildOfClass(n)
+		if x then
+			x:Destroy()
+		end
+	end
+	local cr = Instance.new("UICorner")
+	cr.CornerRadius = UDim.new(0.22, 0)
+	cr.Parent = lbl
+	local gr = Instance.new("UIGradient")
+	gr.Rotation = 90
+	gr.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.new(1, 1, 1)),
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(235, 235, 235)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(165, 165, 175)),
+	})
+	gr.Parent = lbl
+	for _, n in { "Rim", "Shine" } do
+		local x = sg:FindFirstChild(n)
+		if x then
+			x:Destroy()
+		end
+	end
+	local rimF = Instance.new("Frame")
+	rimF.Name = "Rim"
+	rimF.Size = UDim2.fromScale(1, 1)
+	rimF.BackgroundTransparency = 1
+	rimF.ZIndex = 5
+	local rc = Instance.new("UICorner")
+	rc.CornerRadius = UDim.new(0.22, 0)
+	rc.Parent = rimF
+	local rs = Instance.new("UIStroke")
+	rs.Color = Color3.new(1, 1, 1)
+	rs.Thickness = 5
+	rs.Transparency = 0.1
+	rs.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	rs.Parent = rimF
+	rimF.Parent = sg
+	local sh = Instance.new("Frame")
+	sh.Name = "Shine"
+	sh.AnchorPoint = Vector2.new(0.5, 0)
+	sh.Position = UDim2.fromScale(0.5, 0.07)
+	sh.Size = UDim2.fromScale(0.94, 0.28)
+	sh.BackgroundColor3 = Color3.new(1, 1, 1)
+	sh.BackgroundTransparency = 0.78
+	sh.ZIndex = 2
+	local sc = Instance.new("UICorner")
+	sc.CornerRadius = UDim.new(1, 0)
+	sc.Parent = sh
+	sh.Parent = sg
+	lbl.ZIndex = 1
+	for _, d in lbl:GetChildren() do
+		if d:IsA("UITextSizeConstraint") then
+			d.MaxTextSize = 170
+			d.MinTextSize = 20
+		elseif d:IsA("UIStroke") then
+			d.Thickness = 4
+			d.Color = Color3.fromHex("1a1433")
+		end
+	end
+end
+
 -- a sign whose Front face (its text) looks toward `toward`, where players come from
 local function signFacing(name: string, size: Vector3, at: Vector3, toward: Vector3, color: Color3, parent: Instance): Part
 	local look = Vector3.new(toward.X, at.Y, toward.Z)
@@ -275,6 +433,7 @@ local function buildTunnel()
 			local sign = part("GateSign" .. zone.id, Vector3.new(20 * T.archScale, 4 * T.archScale, 0.5), CFrame.new(0, G.height + 3.4 * T.archScale, gz - G.depth / 2 - 0.4), look.accent, sec) -- text toward the section before
 			surfaceText(sign, Enum.NormalId.Front, if zone.ready then string.upper(zone.name) else "COMING SOON", look.accent)
 			WorldService.gateSigns[zone.id] = sign
+			dressGateSign(sign, zone.id)
 		end
 	end
 	-- the end cap after the last open island: a frosted gate you can't pass (yet)
@@ -375,6 +534,9 @@ local function findExisting(): boolean
 		local gs = map:FindFirstChild("GateSign" .. z.id, true)
 		if gs then
 			WorldService.gateSigns[z.id] = gs :: BasePart
+			if not (gs.Parent and gs.Parent:FindFirstChild("SignArt")) then
+				dressGateSign(gs :: BasePart, z.id) -- a saved map from before the built signs
+			end
 		end
 		local spot = map:FindFirstChild("GatePromptSpot" .. z.id, true)
 		local pp = spot and spot:FindFirstChildWhichIsA("ProximityPrompt", true)

@@ -15,7 +15,9 @@ local SettingsController = require(script.Parent.SettingsController)
 
 local CritterVisuals = {}
 local C = Config.chasers
-type Look = { model: PVInstance, img: ImageLabel?, steam: ParticleEmitter, ice: Part, phase: number, at: CFrame, alert: BillboardGui, shown: boolean }
+-- drive: walks the model like a wild pet (PetVisuals.driver); without it the model just glides and bounces
+type Look = { model: PVInstance, img: ImageLabel?, steam: ParticleEmitter, ice: Part, phase: number, at: CFrame, alert: BillboardGui, shown: boolean,
+	drive: ((dt: number, speed: number, lift: number) -> ())? }
 -- owner 2026-11-18 ("the game is so laggy"): with chasers on all 10 islands, every client drew and moved all ~49 of
 -- them every frame, each with a light and a highlight. Now only the ones within DRAW studs of the camera are in the
 -- world and animated (a chaser further off can't reach you anyway), and none carries a light.
@@ -140,7 +142,8 @@ local function add(root: Instance)
 	ice.Material = Enum.Material.SmoothPlastic -- not Glass: it would hide the critter's sprite inside (World Rules)
 	ice.Transparency = 1
 	ice.Name = "CritterIce"
-	looks[root] = { model = model, img = img, steam = steam, ice = ice, phase = math.random() * 6, at = root.CFrame, alert = alert, shown = true }
+	looks[root] = { model = model, img = img, steam = steam, ice = ice, phase = math.random() * 6, at = root.CFrame, alert = alert, shown = true,
+		drive = PetVisuals.driver(if typeof(key) == "string" then key else C.look.pet, root, model, img, C.size) }
 end
 
 local function remove(root: Instance)
@@ -177,10 +180,12 @@ local function step(dt: number)
 		local state = root:GetAttribute("State")
 		local meter = (root:GetAttribute("Meter") or 0) :: number
 		local frozen = state == "frozen"
-		-- glide after the server's root, bounce while moving (quicker while chasing)
-		l.at = l.at:Lerp(root.CFrame, math.min(1, dt * 12))
-		local hz = if state == "chase" then 9 elseif state == "happy" then 5 else 4
-		local hop = if frozen then 0 else math.abs(math.sin(t * hz + l.phase)) * 0.35 * amp * (1 - meter)
+		-- walking and chasing: a real walk cycle from how far it moved (PetVisuals.driver), so it never bounces on
+		-- the spot or slides with still legs. Happy (it just grabbed a cube): little hops in place
+		local hop = 0
+		if state == "happy" and not frozen then
+			hop = math.abs(math.sin(t * 5 + l.phase)) * 0.35 * amp * (1 - meter)
+		end
 		-- a lunge (CritterService, close up): one big leap at you
 		local lungeAt = root:GetAttribute("Lunge")
 		local sinceLunge = if typeof(lungeAt) == "number" then workspace:GetServerTimeNow() - lungeAt else math.huge
@@ -188,8 +193,12 @@ local function step(dt: number)
 			hop += math.sin(sinceLunge / C.lunge.seconds * math.pi) * 1.4 * amp
 		end
 		l.alert.Enabled = state == "chase"
-		local base = l.at - Vector3.new(0, C.size / 2, 0) + Vector3.new(0, C.size / 2 + hop, 0)
-		l.model:PivotTo(base)
+		if l.drive then
+			l.drive(dt, if frozen then 0 else 1 - 0.7 * meter, hop) -- slows as the ice climbs, still when frozen
+		else
+			l.at = l.at:Lerp(root.CFrame, math.min(1, dt * 12))
+			l.model:PivotTo(l.at + Vector3.new(0, hop, 0))
+		end
 		l.steam.Rate = if frozen then 0 elseif state == "chase" then 14 else 4
 		-- the ice: a block while frozen (it clears as it thaws), creeping up while being shot
 		if frozen then
@@ -207,6 +216,7 @@ local function step(dt: number)
 			l.ice.Transparency = 1
 		end
 	end
+	PetVisuals.flushMoves() -- the driven chasers' parts, moved together
 end
 
 function CritterVisuals.Init()
