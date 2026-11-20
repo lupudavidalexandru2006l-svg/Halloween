@@ -251,26 +251,44 @@ end
 local function gift(v: State.View)
 	local m = map()
 	local box = m and m:FindFirstChild("GiftBox", true)
-	if not box or not box:IsA("BasePart") then
-		return
-	end
-	if #giftParts == 0 then
-		local art = m and m:FindFirstChild("GiftArt", true)
-		for _, p in (if art then art:GetChildren() else {}) do
-			if p:IsA("BasePart") then
-				table.insert(giftParts, { part = p, cf = p.CFrame })
-			end
+	-- the map streams: away from the hub the box (and the chest) stream out, and what streams back in is a
+	-- NEW part. A label left on the old, removed box floated anywhere (owner 2026-11-20: "Free gift" showing on
+	-- island 1), so it hides while the box is gone and re-pins to whichever box is there now. The chest's
+	-- parts stream one by one the same way: drop the gone ones, take in new ones (they arrive at their built
+	-- place, so their CFrame then is the one to bob round)
+	local known: { [Instance]: boolean } = {}
+	for i = #giftParts, 1, -1 do
+		local p = giftParts[i].part
+		if p:IsDescendantOf(workspace) then
+			known[p] = true
+		else
+			table.remove(giftParts, i)
 		end
+	end
+	local art = m and m:FindFirstChild("GiftArt", true)
+	for _, p in (if art then art:GetChildren() else {}) do
+		if p:IsA("BasePart") and not known[p] then
+			table.insert(giftParts, { part = p, cf = p.CFrame })
+		end
+	end
+	if not box or not box:IsA("BasePart") then
+		if giftGui then
+			giftGui.Enabled = false
+			giftGui.Adornee = nil
+		end
+		return
 	end
 	if not giftGui then
 		local g, b = Ui.pill("", Theme.fx.giftBody, Config.worldText.gift)
 		g.Name = "GiftLabel"
+		g.ResetOnSpawn = false -- a respawn deleted it and it never came back
 		g.StudsOffset = Vector3.new(0, Config.art.gift.labelLift, 0) -- over the frozen treasure's snow cap
 		g.Adornee = box
 		g.Parent = me:WaitForChild("PlayerGui")
 		giftGui, giftLabel = g, b
 	end
 	local g, b = giftGui :: BillboardGui, giftLabel :: Ui.Block
+	g.Adornee = box
 	-- the one-time Free Gift (2026-11-12): once claimed, the box and its label are gone for you. Up close
 	-- the E prompt shows instead (both at once overlapped, owner 2026-11-13)
 	g.Enabled = v.gift.ready and not giftPromptUp
