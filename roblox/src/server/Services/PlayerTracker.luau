@@ -28,6 +28,7 @@ type State = {
 
 local PlayerTracker = {}
 local states: { [Player]: State } = {}
+local flagTimes: { [Player]: { number } } = {} -- os.clock() of each speed flag (Config.antiCheat)
 local enteredPenEvent = Instance.new("BindableEvent")
 PlayerTracker.EnteredPen = enteredPenEvent.Event -- (player) fired while a carrying player stands in their own pen
 
@@ -105,6 +106,23 @@ function PlayerTracker.teleport(player: Player, cf: CFrame): boolean
 	return true
 end
 
+-- a long jump (Night home, tester teleports): ask Roblox to stream the far side in first, then move. Without it
+-- the player lands where nothing is loaded and, with StreamingIntegrityMode PauseOutsideLoadedArea, the game
+-- stops until it arrives: QA PT-05 (2026-11-19), "0 FPS on first arrival at Jungle Falls". Yields up to
+-- Config.streamAhead.wait seconds, so callers run it in their own thread.
+function PlayerTracker.teleportFar(player: Player, cf: CFrame): boolean
+	local root = PlayerTracker.rootPart(player)
+	if root and (root.Position - cf.Position).Magnitude > Config.streamAhead.minStuds then
+		pcall(function()
+			player:RequestStreamAroundAsync(cf.Position, Config.streamAhead.wait)
+		end)
+	end
+	if not player.Parent then
+		return false
+	end
+	return PlayerTracker.teleport(player, cf)
+end
+
 local function zoneKey(id: number): string
 	if id == 0 then
 		return "hub"
@@ -170,6 +188,20 @@ local function tick()
 				if RunService:IsStudio() then
 					warn(`[PlayerTracker] {player.UserId} moved {math.floor(flat)} studs in {string.format("%.2f", dt)}s`)
 				end
+				-- QA security (2026-11-19): one flag is lag; many in a short time is a speed or teleport hack. A soft kick
+				-- (the save is kept, nothing is taken), never for testers or in Studio (Config.antiCheat)
+				local AC = Config.antiCheat
+				local times = flagTimes[player] or {}
+				flagTimes[player] = times
+				table.insert(times, now)
+				while times[1] and now - times[1] > AC.windowSeconds do
+					table.remove(times, 1)
+				end
+				if #times > AC.kickFlags and not Config.isTester(player.UserId) and not RunService:IsStudio() then
+					warn(`[PlayerTracker] soft kick {player.UserId}: {#times} speed flags in {AC.windowSeconds}s`)
+					player:Kick(AC.kickText)
+					continue
+				end
 			end
 		end
 		s.lastPos = pos
@@ -199,6 +231,7 @@ function PlayerTracker.Start()
 	Players.PlayerRemoving:Connect(function(player)
 		-- session_end is AnalyticsSvc's (one per visit; this second copy, with fields it doesn't take, was dropped 2026-11-18)
 		states[player] = nil
+		flagTimes[player] = nil
 	end)
 	Remotes.on("SetMenuOpen", function(player, open)
 		local s = states[player]

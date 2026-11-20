@@ -93,7 +93,11 @@ local function clock(secs: number): string
 	return `{secs // 60}:{string.format("%02d", secs % 60)}`
 end
 
-local function pill(id: string, order: number, color: Color3, text: string?)
+-- owner 2026-11-20: the old wide green pill looked bad and sat on the clocks. Each boost is now a chip in the
+-- clocks' own look (navy pill, round icon chip in the boost's colour, white words), stacked just above the
+-- clocks and the same size, following them as they open on hover (placePills, every frame).
+local PILL_GAP = 4
+local function pill(id: string, order: number, color: Color3, icon: string, text: string?)
 	local l = pillLabels[id]
 	if not text then
 		if l then
@@ -106,30 +110,80 @@ local function pill(id: string, order: number, color: Color3, text: string?)
 		local f = Instance.new("Frame")
 		f.Name = id
 		f.LayoutOrder = order
-		f.BackgroundColor3 = color
+		f.BackgroundColor3 = Theme.alert.back
+		f.BackgroundTransparency = 0.15
 		f.BorderSizePixel = 0
 		f.Size = UDim2.fromScale(1, 0.3)
 		Ui.corner(f, 0.5)
-		Ui.stroke(f, 2)
+		Ui.stroke(f, 2.5)
+		local chip = Instance.new("Frame")
+		chip.BackgroundColor3 = color
+		chip.BorderSizePixel = 0
+		chip.Position = UDim2.new(0, 2, 0, 2)
+		chip.Size = UDim2.new(1, -4, 1, -4)
+		local a = Instance.new("UIAspectRatioConstraint")
+		a.AspectRatio = 1
+		a.DominantAxis = Enum.DominantAxis.Height
+		a.Parent = chip
+		Ui.corner(chip, 0.5)
+		chip.Parent = f
+		Ui.image(chip, Config.images.icons[icon] or Config.images.icons.star, UDim2.fromScale(0.78, 0.78), UDim2.fromScale(0.11, 0.11))
 		f.Parent = pills
-		l = Ui.label(f, "", UDim2.fromScale(0.92, 0.78), UDim2.fromScale(0.04, 0.11))
+		l = Ui.label(f, "", UDim2.new(1, 0, 0.66, 0), UDim2.fromScale(0, 0.17))
+		l.TextXAlignment = Enum.TextXAlignment.Right
+		local pad = Instance.new("UIPadding")
+		pad.PaddingLeft = UDim.new(0.2, 0)
+		pad.PaddingRight = UDim.new(0.07, 0)
+		pad.Parent = l
 		pillLabels[id] = l
 	end
 	(l :: TextLabel).Text = text
+end
+
+-- sit the boost chips right above the top visible clock, at the clocks' size
+local function placePills()
+	local hud = me.PlayerGui:FindFirstChild("Clocks", true) :: GuiObject?
+	if not hud or not hud:IsA("GuiObject") or not hud.Visible then
+		pills.Visible = false
+		return
+	end
+	local top, w, h, right = math.huge, 0, 0, 0
+	for _, c in hud:GetChildren() do
+		if c:IsA("GuiObject") and c.Visible then
+			top = math.min(top, c.AbsolutePosition.Y)
+			w, h = c.AbsoluteSize.X, c.AbsoluteSize.Y
+			right = c.AbsolutePosition.X + c.AbsoluteSize.X
+		end
+	end
+	if top == math.huge or h <= 0 then
+		pills.Visible = false
+		return
+	end
+	pills.Visible = true
+	local n = 0
+	for _, c in pills:GetChildren() do
+		if c:IsA("Frame") then
+			n += 1
+			c.Size = UDim2.new(1, 0, 0, h)
+		end
+	end
+	local off = gui.AbsolutePosition
+	pills.Size = UDim2.fromOffset(w, math.max(0, n * (h + PILL_GAP)))
+	pills.Position = UDim2.fromOffset(right - off.X, top - PILL_GAP - off.Y)
 end
 
 local function syncPills()
 	local now = workspace:GetServerTimeNow()
 	local su = me:GetAttribute("BoostSpeedUntil")
 	local sm = me:GetAttribute("BoostSpeedMult")
-	pill("speed", 1, Theme.go, if typeof(su) == "number" and su > now and typeof(sm) == "number"
+	pill("speed", 1, Theme.go, "boots", if typeof(su) == "number" and su > now and typeof(sm) == "number"
 		then `Speed +{math.round((sm - 1) * 100)}%  {clock(su - now)}` else nil)
 	local lu = me:GetAttribute("BoostLuckUntil")
-	pill("luck", 2, Theme.events.luck or Theme.go, if typeof(lu) == "number" and lu > now then `Lucky Ray  {clock(lu - now)}` else nil)
+	pill("luck", 2, Theme.events.luck or Theme.go, "star", if typeof(lu) == "number" and lu > now then `Lucky Ray  {clock(lu - now)}` else nil)
 	local sl = workspace:GetAttribute("BoughtLuckUntil")
-	pill("server", 3, Theme.skipAll, if typeof(sl) == "number" and sl > now then `Server Luck x{M.serverLuckMult}  {clock(sl - now)}` else nil)
+	pill("server", 3, Theme.skipAll, "sunburst", if typeof(sl) == "number" and sl > now then `Server Luck x{M.serverLuckMult}  {clock(sl - now)}` else nil)
 	local sh = me:GetAttribute("BoostShields")
-	pill("shield", 4, Theme.info, if typeof(sh) == "number" and sh > 0 then `Critter Shield x{sh}` else nil)
+	pill("shield", 4, Theme.info, "lock", if typeof(sh) == "number" and sh > 0 then `Critter Shield x{sh}` else nil)
 end
 
 -- ---------- short on coins ----------
@@ -171,11 +225,13 @@ function OfferController.Start()
 	pills.AnchorPoint = Vector2.new(1, 1)
 	pills.Position = UDim2.fromScale(0.985, 0.86)
 	pills.Size = UDim2.fromScale(0.2, 0.2)
-	aspect(pills, 2.4)
 	local list = Instance.new("UIListLayout")
 	list.SortOrder = Enum.SortOrder.LayoutOrder
 	list.VerticalAlignment = Enum.VerticalAlignment.Bottom
-	list.Padding = UDim.new(0.04, 0)
+	list.Padding = UDim.new(0, PILL_GAP)
+	game:GetService("RunService").RenderStepped:Connect(function()
+		pcall(placePills)
+	end)
 	list.Parent = pills
 	pills.Parent = gui
 	-- the short-on-coins card, right side
@@ -184,7 +240,7 @@ function OfferController.Start()
 	card.BackgroundColor3 = Theme.panel
 	card.BorderSizePixel = 0
 	card.AnchorPoint = Vector2.new(1, 0.5)
-	card.Position = UDim2.fromScale(0.985, 0.5)
+	card.Position = UDim2.fromScale(0.925, 0.5) -- left of the Chest / Skins / Players column (2026-11-19)
 	card.Size = UDim2.fromScale(0.24, 0.2)
 	aspect(card, 2.2)
 	Ui.corner(card)
@@ -206,7 +262,10 @@ function OfferController.Start()
 		if kind == "notYet" and typeof(data) == "table" and typeof(data.reason) == "string"
 			and string.find(data.reason, "^Need .+ more") and not string.find(data.reason, "Cold Power") then
 			needCount += 1
-			if needCount % M.needOffer.after == 0 and needShown < M.needOffer.max then
+			-- QA first 10 minutes (2026-11-19): never during the tutorial or a new player's first 2 minutes
+			local v = State.view :: any
+			local fresh = v == nil or (v.tutorial and not v.tutorial.done) or (v.extras and (v.extras.playSeconds or 0) < 120)
+			if not fresh and needCount % M.needOffer.after == 0 and needShown < M.needOffer.max then
 				needShown += 1
 				showNeedCard()
 			end

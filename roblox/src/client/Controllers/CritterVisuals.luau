@@ -10,6 +10,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Theme = require(ReplicatedStorage.Shared.Theme)
 local PetVisuals = require(script.Parent.PetVisuals)
+local PetDefs = require(ReplicatedStorage.Shared.PetDefs)
 local SettingsController = require(script.Parent.SettingsController)
 
 local CritterVisuals = {}
@@ -44,6 +45,9 @@ local function add(root: Instance)
 	-- warm it up: a model gets an orange Highlight, a sprite an orange tint
 	if img then
 		img.ImageColor3 = Theme.round5.critterGlow
+	elseif typeof(key) == "string" and string.sub(key, 1, 7) == "chaser_" then
+		-- the island's own chaser (owner 2026-11-20) keeps its real colours: the orange tint turned the wolf
+		-- into a tan statue
 	else
 		-- owner 2026-11-17: no outline (it showed through the cliffs from miles away): only the warm tint,
 		-- and only where you can really see the critter
@@ -89,6 +93,49 @@ local function add(root: Instance)
 	bang.Parent = alert
 	alert.Adornee = core
 	alert.Parent = core
+	-- 2026-11-20 (score pass): the island's chaser carries its name on a red pill, so a kid knows what is
+	-- after them ("Snow Wolf"); only up close, under the "!"
+	local def = if typeof(key) == "string" and string.sub(key, 1, 7) == "chaser_" then PetDefs.get(key) else nil
+	if def then
+		local tag = Instance.new("BillboardGui")
+		tag.Name = "ChaserName"
+		tag.Size = UDim2.fromOffset(150, 30)
+		tag.StudsOffset = Vector3.new(0, C.size * 0.62, 0)
+		tag.LightInfluence = 0
+		tag.MaxDistance = 70
+		tag.Adornee = core
+		local pill = Instance.new("Frame")
+		pill.AnchorPoint = Vector2.new(0.5, 0.5)
+		pill.Position = UDim2.fromScale(0.5, 0.5)
+		pill.Size = UDim2.fromScale(1, 1)
+		pill.AutomaticSize = Enum.AutomaticSize.None
+		pill.BackgroundColor3 = Theme.no
+		pill.BorderSizePixel = 0
+		local pc = Instance.new("UICorner")
+		pc.CornerRadius = UDim.new(0.5, 0)
+		pc.Parent = pill
+		local ps = Instance.new("UIStroke")
+		ps.Thickness = 2.5
+		ps.Color = Theme.ink
+		ps.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		ps.Parent = pill
+		local name = Instance.new("TextLabel")
+		name.BackgroundTransparency = 1
+		name.AnchorPoint = Vector2.new(0.5, 0.5)
+		name.Position = UDim2.fromScale(0.5, 0.5)
+		name.Size = UDim2.fromScale(0.88, 0.72)
+		name.Font = Theme.font
+		name.TextScaled = true
+		name.Text = def.name
+		name.TextColor3 = Theme.white
+		local ns = Instance.new("UIStroke")
+		ns.Thickness = Config.ui.textStroke
+		ns.Color = Theme.ink
+		ns.Parent = name
+		name.Parent = pill
+		pill.Parent = tag
+		tag.Parent = core
+	end
 	local ice = part(Vector3.one * C.size * 1.25, Theme.ice)
 	ice.Material = Enum.Material.SmoothPlastic -- not Glass: it would hide the critter's sprite inside (World Rules)
 	ice.Transparency = 1

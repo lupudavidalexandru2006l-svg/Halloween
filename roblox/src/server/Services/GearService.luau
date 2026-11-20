@@ -33,8 +33,13 @@ function GearService.held(player: Player): string
 	return held[player] or "ray"
 end
 
--- Slow Gel was removed (owner 2026-11-17): only the ray (or nothing) can be held
-local function owns(_player: Player, id: string): boolean
+-- Slow Gel was removed (owner 2026-11-17): the ray, nothing, or Frost Bombs once bought (2026-11-19, BombService)
+local function owns(player: Player, id: string): boolean
+	if id == "bomb" then
+		local d = DataService.get(player)
+		local lv = d and d.gear.frost_bombs
+		return typeof(lv) == "number" and lv > 0
+	end
 	return id == "ray" or id == "none"
 end
 
@@ -104,7 +109,7 @@ function GearService.isStowed(player: Player): boolean
 end
 
 local function onSetGear(player: Player, id: any)
-	if typeof(id) ~= "string" or (id ~= "ray" and id ~= "none") then
+	if typeof(id) ~= "string" or (id ~= "ray" and id ~= "none" and id ~= "bomb") then
 		return
 	end
 	if locked[player] and id ~= "none" then
@@ -240,6 +245,7 @@ local function setOwned(player: Player)
 	local d = DataService.get(player)
 	if d then
 		player:SetAttribute("GearGel", false) -- Slow Gel removed 2026-11-17
+		player:SetAttribute("GearBomb", owns(player, "bomb")) -- hotbar slot 2 (2026-11-19)
 		for _, g in Config.gear do
 			publish(player, g.key, level(d, g.key))
 		end

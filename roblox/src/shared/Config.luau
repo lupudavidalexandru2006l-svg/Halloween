@@ -58,7 +58,7 @@ Config.player = {
 	rateLimitPerSecond = 12,
 	-- remotes with their own budget, so a burst of one (aiming while you drag, or calls bunched up by a lag
 	-- spike on a phone) can't crowd out the rest (mobile QA 2026-11-10)
-	rateLimits = { Aim = 20, Train = 14, GetBoard = 2 } :: { [string]: number }, -- Train: click shots (TrainingService counts at most clickMax a second)
+	rateLimits = { Aim = 20, Train = 14, GetBoard = 2, BreakIce = 15, PlaceBomb = 4, VisitPan = 1 } :: { [string]: number }, -- Train: click shots (TrainingService counts at most clickMax a second)
 	maxSpeedTolerance = 1.6, -- server flags positions that move faster than this x walk speed
 }
 
@@ -199,7 +199,8 @@ Config.gateGuardStuds = 3 -- PlayerTracker puts anyone this far past a gate they
 Config.shopOpenedCooldown = 2
 -- owner 2026-11-15: phones (PerformanceController). A touch device under autoLowFps on average over
 -- windowSeconds (after settleSeconds of loading) switches Low graphics on by itself, once per session.
-Config.performance = { autoLowFps = 40, windowSeconds = 6, settleSeconds = 12 }
+Config.performance = { autoLowFps = 40, windowSeconds = 6, settleSeconds = 12,
+	lightCull = 160 } -- lightCull (2026-11-19): decorative map lights further than this (+ their Range) from the camera are off
 
 -- skipShows (owner 2026-11-18: "a setting that autoskips all cutscenes"): every show (freeze, gun, pan, rebirth,
 -- Secret reveal) jumps straight to its end
@@ -217,6 +218,9 @@ Config.dev = {
 	-- every save its own key u_<id>_<name>, so a play test starts from a brand-new save and nobody's own save
 	-- is touched. Change the name for another fresh start. Leave it "" normally. A live server ignores it.
 	freshSave = "",
+	-- Studio only: true = the tester's owned game passes are ignored (2x Coins, 2x Cold Power, Auto-Train), so
+	-- pacing tests see a free player's rates (QA CA-05). A live server ignores it. Leave false normally.
+	noPasses = false,
 	maxCoins = 1e15, heatMax = 5, awayMax = 24 * 3600,
 	multMin = 0.1, multMax = 10000,
 	walkMin = 16, walkMax = 100,
@@ -374,6 +378,9 @@ Config.events = {
 -- walls rise at the tunnel mouth and anyone out on the islands is brought home to their pan, empty-handed (owner
 -- 2026-11-18: cubes not got home in time are lost; a bought Super Freeze cube stays). They open again at sunrise. warnSeconds: "Night soon! Head home" this long before.
 Config.nightClose = { warnSeconds = 15, wallHeight = 40, wallZ = 1, homeDelay = 0.6 }
+-- long teleports (Night home, tester teleports) stream the far side in first: only past minStuds, waiting at most
+-- `wait` seconds (QA PT-05 2026-11-19: landing in an unloaded area paused the game on a phone)
+Config.streamAhead = { minStuds = 300, wait = 3 }
 
 -- Night (owner 2026-10-31): one 15-minute loop for the whole server, worked out from server time so
 -- every client agrees without messages. day -> sunset -> night -> sunrise. At night pets sleep (freeze
@@ -440,10 +447,9 @@ Config.challenges = {
 	checkSeconds = 1, -- how often the server looks for a newly finished challenge (to tell the player)
 }
 -- The Free Gift (owner 2026-11-12, replaces the daily gift): a one-time early boost at the gift box.
--- Three steps like hit games' "free reward" boards: Like the game, Favorite it, join the community.
--- Only the community join can be checked (Player:IsInGroupAsync), so only it is required on the server;
--- Like has no API, and Favorite opens Roblox's own prompt. groupId = 0: no community made yet (the step
--- shows "Soon" and isn't checked). coins + power: a head start, power = half of Pine Forest's need.
+-- One step: join the community, checked on the server (Player:IsInGroupAsync). QA DR-01 (2026-11-19): Like and
+-- Favorite are optional "Enjoying it?" cards beside it, not steps to the reward (Roblox doesn't allow rewarding them). groupId = 0: no community made
+-- yet (the step shows "Soon" and isn't checked). coins + power: a head start, power = half of Pine Forest's need.
 Config.freeGift = { coins = 2500, power = 75, -- power: half of Pine Forest's need (150 since 2026-11-16)
 	 groupId = 552866458, claimRange = 30 } -- groupId: WolfDev (owner 2026-11-12)
 
@@ -481,6 +487,9 @@ Config.monetization = {
 	-- Steal a Brainrot's 2x Money is 299), and a bigger pack is better value: 1 hour, 3 hours, 8 hours of
 	-- income. The real price is set on the product in the Creator Dashboard: keep both the same.
 	shop = {
+		-- the Limited offers (owner 2026-11-19): one-time Starter Pack (Config.starterPack), no random items
+		{ id = "starterPack", kind = "starter", productId = 3733603894, robux = 39, name = "Starter Pack", text = "Coins + 3 Super Freeze + Mega Speed + Frostbite skin", icon = "gift", stack = 3, chip = "One time only" },
+		{ id = "vip", kind = "pass", passId = 2092336327, robux = 99, name = "VIP", text = "+10% coins, gold VIP tag, Royal Frost ray", icon = "star", stack = 3 },
 		{ id = "doubleCoins", kind = "pass", passId = 2088197425, robux = 199, mult = 2, name = "2x Coins", text = "Your pan earns double, forever", icon = "coin", stack = 2 },
 		{ id = "coinsSmall", kind = "coins", productId = 3732434676, robux = 49, minutes = 60, floor = 2500, name = "Coin Bag", text = "", icon = "coin", stack = 1 },
 		{ id = "coinsMedium", kind = "coins", productId = 3732434699, robux = 99, minutes = 180, floor = 10e3, name = "Coin Chest", text = "", icon = "coin", stack = 2 },
@@ -524,12 +533,42 @@ Config.monetization = {
 	-- kinds = the items each tab shows; colour = Theme.shopCards[colour]. The shop opens on Forever
 	-- while a pass is still unowned, else on Coins.
 	shopTabs = {
+		{ id = "limited", label = "Limited", icon = "gift", colour = "deal", kinds = { starter = true, deal = true }, title = "Limited offers", sub = "One time only. Best value in the shop" },
 		{ id = "forever", label = "Forever", icon = "star", colour = "pass", kinds = { pass = true }, title = "Forever passes", sub = "Buy once, keep it for good" },
 		{ id = "coins", label = "Coins", icon = "coin", colour = "coins", kinds = { coins = true }, title = "Coins", sub = "Bigger packs give more coins for each Robux" },
 		{ id = "power", label = "Power", icon = "power", colour = "power", kinds = { power = true }, title = "Cold Power", sub = "" },
-		{ id = "boosts", label = "Boosts", icon = "ray", colour = "charges", kinds = { charges = true, chill = true, speed = true, luck = true, serverLuck = true, shield = true, deal = true }, title = "Boosts", sub = "Use them when you need them" },
+		{ id = "boosts", label = "Boosts", icon = "ray", colour = "charges", kinds = { charges = true, chill = true, speed = true, luck = true, serverLuck = true, shield = true }, title = "Boosts", sub = "Use them when you need them" },
 	} :: { { id: string, label: string, icon: string, colour: string, kinds: { [string]: boolean }, title: string, sub: string } },
 }
+
+-- QA CA-01/02 (owner 2026-11-19: "add odds into the shop"): the odds a paid random item rolls, as shown behind
+-- its Odds button. "lucky": a Lucky Ray pet (BoostService.rollRare: Rare and up by their normal odds). "serverLuck":
+-- every wild pet's rarity now and with Server Luck (WildPetSpawner.pickTier: Rare and up x serverLuckMult).
+-- pct = now, boosted = with the boost (nil for "lucky"). Read from the same Config.tiers the server rolls with.
+function Config.oddsRows(kind: string): { { name: string, pct: number, boosted: number? } }
+	local mult = Config.monetization.serverLuckMult
+	local total, totalBoosted = 0, 0
+	for _, t in Config.tiers do
+		if kind ~= "lucky" or t.rank >= 3 then
+			total += t.odds
+			totalBoosted += t.odds * (if t.rank >= 3 then mult else 1)
+		end
+	end
+	local rows = {}
+	for _, t in Config.tiers do
+		if kind ~= "lucky" or t.rank >= 3 then
+			table.insert(rows, {
+				name = t.name,
+				pct = t.odds / total * 100,
+				boosted = if kind == "serverLuck" then t.odds * (if t.rank >= 3 then mult else 1) / totalBoosted * 100 else nil,
+			})
+		end
+	end
+	return rows
+end
+
+-- which odds a shop item shows (nil = not random, no Odds button). Welcome Deal holds a Lucky Ray 30.
+Config.oddsKind = { luck = "lucky", deal = "lucky", serverLuck = "serverLuck" } :: { [string]: string }
 
 function Config.robuxItem(id: string): RobuxItem?
 	for _, item in Config.monetization.shop do
@@ -592,6 +631,11 @@ Config.leaderboards = {
 	-- owner 2026-11-16 (performance): a board only draws while you stand this many studs from it. Was 20; owner
 	-- 2026-11-18 "show it from the distance too": seen from across the hub, still off out on the islands
 	loadRange = 250,
+	-- owner 2026-11-20 (teen appeal): a Visit button on every top-100 row opens that player's pan, read-only: the
+	-- pets in their pen (best first, up to maxPets), rebirths, pets frozen, best tier and ray skin. Offline players
+	-- are read from their save (GetAsync only, never written); one read per player per cacheSeconds, shared by all
+	-- askers; one ask per player every cooldown seconds
+	visit = { maxPets = 30, cacheSeconds = 120, cooldown = 2 },
 }
 
 Config.analytics = {
@@ -627,6 +671,14 @@ Config.analytics = {
 		feedback_sent = { value = nil, fields = { "kind", "stage" } },
 		train_session = { value = "gain", fields = { "station", "level" } }, -- someone stepped off a training station
 		rebirth = { value = "rebirths", fields = {} }, -- RebirthService (QA IR-13: it was dropped, not on this list)
+		-- per-island drop-off (2026-11-19): seconds spent on an island each visit, and whether the player moved on or
+		-- left the game from there (ExtrasService). Creator Dashboard > Custom events, split by zone.
+		island_time = { value = "seconds", fields = { "zone", "left", "stage" } },
+		trade_done = { value = "pets", fields = {} }, -- TradeService
+		-- 2026-11-20 (QA path to 10): a trade window opened (role = asker / answerer), a skin equipped, a top-100 pan visit
+		trade_open = { value = nil, fields = { "role" } },
+		skin_equip = { value = nil, fields = { "skin" } },
+		pan_visit = { value = nil, fields = { "board" } },
 	} :: { [string]: { value: string?, fields: { string } } },
 	lastActions = { "zapping", "carrying", "in_pen", "in_menu", "exploring" },
 }
@@ -661,8 +713,8 @@ Config.sounds = {
 		reveal_secret = 9125641284, -- Magic Synth Stinger Glassine Multi Tone Burst (PSE)
 		pan_up = 9126072453, -- a pan upgrade's burst: Synth Sparkle Tone Bell Tone Burst (PSE)
 		sell = 9113728042, -- Cash Register 1 (PSE)
-		bounce = 12222124, -- a cube too hot for your pan: Short spring sound (Roblox)
-		thaw_done = 15675055424, -- your Thaw Machine lets a pet out: Roblox_UI_Cute_Pop (Roblox)
+		bounce = 93450119095263, -- a cube too hot for your pan: cube_pop (ElevenLabs 2026-11-18; was Roblox 12222124)
+		thaw_done = 90723925534515, -- your Thaw Machine lets a pet out: ice_free (ElevenLabs 2026-11-18; was Roblox 15675055424)
 		upgrade_charge = 9125805094, -- Rising Synth Tone Ascending In Pitch (PSE)
 		upgrade_hit = 16480574637, -- Roblox_Pinball_Bumper_Full_01 (Roblox)
 		upgrade_chime = 9126073318, -- Synth Sparkle Tone Bell Tone Ding (PSE), pitched up per streak
@@ -680,7 +732,24 @@ Config.sounds = {
 		-- the rebirth show (2026-11-12): bright orchestral stings (APM "Magical Meetup", Spot On / Happy Place)
 		rebirth_fanfare = 9048764286, -- Magical Meetup - Tag2 (APM), the reveal
 		rebirth_hit = 9048764753, -- Magical Meetup - Hit4 (APM), the burst
+		-- ElevenLabs batch 1 (2026-11-18, repo prototype/ice-ray-for-pets/sounds, ids in sounds/ids.json)
+		carry_chase_calm = 123302191370900, -- the run home: bouncy cartoon chase loop while you carry a cube
+		carry_chase_hot = 101792974293538, -- the same chase, busier: a carried cube under carryHotBelow ice
+		snag = 137055871474821, -- picking a cube up: whoosh-up with a chime
+		made_it_home = 132814738328121, -- banking at home: short kid fanfare
+		melt_tick = 93275335984946, -- a carried cube running low: soft drip tick
+		-- PvP (2026-11-19): frozen, a hit landing / a tap on your ice, got your cube back, bomb placed, bomb popped
+		player_frozen = 138018429320690, -- (take b: 103988265201365)
+		ice_tap = 136291474013642,
+		got_back = 116457874532363,
+		bomb_arm = 91024463618414,
+		bomb_pop = 105438949583231,
 	} :: { [string]: number },
+	carryHotBelow = 0.3, -- the chase music turns busier when a carried cube has less ice than this
+	nearStuds = 30, -- ...or another player is this close (PvP 2026-11-19)
+	popHearStuds = 80, -- a Frost Bomb pop is heard this far away
+	tickBelow = 0.3, -- melt_tick plays every tickEvery s below this (twice as fast under half of it)
+	tickEvery = 1.0,
 	-- long library sounds are cut to fit the moment (seconds, with a short fade). Sound Rules 8: trimmed.
 	trim = {
 		freeze = 1.6, crack = 1.0, tink = 0.8, ray_charge = 0.6, ray_fire = 0.7, zap = 0.7, ray_crackle = 0.5,
@@ -688,7 +757,7 @@ Config.sounds = {
 		thaw_done = 1.2, bank = 1.6, sell = 1.2, coin = 0.8,
 	} :: { [string]: number },
 	-- per-sound loudness on top of sfx, so they feel about equally loud (Sound Rules 8: leveled)
-	volume = { ray_hum = 0.35, ray_crackle = 0.5, chill = 0.6, melt = 0.7, crack = 0.7, freeze = 0.8, slam = 0.8 } :: { [string]: number },
+	volume = { melt_tick = 0.5, made_it_home = 0.7, snag = 0.8, ray_hum = 0.35, ray_crackle = 0.5, chill = 0.6, melt = 0.7, crack = 0.7, freeze = 0.8, slam = 0.8 } :: { [string]: number },
 	-- these climb a semitone each time they play again within streakReset seconds (Sound Rules 3)
 	streak = { coin = true, bank = true, tink = true, sell = true } :: { [string]: boolean },
 	streakMax = 7,
@@ -700,9 +769,10 @@ Config.sounds = {
 }
 
 Config.ui = {
-	tiles = { { id = "pets", label = "Pets" }, { id = "shop", label = "Shop" }, { id = "index", label = "Index" }, { id = "daily", label = "Daily" }, { id = "settings", label = "Settings" } },
-	-- owner 2026-11-15: this tile spans the whole top row of the tile grid (Screen.layout); its icon rocks gently
-	wideTile = "shop",
+	-- owner 2026-11-19: Shop takes one slot so Trade sits beside it on the top row (Trade opens the players panel:
+	-- trade, mute, block, how to report). "none" = no tile spans a whole row
+	tiles = { { id = "shop", label = "Shop" }, { id = "trade", label = "Trade" }, { id = "pets", label = "Pets" }, { id = "index", label = "Index" }, { id = "daily", label = "Daily" }, { id = "settings", label = "Settings" } },
+	wideTile = "none",
 	tileMinFit = 0.075,
 	phoneShortPx = 600, -- a touch screen whose short side is under this many px is a phone (InputController) -- a tile never shrinks below this share of the short side to fit above the coins
 	wideTileWiggle = { degrees = 6, seconds = 1.1 },
@@ -1177,7 +1247,8 @@ Config.images = {
 }
 
 Config.ui.tileIcons = { pets = Config.images.pets.snowbun, shop = Config.images.icons.basket, index = Config.images.icons.book, settings = Config.images.icons.gear,
-	daily = Config.images.icons.trophy }
+	daily = Config.images.icons.trophy,
+	trade = "rbxassetid://84665245361505" } -- painted 2026-11-19 (icons/trade.png, decal 75762690189466)
 -- painted icons on the Shop and Settings rows
 local I = Config.images.icons
 Config.ui.upgradeIcons = { ray = I.ray, boots = I.boots, backpack = I.bag, pen = I.pen } :: { [string]: string }
@@ -1525,6 +1596,40 @@ Config.petAnim = {
 		pyrokoi = { kind = "leap", every = 7, seconds = 1.6, height = 0.55, tilt = 0.6, wag = 0.8, wagHz = 4, spark = 10, flash = 1.2 },
 		-- a lava-lamp bloop: stretches tall and floats up, turning slowly, then settles
 		lavalamp_jelly = { kind = "bloop", every = 7, seconds = 3, stretch = 0.25, float = 0.12, spin = 1, spark = 10, flash = 1.5 },
+		-- Lava Lake (island 9): every pet has its own idle (2026-11-20)
+		-- a lava bubble: stretches up and bloops, crust cap wobbling
+		bubblava = { kind = "bloop", every = 7, seconds = 2.2, stretch = 0.2, float = 0.08, spin = 0, spark = 0, flash = 0 },
+		-- waves both claws side to side like a happy dance
+		crustacrab = { kind = "balance", every = 7, seconds = 2, sway = 0.12, swayHz = 1.4, arms = 1, spark = 0, flash = 0 },
+		-- a splashy flap in its swim ring
+		paddleduck = { kind = "flap", every = 7, seconds = 1.4, hop = 0.18, flap = 0.8, flapHz = 6, spark = 0, flash = 0 },
+		-- sits up tall and slaps the air with its paws
+		basalt_beaver = { kind = "rear", every = 8, seconds = 1.8, rear = 0.3, paw = 0.6, pawHz = 3, nod = 0.12, spark = 0, flash = 0 },
+		-- a lava-eel leap: arcs up and dives, stripe flaring
+		ember_eel = { kind = "leap", every = 7, seconds = 1.6, height = 0.5, tilt = 0.6, wag = 0.8, wagHz = 4, spark = 10, flash = 1.2 },
+		-- rears up proudly, the volcano crown puffing sparks
+		caldera_hippo = { kind = "rear", every = 8, seconds = 2, rear = 0.32, paw = 0.5, pawHz = 2.5, nod = 0.15, spark = 12, flash = 1.5 },
+		-- lifts off on big slow wingbeats, flame tail blazing
+		obsidian_swan = { kind = "soar", every = 8, seconds = 2.6, rise = 0.4, flap = 0.8, flapHz = 2.2, spark = 12, flash = 1.2 },
+		-- floats up hugging its glowing heart, turns slowly, settles
+		lakeheart_serpent = { kind = "bloop", every = 7, seconds = 3, stretch = 0.15, float = 0.15, spin = 1, spark = 12, flash = 2 },
+		-- Magma Core (island 10): every pet has its own idle (2026-11-20)
+		-- a molten bloop: stretches up, the belly core flares
+		coreling = { kind = "bloop", every = 7, seconds = 2, stretch = 0.2, float = 0.06, spin = 0, spark = 6, flash = 1.5 },
+		-- a quick dig: sits up and paddles its big paws, sparks fly
+		sparkmole = { kind = "rear", every = 7, seconds = 1.6, rear = 0.2, paw = 0.8, pawHz = 5, nod = 0.1, spark = 8, flash = 1 },
+		-- lifts its iron horn high, the hot tip glowing
+		ironhorn_beetle = { kind = "rear", every = 8, seconds = 1.8, rear = 0.22, paw = 0.4, pawHz = 3, nod = 0.25, spark = 8, flash = 1.5 },
+		-- a wool puff: fluffs up and shakes, embers rising
+		pyrolamb = { kind = "puff", every = 7, seconds = 1.4, puff = 0.15, shake = 0.1, shakeHz = 8, flap = 0, flapHz = 0, spark = 10, flash = 1 },
+		-- ruffles up and beats its wings, the chest gem flashing
+		thermowl = { kind = "puff", every = 7, seconds = 1.5, puff = 0.14, shake = 0.08, shakeHz = 7, flap = 0.7, flapHz = 6, spark = 10, flash = 2 },
+		-- rears and stomps, the armour rims flaring
+		forge_bear = { kind = "rear", every = 8, seconds = 2, rear = 0.3, paw = 0.6, pawHz = 2.5, nod = 0.15, spark = 14, flash = 2 },
+		-- lifts off on solar-flare wings, tail flame blazing
+		coreflare_drake = { kind = "soar", every = 8, seconds = 2.6, rise = 0.35, flap = 0.9, flapHz = 2.5, spark = 14, flash = 2 },
+		-- floats up and turns slowly, the planet shell glowing
+		planetcore_turtle = { kind = "bloop", every = 7, seconds = 3, stretch = 0.1, float = 0.18, spin = 1, spark = 14, flash = 2 },
 	} :: { [string]: { [string]: any } },
 }
 Config.mapFx = { gateBarsDrop = 23, -- the bars reach into the lintel now (2026-11-17), so they sink further
@@ -2020,7 +2125,16 @@ Config.gear = {
 		prices = { 150, 15e3, 120e3, 4e6, 75e6, 1e9, 60e9, 7.5e12, 750e12, 12e15 } },
 	{ key = "cozy_hat", name = "Cozy Cap", shape = "hat", start = 40e3, field = "coinMult", per = 0.1, word = "coins",
 		prices = { 40e3, 120e3, 7.5e6, 20e6, 300e6, 5e9, 400e9, 20e12, 2e15, 20e15 } },
+	-- Frost Bombs (owner 2026-11-19, PvP): one level, bought once (max = 1); Config.bombs has the rest
+	{ key = "frost_bombs", name = "Frost Bombs", shape = "bomb", start = 1e6, field = "bombs", per = 0, word = "", max = 1,
+		prices = { 1e6 } },
 } :: { GearItem }
+
+-- a gear's top level (Frost Bombs: 1)
+function Config.gearMaxOf(key: string): number
+	local g = Config.gearItem(key)
+	return if g and g.max then g.max else Config.gearMax
+end
 
 -- the gear's number at a level (1 = no effect at level 0)
 function Config.gearAt(key: string, level: number): number
@@ -2031,7 +2145,7 @@ end
 -- what the next level costs (nil at the top)
 function Config.gearPrice(key: string, level: number): number?
 	local g = Config.gearItem(key)
-	if not g or level >= Config.gearMax then
+	if not g or level >= (g.max or Config.gearMax) then
 		return nil
 	end
 	if g.prices and g.prices[level + 1] then
@@ -2045,6 +2159,9 @@ function Config.gearText(key: string, level: number): string
 	local g = Config.gearItem(key)
 	if not g then
 		return ""
+	end
+	if g.field == "bombs" then
+		return `Press 2: place up to {Config.bombs.max} traps`
 	end
 	if g.field == "rangeMult" then
 		local x = (string.format("%.2f", Config.gearAt(key, level)):gsub("%.?0+$", ""))
@@ -2074,6 +2191,8 @@ Config.gearIcons = {
 	cozy_hat = "rbxassetid://132801452561040", gel = "rbxassetid://92227942664230",
 	-- painted 2026-11-18 (FLUX seed 41, icons/gear_frost_pack.png)
 	frost_pack = "rbxassetid://134712160129622",
+	-- painted 2026-11-19 (Figma sunburst, icons/gear_frost_bombs.png; decal 111497096539771)
+	frost_bombs = "rbxassetid://78227627700682",
 } :: { [string]: string }
 
 -- owner 2026-11-15: "did you make actual models for the gear so you can see it on your character":
@@ -2486,6 +2605,7 @@ Config.aim = {
 Config.hotbar = {
 	slots = {
 		{ id = "ray", label = "Ice Ray", key = Enum.KeyCode.One },
+		{ id = "bomb", label = "Bombs", key = Enum.KeyCode.Two }, -- once Frost Bombs are bought (2026-11-19)
 	},
 	gamepadPrev = Enum.KeyCode.ButtonL1, gamepadNext = Enum.KeyCode.ButtonR1,
 	size = 0.12, gap = 0.018, bottomInset = 0.025, -- shares of the screen's short side
@@ -2612,26 +2732,72 @@ Config.chasers = {
 	wanderSpeed = 3,
 	chaseSpeed = 13, -- only for an island missing from byIsland
 	aggroRange = 45,
-	catchRange = 3.5,
+	catchRange = 4.5, -- grown with size (3.5 at size 3.2)
 	afterCatch = 4, -- seconds a critter sits happily cooling down after a catch
 	freezeSeconds = 1.6, -- with gun 1 (the gun's power speeds it up, like pets)
 	frozenBase = 10, -- seconds frozen = frozenBase / island heat (hotter = shorter)
 	frozenMin = 3, frozenMax = 20,
-	size = 3.2,
-	look = { pet = "conehog" } :: { [string]: string }, -- which pet's art a critter wears until its own art exists
+	-- owner 2026-11-20: the chasers are "scarier" biome animals at Large pet size (was 3.2, hedgehog-sized).
+	-- One per island (look["<zone>"] = its PetModels key, set as each model lands): 1 Snow Wolf, 2 Grizzly Bear,
+	-- 3 Spore Boar, 4 Brute Crab, 5 Jaguar, 6 Giant Scorpion, 7 Horned Bull, 8 Magma Rhino, 9 Lava Croc,
+	-- 10 Ember Golem. Cartoon-tough (snarl, glowing eyes, spikes), never gore or horror.
+	size = 7,
+	look = { pet = "conehog", -- which pet's art a critter wears until its own art exists
+		["1"] = "chaser_snow_wolf", ["2"] = "chaser_grizzly_bear", ["3"] = "chaser_spore_boar",
+		["4"] = "chaser_brute_crab", ["5"] = "chaser_jungle_jaguar", -- 2026-11-20; 6-10 still to make
+	} :: { [string]: string },
 }
+
+-- Ambient weather on the plainest islands (AmbientFx, 2026-11-20): one box of toon particles over the island's
+-- floor, client-only, only near the camera's island, off on Low graphics. height = studs above the floor;
+-- size = { start, middle } studs; alpha = how see-through at its fullest; drift = a steady pull (wind, fall);
+-- rate = particles a second for the whole island.
+do
+	local SMOKE, SPARK = "rbxasset://textures/particles/smoke_main.dds", "rbxasset://textures/particles/sparkles_main.dds"
+	local snow = function(rate: number)
+		-- first try (0.35-0.6 studs, rate 22) vanished against the white snow; bigger, a touch denser and brighter
+		return { texture = SMOKE, direction = Enum.NormalId.Bottom, height = 30, rate = rate,
+			color = { Color3.fromRGB(255, 255, 255), Color3.fromRGB(235, 246, 255) }, light = 0.7, size = { 0.7, 1.2 }, alpha = 0,
+			life = { 9, 12 }, speed = { 2, 3.5 }, spread = 25, drift = Vector3.new(0.8, -1.6, 0.3), spin = 60 }
+	end
+	Config.ambientFx = {
+		checkEvery = 0.5,
+		islands = {
+			["1"] = snow(45), -- Snowy Meadow: soft snowfall
+			["2"] = snow(26), -- Pine Forest: lighter snow under the trees
+			-- Sunny Beach: sun glints twinkling just over the sand
+			["4"] = { texture = SPARK, direction = Enum.NormalId.Top, height = 3, rate = 16,
+				color = { Color3.fromRGB(255, 244, 190), Color3.fromRGB(255, 255, 255) }, light = 1, size = { 0.3, 0.7 }, alpha = 0.15,
+				life = { 1.4, 2.4 }, speed = { 0.3, 0.8 }, spread = 40, drift = Vector3.new(0, 0.3, 0), spin = 90 },
+		},
+	}
+end
 
 -- Ray-tag (owner 2026-11-02, overrides the old "no theft" rule): shoot a player who carries a cube and
 -- their meter fills; at 1 they tumble over and their top cube pops out as a dazed pet anyone can zap.
 -- Never in the hub, never your banked pets; a shield for a new player's first minutes of play (two-way: you
 -- can't tag anyone while you have it) and a short one after you've been tagged.
+-- PvP final plan (owner 2026-11-19, vault PvP Plan): the gun works like a bat. One click on a carrier in
+-- range is a hit: they're frozen in an ice block for frozenSeconds and their cube drops to the ground, where
+-- anyone can grab it at once (CarryService.dropOpen). hitCooldown: between your hits. afterTagShield: after
+-- you thaw (was 10 s: in a 1-v-1 fight the first one hit could never answer).
 Config.tag = {
-	freezeSeconds = 1.4, -- with gun 1
+	freezeSeconds = 0.05, -- the aim's first tick is the hit (was a 1.4 s hold)
 	thawPerSecond = 0.5,
-	ragdollSeconds = 2.2,
+	frozenSeconds = 1,
+	hitCooldown = 1,
 	shieldMinutes = 15, -- of play time, once per player (saved), not per server
-	afterTagShield = 10, -- seconds
+	afterTagShield = 1.5, -- seconds, from the moment you thaw
 }
+
+-- Frost Bombs (owner 2026-11-19): bought once at the Equipment Booth (Config.gear frost_bombs), held from hotbar
+-- slot 2; a click or tap places one at your feet. At most `max` out (one more replaces your oldest), each lasts
+-- `life` s, `cooldown` s between them. A player CARRYING a cube who comes within `radius` of someone else's bomb
+-- is frozen for freezeMax s (each tap / key / click takes tapCut s off, never below freezeMin) and drops the
+-- cube. Empty-handed players walk over them. Shooting one with the ray pops it. Islands only, never the hub.
+Config.bombs = { max = 3, life = 60, cooldown = 3, radius = 3.5, size = 2.2, freezeMax = 5, freezeMin = 2, tapCut = 0.5,
+	-- strong blue on the white snow (play test 2026-11-19: the pale ice colour vanished on snow), a dark ring around
+	color = Color3.fromRGB(30, 140, 255), ringColor = Color3.fromRGB(20, 60, 190) }
 
 -- Codes (Settings): unlocked after catching needPets pets. The codes themselves live on the server only
 -- (ServerStorage.Codes), so nobody can read them from the client.
@@ -3054,5 +3220,181 @@ Config.art.spectacle = {
 	-- the detailed sun patch: rays round the rim (rayCount, rayLength x radius), turning rayTurn rad/s
 	sun = { rayCount = 14, rayLength = 0.45, rayTurn = 0.15 },
 }
+
+-- =====================================================================================================
+-- "Every score to 10" pass (owner 2026-11-19 evening). ExtrasService (server) + ExtrasController (client).
+-- =====================================================================================================
+
+-- Ray skins (teen appeal): a skin recolours your freeze beam, muzzle flares and gun tips for EVERYONE who sees
+-- you shoot (player attribute "RaySkin"). Never stronger, only a look. how = the line on its locked card.
+-- unlock: "default" | "rebirth" (n rebirths) | "event" (Config.eventSkins) | "starter" (Starter Pack) | "vip" (VIP
+-- pass) | "login" (7th day of the login calendar) | "weekly" (all 3 weekly quests once). rainbow = the glow cycles.
+export type RaySkin = { id: string, name: string, how: string, unlock: string, n: number?, core: Color3, glow: Color3, spark: Color3, rainbow: boolean? }
+Config.raySkins = {
+	{ id = "default", name = "Classic Ice", how = "Your gun's own colours", unlock = "default", core = Color3.fromHex("ffffff"), glow = Color3.fromHex("7fe3ff"), spark = Color3.fromHex("dff6ff") },
+	{ id = "glacier", name = "Glacier", how = "Event: bring home 8 pets during BIG CHILL", unlock = "event", core = Color3.fromHex("e8fbff"), glow = Color3.fromHex("1f6fff"), spark = Color3.fromHex("a8e6ff") },
+	{ id = "clover", name = "Lucky Clover", how = "Event: bring home 2 Rare+ during LUCKY RUSH", unlock = "event", core = Color3.fromHex("f4fff0"), glow = Color3.fromHex("3ddc6a"), spark = Color3.fromHex("ffe066") },
+	{ id = "goldrush", name = "Gold Rush", how = "Event: bring home a Golden pet during GOLDEN RUSH", unlock = "event", core = Color3.fromHex("fffbe8"), glow = Color3.fromHex("ffb21f"), spark = Color3.fromHex("fff3b0") },
+	{ id = "coinstorm", name = "Coin Storm", how = "Event: bring home 10 pets during COIN RUSH", unlock = "event", core = Color3.fromHex("fff6e0"), glow = Color3.fromHex("ff8a3c"), spark = Color3.fromHex("ffd34a") },
+	{ id = "starlight", name = "Starlight", how = "Event: bring home a Secret pet", unlock = "event", core = Color3.fromHex("fbf4ff"), glow = Color3.fromHex("a65cff"), spark = Color3.fromHex("ffffff") },
+	{ id = "sunset", name = "Sunset Ice", how = "Reach Rebirth 2", unlock = "rebirth", n = 2, core = Color3.fromHex("fff0f0"), glow = Color3.fromHex("ff6f7f"), spark = Color3.fromHex("ffc8a0") },
+	{ id = "toxic", name = "Toxic Frost", how = "Reach Rebirth 3", unlock = "rebirth", n = 3, core = Color3.fromHex("f6fff0"), glow = Color3.fromHex("9dff2f"), spark = Color3.fromHex("e0ffb0") },
+	{ id = "void", name = "Void Ice", how = "Reach Rebirth 5", unlock = "rebirth", n = 5, core = Color3.fromHex("f0e8ff"), glow = Color3.fromHex("6a2bff"), spark = Color3.fromHex("ff4fd8") },
+	{ id = "prism", name = "Prism", how = "Reach Rebirth 10", unlock = "rebirth", n = 10, core = Color3.fromHex("ffffff"), glow = Color3.fromHex("ff5fd0"), spark = Color3.fromHex("ffffff"), rainbow = true },
+	{ id = "snowflake", name = "Snowflake", how = "Day 7 of the login calendar", unlock = "login", core = Color3.fromHex("ffffff"), glow = Color3.fromHex("ffb3e6"), spark = Color3.fromHex("ffffff") },
+	{ id = "champion", name = "Champion", how = "Finish all 3 weekly quests", unlock = "weekly", core = Color3.fromHex("fffbe8"), glow = Color3.fromHex("2fd6ff"), spark = Color3.fromHex("ffd34a") },
+	{ id = "frostbite", name = "Frostbite", how = "In the Starter Pack", unlock = "starter", core = Color3.fromHex("f0fffd"), glow = Color3.fromHex("00e5c8"), spark = Color3.fromHex("b0fff2") },
+	{ id = "royal", name = "Royal Frost", how = "VIP pass", unlock = "vip", core = Color3.fromHex("fffdf0"), glow = Color3.fromHex("ffd700"), spark = Color3.fromHex("ffffff") },
+} :: { RaySkin }
+function Config.raySkin(id: any): RaySkin?
+	for _, s in Config.raySkins do
+		if s.id == id then
+			return s
+		end
+	end
+	return nil
+end
+-- event skins: progress counts pets brought home WHILE that server event runs (Config.events ids), saved, so
+-- it adds up over several events. need = pets; rank = only this tier rank and up; mut = only this mutation.
+Config.eventSkins = {
+	{ skin = "glacier", event = "chill", need = 8 },
+	{ skin = "clover", event = "luck", need = 2, rank = 3 },
+	{ skin = "goldrush", event = "golden", need = 1, mut = "Golden" },
+	{ skin = "coinstorm", event = "coins", need = 10 },
+	{ skin = "starlight", event = "secret", need = 1 }, -- "secret": any time, a Secret pet
+}
+
+-- Freeze Streak (core loop, owner 2026-11-19: "like Fisch's"): every pet you bring home adds 1; a cube that melts
+-- sets it back to 0 (owner: "yes reset to 0", an owner exception to Game Design Rules 8 › loss aversion: it is a
+-- per-session combo, nothing saved is ever lost). Not saved (a rejoin starts at 0); your best is saved.
+-- Each point = +perPoint coins (income), up to maxBonus. Shown over your head to everyone from showFrom, its
+-- colour stepping up at each `tiers` mark (a pop, a sound, and a server shout from shoutFrom).
+Config.streak = {
+	-- maxBonus 0.3 (not 0.5): the pacing sim (Rebirth 1 ~8.5 min, game ~5.3 h) has no streak in it; +30% at most keeps
+	-- a great player inside the owner's 4-6 h target
+	perPoint = 0.01, maxBonus = 0.3, showFrom = 3, shoutFrom = 50,
+	tiers = {
+		{ at = 3, color = Color3.fromHex("9fe4ff"), name = "" },
+		{ at = 10, color = Color3.fromHex("38c8ff"), name = "HOT HANDS" },
+		{ at = 25, color = Color3.fromHex("8f6bff"), name = "ICE COLD" },
+		{ at = 50, color = Color3.fromHex("ff5fd0"), name = "UNSTOPPABLE" },
+		{ at = 100, color = Color3.fromHex("ffd34a"), name = "FROZEN LEGEND" },
+	},
+}
+function Config.streakBonus(n: number): number
+	return math.min(Config.streak.maxBonus, math.max(0, n) * Config.streak.perPoint)
+end
+function Config.streakTier(n: number): { at: number, color: Color3, name: string }?
+	local best = nil
+	for _, t in Config.streak.tiers do
+		if n >= t.at then
+			best = t
+		end
+	end
+	return best
+end
+
+-- Login calendar (retention, in the Daily popup): one claim per UTC day; each claim moves you one day on. Missing a
+-- day never resets it (Game Design Rules 8): you carry on where you were. After day 7 it starts again at day 1.
+-- coins = minutes of your own income (never under floor, never over capShare of your next rebirth).
+Config.login = {
+	floor = 250, capShare = 0.03,
+	days = {
+		{ coins = 2 },
+		{ superFreeze = 1 },
+		{ coins = 4 },
+		{ speed = 0.25, minutes = 10 },
+		{ coins = 6 },
+		{ superFreeze = 2 },
+		{ coins = 10, superFreeze = 3, skin = "snowflake" },
+	},
+}
+
+-- Weekly quests (retention): 3 bigger goals per UTC week (Monday), picked per player like the daily ones. Each pays
+-- rewardMinutes of income (capped at capShare of the next rebirth) + superFreeze; all 3 done = the Champion skin
+-- (once) and allBonus Super Freezes every week after.
+Config.weekly = {
+	count = 3, rewardMinutes = 10, capShare = 0.1, floor = 1000, superFreeze = 2, allBonus = 3,
+	pool = {
+		{ id = "freeze", text = "Freeze {n} pets", stat = "frozen", goals = { 120, 160, 200 } },
+		{ id = "bank", text = "Bring {n} pets home", stat = "banked", goals = { 70, 90, 110 } },
+		{ id = "rare", text = "Catch {n} Rare or better", stat = "rares", goals = { 10, 14, 18 } },
+		{ id = "coins", text = "Earn {n} coins", stat = "coinsEarned", incomeMinutes = { 90, 120 }, floor = 20000 },
+	} :: { ChallengeDef },
+}
+
+-- Milestone chests (progression): between two rebirths, chests open as the coins you EARN this run (not spent ones)
+-- reach these shares of your next rebirth's price. Each pays coins = share of that price + extras.
+Config.milestones = {
+	{ at = 0.25, coinShare = 0.03, superFreeze = 1, name = "Ice Chest" },
+	{ at = 0.5, coinShare = 0.04, speed = 0.25, minutes = 10, name = "Frost Chest" },
+	{ at = 0.75, coinShare = 0.05, superFreeze = 2, name = "Glacier Chest" },
+}
+
+-- Rebirth titles (teen appeal): a title tag over your head from Rebirth 2 (everyone sees it), with its own colour.
+Config.rebirthTitles = {
+	{ at = 1, name = "Reborn", color = Color3.fromHex("9fe4ff") },
+	{ at = 2, name = "Frost Rookie", color = Color3.fromHex("ff8a9a") },
+	{ at = 3, name = "Cold Pro", color = Color3.fromHex("9dff2f") },
+	{ at = 5, name = "Ice Master", color = Color3.fromHex("b48cff") },
+	{ at = 10, name = "Frost Legend", color = Color3.fromHex("ffd34a") },
+	{ at = 20, name = "Absolute Zero", color = Color3.fromHex("ffffff") },
+}
+function Config.rebirthTitle(n: number): { at: number, name: string, color: Color3 }?
+	local best = nil
+	for _, t in Config.rebirthTitles do
+		if n >= t.at then
+			best = t
+		end
+	end
+	return best
+end
+
+-- Almost there (retention): a small toast once per goal when it is this far done (client side).
+Config.nudge = { at = 0.85, seconds = 4, cooldown = 45, quietSeconds = 300 } -- quietSeconds: none in a new player's first 5 min
+
+-- Trading (owner 2026-11-19, Game Design Rules 6 "a confirm screen"): ask someone near you (or from the Players
+-- list), both put in up to maxPets pets, both press Ready, then a confirmSeconds wait in which any change un-readies
+-- both (no swap-and-switch scams), then both Accept. The server swaps both sides in one go and saves both. Each
+-- side shows its total coins a second; a big gap shows an "Unfair?" warning (unfairRatio). Pets in a Thaw Machine
+-- can't go in. minPlayMinutes: new accounts wait a little (alt scams). Region rules: no trading where
+-- PolicyService says paid-item trading isn't allowed (pets can come from paid luck).
+Config.trade = { maxPets = 4, confirmSeconds = 3, requestSeconds = 20, range = 30, minPlayMinutes = 15, unfairRatio = 3,
+	cooldown = 5, maxPerHour = 20 }
+
+-- Safety: Mute (server side, per player, for this server): you stop seeing that player's chat. Block opens Roblox's
+-- own Block prompt. Report: Roblox's own Report menu.
+Config.safety = { maxMuted = 50 }
+
+-- Security: teleport flags (PlayerTracker): more than kickFlags flags in windowSeconds = a polite soft kick (the
+-- save is kept; nothing is taken).
+-- (a normal join already makes ~3 flags: the hop to your pan, so the bar is well above that)
+Config.antiCheat = { kickFlags = 10, windowSeconds = 60, kickText = "Something went wrong with your movement. Please rejoin!" }
+
+-- Achievement badges (game page). id 0 = not made yet (skipped). Made through Open Cloud only on free slots
+-- (owner 2026-11-19: never spend Robux on badges); the rest wait with their icons ready.
+-- made 2026-11-19 (5 free slots): first_freeze, first_rebirth, first_secret, island_5, streak_50. The rest: icons ready in
+-- icons/products/out3, run tools/rbx_create_v3.py ... badges on another day (it only ever uses free slots)
+Config.badges = {
+	first_freeze = 419793865033169, first_rebirth = 2266898956288048, island_5 = 2608545254805347, island_10 = 0,
+	first_secret = 97364668863295, streak_50 = 2204459788686243,
+	login_7 = 0, first_trade = 0, skins_5 = 0, weekly_all = 0,
+	frozen_legend = 0, -- the Secret badge: bring home a Secret pet while on a 100+ Freeze Streak
+}
+
+-- Starter Pack (owner 2026-11-19: "a limited offers category at the top of the shop with the starter pack"):
+-- one time per player, no random items. featureMinutes: during your first minutes of play time the Shop opens on
+-- it and it pulses. hideAfterMinutes = nil: stays buyable after that (Game Design Rules 8: no fake scarcity);
+-- set a number to hide it after that much play time.
+Config.starterPack = { featureMinutes = 10, hideAfterMinutes = nil :: number?, coinMinutes = 180, coinFloor = 15000,
+	superFreeze = 3, speed = 0.5, speedMinutes = 10, skin = "frostbite" }
+-- VIP pass: a gold VIP tag over your head, the Royal Frost skin and +coinBonus coins
+Config.vip = { coinBonus = 0.1 }
+
+-- ExtrasController's HUD pieces (shares of the screen's short side; x/y of the screen): the left column (Chest,
+-- Skins, Players), the Freeze Streak chip, the toasts
+Config.ui.extras = { columnX = 0.988, columnY = 0.46, -- the right edge (the menu tiles fill the left)
+	 buttonSize = 0.085, gap = 0.04,
+	streakX = 0.988, streakY = 0.115, streakW = 0.4, streakH = 0.058, toastY = 0.2 } -- streak: top right (the top middle has the banners)
 
 return Config

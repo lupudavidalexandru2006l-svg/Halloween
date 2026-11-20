@@ -28,7 +28,7 @@ local GearService = require(script.Parent.GearService)
 -- Rare): its ground cube never opens to anyone else (2026-11-19 bug check: others could grab it after openAfter)
 export type CubeInfo = { key: string, zone: number, pose: string, mut: string?, sz: string?, superFrozen: boolean, superUsed: boolean, offered: boolean, personal: boolean? }
 export type Cube = CubeInfo & { uid: string, life: number, lifeMax: number, since: number, part: Part? , shownFrac: number,
-	graceUntil: number } -- no melting before this (os.clock): the freeze show for this cube is still playing
+	graceUntil: number, openNow: boolean?, dropLeft: number? } -- openNow / dropLeft: knocked out of someone's hands (dropOpen). no melting before this (os.clock): the freeze show for this cube is still playing
 
 local CarryService = {}
 local carrying: { [Player]: { Cube } } = {}
@@ -53,7 +53,7 @@ local function groundLeft(c: Cube): number
 	if G <= 0 then
 		return 1
 	end
-	return math.clamp((G - (os.clock() - math.max(c.since, c.graceUntil))) / G, GROUND_KEEP_MIN, 1)
+	return math.clamp((G - (os.clock() - math.max(c.since, c.graceUntil))) / G, GROUND_KEEP_MIN, 1) * (c.dropLeft or 1)
 end
 
 function CarryService.count(player: Player): number
@@ -298,11 +298,18 @@ function CarryService.pickUp(player: Player, uid: string, auto: boolean?)
 	carrying[player] = hands
 	changed(player)
 	Remotes.fire(player, "Notify", "pickedUp", { uid = cube.uid, key = cube.key, from = from })
+	if cube.openNow then
+		Remotes.fire(player, "Notify", "gotBack", { key = cube.key }) -- your own cube, back from a scramble
+		cube.openNow, cube.dropLeft = nil, nil
+	end
 	TutorialService.did(player, "pickup")
 end
 
 -- the freezer left it: Config.carry.openAfter seconds after it lands (after its show), anyone near can take it
 local function openAt(c: Cube): number
+	if c.openNow then
+		return 0 -- knocked out of someone's hands (PvP): anyone can grab it at once
+	end
 	if c.personal then
 		return math.huge -- a personal pet's cube stays its freezer's
 	end
@@ -358,6 +365,9 @@ function CarryService.claim(who: Player, owner: Player, uid: string)
 	carrying[who] = hands
 	changed(who)
 	Remotes.fire(who, "Notify", "pickedUp", { uid = cube.uid, key = cube.key, from = from })
+	if old.openNow and owner.Parent then
+		Remotes.fire(owner, "Notify", "cubeStolen", { by = who.DisplayName, key = old.key }) -- PvP: shoot them to get it back
+	end
 	TutorialService.did(who, "pickup")
 end
 
@@ -476,6 +486,7 @@ local function melt(player: Player, c: Cube)
 		d.stats.melts += 1
 	end)
 	AnalyticsSvc.melted(player) -- a leave right after this reads "left_after_melt" (session_end)
+	require(script.Parent.Hooks).melted(player) -- the Freeze Streak goes back to 0 (ExtrasService)
 	local plot = WorldService.plotOf(player)
 	local home = if plot then WorldRules.plotCenter(plot) else Config.world.spawn
 	AnalyticsSvc.event(player, "cube_melted", {
@@ -528,6 +539,64 @@ function CarryService.knockOff(player: Player, open: boolean): string?
 	local z = math.clamp(pos.Z + math.sin(angle) * 4, Config.world.hubZMax + 2, Config.world.tunnelEnd - 2) -- never in the safe hub
 	local at = Vector3.new(math.clamp(pos.X + math.cos(angle) * 4, -half, half), 0, z)
 	WildPetSpawner.spawnDazed({ key = cube.key, zone = cube.zone, pose = cube.pose, mut = cube.mut, sz = cube.sz, superUsed = cube.superUsed, offered = true }, at, player, false, open, not open)
+	return cube.key
+end
+
+-- PvP (owner 2026-11-19): a hit or a Frost Bomb knocks your cube out of your hands onto the ground beside you.
+-- Anyone can pick it up at once (openAt), you included; its ice keeps the share it had (dropLeft) and keeps
+-- running down, so every scramble ends. Never a Super Freeze cube (a paid one) or one still in its show.
+function CarryService.dropOpen(player: Player): string?
+	local list = carrying[player]
+	if not list then
+		return nil
+	end
+	local c: Cube? = nil
+	for i = #list, 1, -1 do
+		if not list[i].superFrozen and os.clock() >= list[i].graceUntil then
+			c = table.remove(list, i)
+			break
+		end
+	end
+	if not c then
+		return nil
+	end
+	local cube = c :: Cube
+	local left = math.clamp(cube.life / math.max(cube.lifeMax, 1e-3), 0.05, 1)
+	if cube.part then
+		cube.part:Destroy()
+	end
+	changed(player)
+	local def = PetDefs.get(cube.key)
+	local pos = PlayerTracker.position(player)
+	if not def or not pos then
+		return nil
+	end
+	-- a few studs to one side, on the ground under it
+	local angle = math.random() * math.pi * 2
+	local side = Vector3.new(pos.X + math.cos(angle) * 4, pos.Y, pos.Z + math.sin(angle) * 4)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local skip: { Instance } = { folder, groundFolder }
+	for _, p in Players:GetPlayers() do
+		if p.Character then
+			table.insert(skip, p.Character)
+		end
+	end
+	params.FilterDescendantsInstances = skip
+	local hit = workspace:Raycast(side + Vector3.new(0, 6, 0), Vector3.new(0, -40, 0), params)
+	local floor = if hit then hit.Position.Y else pos.Y - 3
+	local petAt = Vector3.new(side.X, floor + PetDefs.height(def, cube.sz) / 2, side.Z)
+	local uid = CarryService.dropCube(player, { key = cube.key, zone = cube.zone, pose = cube.pose, mut = cube.mut, sz = cube.sz,
+		superFrozen = false, superUsed = cube.superUsed, offered = cube.offered, personal = cube.personal }, petAt, 0)
+	for _, g in ground[player] or {} do
+		if g.uid == uid then
+			g.openNow = true
+			g.dropLeft = left
+			if g.part then
+				g.part:SetAttribute("LifeFrac", left)
+			end
+		end
+	end
 	return cube.key
 end
 
@@ -596,6 +665,9 @@ local function tick(dt: number)
 	end
 	-- cubes waiting on the ground: the ice clears up as their time runs out (same look as a melt), then the pet wakes up
 	for player, list in (if Config.carry.groundSeconds > 0 then ground else {}) do -- 0: they never wake up
+		if TutorialService.learning(player) then
+			continue -- the tutorial pet waits for its new player (QA PT-03)
+		end
 		for _, c in table.clone(list) do
 			local left = Config.carry.groundSeconds - (now - math.max(c.since, c.graceUntil))
 			if left <= 0 then
@@ -621,7 +693,8 @@ local function tick(dt: number)
 		end
 		local rate = WorldRules.meltRate(pos) * nightFactor
 		local data = DataService.get(player)
-		local noMelt = data ~= nil and data.tester.noMelt -- tester switch (off for everyone else)
+		local noMelt = (data ~= nil and data.tester.noMelt) -- tester switch (off for everyone else)
+			or TutorialService.learning(player) -- the first carry home never melts (QA PT-03)
 		for _, c in table.clone(list) do
 			if not c.superFrozen and not chill and not noMelt and os.clock() >= c.graceUntil then
 				c.life -= rate * dt

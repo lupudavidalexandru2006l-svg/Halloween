@@ -59,6 +59,11 @@ local function loadPolicy(player: Player)
 		return PolicyService:GetPolicyInfoForPlayerAsync(player)
 	end)
 	randomItemsOk[player] = ok and typeof(info) == "table" and info.ArePaidRandomItemsRestricted == false
+	-- the Shop hides Lucky Ray, Server Luck and the Welcome Deal without it (QA CA-01, 2026-11-19)
+	player:SetAttribute("RandomItemsOk", randomItemsOk[player])
+	-- trading (2026-11-19): pets can come from paid luck, so trading follows the paid-item trading rule. A failed
+	-- lookup = no trading (the safe answer). TradeService reads this attribute.
+	player:SetAttribute("TradeOk", ok and typeof(info) == "table" and info.IsPaidItemTradingAllowed == true)
 end
 
 local function offerPet(player: Player, petId: any): WildPetSpawner.WildPet?
@@ -300,7 +305,12 @@ local function grantItem(player: Player, item: Config.RobuxItem): { [string]: an
 	local now = os.time()
 	local minutes = (item.minutes or 0) * 60
 	-- the 2026-11-18 boosts (BoostService runs them)
-	if kind == "deal" then
+	local SP = Config.starterPack
+	if kind == "starter" then
+		-- the Starter Pack (2026-11-19): 3 hours of coins, 3 Super Freeze, a Mega Speed Potion and the Frostbite skin
+		coins = Config.robuxCoins({ minutes = SP.coinMinutes, floor = SP.coinFloor } :: any, PenService.incomePerSecond(d))
+		charges = SP.superFreeze
+	elseif kind == "deal" then
 		local bag = Config.robuxItem("coinsSmall")
 		coins = if bag then Config.robuxCoins(bag, PenService.incomePerSecond(d)) else 0
 		charges = 3
@@ -332,6 +342,15 @@ local function grantItem(player: Player, item: Config.RobuxItem): { [string]: an
 		elseif kind == "deal" then
 			b.deal = true
 			b.luckUntil = math.max(now, b.luckUntil) + 30 * 60
+		elseif kind == "starter" then
+			x.extra.starter = true
+			x.extra.skins[SP.skin] = true
+			local mult = 1 + SP.speed
+			if now < b.speedUntil and b.speedMult >= mult then
+				b.speedUntil += SP.speedMinutes * 60
+			else
+				b.speedMult, b.speedUntil = mult, now + SP.speedMinutes * 60
+			end
 		elseif kind == "welcomeDouble" then
 			x.welcome = nil
 			b.lastWelcome = 0
@@ -360,6 +379,10 @@ end
 
 -- every game pass in the shop, asked of Roblox once the save is loaded
 local function checkPass(player: Player)
+	-- Studio tests as a new player: the tester's owned passes stay off (Config.dev.noPasses, QA CA-05)
+	if Config.dev.noPasses and game:GetService("RunService"):IsStudio() then
+		return
+	end
 	for _, item in Config.monetization.shop do
 		local passId = item.passId or 0
 		if item.kind == "pass" and passId ~= 0 then
@@ -382,8 +405,18 @@ local function buyRobux(player: Player, id: any)
 		return
 	end
 	local d0 = DataService.get(player) :: any
+	-- paid random items (Config.oddsKind: Lucky Ray, Server Luck, Welcome Deal) only where the policy allows them,
+	-- odds shown in the Shop (QA CA-01/02, Game Design Rules 10)
+	if Config.oddsKind[item.kind] and not MonetizationService.randomItemsAllowed(player) then
+		Remotes.notYet(player, "Not available here")
+		return
+	end
 	if item.kind == "deal" and d0.boosts.deal then
 		Remotes.notYet(player, "You already have the Welcome Deal")
+		return
+	end
+	if item.kind == "starter" and d0.extra.starter then
+		Remotes.notYet(player, "You already have the Starter Pack")
 		return
 	end
 	if item.kind == "welcomeDouble" and not d0.welcome then
@@ -503,9 +536,46 @@ local function processReceipt(receipt: { [string]: any }): Enum.ProductPurchaseD
 	return Enum.ProductPurchaseDecision.PurchaseGranted
 end
 
+-- QA Rules 6b (2026-11-19): the Robux price check, printed in Studio on every server start. Flags anything a new or
+-- changed product could slip past: an id not made yet, a price off the known points, a random kind with no odds,
+-- and the kinds Game Design Rules 8/11 ask the owner to look at (pay-to-protect, paid skip of a wait).
+local PRICE_POINTS = { [15] = true, [19] = true, [25] = true, [39] = true, [49] = true, [59] = true, [99] = true, [149] = true, [199] = true }
+local RANDOM_KINDS = { luck = true, serverLuck = true, deal = true }
+local OWNER_LOOK = { shield = "pay-to-protect (Game Design Rules 11)" }
+local function robuxCheck()
+	local problems = {}
+	for _, item in Config.monetization.shop do
+		if not Config.robuxReady(item) then
+			table.insert(problems, `{item.id}: no product/pass id yet`)
+		end
+		if not PRICE_POINTS[item.robux] then
+			table.insert(problems, `{item.id}: price {item.robux} is not a known price point`)
+		end
+		if RANDOM_KINDS[item.kind] and not Config.oddsKind[item.kind] then
+			table.insert(problems, `{item.id}: random item without shown odds`)
+		end
+		if OWNER_LOOK[item.kind] then
+			table.insert(problems, `{item.id}: owner decision, {OWNER_LOOK[item.kind]}`)
+		end
+	end
+	for _, t in Config.thaw.skip.tiers do
+		if t.productId ~= 0 then
+			table.insert(problems, `thaw skip {t.robux} R$: owner decision, paid skip of a wait (Game Design Rules 8)`)
+			break
+		end
+	end
+	print(`[RobuxCheck] {#Config.monetization.shop} shop items, {#problems} problems`)
+	for _, p in problems do
+		warn("[RobuxCheck] " .. p)
+	end
+end
+
 function MonetizationService.Init() end
 
 function MonetizationService.Start()
+	if RunService:IsStudio() then
+		task.spawn(robuxCheck)
+	end
 	MarketplaceService.ProcessReceipt = processReceipt
 	-- 2x Welcome Back closed without buying: the card's coins are collected as usual, so they're never left behind
 	local wd = Config.robuxItem("welcomeDouble")

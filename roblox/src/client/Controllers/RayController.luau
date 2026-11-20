@@ -35,7 +35,7 @@ local RayController = {}
 local R = Config.ray
 local A = Config.aim
 local me = Players.LocalPlayer
-local guns: { [Model]: { model: Model, tier: number } } = {}
+local guns: { [Model]: { model: Model, tier: number, skin: any } } = {}
 export type Freeze = {
 	root: BasePart, style: string, gun: number,
 	u: number, -- the server's meter (0-1)
@@ -62,7 +62,8 @@ local lastSent = 0
 -- hit's flare and emitters and goes a moment after the beam is dropped.
 type BeamSet = { beams: { Beam }, sparkles: { ParticleEmitter }, tip: Attachment, target: Attachment, head: Attachment,
 	born: number, landed: boolean, tier: number, core: Beam, spray: ParticleEmitter, seed: number,
-	hitFlare: ParticleEmitter, hitSmoke: ParticleEmitter, muzzleFlare: ParticleEmitter, muzzleSmoke: ParticleEmitter, muzzleLight: PointLight }
+	hitFlare: ParticleEmitter, hitSmoke: ParticleEmitter, muzzleFlare: ParticleEmitter, muzzleSmoke: ParticleEmitter, muzzleLight: PointLight,
+	rainbow: boolean? }
 local beamSets: { [string]: BeamSet } = {}
 local reticle: { gui: BillboardGui, ring: Frame, fill: Frame, hint: TextLabel }? = nil
 
@@ -106,6 +107,20 @@ local function gunTierOf(p: Player?): number
 	return if typeof(t) == "number" then math.clamp(math.floor(t), 1, math.min(#Theme.guns, #Config.guns.list)) else 1
 end
 
+-- a player's beam colours: their ray skin (attribute RaySkin, Config.raySkins, 2026-11-19), else their gun's own.
+-- Prism (rainbow) picks a hue from the clock; stepBeams keeps it cycling.
+local function skinLook(p: Player?, tier: number): { core: Color3, glow: Color3, spark: Color3 }
+	local s = p and Config.raySkin(p:GetAttribute("RaySkin"))
+	if s then
+		if s.rainbow then
+			return { core = s.core, glow = Color3.fromHSV((os.clock() * 0.35) % 1, 0.6, 1), spark = s.spark }
+		end
+		return { core = s.core, glow = s.glow, spark = s.spark }
+	end
+	return Theme.guns[tier] or Theme.guns[1]
+end
+RayController.skinLook = skinLook
+
 -- one part of the stand-in gun, placed relative to its body (the body sits at the origin)
 local function place(body: BasePart, p: BasePart, at: CFrame)
 	p.CFrame = body.CFrame * at
@@ -119,7 +134,7 @@ end
 -- ReplicatedStorage.GunModels.<key> exists (a PrimaryPart called Body and RayTip attachments);
 -- until then the STAND-IN: a barrel that grows each tier, one glowing tip per beam, a tank in the
 -- gun's glow, fins (3+), a glowing ring (5+) and a crystal (9+). Also used by the buy show.
-function RayController.buildGun(tier: number): Model
+function RayController.buildGun(tier: number, skin: { core: Color3, glow: Color3, spark: Color3 }?): Model
 	local g = Config.gun(tier)
 	local models = ReplicatedStorage:FindFirstChild("GunModels")
 	local real = models and models:FindFirstChild(g.key)
@@ -127,7 +142,7 @@ function RayController.buildGun(tier: number): Model
 		local m = real:Clone()
 		m.Name = "IceRay"
 		-- painted glow comes out flat in 3D, so each barrel tip gets a small light in the gun's glow (Pet Rules 5)
-		local look = Theme.guns[tier] or Theme.guns[1]
+		local look = skin or Theme.guns[tier] or Theme.guns[1]
 		for _, a in m:GetDescendants() do
 			if a:IsA("Attachment") and a.Name:sub(1, 6) == "RayTip" then
 				local l = Instance.new("PointLight")
@@ -140,7 +155,7 @@ function RayController.buildGun(tier: number): Model
 		return m
 	end
 	local S = Config.guns.standIn
-	local look = Theme.guns[tier] or Theme.guns[1]
+	local look = skin or Theme.guns[tier] or Theme.guns[1]
 	local m = Instance.new("Model")
 	m.Name = "IceRay"
 	local len = S.barrel + S.barrelPerGun * (tier - 1)
@@ -185,6 +200,7 @@ end
 local function giveGun(character: Model)
 	local p = Players:GetPlayerFromCharacter(character)
 	local tier = gunTierOf(p)
+	local skinId = p and p:GetAttribute("RaySkin")
 	local had = guns[character]
 	if not showsGun(p) then -- everything is put away (hotbar): no gun in the hand
 		if had then
@@ -193,7 +209,7 @@ local function giveGun(character: Model)
 		end
 		return
 	end
-	if had and had.tier == tier then
+	if had and had.tier == tier and had.skin == skinId then
 		return
 	end
 	local hand = character:WaitForChild("RightHand", 5) or character:FindFirstChild("Right Arm")
@@ -202,13 +218,13 @@ local function giveGun(character: Model)
 	end
 	had = guns[character]
 	if had then
-		if had.tier == tier then
+		if had.tier == tier and had.skin == skinId then
 			return
 		end
 		had.model:Destroy()
 		guns[character] = nil
 	end
-	local m = RayController.buildGun(tier)
+	local m = RayController.buildGun(tier, if skinId then skinLook(p, tier) else nil)
 	local body = m.PrimaryPart :: BasePart
 	for _, d in m:GetDescendants() do
 		if d:IsA("BasePart") then
@@ -230,7 +246,7 @@ local function giveGun(character: Model)
 	m:PivotTo(hand.CFrame * base * c1:Inverse() * body.PivotOffset) -- the weld holds it there from now on
 	weld(hand, body, base).C1 = c1
 	m.Parent = character
-	guns[character] = { model = m, tier = tier }
+	guns[character] = { model = m, tier = tier, skin = skinId }
 	character.Destroying:Once(function()
 		guns[character] = nil
 	end)
@@ -241,7 +257,7 @@ local function watchPlayer(p: Player)
 	if p.Character then
 		task.spawn(giveGun, p.Character)
 	end
-	for _, attr in { "GunTier", "Held" } do
+	for _, attr in { "GunTier", "Held", "RaySkin" } do
 		p:GetAttributeChangedSignal(attr):Connect(function()
 			if p.Character then
 				task.spawn(giveGun, p.Character) -- a better gun, or the ray put away / taken out
@@ -281,6 +297,16 @@ local function candidates(): { Target }
 		local hrp = p ~= me and p.Character and p.Character:FindFirstChild("HumanoidRootPart")
 		if hrp and hrp:IsA("BasePart") and p:GetAttribute("Taggable") == true and me:GetAttribute("Shielded") ~= true then
 			table.insert(out, { kind = "player", id = tostring(p.UserId), part = hrp })
+		end
+	end
+	-- Frost Bombs (2026-11-19): one zap pops them (BombService)
+	local bombs = workspace:FindFirstChild("FrostBombs")
+	if bombs then
+		for _, b in bombs:GetChildren() do
+			local id = b:GetAttribute("BombId")
+			if b:IsA("BasePart") and typeof(id) == "string" then
+				table.insert(out, { kind = "bomb", id = id, part = b })
+			end
 		end
 	end
 	return out
@@ -535,8 +561,9 @@ local function vapour(parent: Instance, color: Color3, rate: number): ParticleEm
 	return e
 end
 
-local function makeBeams(tip: Attachment, part: BasePart, tier: number): BeamSet
-	local look = Theme.guns[tier] or Theme.guns[1]
+local function makeBeams(tip: Attachment, part: BasePart, tier: number, owner: Player?): BeamSet
+	local look = skinLook(owner, tier)
+	local skin = owner and Config.raySkin(owner:GetAttribute("RaySkin"))
 	local w = R.beamPerGun * (tier - 1)
 	local target = aimAttachment(part)
 	local from = tip.WorldPosition
@@ -548,7 +575,10 @@ local function makeBeams(tip: Attachment, part: BasePart, tier: number): BeamSet
 		if L.lowGfx == false and lowGfx() then
 			continue
 		end
-		local color = if L.color == "glow" then look.glow elseif L.color == "spark" then look.spark else look.core
+		-- owner 2026-11-20 ("the ray is still white even if you choose red"): the widest smoke layer drew in the
+		-- pale spark colour, so with the white core and frost vapour a skin only tinted one thin layer. With a
+		-- skin on, every smoke layer takes the skin's glow colour.
+		local color = if L.color == "glow" or (skin and L.tex == "smoke") then look.glow elseif L.color == "spark" then look.spark else look.core
 		local b = texturedBeam(tip, head, L, color)
 		b.Width0 = L.width * L.muzzle + w
 		b.Width1 = L.width + w * (if L.tex == "smoke" then 3 else 1)
@@ -564,11 +594,12 @@ local function makeBeams(tip: Attachment, part: BasePart, tier: number): BeamSet
 	-- the hit: a flare on the target, vapour billowing off it, ice flakes spraying back, a light
 	local hitFlare = flare(head, look.glow, BM.hitFlare * (1 + 0.04 * (tier - 1)))
 	hitFlare.Enabled = calm()
-	local hitSmoke = vapour(head, Theme.fx.frost, 0)
+	local mist = if skin then Theme.fx.frost:Lerp(look.glow, 0.6) else Theme.fx.frost -- a skin tints the vapour too
+	local hitSmoke = vapour(head, mist, 0)
 	hitSmoke.EmissionDirection = Enum.NormalId.Top
 	local spray = Instance.new("ParticleEmitter")
 	spray.Texture = TX.sparkle
-	spray.Color = ColorSequence.new(look.spark, Theme.fx.frost)
+	spray.Color = ColorSequence.new(look.spark, mist)
 	spray.LightEmission = 0.8
 	spray.EmissionDirection = Enum.NormalId.Top -- the head's up axis points back at the shooter
 	spray.SpreadAngle = Vector2.new(55, 55)
@@ -588,7 +619,7 @@ local function makeBeams(tip: Attachment, part: BasePart, tier: number): BeamSet
 	light.Parent = head
 	-- the muzzle: a flare and a curl of cold vapour off the barrel, with its own light
 	local muzzleFlare = flare(tip, look.glow, BM.muzzleFlare * (1 + 0.04 * (tier - 1)))
-	local muzzleSmoke = vapour(tip, Theme.fx.frost, BM.muzzleVapour)
+	local muzzleSmoke = vapour(tip, mist, BM.muzzleVapour)
 	muzzleSmoke.EmissionDirection = Enum.NormalId.Right -- the barrel points along the tip's +X
 	local ml = Instance.new("PointLight")
 	ml.Color = look.glow
@@ -603,6 +634,7 @@ local function makeBeams(tip: Attachment, part: BasePart, tier: number): BeamSet
 		spray = spray, hitFlare = hitFlare, hitSmoke = hitSmoke,
 		muzzleFlare = muzzleFlare, muzzleSmoke = muzzleSmoke, muzzleLight = ml,
 		seed = math.random() * 100,
+		rainbow = skin ~= nil and skin.rainbow == true,
 	}
 end
 
@@ -623,6 +655,15 @@ local function stepBeams(set: BeamSet, now: number)
 	local stop = to - unit * math.min(BM.hitBack, dir.Magnitude * 0.4)
 	local headAt = from:Lerp(stop, 1 - (1 - u) ^ 3)
 	set.head.WorldCFrame = upAlong(headAt, -unit) -- up points back at the shooter: the spray bounces off
+	if set.rainbow then -- the Prism skin: the glow layers cycle through the rainbow
+		local c = Color3.fromHSV((now * 0.35) % 1, 0.6, 1)
+		for _, b in set.beams do
+			if b ~= set.core then
+				b.Color = ColorSequence.new(c)
+			end
+		end
+		set.muzzleLight.Color = c
+	end
 	if not set.landed and u >= 1 then
 		set.landed = true
 		set.spray:Emit(if lowGfx() then math.floor(BM.landBurst / 2) else BM.landBurst) -- the head hits: one splash of ice
@@ -798,7 +839,7 @@ local function muzzle(c: Model, kind: string)
 		return
 	end
 	local F = AN.fx
-	local look = Theme.guns[tier] or Theme.guns[1]
+	local look = skinLook(Players:GetPlayerFromCharacter(c), tier)
 	-- a flare at the barrel that grows from one size to another and fades
 	local function popFlare(fromSize: number, toSize: number, seconds: number, alpha: number)
 		RayController.popFlare(tip, look.glow, fromSize, toSize, seconds * timeScale(), alpha)
@@ -1091,7 +1132,7 @@ local function drawBeams()
 		if gun then
 			local tip = gun.model:FindFirstChild("RayTip" .. w.n, true) or gun.model:FindFirstChild("RayTip", true)
 			if tip and tip:IsA("Attachment") then
-				beamSets[key] = makeBeams(tip, w.part, gun.tier)
+				beamSets[key] = makeBeams(tip, w.part, gun.tier, w.player)
 			end
 		end
 	end
@@ -1645,21 +1686,9 @@ function RayController.Start()
 				at = os.clock(),
 			}
 		elseif kind == "tagged" and typeof(data) == "table" then
-			-- ray-tag: this client owns its character's physics, so it lies the Humanoid down (the server
-			-- loosened the joints) and gets up again when the tumble ends
+			-- ray-tag (2026-11-19): the server holds you in an ice block (anchored), so nothing to do here but
+			-- drop any aim lock
 			locked = nil
-			local c = me.Character
-			local hum = c and c:FindFirstChildOfClass("Humanoid")
-			local hrp = c and c:FindFirstChild("HumanoidRootPart")
-			if hum and hrp and hrp:IsA("BasePart") then
-				hum:ChangeState(Enum.HumanoidStateType.Physics)
-				hrp:ApplyImpulse((hrp.CFrame.LookVector * -6 + Vector3.new(0, 10, 0)) * hrp.AssemblyMass)
-				task.delay(if typeof(data.seconds) == "number" then data.seconds else Config.tag.ragdollSeconds, function()
-					if hum.Parent then
-						hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-					end
-				end)
-			end
 		elseif kind == "tooWarm" and typeof(data) == "table" then
 			-- this gun can't freeze that island's pets: no beam, the pet shakes a little
 			local root = petRoot(data.id)

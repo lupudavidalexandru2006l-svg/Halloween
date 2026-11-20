@@ -1634,6 +1634,7 @@ end
 local function step(dt: number)
 	local t = os.clock()
 	local mine = 0
+	local lowest = 1 -- the least ice on a cube you carry (the chase music and melt tick)
 	local cam = workspace.CurrentCamera
 	local reduced = SettingsController.get("reducedMotion") == true
 	-- the island I'm on: wild pets show only there (from the hub, island 1 shows too: it's open to it)
@@ -1845,6 +1846,9 @@ local function step(dt: number)
 		-- the real ice left
 		local safe = WorldRules.inHub(part.Position)
 		local life = if typeof(frac) == "number" and not superFrozen and not safe then math.clamp(frac, 0, 1) else 1
+		if part:GetAttribute("OwnerUserId") == me.UserId and not c.onGround then
+			lowest = math.min(lowest, life)
+		end
 		if life < c.lastFrac - 1e-4 then
 			c.meltAt = t -- it's melting right now (in the hub or a Big Chill it stops)
 		end
@@ -1898,6 +1902,7 @@ local function step(dt: number)
 		end
 	end
 	CameraController.setCarrying(mine > 0)
+	SoundController.setCarry(mine, lowest)
 end
 
 local function watch(name: string, add: (Instance) -> (), remove: (Instance) -> ())

@@ -20,6 +20,10 @@ local streaks: { [string]: { at: number, n: number } } = {}
 local music: Sound? = nil
 local musicName = ""
 local CROSSFADE = 1.5
+-- the run home (PvP Plan 2026-11-18: thrilling = fast and playful, never tense): PetVisuals reports how many
+-- cubes you carry and the lowest ice left each frame
+local carryCount, carryLife = 0, 1
+local zoneMusic = "music_meadow"
 
 -- volume ramps on task.wait, not TweenService: tweens only step while the client renders, and music
 -- must never get stuck silent (seen in Studio with the play window in the background)
@@ -133,6 +137,25 @@ local function setMusic(name: string)
 	music = s
 end
 
+-- another player close while you carry (PvP Plan: "you can hear that it's getting close")
+local nearOther = false
+
+local function wantedMusic(): string
+	if carryCount > 0 then
+		return if carryLife < S.carryHotBelow or nearOther then "carry_chase_hot" else "carry_chase_calm"
+	end
+	return zoneMusic
+end
+
+-- PetVisuals calls this every frame
+function SoundController.setCarry(count: number, lowestLife: number)
+	carryCount, carryLife = count, lowestLife
+	local want = wantedMusic()
+	if want ~= musicName then
+		setMusic(want)
+	end
+end
+
 -- SettingsController calls this
 function SoundController.setEnabled(musicEnabled: boolean, soundEnabled: boolean)
 	sfxOn = soundEnabled
@@ -145,7 +168,10 @@ function SoundController.setEnabled(musicEnabled: boolean, soundEnabled: boolean
 end
 
 local NOTIFY_SOUNDS: { [string]: string } = {
-	frozen = "freeze", melted = "melt", -- banked: EffectsController's tally plays "bank" at its finale notYet = "no", upgraded = "buy",
+	frozen = "freeze", melted = "melt", pickedUp = "snag",
+	-- PvP (2026-11-19): ElevenLabs batch 1
+	tagged = "player_frozen", bombFrozen = "player_frozen", tagHit = "ice_tap", bombHit = "ice_tap", thawed = "ice_free",
+	bombPlaced = "bomb_arm", gotBack = "got_back", -- banked: EffectsController's tally plays "bank" at its finale notYet = "no", upgraded = "buy",
 	giftClaimed = "gift", welcomeCollected = "coin", zoneUnlocked = "unlock", bridge = "bridge",
 	chillStart = "chill", bigWin = "reveal_rare", pageDone = "reveal_rare", gunBought = "buy", gunEquipped = "click",
 	friendJoined = "friend", challengeDone = "challenge", challengeClaimed = "coin",
@@ -158,15 +184,46 @@ function SoundController.Start()
 		if kind == "frozen" and typeof(data) == "table" and data.show == nil then
 			return -- a plain snap: EffectsController plays the freeze after its hit-stop (Sound Rules 11)
 		end
+		if kind == "bombPop" then
+			-- every client hears a bomb pop, but only near it
+			local c = Players.LocalPlayer.Character
+			local root = c and c:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if root and typeof(data) == "table" and typeof(data.at) == "Vector3" and (root.Position - data.at).Magnitude < S.popHearStuds then
+				SoundController.play("bomb_pop")
+			end
+			return
+		end
 		local name = NOTIFY_SOUNDS[kind]
 		if name then
 			SoundController.play(name)
 		end
 	end)
+	-- is another player within nearStuds while you carry? (twice a second is plenty)
+	task.spawn(function()
+		while true do
+			local near = false
+			local c = Players.LocalPlayer.Character
+			local root = c and c:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if root and carryCount > 0 then
+				for _, p in Players:GetPlayers() do
+					local r = p ~= Players.LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+					if r and (r.Position - root.Position).Magnitude < S.nearStuds then
+						near = true
+						break
+					end
+				end
+			end
+			if near ~= nearOther then
+				nearOther = near
+				SoundController.setCarry(carryCount, carryLife)
+			end
+			task.wait(0.5)
+		end
+	end)
 	-- the first minute's sounds load before they're needed, so the first catch isn't silent (Sound Rules 9)
 	task.spawn(function()
 		local list = {}
-		for _, name in { "click", "ray_charge", "ray_clack", "ray_fire", "ray_hum", "tink", "freeze", "bank", "coin", "music_meadow" } do
+		for _, name in { "click", "ray_charge", "ray_clack", "ray_fire", "ray_hum", "tink", "freeze", "bank", "coin", "music_meadow", "snag", "made_it_home", "carry_chase_calm" } do
 			local id = S.ids[name]
 			if id and id ~= 0 then
 				local s = Instance.new("Sound")
@@ -186,9 +243,24 @@ function SoundController.Start()
 			local c = Players.LocalPlayer.Character
 			local root = c and c:FindFirstChild("HumanoidRootPart") :: BasePart?
 			if root then
-				setMusic(if WorldRules.zoneAt(root.Position) == 2 then "music_forest" else "music_meadow")
+				zoneMusic = if WorldRules.zoneAt(root.Position) == 2 then "music_forest" else "music_meadow"
+				setMusic(wantedMusic())
 			end
 			task.wait(1)
+		end
+	end)
+	-- a carried cube running low ticks softly, faster near the end (the flashing ice is its visual partner)
+	task.spawn(function()
+		local last = 0
+		while true do
+			if carryCount > 0 and carryLife < S.tickBelow then
+				local every = if carryLife < S.tickBelow / 2 then S.tickEvery / 2 else S.tickEvery
+				if os.clock() - last >= every then
+					last = os.clock()
+					SoundController.play("melt_tick")
+				end
+			end
+			task.wait(0.1)
 		end
 	end)
 end

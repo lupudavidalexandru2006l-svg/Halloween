@@ -5,6 +5,8 @@
 -- While Slow Gel is held, a click / tap on the ground throws a puddle (the server checks reach and the
 -- cooldown; the slot drains while it cools down). Above the slots: your shield pill while you're safe
 -- from ray-tag (TagService, the "ShieldUntil" attribute).
+-- Frost Bombs (2026-11-19): slot 2 once bought; a click / tap / R2 places one at your feet (BombService). Frozen by
+-- a bomb (the "CanBreak" attribute): a big "TAP!" card in the middle; every tap, click or key cracks the ice.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -19,6 +21,7 @@ local State = require(script.Parent.State)
 local Screen = require(script.Parent.Screen)
 local InputController = require(script.Parent.InputController)
 local SoundController = require(script.Parent.SoundController)
+local EffectsController = require(script.Parent.EffectsController)
 
 local GearController = {}
 local H = Config.hotbar
@@ -29,7 +32,8 @@ local shieldPill: Frame
 local shieldText: TextLabel
 local coolUntil = 0
 
-local ICONS = { ray = Config.images.icons.ray, gel = Config.gearIcons.gel or Config.images.icons.motion } :: { [string]: string } -- gel: its own painted flask (2026-11-15)
+local ICONS = { ray = Config.images.icons.ray, gel = Config.gearIcons.gel or Config.images.icons.motion,
+	bomb = Config.gearIcons.frost_bombs or Config.images.icons.temp } :: { [string]: string } -- gel: its own painted flask (2026-11-15); bomb: placeholder until its painted icon
 
 local function held(): string
 	local h = me:GetAttribute("Held")
@@ -39,7 +43,7 @@ end
 local function owned(): { string }
 	local list = {}
 	for _, s in H.slots do
-		if s.id == "ray" or (s.id == "gel" and me:GetAttribute("GearGel") == true) then
+		if s.id == "ray" or (s.id == "gel" and me:GetAttribute("GearGel") == true) or (s.id == "bomb" and me:GetAttribute("GearBomb") == true) then
 			table.insert(list, s.id)
 		end
 	end
@@ -113,11 +117,45 @@ local function step()
 	-- owner 2026-11-16 (QA IR-06): the SAFE countdown is hidden; it was one timer too many on a new player's
 	-- HUD. The shield still works, and "Your shield is off" still shows when it ends.
 	shieldPill.Visible = false
-	local gel = slots.gel
-	if gel then
-		local c = math.clamp((coolUntil - os.clock()) / Config.gel.cooldown, 0, 1)
-		gel.cool.Size = UDim2.fromScale(1, c)
+	local bomb = slots.bomb
+	if bomb then
+		local c = math.clamp((coolUntil - os.clock()) / Config.bombs.cooldown, 0, 1)
+		bomb.cool.Size = UDim2.fromScale(1, c)
 	end
+end
+
+-- Frost Bomb: placed at your feet (the server finds the ground and checks the cooldown and the max)
+local function placeBomb()
+	if os.clock() < coolUntil then
+		return
+	end
+	coolUntil = os.clock() + Config.bombs.cooldown
+	State.send("PlaceBomb")
+end
+
+-- frozen by a bomb: the TAP card and its countdown
+local breakGui: ScreenGui
+local breakCard: TextLabel
+local breakLeft: TextLabel
+local function frozenStep()
+	local on = me:GetAttribute("CanBreak") == true
+	breakGui.Enabled = on
+	if on then
+		local u = me:GetAttribute("FrozenUntil")
+		local left = if typeof(u) == "number" then math.max(0, u - workspace:GetServerTimeNow()) else 0
+		breakLeft.Text = string.format("%.1f s", left)
+	end
+end
+local function crack()
+	if me:GetAttribute("CanBreak") ~= true then
+		return false
+	end
+	State.send("BreakIce")
+	SoundController.play("ice_tap")
+	-- a little shake of the card: you can see every tap land
+	breakCard.Rotation = (math.random() < 0.5 and -1 or 1) * 6
+	TweenService:Create(breakCard, TweenInfo.new(0.12), { Rotation = 0 }):Play()
+	return true
 end
 
 -- Slow Gel: throw at the spot under the pointer (the server clamps it to the throw's reach)
@@ -178,7 +216,33 @@ function GearController.Start()
 	shieldPill.Visible = false
 	Screen.register("hotbar", bar)
 	refresh()
-	for _, attr in { "Held", "GearGel" } do
+	-- the TAP card (frozen by a Frost Bomb)
+	breakGui = Instance.new("ScreenGui")
+	breakGui.Name = "BreakFree"
+	breakGui.ResetOnSpawn = false
+	breakGui.DisplayOrder = 20
+	breakGui.Enabled = false
+	breakCard = Ui.label(breakGui, "TAP TAP TAP!", UDim2.fromScale(0.5, 0.12), UDim2.fromScale(0.25, 0.3))
+	breakCard.Name = "Tap"
+	breakCard.TextColor3 = Theme.white
+	breakLeft = Ui.label(breakGui, "", UDim2.fromScale(0.3, 0.07), UDim2.fromScale(0.35, 0.43))
+	breakLeft.Name = "Left"
+	breakLeft.TextColor3 = Theme.white
+	-- a dark rounded plate behind the words: bare white text was lost on snow and under world prompts
+	-- (phone check 2026-11-19, 784x361)
+	local plate = Instance.new("Frame")
+	plate.Name = "Plate"
+	plate.BackgroundColor3 = Theme.ink
+	plate.BackgroundTransparency = 0.25
+	plate.BorderSizePixel = 0
+	plate.Position = UDim2.fromScale(0.23, 0.28)
+	plate.Size = UDim2.fromScale(0.54, 0.24)
+	Ui.corner(plate)
+	plate.Parent = breakGui
+	breakCard.ZIndex, breakLeft.ZIndex = 2, 2
+	breakGui.Parent = me:WaitForChild("PlayerGui")
+	RunService.RenderStepped:Connect(frozenStep)
+	for _, attr in { "Held", "GearGel", "GearBomb" } do
 		me:GetAttributeChangedSignal(attr):Connect(refresh)
 	end
 	me:GetAttributeChangedSignal("GunLocked"):Connect(function()
@@ -221,9 +285,26 @@ function GearController.Start()
 		end
 		return keys
 	end)()))
-	-- throwing gel: click / tap while it's held
+	-- frozen by a bomb: any tap, click or key cracks the ice (before anything else reads it)
+	UserInputService.InputBegan:Connect(function(input: InputObject)
+		local t = input.UserInputType
+		if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch or t == Enum.UserInputType.Keyboard
+			or t == Enum.UserInputType.Gamepad1 then
+			crack()
+		end
+	end)
+	-- placing a Frost Bomb: click / tap / R2 while it's held
 	UserInputService.InputBegan:Connect(function(input: InputObject, processed: boolean)
-		if processed or held() ~= "gel" then
+		if processed or me:GetAttribute("CanBreak") == true then
+			return
+		end
+		if held() == "bomb" then
+			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.KeyCode == Enum.KeyCode.ButtonR2 then
+				placeBomb()
+			end
+			return
+		end
+		if held() ~= "gel" then
 			return
 		end
 		-- a finger throws on a tap (TouchTap below), not when it lands: every camera drag threw a puddle
@@ -238,14 +319,20 @@ function GearController.Start()
 		end
 	end)
 	UserInputService.TouchTap:Connect(function(positions: { Vector2 }, processed: boolean)
-		if processed or held() ~= "gel" or not positions[1] then
+		if processed or not positions[1] or me:GetAttribute("CanBreak") == true then
 			return
 		end
-		throwAt(positions[1])
+		if held() == "bomb" then
+			placeBomb()
+		elseif held() == "gel" then
+			throwAt(positions[1])
+		end
 	end)
-	State.Notify:Connect(function(kind: string)
+	State.Notify:Connect(function(kind: string, data: any)
 		if kind == "gearBought" then
 			refresh()
+		elseif kind == "bombPop" and typeof(data) == "table" and typeof(data.at) == "Vector3" then
+			EffectsController.burst(data.at, Theme.ice) -- a puff of snow, never a boom
 		end
 	end)
 end

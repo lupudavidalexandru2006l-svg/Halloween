@@ -82,6 +82,7 @@ local TX: { [string]: string } = {
 	income = "Gameplay", sell = "Gameplay", away = "TimedReward", daily = "TimedReward", code = "TimedReward",
 	free_gift = "Onboarding", tutorial = "Onboarding", robux_pack = "IAP",
 	gun = "Shop", gear = "Shop", pan = "Shop", shop = "Shop", rebirth = "Shop",
+	login = "TimedReward", weekly = "TimedReward", chest = "Gameplay", -- 2026-11-19 (ExtrasService)
 }
 local pending: { [Player]: { [string]: { flow: string, n: number } } } = {}
 

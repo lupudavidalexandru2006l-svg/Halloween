@@ -1,0 +1,8 @@
+{"parts": [
+  ["Ring", "0.3 < z < 0.5 and (x / 0.5) ** 2 + ((y - 0.15) / 0.4) ** 2 > 0.7 and 18 < h < 55 and s > 0.35"],
+  ["Head", "abs(x) < 0.28 and ((y < -0.12 and z > 0.42) or (y < 0.0 and z > 0.55))"],
+  ["PlanetGlow", "z > 0.45 and h < 32 and s > 0.6 and v > 0.6"],
+  ["LegFL", "z < 0.3 and y < -0.02 and x > 0"],
+  ["LegFR", "z < 0.3 and y < -0.02"],
+  ["LegBL", "z < 0.25 and y > 0.12 and x > 0"],
+  ["LegBR", "z < 0.25 and y > 0.12"]]}

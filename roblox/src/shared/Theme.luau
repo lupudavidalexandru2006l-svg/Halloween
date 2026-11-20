@@ -38,6 +38,8 @@ local Theme = {
 		charges = Color3.fromHex("3aa8ff"),
 		chill = Color3.fromHex("2ec4c4"),
 		power = Color3.fromHex("35c8e8"), -- Cold Power packs: frosty cyan
+		deal = Color3.fromHex("ff3d7f"), -- Limited offers: hot pink (2026-11-19)
+		starter = Color3.fromHex("ff3d7f"),
 	} :: { [string]: Color3 },
 	-- owner 2026-11-13: "different backgrounds for the things you buy": every product its own card colour
 	-- (its little world is mixed from it), so two cards side by side never look the same. Green stays
@@ -53,6 +55,8 @@ local Theme = {
 		doublePower = Color3.fromHex("35c8e8"), -- frosty cyan
 		powerSmall = Color3.fromHex("ff6a5a"), -- coral
 		powerBig = Color3.fromHex("d14fff"), -- magenta
+		starterPack = Color3.fromHex("00c2a8"), -- frostbite teal (2026-11-19)
+		vip = Color3.fromHex("e8a400"), -- VIP gold
 	} :: { [string]: Color3 },
 	-- shop v2 badges: the "+45% MORE" sticker in present pink (a bonus, never red), and the Best Value
 	-- ribbon in gold on ink, so the two never read as the same thing

@@ -1,0 +1,9 @@
+{"parts": [
+  ["ChestGlow", "y < -0.15 and 0.2 < z < 0.42 and abs(x) < 0.11 and (h < 25 or h > 340) and s > 0.5 and v > 0.55"],
+  ["EarL", "x > 0.15 and z > 0.84"],
+  ["EarR", "x < -0.15 and z > 0.84"],
+  ["WingL", "x > 0.28 and 0.1 < z < 0.47 and y > -0.15"],
+  ["WingR", "x < -0.28 and 0.1 < z < 0.47 and y > -0.15"],
+  ["Head", "z > 0.45"],
+  ["LegFL", "z < 0.07 and x > 0"],
+  ["LegFR", "z < 0.07"]]}

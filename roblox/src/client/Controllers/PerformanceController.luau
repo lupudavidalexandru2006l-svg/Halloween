@@ -60,7 +60,9 @@ local function apply(on: boolean)
 		end
 	else
 		for d in turnedOff do
-			if d:IsA("Light") or d:IsA("ParticleEmitter") then
+			if culled[d] then
+				turnedOff[d] = nil -- out of range: the distance cull turns it back on when you come near
+			elseif d:IsA("Light") or d:IsA("ParticleEmitter") then
 				(d :: any).Enabled = true
 				turnedOff[d] = nil
 			end
@@ -128,6 +130,74 @@ local function watchBoards()
 	end)
 end
 
+-- QA performance (2026-11-19): 239 decorative lights in the map, all lit all the time. Each client lights only the
+-- ones within Config.performance.lightCull studs of its camera (a light's glow never reaches further than its
+-- Range, so far ones cost frame time for nothing). Only Map.Art's Far / Tunnel / Hub lights; the gift box and
+-- anything the game switches itself are left alone. Low graphics still wins (it keeps them all off).
+local culled: { [Instance]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+local function cullable(d: Instance): boolean
+	if not d:IsA("Light") then
+		return false
+	end
+	local art = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Art")
+	if not art then
+		return false
+	end
+	for _, name in { "Far", "Tunnel", "Hub" } do
+		local f = art:FindFirstChild(name)
+		if f and d:IsDescendantOf(f) then
+			return true
+		end
+	end
+	return false
+end
+local function watchLights()
+	local lights: { Light } = {}
+	local map = workspace:WaitForChild("Map", 30)
+	if not map then
+		return
+	end
+	for _, d in map:GetDescendants() do
+		if cullable(d) then
+			table.insert(lights, d :: Light)
+		end
+	end
+	map.DescendantAdded:Connect(function(d)
+		task.defer(function()
+			if cullable(d) then
+				table.insert(lights, d :: Light)
+			end
+		end)
+	end)
+	task.spawn(function()
+		while true do
+			task.wait(0.6)
+			local cam = workspace.CurrentCamera
+			if not cam then
+				continue
+			end
+			local at = cam.CFrame.Position
+			local reach = PF.lightCull
+			for i = #lights, 1, -1 do
+				local l = lights[i]
+				local part = l.Parent
+				if not l.Parent then
+					table.remove(lights, i)
+				elseif part and part:IsA("BasePart") then
+					local near = (part.Position - at).Magnitude <= reach + l.Range
+					if not near and l.Enabled then
+						l.Enabled = false
+						culled[l] = true
+					elseif near and culled[l] and not low then
+						l.Enabled = true
+						culled[l] = nil
+					end
+				end
+			end
+		end
+	end)
+end
+
 function PerformanceController.Init() end
 
 function PerformanceController.Start()
@@ -146,6 +216,7 @@ function PerformanceController.Start()
 	end
 	watchFps()
 	watchBoards()
+	task.spawn(watchLights)
 end
 
 return PerformanceController

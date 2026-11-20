@@ -53,7 +53,7 @@ local PetDefs: { PetDef } = {
 	pet("aurora_owl", "Aurora Owl", 1, "Mythic", "Bird", "M", "178a63", { "WingL", "WingR", "ChestEmblem" }),
 	pet("snowglobe_drake", "Snowglobe Drake", 1, "Secret", "Custom", "M", "c8202f", { "SnowGlobe" }),
 	-- Pine Forest (zone 2): line-up approved 2026-11-07; 3D + rig done for Conehog, Hopsprout (friend's side) and
-	-- Capmouse, Mossfawn, Lanternbug, Mapleguard Bear (2026-11-11). Still 2D: Bloomhorn Stag, Glowshroom Mammoth
+	-- Capmouse, Mossfawn, Lanternbug, Mapleguard Bear (2026-11-11). Bloomhorn Stag, Glowshroom Mammoth (2026-11-19, single Body, not rigged yet)
 	pet("conehog", "Conehog", 2, "Common", "Quadruped", "S", "8a4b2a"),
 	pet("hopsprout", "Hopsprout", 2, "Common", "Quadruped", "S", "e7b528"),
 	pet("capmouse", "Capmouse", 2, "Uncommon", "Quadruped", "S", "6b2f8f"),
@@ -133,8 +133,8 @@ local PetDefs: { PetDef } = {
 	pet("ember_eel", "Ember Eel", 9, "Epic", "Swimmer", "M", "c41a7a", { "Stripe" }),
 	pet("caldera_hippo", "Caldera Hippo", 9, "Legendary", "Quadruped", "L", "167a7a", { "Crown" }),
 	pet("obsidian_swan", "Obsidian Swan", 9, "Mythic", "Bird", "M", "5a1fa0", { "FlameTrail" }),
-	pet("lakeheart_serpent", "Lakeheart Serpent", 9, "Secret", "Custom", "M", "b0132a", { "Core" }),
-	-- Magma Core (zone 10): roster card only, in the game as stand-ins (owner 2026-11-10)
+	pet("lakeheart_serpent", "Lakeheart Axolotl", 9, "Secret", "Custom", "M", "b0132a", { "Core" }),
+	-- Magma Core (zone 10): painted 2026-11-20 (pets/magma-core/), 3D from four views (TRELLIS)
 	pet("coreling", "Coreling", 10, "Common", "Blob", "S", "e8661a", { "Core" }),
 	pet("sparkmole", "Sparkmole", 10, "Common", "Quadruped", "S", "1d2a6b"),
 	pet("ironhorn_beetle", "Ironhorn Beetle", 10, "Uncommon", "Custom", "S", "1f7a3a"),
@@ -142,7 +142,7 @@ local PetDefs: { PetDef } = {
 	pet("thermowl", "Thermowl", 10, "Epic", "Bird", "M", "1f4fd0", { "ChestGem" }),
 	pet("forge_bear", "Forge Bear", 10, "Legendary", "Quadruped", "L", "b81f24", { "Plates" }),
 	pet("coreflare_drake", "Coreflare Drake", 10, "Mythic", "Custom", "M", "d9a316", { "Wings" }),
-	pet("planetcore_turtle", "Planetcore Turtle", 10, "Secret", "Custom", "M", "1f3fb0", { "Planet" }),
+	pet("planetcore_turtle", "Planetcore Turtle", 10, "Secret", "Custom", "M", "6a2fc8", { "Planet" }),
 }
 
 local byKey: { [string]: PetDef } = {}
@@ -152,6 +152,18 @@ end
 -- old stand-in keys that may sit in saves: show them as the real pet of the same slot
 for old, new in { vinewyrm = "bloomsloth", yipyap = "hoodoo_hare", hopalope = "ringo", gilly = "cliffkid", burrowl = "glowbat", sparkhorn_goat = "thunderchick", mesa_tortoise = "jade_qilin", sandstorm_lynx = "starwing_griffin", echo_whale = "hoodoo_golem" } do
 	byKey[old] = byKey[new]
+end
+
+-- the island chasers (owner 2026-11-20, Config.chasers.look): looked up by key for their art only. They are in
+-- byKey but NOT in the list, so they never spawn as catchable pets, show in the Index or count anywhere.
+for _, c in {
+	{ "chaser_snow_wolf", "Snow Wolf", 1, "9aa4b0" }, { "chaser_grizzly_bear", "Grizzly Bear", 2, "5a3a22" },
+	{ "chaser_spore_boar", "Spore Boar", 3, "5b2a7a" }, { "chaser_brute_crab", "Brute Crab", 4, "d9402a" },
+	{ "chaser_jungle_jaguar", "Jaguar", 5, "e0a030" }, { "chaser_giant_scorpion", "Giant Scorpion", 6, "d6a24a" },
+	{ "chaser_horned_bull", "Horned Bull", 7, "8a3a24" }, { "chaser_magma_rhino", "Magma Rhino", 8, "3a3a3a" },
+	{ "chaser_lava_croc", "Lava Croc", 9, "1e1e24" }, { "chaser_ember_golem", "Ember Golem", 10, "4a3a34" },
+} do
+	byKey[c[1]] = pet(c[1], c[2], c[3], "Common", "Quadruped", "L", c[4])
 end
 
 local M = {

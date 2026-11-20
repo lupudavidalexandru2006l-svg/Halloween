@@ -1,9 +1,9 @@
 --!strict
--- TagService (Round 5, owner 2026-11-02): ray-tag. A player who carries a cube outside the hub can be
--- shot like a pet: their meter fills (Config.tag.freezeSeconds / the shooter's gun power), and at 1
--- they tumble over for Config.tag.ragdollSeconds and their top cube pops out as a dazed pet only they
--- can zap back (CarryService.knockOff, not open: design review 2026-11-15, a tag is a funny tumble, never
--- a theft; a strong player could take a new player's Rare). Only cubes in hands; banked pets are never at risk.
+-- TagService (Round 5, owner 2026-11-02; PvP final plan 2026-11-19): ray-tag. The gun works like a bat: one
+-- click on a player who carries a cube outside the hub freezes them in an ice block for Config.tag.frozenSeconds
+-- and their cube drops to the ground for anyone to grab (CarryService.dropOpen; owner 2026-11-19: carried cubes
+-- can really be stolen). Frost Bombs (BombService) freeze the same way, longer, and you can tap to break out
+-- (BreakIce). Only cubes in hands; banked pets are never at risk. Nobody on the first tutorial lesson.
 -- Safe: the hub; a new player's first Config.tag.shieldMinutes of play, across visits (saved as
 -- data.shieldLeft; a two-way shield: you can't tag anyone while you have it); a short shield after being tagged. Attributes every client reads:
 -- Player "Taggable", "Shielded", "ShieldUntil" (server time), "Tagged"; the victim's
@@ -18,16 +18,25 @@ local DataService = require(script.Parent.DataService)
 local PlayerTracker = require(script.Parent.PlayerTracker)
 local CarryService = require(script.Parent.CarryService)
 local FreezeService = require(script.Parent.FreezeService)
+local TutorialService = require(script.Parent.TutorialService)
+local Theme = require(ReplicatedStorage.Shared.Theme)
 
 local TagService = {}
 local T = Config.tag
 type Victim = { meter: number, pushedAt: number, by: Player? }
 local victims: { [Player]: Victim } = {}
-local ragdoll: { [Player]: { Instance } } = {}
+type Frozen = { untilT: number, minT: number, block: BasePart? }
+local frozen: { [Player]: Frozen } = {}
+local lastHit: { [Player]: number } = {} -- the shooter's last hit (Config.tag.hitCooldown)
 
 local function shielded(p: Player): boolean
 	local u = p:GetAttribute("ShieldUntil")
 	return typeof(u) == "number" and workspace:GetServerTimeNow() < u
+end
+
+-- seconds before this shooter can tag again (Config.tag.hitCooldown); for the Studio tester hook
+function TagService.cooldownLeft(shooter: Player): number
+	return math.max(0, T.hitCooldown - (os.clock() - (lastHit[shooter] or -math.huge)))
 end
 
 local function byId(id: string): Player?
@@ -44,7 +53,9 @@ end
 local function taggable(p: Player): boolean
 	local pos = PlayerTracker.position(p)
 	return pos ~= nil and CarryService.knockable(p) and not WorldRules.inHub(pos) and not shielded(p) and p:GetAttribute("Tagged") ~= true
+		and not TutorialService.learning(p)
 end
+TagService.taggable = taggable
 
 local function setMeter(p: Player, v: Victim, meter: number, by: Player?)
 	v.meter = meter
@@ -61,70 +72,95 @@ local function setMeter(p: Player, v: Victim, meter: number, by: Player?)
 	end
 end
 
--- the tumble: every limb joint swaps to a loose ball joint, then back (the neck stays, so the
--- character is never hurt); the victim's own client lies the Humanoid down (it owns its physics)
-local function tumble(p: Player, on: boolean)
-	local c = p.Character
-	if not c then
+local function thaw(p: Player, f: Frozen)
+	if frozen[p] ~= f then
 		return
 	end
-	if on then
-		local made: { Instance } = {}
-		for _, m in c:GetDescendants() do
-			if m:IsA("Motor6D") and m.Name ~= "Neck" and m.Name ~= "RootJoint" and m.Name ~= "Root" and m.Part0 and m.Part1 then
-				local a0 = Instance.new("Attachment")
-				a0.Name = "TagA0"
-				a0.CFrame = m.C0
-				a0.Parent = m.Part0
-				local a1 = Instance.new("Attachment")
-				a1.Name = "TagA1"
-				a1.CFrame = m.C1
-				a1.Parent = m.Part1
-				local b = Instance.new("BallSocketConstraint")
-				b.Name = "TagJoint"
-				b.Attachment0 = a0
-				b.Attachment1 = a1
-				b.LimitsEnabled = true
-				b.UpperAngle = 60
-				b.Parent = m.Part0
-				m.Enabled = false
-				table.insert(made, a0)
-				table.insert(made, a1)
-				table.insert(made, b)
-				table.insert(made, m)
-			end
-		end
-		ragdoll[p] = made
-	else
-		for _, x in ragdoll[p] or {} do
-			if x:IsA("Motor6D") then
-				x.Enabled = true
-			else
-				x:Destroy()
-			end
-		end
-		ragdoll[p] = nil
+	frozen[p] = nil
+	if f.block then
+		f.block:Destroy()
+	end
+	local hrp = hrpOf(p)
+	if hrp then
+		hrp.Anchored = false
+	end
+	if p.Parent then
+		p:SetAttribute("FrozenUntil", nil)
+		p:SetAttribute("CanBreak", nil)
+		p:SetAttribute("Tagged", false)
+		-- a short shield from the moment you thaw (1.5 s: enough to grab your cube and run, short enough that
+		-- a fight goes back and forth)
+		local u = p:GetAttribute("ShieldUntil")
+		p:SetAttribute("ShieldUntil", math.max(if typeof(u) == "number" then u else 0, workspace:GetServerTimeNow() + T.afterTagShield))
+		Remotes.fire(p, "Notify", "thawed", {})
 	end
 end
 
-local function tag(victim: Player, by: Player)
-	local v = victims[victim]
-	if v then
-		setMeter(victim, v, 0, nil)
+-- freeze a player in a cartoon ice block (no damage, no knock-out: a funny pose for a moment). minSeconds:
+-- tapping (BreakIce) can bring it down to this; nil = no breaking out (a ray hit is only a second anyway)
+function TagService.freeze(p: Player, seconds: number, minSeconds: number?): boolean
+	local hrp = hrpOf(p)
+	if frozen[p] or not hrp then
+		return false
 	end
-	victims[victim] = nil
-	victim:SetAttribute("Tagged", true)
-	victim:SetAttribute("ShieldUntil", workspace:GetServerTimeNow() + T.ragdollSeconds + T.afterTagShield)
-	local key = CarryService.knockOff(victim, false)
-	tumble(victim, true)
-	Remotes.fire(victim, "Notify", "tagged", { by = by.DisplayName, seconds = T.ragdollSeconds, key = key })
-	Remotes.fire(by, "Notify", "tagHit", { name = victim.DisplayName, key = key })
-	task.delay(T.ragdollSeconds, function()
-		if victim.Parent then
-			tumble(victim, false)
-			victim:SetAttribute("Tagged", false)
+	local now = os.clock()
+	local f: Frozen = { untilT = now + seconds, minT = now + (minSeconds or seconds), block = nil }
+	frozen[p] = f
+	local v = victims[p]
+	if v then
+		setMeter(p, v, 0, nil)
+	end
+	victims[p] = nil
+	p:SetAttribute("Tagged", true)
+	p:SetAttribute("FrozenUntil", workspace:GetServerTimeNow() + seconds)
+	p:SetAttribute("CanBreak", minSeconds ~= nil and minSeconds < seconds)
+	hrp.AssemblyLinearVelocity = Vector3.zero
+	hrp.Anchored = true
+	local c = p.Character
+	if c then
+		local ok, cf, size = pcall(function()
+			return c:GetBoundingBox()
+		end)
+		local block = Instance.new("Part")
+		block.Name = "FrozenBlock"
+		block.Size = if ok and size.Magnitude < 20 then size + Vector3.new(1, 0.6, 1) else Vector3.new(5, 6.5, 4)
+		block.CFrame = if ok then cf else hrp.CFrame
+		block.Color = Theme.ice
+		block.Material = Enum.Material.SmoothPlastic -- not Glass (World Rules)
+		block.Transparency = 0.45
+		block.Anchored = true
+		block.CanCollide = false
+		block.CanQuery = false
+		block.CanTouch = false
+		block.CastShadow = false
+		block.Parent = c
+		f.block = block
+	end
+	task.spawn(function()
+		while frozen[p] == f and p.Parent and os.clock() < f.untilT do
+			task.wait(0.05)
 		end
+		thaw(p, f)
 	end)
+	return true
+end
+
+-- a tap, key or click while frozen by a bomb: the ice cracks a little faster (never below its minimum)
+local function onBreak(player: Player)
+	local f = frozen[player]
+	if not f or player:GetAttribute("CanBreak") ~= true then
+		return
+	end
+	f.untilT = math.max(f.minT, f.untilT - Config.bombs.tapCut)
+	player:SetAttribute("FrozenUntil", workspace:GetServerTimeNow() + math.max(0, f.untilT - os.clock()))
+end
+
+local function tag(victim: Player, by: Player)
+	lastHit[by] = os.clock()
+	local key = CarryService.dropOpen(victim)
+	TagService.freeze(victim, T.frozenSeconds, nil)
+	Remotes.fire(victim, "Notify", "tagged", { by = by.DisplayName, seconds = T.frozenSeconds, key = key })
+	Remotes.fire(by, "Notify", "tagHit", { name = victim.DisplayName, key = key })
 end
 
 function TagService.Init() end
@@ -140,6 +176,7 @@ function TagService.Start()
 			local from = PlayerTracker.position(shooter)
 			return p ~= nil and p ~= shooter and from ~= nil and not WorldRules.inHub(from) and not shielded(shooter)
 				and shooter:GetAttribute("Tagged") ~= true and taggable(p)
+				and os.clock() - (lastHit[shooter] or -math.huge) >= T.hitCooldown
 		end,
 		tick = function(shooter: Player, id: string, dt: number, gun: number)
 			local p = byId(id)
@@ -162,9 +199,20 @@ function TagService.Start()
 		player:SetAttribute("Shielded", data.shieldLeft > 0)
 		player:SetAttribute("Tagged", false)
 	end)
+	Remotes.on("BreakIce", onBreak)
 	Players.PlayerRemoving:Connect(function(p)
 		victims[p] = nil
-		ragdoll[p] = nil
+		frozen[p] = nil
+		lastHit[p] = nil
+	end)
+	-- a new character (a reset while frozen) starts unfrozen
+	Players.PlayerAdded:Connect(function(p)
+		p.CharacterAdded:Connect(function()
+			local f = frozen[p]
+			if f then
+				thaw(p, f)
+			end
+		end)
 	end)
 	task.spawn(function()
 		while true do

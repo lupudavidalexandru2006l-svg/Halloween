@@ -21,11 +21,13 @@ local CarryService = require(script.Parent.CarryService)
 local IndexService = require(script.Parent.IndexService)
 local ChallengeService = require(script.Parent.ChallengeService)
 local EventService = require(script.Parent.EventService)
+local Hooks = require(script.Parent.Hooks)
 
 type Data = DataService.Data
 type PetEntry = DataService.PetEntry
 
 local PenService = {}
+PenService.extrasView = nil :: ((Player, any) -> any)? -- set by ExtrasService (2026-11-19)
 
 local incomeCarry: { [Player]: number } = {}
 local sessionBest: { [Player]: number } = {}
@@ -42,6 +44,8 @@ local doubled: { [any]: boolean } = setmetatable({}, { __mode = "k" }) :: any
 local DOUBLE = Config.robuxItem("doubleCoins")
 -- the save's data table -> Roblox friends in this server (FriendService, Config.friends). Not saved.
 local friends: { [any]: number } = setmetatable({}, { __mode = "k" }) :: any
+-- the save's data table -> the Freeze Streak and VIP bonus (ExtrasService, 2026-11-19), e.g. 1.25. Not saved.
+local extraMult: { [any]: number } = setmetatable({}, { __mode = "k" }) :: any
 
 -- the pan's pets sit frozen in ice cubes, in a neat grid from the door to the back, seen by everyone.
 -- Each cube is a see-through ice Part with PetKey; clients draw the pet inside it with a little wiggle,
@@ -224,7 +228,21 @@ function PenService.incomeMult(d: Data): number
 	local friendBonus = 1 + (friends[d] or 0) * Config.friends.perFriend
 	local lv = d.gear.cozy_hat
 	local cozy = Config.gearAt("cozy_hat", if typeof(lv) == "number" then lv else 0) -- Cozy Cap, +3% a level (Config.gear)
-	return IndexService.multiplier(d.indexClaimed) * Config.rebirthIncome(d.rebirths) * d.tester.mult * pass * friendBonus * cozy
+	return IndexService.multiplier(d.indexClaimed) * Config.rebirthIncome(d.rebirths) * d.tester.mult * pass * friendBonus * cozy * (extraMult[d] or 1)
+end
+
+-- ExtrasService: the Freeze Streak x VIP multiplier (1 = none)
+function PenService.setExtraMult(player: Player, m: number)
+	local d = DataService.get(player)
+	if d and (extraMult[d] or 1) ~= m then
+		extraMult[d] = if m ~= 1 then m else nil
+		dirty[player] = true
+	end
+end
+
+-- how many friends boost this save right now (ExtrasService shows it over the head)
+function PenService.friendsOf(d: Data): number
+	return friends[d] or 0
 end
 
 -- FriendService: how many of this player's Roblox friends are in the server (already capped)
@@ -545,6 +563,14 @@ local function bank(player: Player)
 		Remotes.notYet(player, "Storage full", "pets")
 	end
 	if #banked > 0 then
+		local hooked = {}
+		for _, b in banked do
+			local def = PetDefs.get(b.key)
+			if def then
+				table.insert(hooked, { key = b.key, tier = def.tier, rank = Config.tier(def.tier).rank, mut = b.mut })
+			end
+		end
+		Hooks.banked(player, hooked) -- the Freeze Streak, event skins, badges (ExtrasService)
 		-- the feedback first: the save can take seconds on a slow DataStore, and the pets are already
 		-- in the data (a leave saves them too), so the player shouldn't wait for it (QA 2026-11-05, CA-04)
 		Remotes.fire(player, "Notify", "banked", { banked = banked, income = PenService.incomePerSecond(d) })
@@ -999,6 +1025,7 @@ local function view(player: Player, d: Data): { [string]: any }
 		pan = d.pan, -- Look (Slots = slots / upgrades.pen)
 		tutorial = d.tutorial, -- the tutorial step (TutorialService)
 		tester = if Config.isTester(player.UserId) then d.tester else nil, -- only testers learn the panel exists
+		extras = if PenService.extrasView then PenService.extrasView(player, d) else nil, -- ExtrasService (2026-11-19)
 	}
 end
 

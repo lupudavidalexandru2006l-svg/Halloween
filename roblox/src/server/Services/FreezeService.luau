@@ -464,6 +464,14 @@ local function setGunAttribute(player: Player)
 	player:SetAttribute("GunTier", FreezeService.gunTier(player)) -- every client draws each player's gun and beam from it
 end
 
+-- Studio play tests only (TesterHook "hitAs"): the same Aim a client sends, so a server-driven 2-player test goes
+-- through every real check (range, shield, cooldown, the target's canAim)
+function FreezeService.aimFor(player: Player, kind: string, id: string)
+	if game:GetService("RunService"):IsStudio() then
+		onAim(player, kind, id)
+	end
+end
+
 function FreezeService.Init() end
 
 function FreezeService.Start()

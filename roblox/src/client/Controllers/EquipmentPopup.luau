@@ -5,6 +5,7 @@
 --   Guns: every gun in order (owned, the one you hold, the next to buy, the locked ones) and a card
 --         for the picked gun with its 4 stat bars next to your current gun's (Config.guns; the bars
 --         are scaled to the 20-island maximum). Buy / Equip only send intent: GunService decides.
+--   Skins: the ray skins (Config.raySkins), equip / locked with how to get it (2026-11-19).
 --   Gear: Slow Gel to buy (Round 5: it goes on your hotbar), then the coming gear slots, locked, as
 --         silhouettes with "Coming soon" (Round 4 prompt 9).
 -- Which guns you own and hold comes from the GunBest / GunTier attributes the server sets.
@@ -86,7 +87,107 @@ function EquipmentPopup.shownKey(v: State.View): string
 		local p = Config.gearPrice(g.key, lv)
 		gear ..= `{lv}{p ~= nil and v.coins >= p}`
 	end
-	return `{best()},{held()},{v.rebirths},{afford},{gear}`
+	local e = (v :: any).extras
+	local skins = ""
+	if e and e.skins then
+		skins = tostring(e.skin)
+		for _, s in e.skins do
+			skins ..= if s.owned then "1" else "0"
+		end
+	end
+	return `{best()},{held()},{v.rebirths},{afford},{gear},{skins}`
+end
+
+-- Skins tab (owner 2026-11-19: skins live in Equipment, not a side button; "don't over fill it"):
+-- one calm grid of small tiles (colour bar, name, Equipped / Equip / lock). Tapping a locked tile puts how to
+-- get it in the one hint line on top. Equip only sends intent: ExtrasService checks ownership.
+local function skins(h: Helpers, content: Frame, v: State.View, o: any)
+	local e = (v :: any).extras
+	local owned, on = {}, "default"
+	if e then
+		on = e.skin or "default"
+		for _, s in e.skins or {} do
+			owned[s.id] = s.owned
+		end
+	end
+	local hint = h.text(content, o.data.skinHint or "Your beam's colour, seen by everyone. Looks only.", 0, 0.09, Theme.ink)
+	hint.Name = "Hint"
+	hint.Position = UDim2.fromScale(0, 0)
+	hint.Size = UDim2.fromScale(1, 0.09)
+	hint.TextXAlignment = Enum.TextXAlignment.Center
+	hint.TextScaled = true
+	local grid = Instance.new("Frame")
+	grid.Name = "Skins"
+	grid.BackgroundTransparency = 1
+	grid.Position = UDim2.fromScale(0, 0.11)
+	grid.Size = UDim2.fromScale(1, 0.89)
+	grid.Parent = content
+	local cols = 5
+	local rows = math.ceil(#Config.raySkins / cols)
+	local gl = Instance.new("UIGridLayout")
+	gl.SortOrder = Enum.SortOrder.LayoutOrder
+	gl.CellPadding = UDim2.fromScale(0.015, 0.03)
+	gl.CellSize = UDim2.fromScale((1 - 0.015 * (cols - 1)) / cols, (1 - 0.03 * (rows - 1)) / rows)
+	gl.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	gl.Parent = grid
+	for i, s in Config.raySkins do
+		local has = s.id == "default" or owned[s.id] == true
+		local isOn = on == s.id
+		local tile = Instance.new("TextButton")
+		tile.Name = "Skin_" .. s.id
+		tile.LayoutOrder = i
+		tile.AutoButtonColor = true
+		tile.Text = ""
+		tile.BackgroundColor3 = if isOn then Theme.go:Lerp(Theme.white, 0.7) elseif has then Theme.white else Theme.tiers.Common:Lerp(Theme.white, 0.45)
+		Ui.corner(tile, 0.14)
+		Ui.stroke(tile, Config.ui.cardStroke)
+		tile.Parent = grid
+		-- the beam colour bar
+		local bar = Instance.new("Frame")
+		bar.BackgroundColor3 = Theme.white
+		bar.Position = UDim2.fromScale(0.1, 0.1)
+		bar.Size = UDim2.fromScale(0.8, 0.26)
+		Ui.corner(bar, 0.5)
+		bar.Parent = tile
+		local g = Instance.new("UIGradient")
+		if s.rainbow then
+			g.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, Color3.fromHex("ff5f7a")), ColorSequenceKeypoint.new(0.25, Color3.fromHex("ffd34a")),
+				ColorSequenceKeypoint.new(0.5, Color3.fromHex("5dffb0")), ColorSequenceKeypoint.new(0.75, Color3.fromHex("4fb8ff")),
+				ColorSequenceKeypoint.new(1, Color3.fromHex("c88bff")),
+			})
+		else
+			g.Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, s.glow), ColorSequenceKeypoint.new(0.5, s.core), ColorSequenceKeypoint.new(1, s.glow) })
+		end
+		g.Parent = bar
+		if not has then
+			bar.BackgroundTransparency = 0.45
+			local lock = Ui.image(tile, Config.images.icons.lock, UDim2.fromScale(0.24, 0.3), UDim2.fromScale(0.72, 0.02))
+			lock.SizeConstraint = Enum.SizeConstraint.RelativeYY
+			lock.ZIndex = 4
+		end
+		local name = h.text(tile, s.name, 0.1, 0.42, Theme.ink)
+		name.Position = UDim2.fromScale(0.04, 0.4)
+		name.Size = UDim2.fromScale(0.92, 0.26)
+		name.TextXAlignment = Enum.TextXAlignment.Center
+		name.TextScaled = true
+		local st = h.text(tile, if isOn then "Equipped" elseif has then "Equip" else "Locked", 0.1, 0.7, if isOn then Theme.go elseif has then Theme.info else Theme.ink)
+		st.Position = UDim2.fromScale(0.1, 0.7)
+		st.Size = UDim2.fromScale(0.8, 0.22)
+		st.TextXAlignment = Enum.TextXAlignment.Center
+		st.TextScaled = true
+		tile.Activated:Connect(function()
+			SoundController.play("click")
+			if isOn then
+				return
+			elseif has then
+				State.send("Extras", "skin", s.id)
+			else
+				o.data.skinHint = `{s.name}: {s.how}`
+				hint.Text = o.data.skinHint
+			end
+		end)
+	end
 end
 
 local function textRole(h: Helpers, t: TextLabel, role: string)
@@ -522,19 +623,20 @@ local function gear(h: Helpers, body: Frame, v: State.View, o: any)
 			p.Parent = slot
 		end
 		slot.Parent = f
-		local nm = h.text(f, `{item.name}  Lv {lv}`, 0.2, 0.5)
+		local once = item.max == 1 -- bought once (Frost Bombs): no levels to show
+		local nm = h.text(f, if once then item.name else `{item.name}  Lv {lv}`, 0.2, 0.5)
 		textRole(h, nm, "body")
 		nm.Size = UDim2.fromScale(0.5, 0.45)
 		nm.Position = UDim2.fromScale(0.2, 0.06)
 		-- what it does now, and what the next level brings
 		local now = if mine then Config.gearText(item.key, lv) else "Not owned yet"
-		local wt = h.text(f, if price then `{now}  >  {Config.gearText(item.key, lv + 1)}` else `{now}  (max)`, 0.2, 0.5, Theme.infoDeep)
+		local wt = h.text(f, if once then Config.gearText(item.key, 1) elseif price then `{now}  >  {Config.gearText(item.key, lv + 1)}` else `{now}  (max)`, 0.2, 0.5, Theme.infoDeep)
 		textRole(h, wt, "small")
 		wt.Size = UDim2.fromScale(0.5, 0.38)
 		wt.Position = UDim2.fromScale(0.2, 0.52)
 		local afford = price ~= nil and v.coins >= price
 		local gb = h.button(f, if not price then Theme.go elseif afford then Theme.coin else Theme.tiers.Common,
-			if price then Ui.price(price) else "Max", 0.72, 0.26, function()
+			if price then Ui.price(price) elseif once then "Owned" else "Max", 0.72, 0.26, function()
 				if price then
 					State.send("BuyGear", item.key) -- the server checks the level, the coins and the booth
 				end
@@ -567,7 +669,7 @@ function EquipmentPopup.fill(o: any, v: State.View, h: Helpers)
 	local tabsH = if Screen.deviceClass() == "phone" then 0.2 else 0.15
 	tabs.Size = UDim2.fromScale(1, tabsH)
 	tabs.Parent = body
-	for k, tab in { { id = "guns", label = "Guns" }, { id = "gear", label = "Gear" } } do
+	for k, tab in { { id = "guns", label = "Guns" }, { id = "gear", label = "Gear" }, { id = "skins", label = "Skins" } } do
 		local on = o.data.tab == tab.id
 		local b = h.button(tabs, if on then Theme.booths.equipment else Theme.tiers.Common, tab.label, (k - 1) * 0.26, 0.24, function()
 			o.data.tab = tab.id
@@ -583,6 +685,9 @@ function EquipmentPopup.fill(o: any, v: State.View, h: Helpers)
 	content.Parent = body
 	if o.data.tab == "gear" then
 		gear(h, content, v, o)
+		return
+	elseif o.data.tab == "skins" then
+		skins(h, content, v, o)
 		return
 	end
 	o.data.pick = o.data.pick or math.min(best() + 1, #G.list)

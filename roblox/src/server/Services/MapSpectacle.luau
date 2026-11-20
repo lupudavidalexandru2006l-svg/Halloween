@@ -457,10 +457,12 @@ local function planet(f: Instance, at: Vector3, r: number, body: Color3, ring: C
 	ball(r * 0.18, at + Vector3.new(r * 2.1, 0, 0), P.cream, mm)
 end
 
-local function spire(f: Instance, at: Vector3, h: number, color: Color3)
+local function spire(f: Instance, at: Vector3, h: number, color: Color3, unlit: boolean?)
 	mesh("Rock", Vector3.new(h * 0.3, h * 0.2, h * 0.3), CFrame.new(at + Vector3.new(0, h * 0.06, 0)), P.obsidian, f)
 	local tip = neon(mesh("Octa", Vector3.new(h * 0.16, h, h * 0.16), CFrame.new(at + Vector3.new(0, h * 0.55, 0)) * CFrame.Angles(0, rng() * 3, (rng() - 0.5) * 0.15), color, f), 0.05)
-	lamp(tip, color, 45, 2)
+	if not unlit then
+		lamp(tip, color, 45, 2)
+	end
 	for k = 0, 2 do
 		local a = k * 2.1 + rng()
 		neon(mesh("Octa", Vector3.new(h * 0.07, h * 0.4, h * 0.07), CFrame.new(at + Vector3.new(math.cos(a) * h * 0.12, h * 0.2, math.sin(a) * h * 0.12)) * CFrame.Angles(math.sin(a) * 0.4, 0, math.cos(a) * 0.4), color, f), 0.1)
@@ -605,10 +607,11 @@ local SETS: { Builder } = {
 		arch(f, zone.zMin + 40, S.archRadius, 5, 5, P.lava, true)
 		arch(f, zone.zMin + 40.4, S.archRadius + 5, 2.5, 5, P.lavaHot, true)
 	end,
-	-- 9: giant glowing crystal spires, ringed planets, neon gates
+	-- 9: giant glowing crystal spires, ringed planets, neon gates. Performance (QA 2026-11-19 path to 10): Lava Lake had
+	-- 47 lights, the most of any island; only every third spire carries a light now (the neon still glows), about 26
 	function(f, zone)
 		for i, at in spots(zone, 4, S.sideMin, S.sideMax) do
-			spire(f, at, 80 + rng() * 50, P.crystal[(i % #P.crystal) + 1])
+			spire(f, at, 80 + rng() * 50, P.crystal[(i % #P.crystal) + 1], i % 3 ~= 1)
 		end
 		local zm = (zone.zMin + zone.zMax) / 2
 		if front then

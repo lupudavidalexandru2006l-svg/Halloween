@@ -302,11 +302,14 @@ local function step()
 		local at = Vector3.new(goal.X, top + G.targetY + bob, goal.Z)
 		local cam = workspace.CurrentCamera
 		local toCam = if cam then cam.CFrame.Position - at else Vector3.zAxis
+		-- QA PT-07 (2026-11-19): a target just under the camera (the Thaw Machine behind you) drew the chevron huge
+		-- at the bottom of the screen, over the hotbar. Too close to the camera = not drawn; the trail still leads
+		local tooClose = toCam.Magnitude < (G.targetHideCam or 14)
 		toCam = Vector3.new(toCam.X, 0, toCam.Z)
 		toCam = if toCam.Magnitude > 0.1 then toCam.Unit else Vector3.zAxis
 		-- lookAt makes -Z face the camera; tipping it -90 degrees round X points the tip (-Z) down
 		targetArrow:PivotTo(CFrame.lookAt(at, at + toCam) * CFrame.Angles(-math.pi / 2, 0, 0))
-		targetArrow.Parent = folder
+		targetArrow.Parent = if tooClose then nil else folder
 	else
 		targetArrow.Parent = nil
 	end

@@ -1,0 +1,9 @@
+{"parts": [
+  ["GemGlow", "z > 0.8 and 5 < h < 45 and s > 0.55 and v > 0.8"],
+  ["SparkGlow", "y > -0.15 and 0.12 < z < 0.62 and 38 < h < 70 and s > 0.45 and v > 0.6"],
+  ["LegFL", "z < 0.2 and y < -0.12 and x > 0"],
+  ["LegFR", "z < 0.2 and y < -0.12"],
+  ["LegBL", "z < 0.09 and y > 0 and x > 0"],
+  ["LegBR", "z < 0.09 and y > 0"],
+  ["Tail", "y > 0.46 and 0.08 < z < 0.36 and abs(x) < 0.12"],
+  ["Head", "(z > 0.52 and y < 0.2) or z > 0.64 or (z > 0.4 and y < -0.15)"]]}

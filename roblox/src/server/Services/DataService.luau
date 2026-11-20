@@ -62,7 +62,30 @@ export type Data = {
 	tutorial: { step: number, done: boolean, gift: boolean?, paid: { [string]: boolean }? }, -- the tutorial (TutorialService): the step you're on, or done; gift = his coins for the first upgrade were given; paid = the lesson rewards already given (by step id)
 	createdAt: number,
 	lock: { job: string, t: number }?,
+	extra: Extra, -- the 2026-11-19 "every score to 10" pass (ExtrasService)
 }
+-- starter: Starter Pack bought; playSeconds: total play time; login: the calendar (day claimed last, days done this
+-- cycle, cycles done); weekly: this week's quests; runFrom: stats.coinsEarned at the last rebirth; chests: milestone
+-- chests opened this run; ev: event-skin progress; skins: earned skins (rebirth / VIP / starter ones are worked out,
+-- not stored); skin: the equipped one; streakBest; trades: trades done; badges: achievement badges already given
+export type Extra = {
+	starter: boolean, playSeconds: number,
+	login: { day: string, n: number, cycles: number },
+	weekly: { week: string, list: { { id: string, goal: number, from: number } }, claimed: { boolean }, allPaid: boolean, champion: boolean },
+	runFrom: number, chests: number,
+	ev: { [string]: number }, skins: { [string]: boolean }, skin: string,
+	streakBest: number, trades: number, badges: { [string]: boolean },
+}
+local function extraDefaults(): Extra
+	return {
+		starter = false, playSeconds = 0,
+		login = { day = "", n = 0, cycles = 0 },
+		weekly = { week = "", list = {}, claimed = {}, allPaid = false, champion = false },
+		runFrom = 0, chests = 0,
+		ev = {}, skins = {}, skin = "default",
+		streakBest = 0, trades = 0, badges = {},
+	}
+end
 
 local function testerDefaults(): TesterSettings
 	return { mult = 1, walk = 0, instantFreeze = false, noMelt = false } -- walk 0 = normal speed
@@ -125,6 +148,7 @@ local function defaults(): Data
 		tutorial = { step = 1, done = false },
 		createdAt = os.time(),
 		lock = nil,
+		extra = extraDefaults(),
 	}
 end
 
@@ -341,7 +365,7 @@ local function migrate(old: any): Data
 	end
 	d.gear.gel = false
 	for _, g in Config.gear do
-		d.gear[g.key] = if typeof(og[g.key]) == "number" then int(og[g.key], 0, Config.gearMax, 0) else 0
+		d.gear[g.key] = if typeof(og[g.key]) == "number" then int(og[g.key], 0, Config.gearMaxOf(g.key), 0) else 0
 	end
 	-- gear bought once before the 2026-11-17 rework (true): at least as strong as it was, never weaker.
 	-- Ice Skates (x1.2 when carrying) and the old Frost Boots (pets flee slower) both become Frost Boots levels.
@@ -405,6 +429,49 @@ local function migrate(old: any): Data
 	d.lastBest = if typeof(old.lastBest) == "string" and PetDefs.get(old.lastBest) then old.lastBest else nil
 	if typeof(old.lock) == "table" and typeof(old.lock.job) == "string" then
 		d.lock = { job = old.lock.job, t = num(old.lock.t, 0, 1e12) }
+	end
+	-- the 2026-11-19 extras: every field checked, unknown keys dropped
+	local ex = tbl(old.extra)
+	local e = d.extra
+	e.starter = ex.starter == true
+	e.playSeconds = num(ex.playSeconds, 0, 1e10, 0)
+	local lo = tbl(ex.login)
+	e.login = { day = str(lo.day, 16), n = int(lo.n, 0, #Config.login.days, 0), cycles = int(lo.cycles, 0, 1e6, 0) }
+	local we = tbl(ex.weekly)
+	e.weekly = { week = str(we.week, 16), list = {}, claimed = {}, allPaid = we.allPaid == true, champion = we.champion == true }
+	for i = 1, math.min(#tbl(we.list), Config.weekly.count) do
+		local c = tbl(we.list)[i]
+		if typeof(c) == "table" and typeof(c.id) == "string" and #c.id <= 16 then
+			e.weekly.list[i] = { id = c.id, goal = num(c.goal, 1, 1e15, 1), from = num(c.from, 0, 1e15, 0) }
+			e.weekly.claimed[i] = tbl(we.claimed)[i] == true
+		else
+			e.weekly = { week = "", list = {}, claimed = {}, allPaid = false, champion = e.weekly.champion } -- damaged: handed out fresh
+			break
+		end
+	end
+	e.runFrom = num(ex.runFrom, 0, 1e15, d.stats.coinsEarned)
+	e.chests = int(ex.chests, 0, #Config.milestones, 0)
+	if tbl(ex.ev).legend == 1 then
+		e.ev.legend = 1 -- the Secret badge was earned
+	end
+	for _, es in Config.eventSkins do
+		local v = tbl(ex.ev)[es.event]
+		if typeof(v) == "number" then
+			e.ev[es.event] = int(v, 0, 1e6, 0)
+		end
+	end
+	for _, s in Config.raySkins do
+		if tbl(ex.skins)[s.id] == true then
+			e.skins[s.id] = true
+		end
+	end
+	e.skin = if Config.raySkin(ex.skin) then ex.skin else "default"
+	e.streakBest = int(ex.streakBest, 0, 1e9, 0)
+	e.trades = int(ex.trades, 0, 1e9, 0)
+	for k in Config.badges do
+		if tbl(ex.badges)[k] == true then
+			e.badges[k] = true
+		end
 	end
 	d.version = Config.version
 	return d
@@ -634,6 +701,24 @@ end
 -- write now (claims, purchases): the grant and its stamp land in the same save
 function DataService.saveNow(player: Player): boolean
 	return save(player, false)
+end
+
+-- read-only look at any player's data (the leaderboard's Visit, owner 2026-11-20): the live copy when they're on
+-- this server, else their save via GetAsync. Never writes, never takes the session lock, so it can't touch their
+-- progress. nil when there's no save or the read failed after retries.
+function DataService.peek(userId: number): any?
+	for p, s in sessions do
+		if p.UserId == userId then
+			return s.data
+		end
+	end
+	local ok, value = withRetries(function()
+		return store:GetAsync("u_" .. userId)
+	end)
+	if ok and typeof(value) == "table" then
+		return migrate(table.clone(value)) -- old saves get today's fields (a copy: nothing is written back)
+	end
+	return nil
 end
 
 -- "IceRayPlayerData_v1_QA / u_123": shown on the Tester panel

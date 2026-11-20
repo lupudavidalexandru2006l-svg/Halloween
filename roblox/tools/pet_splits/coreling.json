@@ -1,0 +1,5 @@
+{"parts": [
+  ["CoreGlow", "y < -0.25 and 0.12 < z < 0.48 and abs(x) < 0.17 and 30 < h < 70 and s > 0.35 and v > 0.7"],
+  ["EarL", "x > 0.3 and 0.24 < z < 0.48 and y < -0.05"],
+  ["EarR", "x < -0.3 and 0.24 < z < 0.48 and y < -0.05"],
+  ["Head", "z > 0.5"]]}

@@ -763,6 +763,32 @@ function ThawMachines.Start()
 				end
 			end
 		end
+		-- QA 2026-11-20 (PT-05): walking up to one machine put the camera inside its neighbour (glow parts
+		-- the camera doesn't push off), a screen of white ring and navy panels. A machine the camera is
+		-- inside fades out on this client only, and comes back once the camera leaves.
+		if cam then
+			local cp = cam.CFrame.Position
+			for _, mc in machines do
+				local m = mc :: any
+				if not m.bbCF and mc.model.Parent then -- once per machine (a moved machine is set up fresh)
+					m.bbCF, m.bbSize = mc.model:GetBoundingBox()
+				end
+				local cf, size = m.bbCF :: CFrame?, m.bbSize :: Vector3
+				if cf then
+					local rel = cf:PointToObjectSpace(cp)
+					local pad = 1.5
+					local inside = math.abs(rel.X) < size.X / 2 + pad and math.abs(rel.Y) < size.Y / 2 + pad and math.abs(rel.Z) < size.Z / 2 + pad
+					if inside ~= ((mc :: any).camInside == true) then
+						(mc :: any).camInside = inside
+						for _, p in mc.model:GetDescendants() do
+							if p:IsA("BasePart") then
+								p.LocalTransparencyModifier = if inside then 0.9 else 0
+							end
+						end
+					end
+				end
+			end
+		end
 		for _, mc in machines do
 			local far = not cam or (cam.CFrame.Position - mc.core.Position).Magnitude > FX.drawDistance
 			if far or hidden(mc) then

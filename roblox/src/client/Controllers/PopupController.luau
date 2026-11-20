@@ -7,7 +7,6 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local SocialService = game:GetService("SocialService")
-local AvatarEditorService = game:GetService("AvatarEditorService")
 local GroupService = game:GetService("GroupService")
 local TweenService = game:GetService("TweenService")
 local Config = require(ReplicatedStorage.Shared.Config)
@@ -36,7 +35,7 @@ local boardStamp = 0 -- goes up each time a leaderboard's rows arrive, so its op
 local MENUS = { board = true, pets = true, shop = true, index = true, settings = true, tester = true, equipment = true, pan = true, sell = true, rebirth = true, thaw = true, daily = true, freeGift = true, mail = true }
 local giftJoined: boolean? = nil -- this session's answer to "in the group?" for the Free Gift board (nil = not asked yet)
 local TITLES: { [string]: string } = {
-	pets = "Pets", shop = "Shop", index = "Index", settings = "Settings", tester = "Tester", equipment = "Equipment", daily = "Daily Challenges",
+	pets = "Pets", shop = "Shop", index = "Index", settings = "Settings", tester = "Tester", equipment = "Equipment", daily = "Daily",
 	pan = "Pan Upgrades", sell = "Sell Booth", rebirth = "Rebirth Booth", thaw = "Thaw Machine",
 	welcome = "Welcome back!", gift = "Free gift!", freeGift = "Free gift!", pageDone = "Page complete!",
 	mail = "Mailbox", mailThanks = "Mailbox",
@@ -80,6 +79,14 @@ local function shownData(name: string, v: State.View): string?
 			table.insert(parts, `{c.text},{c.goal},{c.have},{c.claimed}`)
 		end
 		table.insert(parts, tostring(if v.daily then v.daily.coins else 0))
+		local ex = (v :: any).extras
+		if ex then
+			table.insert(parts, `L{ex.login.n},{ex.login.canClaim},{ex.login.nextCoins}`)
+			for _, c in ex.weekly.list do
+				table.insert(parts, `W{c.goal},{c.have},{c.claimed}`)
+			end
+			table.insert(parts, tostring(ex.weekly.coins))
+		end
 	elseif name == "equipment" then
 		return EquipmentPopup.shownKey(v)
 	elseif name == "pan" then
@@ -115,6 +122,7 @@ local HEADER: { [string]: Color3 } = {
 	mail = Theme.info, mailThanks = Theme.go,
 }
 local SMALL = { welcome = true, gift = true, pageDone = true, mailThanks = true } -- short messages get a smaller panel
+local FIT = { thaw = true } -- list popups that shrink to their rows (QA 2026-11-20, PT-04)
 local HEADER_ICONS: { [string]: string } = {
 	pets = Config.ui.tileIcons.pets, shop = Config.ui.tileIcons.shop, index = Config.ui.tileIcons.index,
 	settings = Config.ui.tileIcons.settings, welcome = Config.images.icons.coin, gift = Config.images.icons.gift, freeGift = Config.images.icons.gift,
@@ -243,6 +251,34 @@ local function pulse(gui: GuiObject)
 	s.Parent = gui
 	local P = Config.index.pulse
 	TweenService:Create(s, TweenInfo.new(P.seconds, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Scale = P.scale }):Play()
+end
+
+-- the Starter Pack's card (owner 2026-11-19: "pulsating lowk"): a soft breathe and a warm glow ring that fades in
+-- and out. Reduced motion: the ring stays lit, nothing moves.
+local function starterGlow(root: GuiObject)
+	local ring = Instance.new("UIStroke")
+	ring.Name = "StarterGlow"
+	ring.Color = Color3.fromHex("ffe066")
+	ring.Thickness = 5
+	ring.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	ring.LineJoinMode = Enum.LineJoinMode.Round
+	ring.Parent = root
+	if SettingsController.get("reducedMotion") == true then
+		return
+	end
+	local s = Instance.new("UIScale")
+	s.Parent = root
+	local info = TweenInfo.new(1.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+	TweenService:Create(s, info, { Scale = 1.025 }):Play()
+	ring.Transparency = 0.7
+	TweenService:Create(ring, info, { Transparency = 0 }):Play()
+end
+
+-- inside the first Config.starterPack.featureMinutes of play: the Shop opens on the Limited offers and the Starter
+-- Pack pulses (it stays buyable after, just quieter)
+local function starterFeatured(): boolean
+	local ex = State.view and (State.view :: any).extras
+	return ex ~= nil and ex.starter ~= true and (ex.playSeconds or 0) < Config.starterPack.featureMinutes * 60
 end
 
 local function list(body: Frame, scroll: boolean): GuiObject
@@ -420,6 +456,18 @@ local function shopItems(tab: ShopTab): { Config.RobuxItem }
 	local out: { Config.RobuxItem } = {}
 	for _, item in Config.monetization.shop do
 		local gone = item.kind == "deal" and State.view ~= nil and State.view.dealBought == true -- one time only
+		-- the Starter Pack (2026-11-19): one time only; hidden after Config.starterPack.hideAfterMinutes when that is set
+		if item.kind == "starter" and State.view then
+			local ex = (State.view :: any).extras
+			local hide = Config.starterPack.hideAfterMinutes
+			if ex and (ex.starter == true or (hide and (ex.playSeconds or 0) > hide * 60)) then
+				gone = true
+			end
+		end
+		-- paid random items only where the policy allows them (the server checks too; QA CA-01)
+		if Config.oddsKind[item.kind] and Players.LocalPlayer:GetAttribute("RandomItemsOk") ~= true then
+			gone = true
+		end
 		if tab.kinds[item.kind] and not gone and (Config.robuxReady(item) or RunService:IsStudio()) then
 			table.insert(out, item)
 		end
@@ -480,6 +528,8 @@ local function cardInfo(v: State.View, item: Config.RobuxItem): CardInfo
 			end
 			return { big = `{math.round(TR.autoEvery / TR.autoPass)}x`, name = "Auto-Train speed",
 				chip = `{rate(TR.autoEvery)}/s{ARROW}` .. string.format(good, `{rate(TR.autoPass)}/s`) }
+		elseif item.id == "vip" then
+			return { big = "VIP", name = "Pass", chip = string.format(good, `+{math.round(Config.vip.coinBonus * 100)}% coins`) .. ", gold tag, Royal Frost ray" }
 		end
 		return { big = `{item.mult or 2}x`, name = name, chip = `x1{ARROW}` .. string.format(good, `x{item.mult or 2}`) }
 	elseif item.kind == "charges" then
@@ -495,6 +545,19 @@ local function cardInfo(v: State.View, item: Config.RobuxItem): CardInfo
 		return { big = `x{item.charges or 1}`, name = name, chip = "Critters can't take your pet" }
 	elseif item.kind == "deal" then
 		return { big = "DEAL", name = name, chip = string.format(good, "One time") .. ": 3 Super Freeze + Luck + Coins" }
+	elseif item.kind == "starter" then
+		-- honest value: what the same things cost one by one in this shop (Coin Chest + Super Freeze x3 + Mega Speed)
+		local worth = 0
+		for _, id in { "coinsMedium", "superFreeze3", "speedBig" } do
+			local it = Config.robuxItem(id)
+			worth += if it then it.robux else 0
+		end
+		local SP = Config.starterPack
+		local coins = Config.robuxCoins({ minutes = SP.coinMinutes, floor = SP.coinFloor } :: any, v.income)
+		local x = math.floor(worth / math.max(1, item.robux))
+		return { big = "STARTER", name = "Pack",
+			-- QA 2026-11-20 (CA-01): the long list shrank to ~10 px in its chip; the short line fits one size up
+			chip = string.format(good, `{x}x value!`) .. ` Coins, {SP.superFreeze} Freeze, Speed, Skin` }
 	end
 	return { big = item.big or "", name = name, chip = item.chip or item.text }
 end
@@ -521,8 +584,16 @@ end
 
 -- the open tab: reset each time the Shop opens (it starts on Forever while a pass is unowned)
 local shopTab: string? = nil
+local shopHoldUntil = 0 -- os.clock(): until then each Shop build scrolls to shopTab (QA PT-04)
 local shopWant: string? = nil -- the tab a "+" button asked for (owner 2026-11-18: "+" next to coins and Cold Power)
 local function defaultTab(v: State.View, tabs: { ShopTab }): string
+	if starterFeatured() then
+		for _, t in tabs do
+			if t.kinds.starter then
+				return t.id
+			end
+		end
+	end
 	for _, t in tabs do
 		if t.kinds.pass then
 			for _, item in shopItems(t) do
@@ -548,6 +619,8 @@ shopKey = function(v: State.View): string
 		table.insert(parts, `{item.id},{info.big},{info.chip or ""},{ownsPass(v, item)}`)
 	end
 	table.insert(parts, Config.powerText(Config.nextNeed(v.coldPower or 0)))
+	local ex = (v :: any).extras
+	table.insert(parts, `starter={ex and ex.starter}:{starterFeatured()}:{v.dealBought}`)
 	return table.concat(parts, ";")
 end
 
@@ -931,12 +1004,140 @@ local function shopCard(o: Open, v: State.View, parent: Instance, item: Config.R
 	return c, b
 end
 
+-- The odds behind a paid random item (QA CA-01/02, owner 2026-11-19: "add odds into the shop, a button on the
+-- bottom of the luck"): a panel over the Shop with each rarity's chance, from Config.oddsRows (the same numbers
+-- the server rolls with). Server Luck shows now -> with it. Tap anywhere or Close to go back.
+local function pctText(p: number): string
+	if p >= 10 then
+		return string.format("%.0f%%", p)
+	elseif p >= 1 then
+		return string.format("%.1f%%", p)
+	elseif p >= 0.1 then
+		return string.format("%.2f%%", p)
+	end
+	return string.format("%.3f%%", p)
+end
+
+local function oddsPanel(o: Open, item: Config.RobuxItem)
+	local kind = Config.oddsKind[item.kind]
+	if not kind then
+		return
+	end
+	local old = o.body:FindFirstChild("Odds")
+	if old then
+		old:Destroy()
+	end
+	local shade = Instance.new("TextButton") -- tap outside the card to close
+	shade.Name = "Odds"
+	shade.Text = ""
+	shade.AutoButtonColor = false
+	shade.BackgroundColor3 = Theme.ink
+	shade.BackgroundTransparency = 0.35
+	shade.BorderSizePixel = 0
+	shade.Size = UDim2.fromScale(1, 1)
+	shade.ZIndex = 20
+	shade.Parent = o.body
+	shade.Activated:Connect(function()
+		shade:Destroy()
+	end)
+	local c = Instance.new("Frame")
+	c.Name = "Card"
+	c.BackgroundColor3 = Theme.white
+	c.BorderSizePixel = 0
+	c.AnchorPoint = Vector2.new(0.5, 0.5)
+	c.Position = UDim2.fromScale(0.5, 0.5)
+	c.Size = UDim2.fromScale(0.7, 0.92)
+	Ui.corner(c)
+	Ui.stroke(c, Config.ui.cardStroke)
+	c.Parent = shade
+	local rows = Config.oddsRows(kind)
+	local head = if kind == "serverLuck"
+		then `Server Luck: wild pet chances for everyone ({Config.monetization.serverLuckMult}x Rare and up)`
+		elseif item.kind == "deal" then "Welcome Deal: the Lucky Ray pet's chances"
+		else `Lucky Ray: a bonus pet every {Config.monetization.luckEvery} s. Its chances:`
+	local h = Ui.inkLabel(c, head, UDim2.fromScale(0.92, 0.14), UDim2.fromScale(0.04, 0.03))
+	sized(h, "body")
+	local n = #rows + (if kind == "serverLuck" then 1 else 0)
+	local top, bottom = 0.19, 0.8
+	local rh = (bottom - top) / n
+	local y = top
+	if kind == "serverLuck" then
+		local a = Ui.inkLabel(c, "Now", UDim2.fromScale(0.25, rh), UDim2.fromScale(0.42, y))
+		sized(a, "small")
+		local b = Ui.inkLabel(c, "With Server Luck", UDim2.fromScale(0.3, rh), UDim2.fromScale(0.66, y))
+		sized(b, "small")
+		y += rh
+	end
+	for _, r in rows do
+		local name = Ui.inkLabel(c, r.name, UDim2.fromScale(0.36, rh), UDim2.fromScale(0.06, y))
+		name.TextXAlignment = Enum.TextXAlignment.Left
+		name.TextColor3 = tierColor(r.name)
+		sized(name, "body")
+		local p = Ui.inkLabel(c, pctText(r.pct), UDim2.fromScale(0.25, rh), UDim2.fromScale(0.42, y))
+		sized(p, "body")
+		if r.boosted then
+			local q = Ui.inkLabel(c, pctText(r.boosted), UDim2.fromScale(0.3, rh), UDim2.fromScale(0.66, y))
+			q.TextColor3 = if r.boosted > r.pct then Theme.shopBadge.bonus else Theme.ink
+			sized(q, "body")
+		end
+		y += rh
+	end
+	local close = button(c, Theme.info, "Close", 0.3, 0.4, function()
+		shade:Destroy()
+	end)
+	close.root.Name = "Close"
+	close.root.Position = UDim2.fromScale(0.3, 0.82)
+	close.root.Size = UDim2.fromScale(0.4, 0.15)
+	for _, d in shade:GetDescendants() do
+		if d:IsA("GuiObject") then
+			d.ZIndex += 20
+		end
+	end
+end
+
+-- the small "Odds" button on a paid random item's tile, in its top-left corner (owner 2026-11-19)
+local function oddsButton(o: Open, face: GuiObject, item: Config.RobuxItem, at: { number })
+	if not Config.oddsKind[item.kind] then
+		return
+	end
+	local b = Ui.block(face, "OddsButton", Theme.white, "Odds", function()
+		SoundController.play("click")
+		oddsPanel(o, item)
+	end)
+	b.root.Name = "OddsButton"
+	b.root.ZIndex = 3
+	b.text.TextColor3 = Theme.ink
+	-- ink text with an ink outline read as a black blob, "Odds" unreadable (owner 2026-11-20)
+	local oddsStroke = b.text:FindFirstChildOfClass("UIStroke")
+	if oddsStroke then
+		oddsStroke.Enabled = false
+	end
+	box(b.root, at[1], at[2], at[3], at[4])
+	sized(b.text, "small")
+	-- a bigger invisible hit area: the chip is only ~38x24 px on a phone, under the thumb minimum
+	-- (phone check 2026-11-19); this one is ~50x48 px there
+	local hit = Instance.new("TextButton")
+	hit.Name = "OddsHit"
+	hit.Text = ""
+	hit.BackgroundTransparency = 1
+	hit.AnchorPoint = Vector2.new(0.5, 0.5)
+	hit.Position = UDim2.fromScale(0.5, 0.5)
+	hit.Size = UDim2.fromScale(1.35, 2)
+	hit.ZIndex = 10
+	hit.Selectable = false
+	hit.Parent = b.root
+	hit.Activated:Connect(function()
+		SoundController.play("click")
+		oddsPanel(o, item)
+	end)
+end
+
 -- a landscape product tile (round 3, the reference cards): the title across the top ("2x Coins", the gain
 -- in gold), the picture bottom-left on rays, the value chip (or a Cold Power bar) and a fat green Robux
 -- button bottom-right. wide = a full-width banner (an odd product out at the top of its section): the
 -- picture on the left, title and chip in the middle, the button on the right. The whole tile buys.
 -- Boxes are { x, y, w, h } shares of the tile (Config.ui.shop.tile / .wideTile).
-local function shopTile(v: State.View, parent: Instance, item: Config.RobuxItem, info: CardInfo, bonus: number, best: boolean, wide: boolean): (Ui.Block, Ui.Block)
+local function shopTile(o: Open, v: State.View, parent: Instance, item: Config.RobuxItem, info: CardInfo, bonus: number, best: boolean, wide: boolean): (Ui.Block, Ui.Block)
 	local owned = ownsPass(v, item)
 	local colour = productColour(item)
 	if owned then
@@ -971,6 +1172,9 @@ local function shopTile(v: State.View, parent: Instance, item: Config.RobuxItem,
 	title.ZIndex = 2
 	sized(title, "title")
 	place(title, L.title)
+	if Config.oddsKind[item.kind] and not wide then -- leave the top-left corner to the Odds button
+		box(title, 0.23, L.title[2], 0.74, L.title[4])
+	end
 	if bonus > 0 then -- leave the top-right corner to the "+% MORE" sticker
 		title.Size = UDim2.fromScale(L.title[3] - Config.ui.shop.stickerRoom, L.title[4])
 	end
@@ -1006,6 +1210,7 @@ local function shopTile(v: State.View, parent: Instance, item: Config.RobuxItem,
 	end
 	shopMotion(table.find(Config.monetization.shop, item) or 1, sun, front, if owned then nil else b)
 	stickers(c, bonus, best, true)
+	oddsButton(o, c.face, item, if wide then { 0.015, 0.06, 0.12, 0.3 } else { 0.025, 0.05, 0.19, 0.22 })
 	return c, b
 end
 
@@ -1117,6 +1322,7 @@ local function shop(o: Open, v: State.View)
 	local touch = Screen.deviceClass() == "phone"
 	local order = 0
 	local passBuy: Ui.Block? = nil
+	local starterBuy: Ui.Block? = nil
 	local bestBuy: Ui.Block? = nil
 	local firstBuy: Ui.Block? = nil
 	for _, tab in tabs do
@@ -1179,8 +1385,14 @@ local function shop(o: Open, v: State.View)
 			-- round 3: two landscape tiles a row, like the references; an odd one out leads as a full-width
 			-- banner (with owned passes sorted last, that's the first pass you don't have yet)
 			local bonus, best = shopBonuses(items, infos)
-			local function note(k: number, buy: Ui.Block)
+			local function note(k: number, buy: Ui.Block, card: Ui.Block?)
 				local item = items[k]
+				if item.kind == "starter" and card then
+					starterGlow(card.root)
+					if starterFeatured() then
+						starterBuy = buy
+					end
+				end
 				firstBuy = firstBuy or buy
 				if item.kind == "pass" and not passBuy and not ownsPass(v, item) then
 					passBuy = buy
@@ -1194,9 +1406,9 @@ local function shop(o: Open, v: State.View)
 				order += 1
 				local r = row(sf, order, 1, S.bannerAspect)
 				r.Name = "Banner_" .. items[1].id
-				local c, buy = shopTile(v, r, items[1], infos[1], bonus[1], best == 1, true)
+				local c, buy = shopTile(o, v, r, items[1], infos[1], bonus[1], best == 1, true)
 				c.root.Size = UDim2.fromScale(1, 1)
-				note(1, buy)
+				note(1, buy, c)
 				k = 2
 			end
 			while k <= #items do
@@ -1206,9 +1418,9 @@ local function shop(o: Open, v: State.View)
 				for j = 0, 1 do
 					local i = k + j
 					if items[i] then
-						local c, buy = shopTile(v, r, items[i], infos[i], bonus[i], best == i, false)
+						local c, buy = shopTile(o, v, r, items[i], infos[i], bonus[i], best == i, false)
 						box(c.root, j * (0.5 + S.tileGap / 2), S.tileTop, 0.5 - S.tileGap / 2, 1 - S.tileTop)
-						note(i, buy)
+						note(i, buy, c)
 					end
 				end
 				k += 2
@@ -1238,7 +1450,7 @@ local function shop(o: Open, v: State.View)
 		end
 	end
 	-- one focal point: the first pass you don't own, else the best-value pack
-	local focal = passBuy or bestBuy or firstBuy
+	local focal = starterBuy or passBuy or bestBuy or firstBuy
 	if focal then
 		pulse(focal.root)
 		-- not the gamepad's first pick (QA 2026-11-17): opening the Shop on a console put A on a Robux Buy, so
@@ -1257,13 +1469,22 @@ local function shop(o: Open, v: State.View)
 			pinned = nil
 		end
 	end)
-	if fresh and shopTab ~= tabs[1].id then
+	-- QA PT-04 (2026-11-19): "+" opened the Shop at the top. The jump ran once, 0.05 s in, while the opening
+	-- show was still growing the panel, and the redraw right after opening (ShopOpened) built a fresh list at
+	-- the top. Now the asked-for section is held for the first second: every build in it jumps there again.
+	if fresh then
+		shopHoldUntil = os.clock() + 2
+	end
+	if shopTab ~= tabs[1].id and os.clock() < shopHoldUntil then
 		pinned = shopTab
-		task.delay(0.05, function() -- once the list has been measured
-			if sf.Parent and shopTab then
-				jump(shopTab, true)
-			end
-		end)
+		-- once the list has been measured, and again after the opening show (panel pop 0.32 s, rows sliding in ~0.9 s)
+		for _, wait in { 0.05, 0.4, 1.0, 1.4 } do
+			task.delay(wait, function()
+				if sf.Parent and shopTab and pinned == shopTab then
+					jump(shopTab, true)
+				end
+			end)
+		end
 	end
 end
 
@@ -1335,7 +1556,7 @@ local function challengeIcon(c: State.Challenge): string
 end
 
 local function inviteRow(l: GuiObject, order: number)
-	local r = card(row(l, order, Config.ui.daily.inviteHeight))
+	local r = card(row(l, order, 1, 7))
 	r.Name = "Invite"
 	r.BackgroundColor3 = Theme.info:Lerp(Theme.white, 0.82) -- info blue: a tip, not one of today's goals
 	local F = Config.friends
@@ -1359,11 +1580,167 @@ end
 -- little bar hid under the words, and the timer floated between the cards. Now: the timer is a blue pill
 -- on top; each goal is a card with its painted icon, the goal, a wide bar, and on the right a quiet coin
 -- tag (what it pays), a pulsing green Claim once it's done (the card turns pale green), or "Done".
+-- a section heading inside the Daily popup (2026-11-19): bold words on the cream, left aligned
+local function sectionHead(l: GuiObject, order: number, s: string, sub: string?)
+	local r = row(l, order, 1, 18)
+	r.Name = "Head" .. order
+	local t = text(r, s, 0.01, if sub then 0.5 else 0.98, Theme.ink, "title")
+	t.Size = UDim2.fromScale(if sub then 0.5 else 0.98, 0.9)
+	t.Position = UDim2.fromScale(0.01, 0.05)
+	if sub then
+		local st = text(r, sub, 0.5, 0.49, Theme.infoDeep, "small")
+		st.TextXAlignment = Enum.TextXAlignment.Right
+		st.Size = UDim2.fromScale(0.49, 0.8)
+		st.Position = UDim2.fromScale(0.5, 0.1)
+		return st
+	end
+	return nil
+end
+
+-- the login calendar (2026-11-19, Config.login): 7 day tiles, the days you've had ticked, today's glowing with a
+-- Claim button under it. Missing a day never resets it: you just carry on.
+local LOGIN_ICON = { coins = "coin", superFreeze = "ray", speed = "boots", skin = "star" }
+local function loginRows(o: Open, l: GuiObject, ex: any)
+	local L = Config.login
+	sectionHead(l, -30, "Login calendar", "Come back each day. Missing a day never resets it")
+	local r = row(l, -29, 1, 5.6)
+	r.Name = "LoginDays"
+	local n = #L.days
+	local gap = 0.012
+	local w = (1 - gap * (n - 1)) / n
+	for i, day in L.days do
+		local had = i <= ex.login.n
+		local today = ex.login.canClaim and i == ex.login.nextDay
+		local tile = Instance.new("Frame")
+		tile.Name = "Day" .. i
+		tile.BorderSizePixel = 0
+		tile.Position = UDim2.fromScale((i - 1) * (w + gap), 0.04)
+		tile.Size = UDim2.fromScale(w, 0.92)
+		tile.BackgroundColor3 = if had then Theme.go:Lerp(Theme.white, 0.75) elseif today then Theme.coin:Lerp(Theme.white, 0.35)
+			elseif i == n then Theme.gift:Lerp(Theme.white, 0.7) else Theme.white
+		Ui.corner(tile)
+		Ui.stroke(tile, if today then Config.ui.cardStroke * 2 else Config.ui.cardStroke)
+		tile.Parent = r
+		local head = Ui.inkLabel(tile, `Day {i}`, UDim2.fromScale(0.9, 0.22), UDim2.fromScale(0.05, 0.03))
+		sized(head, "small")
+		local key = if day.skin then "skin" elseif day.speed then "speed" elseif day.superFreeze and not day.coins then "superFreeze" else "coins"
+		Ui.image(tile, Config.images.icons[LOGIN_ICON[key]] or Config.images.icons.coin, UDim2.fromScale(0.6, 0.42), UDim2.fromScale(0.2, 0.25))
+		local what = if day.skin then "Skin!" elseif day.speed then "Speed"
+			elseif day.superFreeze and not day.coins then `x{day.superFreeze}` elseif today then `+{Ui.short(ex.login.nextCoins)}` else "Coins"
+		local wl = Ui.inkLabel(tile, if had then "Got it" else what, UDim2.fromScale(0.94, 0.26), UDim2.fromScale(0.03, 0.7))
+		wl.TextColor3 = if had then Theme.go else Theme.ink
+		sized(wl, "small")
+		if today then
+			pulse(tile)
+		end
+	end
+	if ex.login.canClaim then
+		local cr = row(l, -28, 1, 10)
+		cr.Name = "LoginClaim"
+		local claim = button(cr, Theme.go, `Claim day {ex.login.nextDay}`, 0.3, 0.4, function()
+			State.send("Extras", "login")
+		end)
+		pulse(claim.root)
+		o.first = o.first or claim.face
+	end
+end
+
+-- weekly quests (2026-11-19, Config.weekly): like the daily cards, bigger goals, a weekly timer
+local function weeklyRows(o: Open, l: GuiObject, ex: any)
+	local D = Config.ui.daily
+	local W = Config.weekly
+	local sub = sectionHead(l, 30, "Weekly quests", "")
+	if sub then
+		local function show()
+			sub.Text = `New quests in {Config.timeText(ex.weekly.resetsAt - workspace:GetServerTimeNow())}` ..
+				(if ex.weekly.champion then "" else "  ·  all 3 = Champion ray")
+		end
+		show()
+		task.spawn(function()
+			while not o.closed and sub.Parent do
+				task.wait(1)
+				show()
+			end
+		end)
+	end
+	for i, c in ex.weekly.list do
+		local line = card(row(l, 30 + i, 1, 6.5))
+		line.Name = "Weekly" .. i
+		local ready = c.done and not c.claimed
+		if c.claimed then
+			line.BackgroundColor3 = Theme.slot:Lerp(Theme.white, 0.5)
+		elseif ready then
+			line.BackgroundColor3 = Theme.go:Lerp(Theme.white, 0.8)
+		else
+			line.BackgroundColor3 = Theme.info:Lerp(Theme.white, 0.9)
+		end
+		local def = nil
+		for _, p in W.pool do
+			if p.text == c.text then
+				def = p
+			end
+		end
+		local badge = Instance.new("Frame")
+		badge.Name = "Badge"
+		badge.BackgroundColor3 = Theme.info:Lerp(Theme.white, 0.6)
+		badge.BorderSizePixel = 0
+		badge.AnchorPoint = Vector2.new(0, 0.5)
+		badge.Position = UDim2.fromScale(0.015, 0.5)
+		badge.Size = UDim2.fromScale(0.2, 0.8)
+		local ba = Instance.new("UIAspectRatioConstraint")
+		ba.DominantAxis = Enum.DominantAxis.Height
+		ba.Parent = badge
+		Ui.corner(badge)
+		Ui.stroke(badge, Config.ui.cardStroke)
+		badge.Parent = line
+		Ui.image(badge, if def then CHALLENGE_ICONS[def.stat] or Config.images.icons.trophy else Config.images.icons.trophy,
+			UDim2.fromScale(0.84, 0.84), UDim2.fromScale(0.08, 0.08))
+		local t = text(line, (string.gsub(c.text, "{n}", Ui.short(c.goal))), D.textX, D.textW)
+		t.Size = UDim2.fromScale(D.textW, 0.42)
+		t.Position = UDim2.fromScale(D.textX, 0.08)
+		local b = bar(line, D.textX, 0.56, D.textW, 0.32, c.have / math.max(1, c.goal),
+			`{Ui.short(math.min(c.have, c.goal))} / {Ui.short(c.goal)}`, if c.done then Theme.go else Theme.info)
+		sized(b:FindFirstChild("Count") :: TextLabel, "small")
+		if c.claimed then
+			local done = text(line, "Done", D.sideX, D.sideW, Theme.go, "button")
+			done.TextXAlignment = Enum.TextXAlignment.Center
+		elseif ready then
+			local claim = button(line, Theme.go, "Claim", D.sideX, D.sideW, function()
+				State.send("Extras", "weekly", i)
+			end)
+			pulse(claim.root)
+			o.first = o.first or claim.face
+		else
+			local tag = Instance.new("Frame")
+			tag.Name = "Reward"
+			tag.BackgroundColor3 = Theme.coin:Lerp(Theme.white, 0.78)
+			tag.BorderSizePixel = 0
+			tag.Position = UDim2.fromScale(D.sideX + 0.01, 0.12)
+			tag.Size = UDim2.fromScale(D.sideW - 0.02, 0.4)
+			Ui.corner(tag, 0.5)
+			Ui.stroke(tag, Config.ui.cardStroke)
+			tag.Parent = line
+			Ui.image(tag, Config.images.icons.coin, UDim2.fromScale(0.3, 0.84), UDim2.fromScale(0.05, 0.08))
+			local amount = Ui.inkLabel(tag, `+{Ui.short(ex.weekly.coins)}`, UDim2.fromScale(0.56, 0.7), UDim2.fromScale(0.37, 0.15))
+			sized(amount, "button")
+			local sf = Ui.inkLabel(line, `+{W.superFreeze} Super Freeze`, UDim2.fromScale(D.sideW, 0.3), UDim2.fromScale(D.sideX, 0.58))
+			sf.TextColor3 = Theme.infoDeep
+			sized(sf, "small")
+		end
+	end
+end
+
 local function daily(o: Open, v: State.View)
 	local D = Config.ui.daily
-	local l = list(o.body, false)
+	local l = list(o.body, true) -- scrolls since 2026-11-19 (login calendar + weekly quests joined it)
 	local d = v.daily
 	local items = if d then d.list else {}
+	local ex = (v :: any).extras
+	if ex then
+		loginRows(o, l, ex)
+		sectionHead(l, -1, "Daily challenges", nil)
+		weeklyRows(o, l, ex)
+	end
 	if d then
 		local pill = Instance.new("Frame")
 		pill.Name = "Timer"
@@ -1372,9 +1749,9 @@ local function daily(o: Open, v: State.View)
 		pill.AnchorPoint = Vector2.new(0.5, 0.5)
 		pill.Position = UDim2.fromScale(0.5, 0.5)
 		pill.Size = UDim2.fromScale(0.56, 0.9)
-		Ui.corner(pill, 0.5)
+		Ui.corner(pill, 0.5) -- (unchanged)
 		Ui.stroke(pill, Config.ui.cardStroke)
-		pill.Parent = row(l, 0, D.timerHeight)
+		pill.Parent = row(l, 0, 1, 16)
 		local foot = Ui.inkLabel(pill, "", UDim2.fromScale(0.92, 0.7), UDim2.fromScale(0.04, 0.15))
 		foot.TextColor3 = Theme.infoDeep
 		sized(foot, "small")
@@ -1390,7 +1767,7 @@ local function daily(o: Open, v: State.View)
 		end)
 	end
 	for i, c in items do
-		local line = card(row(l, i, D.rowHeight))
+		local line = card(row(l, i, 1, 6.5))
 		line.Name = "Challenge" .. i
 		local ready = c.done and not c.claimed
 		if c.claimed then
@@ -1444,7 +1821,7 @@ local function daily(o: Open, v: State.View)
 		end
 	end
 	if canInvite then
-		inviteRow(l, #items + 1)
+		inviteRow(l, 50)
 	end
 end
 
@@ -2805,9 +3182,10 @@ local function reward(o: Open, coins: number, sub: string, okText: string, onOk:
 end
 
 -- The one-time Free Gift board (owner 2026-11-12, from hit games' "free reward" boards): what you get, big,
--- at the top; three numbered step cards with a picture of what to press (Like, Favorite, join the
--- group); one green Claim, the only thing that pulses. Only the group join is checked, on the server.
--- Favorite opens Roblox's own favourite prompt; Join opens Roblox's own group prompt.
+-- at the top; one numbered step card in the middle (join the group, checked on the server); one green Claim,
+-- the only thing that pulses. Join opens Roblox's own group prompt. QA DR-01 (owner 2026-11-19): Like and
+-- Favorite stay as optional "Enjoying it?" cards either side, with no number: Roblox doesn't allow rewarding
+-- them, so they ask but aren't a step to the reward. Favorite opens Roblox's own favourite prompt.
 local function giftStep(parent: Instance, n: number, x: number, w: number, title: string, picture: string, action: (Frame) -> ())
 	local c = Instance.new("Frame")
 	c.Name = "Step" .. n
@@ -2829,6 +3207,7 @@ local function giftStep(parent: Instance, n: number, x: number, w: number, title
 	Ui.corner(badge, 1)
 	Ui.stroke(badge, Config.ui.cardStroke)
 	badge.Parent = c
+	badge.Visible = n > 0 -- 0: an optional card, not a step to the reward
 	local num = Ui.label(badge, tostring(n), UDim2.fromScale(0.8, 0.8), UDim2.fromScale(0.1, 0.1))
 	sized(num, "body")
 	local t = text(c, title, 0.04, 0.92, nil, "small")
@@ -2911,7 +3290,7 @@ local function freeGift(o: Open, v: State.View)
 			x += iw + gap + p.label.TextBounds.X / w + between
 		end
 	end)
-	-- the three steps
+	-- the one step in the middle, the optional asks either side (QA DR-01)
 	local steps = Instance.new("Frame")
 	steps.Name = "Steps"
 	steps.BackgroundTransparency = 1
@@ -2919,18 +3298,18 @@ local function freeGift(o: Open, v: State.View)
 	steps.Size = UDim2.fromScale(1, 0.45)
 	steps.Parent = o.body
 	local w, gap = 0.31, 0.035
-	giftStep(steps, 1, 0, w, "Like the game", Config.images.icons.like, function(a)
+	giftStep(steps, 0, 0, w, "Enjoying it? Like the game", Config.images.icons.like, function(a)
 		giftTag(a, "On the game page", Theme.infoDeep)
 	end)
-	giftStep(steps, 2, w + gap, w, "Favorite the game", Config.images.icons.star, function(a)
+	giftStep(steps, 0, (w + gap) * 2, w, "Favorite to find us fast", Config.images.icons.star, function(a)
 		local b = button(a, Theme.info, "Favorite", 0.1, 0.8, function()
 			pcall(function()
-				AvatarEditorService:PromptSetFavorite(game.PlaceId, Enum.AvatarItemType.Asset, true)
+				game:GetService("AvatarEditorService"):PromptSetFavorite(game.PlaceId, Enum.AvatarItemType.Asset, true)
 			end)
 		end)
 		b.root.Name = "FavoriteButton"
 	end)
-	giftStep(steps, 3, (w + gap) * 2, w, "Join the community", Config.ui.tileIcons.pets, function(a)
+	giftStep(steps, 1, w + gap, w, "Join the community", Config.ui.tileIcons.pets, function(a)
 		if G.groupId == 0 then
 			giftTag(a, "Soon", Theme.tiers.Common)
 		elseif giftJoined then
@@ -3033,7 +3412,10 @@ local function board(o: Open)
 			img.Image = `rbxthumb://type=AvatarHeadShot&id={r.u}&w=150&h=150` -- Roblox draws it, no web call
 			Ui.corner(img, 0.5)
 			img.Parent = head
-			local name = text(line, r.n, 0.205, 0.44)
+			-- owner 2026-11-20: a Visit button on every other player's row opens their pan, read-only (ExtrasController draws
+			-- it when the server's "panVisit" comes back); the name and score move left to make room
+			local canVisit = r.u ~= myId
+			local name = text(line, r.n, 0.205, if canVisit then 0.3 else 0.44)
 			-- the circles are as wide as the row is tall, so on a phone's taller rows they ran into each other
 			-- and into the name ("1(" and "Aplayer", QA 2026-11-17): place them from the row's real size (on PC
 			-- this lands where the fixed 0.105 / 0.205 did)
@@ -3049,10 +3431,21 @@ local function board(o: Open)
 			line:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
 			task.defer(fit)
 			local coins = def.id == "coins_week"
-			local score = text(line, r.s, 0.65, if coins then 0.26 else 0.33)
+			local shift = if canVisit then 0.18 else 0
+			local score = text(line, r.s, 0.65 - shift, if coins then 0.26 else 0.33)
 			score.TextXAlignment = Enum.TextXAlignment.Right
 			if coins then
-				Ui.image(line, Config.images.icons.coin, UDim2.fromScale(0.06, 0.7), UDim2.fromScale(0.925, 0.15))
+				Ui.image(line, Config.images.icons.coin, UDim2.fromScale(0.06, 0.7), UDim2.fromScale(0.925 - shift, 0.15))
+			end
+			if canVisit then
+				local userId = r.u
+				local vb = button(line, Theme.go, "Visit", 0.825, 0.165, function()
+					State.send("VisitPan", userId)
+				end)
+				vb.root.Name = "Visit"
+				if not o.first then
+					o.first = vb.face -- a controller starts on the first Visit (your own row has none: QA 2026-11-20, you at #1 sent it to the X)
+				end
 			end
 		end
 	end
@@ -3396,6 +3789,48 @@ function PopupController.open(name: string, data: any?, rebuilt: boolean?)
 		end)
 	end
 	fill(o)
+	-- QA 2026-11-20 (PT-04): the Thaw Machine with one pet filled ~15% of a full-height panel. A list popup
+	-- shrinks to its rows (UI Rules: popups fit their content); header, X and body go to pixels first so
+	-- they keep their size, and the text keeps the big panel's sizes. Rows are measured from their shape
+	-- (width / aspect), not their AbsoluteSize, because the open animation starts them scaled down.
+	if FIT[name] then
+		local H = frame.AbsoluteSize.Y
+		local lst = body:FindFirstChild("List") :: GuiObject?
+		local layout = lst and lst:FindFirstChildOfClass("UIListLayout")
+		if lst and layout and H > 0 then
+			local pad = lst:FindFirstChildOfClass("UIPadding")
+			local padT = if pad then pad.PaddingTop.Scale * lst.AbsoluteSize.Y + pad.PaddingTop.Offset else 0
+			local padB = if pad then pad.PaddingBottom.Scale * lst.AbsoluteSize.Y + pad.PaddingBottom.Offset else 0
+			local padX = if pad then (pad.PaddingLeft.Scale + pad.PaddingRight.Scale) * lst.AbsoluteSize.X else 0
+			local w = lst.AbsoluteSize.X - padX - (if lst:IsA("ScrollingFrame") then lst.ScrollBarThickness else 0)
+			local gap = layout.Padding.Scale * lst.AbsoluteSize.Y + layout.Padding.Offset
+			local contentH, n = padT + padB, 0
+			for _, r in lst:GetChildren() do
+				if r:IsA("GuiObject") and r.Visible then
+					local a = r:FindFirstChildOfClass("UIAspectRatioConstraint")
+					contentH += if a then w / a.AspectRatio else r.Size.Y.Scale * lst.AbsoluteSize.Y + r.Size.Y.Offset
+					n += 1
+				end
+			end
+			contentH += math.max(0, n - 1) * gap
+			local top = (0.05 + hh) * H
+			local newH = math.clamp(top + contentH + 0.04 * H, H * 0.42, H)
+			if newH < H - 4 then
+				header.root.Position = UDim2.new(0.02, 0, 0, 0.025 * H)
+				header.root.Size = UDim2.new(0.96, 0, 0, hh * H)
+				closeB.root.Position = UDim2.new(0.975, 0, 0, 0.035 * H)
+				closeB.root.Size = UDim2.new(0.2, 0, 0, hh * 0.8 * H)
+				body.Position = UDim2.new(0.04, 0, 0, top)
+				body.Size = UDim2.new(0.92, 0, 0, newH - top - 0.02 * H)
+				-- a shape lock on the frame would narrow it too: give it the new, wider shape
+				local lock = frame:FindFirstChildOfClass("UIAspectRatioConstraint")
+				if lock then
+					lock.AspectRatio = frame.AbsoluteSize.X / newH
+				end
+				frame.Size = UDim2.new(frame.Size.X.Scale, frame.Size.X.Offset, frame.Size.Y.Scale * newH / H, frame.Size.Y.Offset * newH / H)
+			end
+		end
+	end
 	if name == "shop" and not rebuilt then
 		shopOpening(o, panel, header)
 	end

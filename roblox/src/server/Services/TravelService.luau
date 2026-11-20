@@ -13,6 +13,7 @@ local Remotes = require(script.Parent.Remotes)
 local DataService = require(script.Parent.DataService)
 local PlayerTracker = require(script.Parent.PlayerTracker)
 local CarryService = require(script.Parent.CarryService)
+local TutorialService = require(script.Parent.TutorialService)
 local WorldService = require(script.Parent.WorldService)
 local EventService = require(script.Parent.EventService)
 local WorldRules = require(ReplicatedStorage.Shared.WorldRules)
@@ -175,13 +176,15 @@ function TravelService.nightClose(night: boolean)
 	end
 	for _, player in Players:GetPlayers() do
 		local pos = PlayerTracker.position(player)
-		if pos and WorldRules.zoneAt(pos) > 0 and not player:GetAttribute("TrainLocked") then
+		-- a new player on the first island lesson stays (QA PT-02): the tutorial pet is theirs to carry home
+		if pos and WorldRules.zoneAt(pos) > 0 and not player:GetAttribute("TrainLocked") and not TutorialService.learning(player) then
 			local cf = destination(player, "pan")
 			if cf then
 				-- you didn't make it home: the pets in your hands stay behind (owner 2026-11-18)
 				local lost = CarryService.loseCarried(player)
-				-- home at once (owner 2026-11-18: "when it is night the teleport back to the pan isn't instant")
-				PlayerTracker.teleport(player, cf)
+				-- home at once (owner 2026-11-18: "when it is night the teleport back to the pan isn't instant"); the hub
+				-- is streamed in first from far islands (QA PT-05), each player in their own thread
+				task.spawn(PlayerTracker.teleportFar, player, cf)
 				task.delay(Config.nightClose.homeDelay, function()
 					if player.Parent then
 						-- after the server-wide nightStart banner, so this one (with "your pet got away") is the one seen

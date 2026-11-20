@@ -116,6 +116,7 @@ local function makeToast(textValue: string, color: Color3, icon: string): Toast
 	-- the words: white with an outline, left of centre after the chip
 	local label = Ui.label(back, textValue, UDim2.new(1, 0, 0.62, 0), UDim2.fromScale(0, 0.19))
 	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.RichText = true
 	local pad = Instance.new("UIPadding")
 	pad.PaddingLeft = UDim.new(0.13, 0)
 	pad.PaddingRight = UDim.new(0.05, 0)
@@ -126,11 +127,20 @@ local function makeToast(textValue: string, color: Color3, icon: string): Toast
 	return { root = g, text = textValue, untilAt = 0, scale = s }
 end
 
-function HudController.banner(textValue: string, color: Color3?, seconds: number?, icon: string?, pulse: boolean?)
+-- the tutorial is running (QA PT-06, 2026-11-19: three banners stacked under the tutorial bar at step 5)
+local function tutorialOn(): boolean
+	local tu = State.view and State.view.tutorial
+	return tu ~= nil and not tu.done
+end
+
+-- waitForHud: a reward toast (daily, weekly, Extras) keeps its time until the player can see it; anything
+-- about the clock (night warnings, events) runs out on time instead of showing up late and wrong
+function HudController.banner(textValue: string, color: Color3?, seconds: number?, icon: string?, pulse: boolean?, waitForHud: boolean?)
 	if not alertsFrame then
 		return
 	end
 	local A = Config.ui.alerts
+	local stack = if tutorialOn() then 1 else A.stack -- one banner at a time while the tutorial talks
 	local c = color or Theme.info
 	local hold = seconds or Config.ui.bannerSeconds
 	local still = reducedMotion()
@@ -141,7 +151,7 @@ function HudController.banner(textValue: string, color: Color3?, seconds: number
 		end
 	end
 	if not t then
-		while #toasts >= A.stack do
+		while #toasts >= stack do
 			dropToast(toasts[1])
 		end
 		local n = makeToast(textValue, c, icon or iconFor(c))
@@ -160,7 +170,18 @@ function HudController.banner(textValue: string, color: Color3?, seconds: number
 	end
 	local untilAt = os.clock() + hold
 	toast.untilAt = untilAt
-	task.delay(hold, function()
+	-- a reward's clock only runs while the alerts show (QA 2026-11-20: "Day 1: +250" from the Daily popup ran
+	-- out unseen behind it); it waits for the menu or show to end, then holds its time
+	task.spawn(function()
+		local sg = alertsFrame:FindFirstAncestorOfClass("ScreenGui")
+		local left = hold
+		while left > 0 and toast.untilAt == untilAt do
+			local dt = task.wait(0.1)
+			local shown = (not sg or sg.Enabled) and alertsFrame.Visible
+			if shown or not waitForHud then
+				left -= dt
+			end
+		end
 		if toast.untilAt == untilAt then
 			dropToast(toast)
 		end
@@ -802,6 +823,11 @@ function HudController.Start()
 	tilesFrame = tiles
 	for i, t in Config.ui.tiles do
 		local b = Ui.block(tiles, t.id, Theme.tiles[t.id] or Theme.info, t.label, function()
+			if t.id == "trade" then
+				-- the players panel (trade, mute, block); required here so the two controllers don't load each other
+				require(script.Parent.ExtrasController).openPlayers()
+				return
+			end
 			PopupController.open(t.id)
 		end)
 		b.root.LayoutOrder = i
@@ -865,7 +891,9 @@ function HudController.Start()
 	Ui.image(coinsRoot, Config.images.icons.coin, UDim2.fromScale(0.34, 1), UDim2.fromScale(0, 0))
 	-- wider than the frame (it runs on to the right) so a long whole number keeps a big font. Owner
 	-- 2026-11-13: centred on the coin and as big as the Cold Power number under it (same size and place)
-	coinsText = Ui.label(coinsRoot, "0", UDim2.fromScale(1.4, 0.84), UDim2.fromScale(0.34, 0.08))
+	-- the number starts at 0.4: the "+" sits on the coin's bottom-right corner, clear of the number (owner
+	-- 2026-11-20: first it sat on both, then it floated in a gap between them and looked detached)
+	coinsText = Ui.label(coinsRoot, "0", UDim2.fromScale(1.4, 0.84), UDim2.fromScale(0.4, 0.08))
 	coinsText.TextXAlignment = Enum.TextXAlignment.Left
 	-- wide enough for "+1.2K/s  +30% friends"; a short rate keeps its size (TextScaled caps at the height)
 	coinsRate = Ui.label(coinsRoot, "", UDim2.fromScale(1.6, 0.4), UDim2.fromScale(0.6, 0.32))
@@ -883,7 +911,7 @@ function HudController.Start()
 	coinsText:GetPropertyChangedSignal("TextBounds"):Connect(placeRate)
 	coinsRoot:GetPropertyChangedSignal("AbsoluteSize"):Connect(placeRate)
 	Screen.register("coins", coinsRoot)
-	plusBadge(coinsRoot, 0.3, 0.84, 0.36, "coins") -- smaller than the icon (owner 2026-11-18: "too big")
+	plusBadge(coinsRoot, 0.3, 0.8, 0.36, "coins") -- smaller than the icon (owner 2026-11-18: "too big"); on the coin's corner, 2026-11-20
 	-- Cold Power under the coins, the same look a size smaller: icon, then the number in white-to-cyan
 	powerRoot = Instance.new("Frame")
 	powerRoot.Name = "Power"
@@ -891,8 +919,8 @@ function HudController.Start()
 	-- the Cold Power icon and the total in big white-to-cyan (as before), and under the number a slim bar: how far
 	-- your Cold Power is toward the next island's need, "62% to Jungle Falls" (owner 2026-11-18)
 	Ui.image(powerRoot, Config.images.icons.power, UDim2.fromScale(0.26, 0.96), UDim2.fromScale(0.04, 0.02))
-	plusBadge(powerRoot, 0.28, 0.84, 0.36, "power")
-	powerText = Ui.label(powerRoot, "0", UDim2.fromScale(1.4, 0.84), UDim2.fromScale(0.34, 0.08))
+	plusBadge(powerRoot, 0.3, 0.8, 0.36, "power")
+	powerText = Ui.label(powerRoot, "0", UDim2.fromScale(1.4, 0.84), UDim2.fromScale(0.4, 0.08))
 	powerText.TextXAlignment = Enum.TextXAlignment.Left
 	local cyan = Instance.new("UIGradient")
 	cyan.Rotation = 90
@@ -917,6 +945,17 @@ function HudController.Start()
 	al.Parent = af
 	alertsFrame = af
 	Screen.register("banner", af)
+	-- QA 2026-11-20: on a PC the toasts sat on top of an open popup's title bar. While a menu is open they
+	-- wait out of sight (rewards keep their time, see banner), like on touch screens
+	task.spawn(function()
+		while true do
+			local want = not Screen.popupOpen
+			if af.Visible ~= want then
+				af.Visible = want
+			end
+			task.wait(0.1)
+		end
+	end)
 	buildGain()
 	buildClocks()
 	task.spawn(function()
@@ -933,7 +972,13 @@ function HudController.Start()
 	if State.view then
 		render(State.view)
 	end
+	-- server-wide news a new player can't act on yet: held back until the tutorial is done (QA PT-06)
+	local worldShout = { secretSpawned = true, bigWin = true, shoutout = true, eventWarn = true, eventStart = true,
+		eventEnd = true, chillWarn = true, adminAbuse = true }
 	State.Notify:Connect(function(kind: string, data: any)
+		if worldShout[kind] and tutorialOn() then
+			return
+		end
 		if kind == "notYet" then
 			HudController.banner(tostring(data.reason), Theme.no, Config.ui.notYetSeconds)
 		elseif kind == "chillWarn" then
@@ -1061,7 +1106,10 @@ function HudController.Start()
 			end
 			SoundController.play("unlock")
 		elseif kind == "nightWarn" then
-			HudController.banner(`Night in {data.inSeconds}s! The islands close`, Theme.events.night, 4, "star")
+			-- world news waits for the tutorial (UI Rules; QA 2026-11-20 saw it under "Use the Thaw Machine")
+			if not tutorialOn() then
+				HudController.banner(`Night in {data.inSeconds}s! The islands close`, Theme.events.night, 4, "star")
+			end
 		elseif kind == "nightHome" then
 			local lost = typeof(data) == "table" and typeof(data.lost) == "number" and data.lost > 0
 			HudController.banner(if lost then "Night! Your pet got away. Get home before dark" else "Night! Back home until sunrise", Theme.events.night, 4, "star")
@@ -1075,7 +1123,7 @@ function HudController.Start()
 			end
 		elseif kind == "nightStart" then
 			-- the Night Reset (Config.night), the closed islands (Config.nightClose) and the night thaw boost
-			HudController.banner(`Night! Thawing {Config.thaw.nightSpeed}x faster`, Theme.events.night, 4, "star")
+			-- owner 2026-11-20: "stop saying this alert" (the night clock already shows it); no banner
 		elseif kind == "nightEnd" then
 			HudController.banner("Good morning! New pets are here", Theme.go)
 		elseif kind == "bigWin" then
@@ -1147,10 +1195,19 @@ function HudController.Start()
 		-- no banner when a pet goes into or comes out of the Thaw Machine (owner 2026-11-10)
 		elseif kind == "critterCaught" then
 			HudController.banner("A Heat Critter grabbed your cube! Zap it back", Theme.round5.critter)
+		-- PvP (2026-11-19): a hit drops the cube for anyone to grab
 		elseif kind == "tagged" then
-			HudController.banner(`{data.by} knocked your cube loose! Zap it back`, Theme.round5.reticlePlayer)
+			HudController.banner(`{data.by} froze you! Grab your pet back!`, Theme.round5.reticlePlayer)
 		elseif kind == "tagHit" then
-			HudController.banner("Tagged! Their cube popped loose", Theme.round5.reticlePlayer) -- only its owner can zap it back (2026-11-15)
+			HudController.banner("Hit! Grab their pet!", Theme.round5.reticlePlayer)
+		elseif kind == "bombFrozen" then
+			HudController.banner("Frost Bomb! Tap fast to break free!", Theme.round5.reticlePlayer)
+		elseif kind == "bombHit" then
+			HudController.banner(`Your Frost Bomb froze {data.name}! Grab the pet!`, Theme.go)
+		elseif kind == "cubeStolen" then
+			HudController.banner(`{data.by} took your pet! Zap them to get it back`, Theme.round5.reticlePlayer)
+		elseif kind == "gotBack" then
+			HudController.banner("Got it back! Run home!", Theme.go)
 		elseif kind == "shieldOff" then
 			HudController.banner("Your shield is off: keep your cubes safe!", Theme.round5.shield)
 		elseif kind == "friendJoined" then

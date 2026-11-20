@@ -71,7 +71,7 @@ ACTIONS.maxAll = function(player)
 		d.pan.trainer = #Config.training.stations
 		d.pan.look = #Config.pan.looks
 		for _, g in Config.gear do
-			d.gear[g.key] = Config.gearMax
+			d.gear[g.key] = Config.gearMaxOf(g.key)
 		end
 	end)
 	WorldService.setReach(player, n)
@@ -171,7 +171,7 @@ ACTIONS.teleport = function(player, id)
 	end
 	for _, t in WorldService.teleportTargets(player) do
 		if t.id == id then
-			PlayerTracker.teleport(player, t.cf)
+			PlayerTracker.teleportFar(player, t.cf) -- streams the island in first (QA PT-05)
 			return
 		end
 	end
@@ -582,6 +582,51 @@ function TesterService.Start()
 				-- a fresh cube of this pet straight into your hands, as if just picked up (melt tests, 2026-11-17)
 				local def = PetDefs.get(a)
 				return def and CarryService.addCube(player, { key = a, zone = def.zone, pose = "idle" })
+			elseif action == "pvpHit" then
+				-- PvP (2026-11-19): a ray hit on yourself, for solo play tests (needs a cube in your hands)
+				local key = CarryService.dropOpen(player)
+				require(script.Parent.TagService).freeze(player, Config.tag.frozenSeconds, nil)
+				Remotes.fire(player, "Notify", "tagged", { by = "Tester", seconds = Config.tag.frozenSeconds, key = key })
+				return key
+			elseif action == "hitAs" and typeof(a) == "number" then
+				-- this player shoots player `a` with the ray (the real Aim path), holds it briefly, lets go
+				local FreezeService = require(script.Parent.FreezeService) :: any
+				FreezeService.aimFor(player, "player", tostring(a))
+				task.wait(0.4)
+				FreezeService.aimFor(player, "none", "")
+				return true
+			elseif action == "grabNearest" then
+				-- this player presses E on the nearest cube on the ground (their own: pick up; someone else's: claim)
+				local pos = PlayerTracker.position(player)
+				local best, bestD = nil, math.huge
+				for _, g in workspace:FindFirstChild("GroundCubes", true):GetChildren() do
+					local d = pos and (g.Position - pos).Magnitude or math.huge
+					if d < bestD then
+						best, bestD = g, d
+					end
+				end
+				if not best then
+					return nil
+				end
+				local owner = Players:GetPlayerByUserId(best:GetAttribute("OwnerUserId") :: number)
+				local uid = best:GetAttribute("CubeUid") :: string
+				if owner == player then
+					CarryService.pickUp(player, uid)
+				elseif owner then
+					CarryService.claim(player, owner, uid)
+				end
+				return uid
+			elseif action == "hitCooldown" then
+				-- seconds before this player can tag again (PvP 1 s hit cooldown check, 2026-11-19)
+				return require(script.Parent.TagService).cooldownLeft(player)
+			elseif action == "giveBombs" then
+				DataService.mutate(player, function(x)
+					x.gear.frost_bombs = 1
+				end)
+				return true
+			elseif action == "bombSelf" then
+				-- a Frost Bomb a few studs ahead that also hits its owner (solo play tests only)
+				return require(script.Parent.BombService).testBomb(player)
 			elseif action == "tutorialDid" and typeof(a) == "string" then
 				require(script.Parent.TutorialService).did(player, a) -- drive a tutorial step from a play test
 				return true
@@ -590,6 +635,17 @@ function TesterService.Start()
 				local names = require(script.Parent.WildPetSpawner).spawnSecrets()
 				Remotes.fireAll("Notify", "secretSpawned", { islands = names, count = #names })
 				return names
+			elseif action == "boardPreview" then
+				-- fill every board (and the top-100 popup) with sample rows (2026-11-20 Visit QA)
+				require(script.Parent.LeaderboardService).preview(if typeof(a) == "number" then a else nil)
+				return true
+			elseif action == "qaSaveAs" and typeof(a) == "number" and Config.data.qaStoreSuffix ~= "" then
+				-- QA store only: copy this player's save to user `a`, so a Visit to that sample row has pets to show
+				local copy = game:GetService("HttpService"):JSONDecode(game:GetService("HttpService"):JSONEncode(d))
+				copy.lock = nil
+				local store = game:GetService("DataStoreService"):GetDataStore(Config.data.storeName .. Config.data.qaStoreSuffix)
+				store:SetAsync("u_" .. a, copy)
+				return true
 			elseif action == "eventNext" then
 				-- jump the event clock to the start of the next server event (2026-11-16 QA)
 				local off = (workspace:GetAttribute("EventOffset") or 0) :: number

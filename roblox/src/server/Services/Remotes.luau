@@ -14,6 +14,7 @@ local NAMES = {
 	"BuyUpgrade", "CollectWelcome", "RequestSuperFreeze", "SetMenuOpen", "ShopOpened",
 	"EquipPet", "EquipBest", "SetSetting", "Tester", "ShowDone", "BuyGun", "EquipGun", "BuyPanUpgrade", "SellPets",
 	"Aim", "SetGear", "ThrowGel", "BuyGear", "RedeemCode", -- Round 5: shooting the ray, the hotbar, Slow Gel, codes
+	"PlaceBomb", "BreakIce", -- PvP 2026-11-19: place a Frost Bomb at your feet; tap to break out of the ice (BombService, TagService)
 	"Rebirth", -- Round 4 phase 7: the Rebirth Booth
 	"ThawPet", -- put a frozen pet from your Pets in your Thaw Machine (owner 2026-11-09)
 	"BuyRobux", -- the Shop's Robux tab (MonetizationService shows Roblox's own prompt)
@@ -28,6 +29,9 @@ local NAMES = {
 	"ClaimThaw", -- take a thawed pet out of its machine (PenService, owner 2026-11-13)
 	"Teleport", -- the top buttons: to the Equipment Booth or your pan (TravelService, 2026-11-12)
 	"SendFeedback", -- the Feedback mailbox: a mood and a short message (FeedbackService, owner 2026-11-17 night)
+	"Extras", -- login calendar, weekly quests, chests, ray skins, mute (ExtrasService, 2026-11-19)
+	"Trade", -- trading (TradeService, 2026-11-19)
+	"VisitPan", -- look at a top-100 player's pan, read-only (LeaderboardService answers with Notify "panVisit", 2026-11-20)
 	-- server -> client (what happened)
 	"Data", "Notify", "BoardRank", "BoardRows",
 }

@@ -17,6 +17,8 @@ local WorldText = require(ReplicatedStorage.Shared.WorldText)
 local Remotes = require(script.Parent.Remotes)
 local DataService = require(script.Parent.DataService)
 local WorldService = require(script.Parent.WorldService)
+local AnalyticsSvc = require(script.Parent.AnalyticsSvc)
+local PetDefs = require(ReplicatedStorage.Shared.PetDefs)
 
 type Board = { id: string, title: string, subtitle: string, icon: string, kind: string }
 type Row = { userId: number, score: number }
@@ -441,6 +443,87 @@ local function refresh()
 	end
 end
 
+-- ---------- Visit a top-100 pan (owner 2026-11-20) ----------
+-- Read-only: only players on a board's last read can be visited; the answer is a small summary built here from
+-- their data (live, or their save via DataService.peek), never their save itself and never anything private.
+local V = LB.visit
+local visitCache: { [number]: { at: number, view: any } } = {}
+local lastVisit: { [Player]: number } = {}
+
+local function boardOfUser(userId: number): string?
+	for id, rows in cached do
+		for _, r in rows do
+			if r.userId == userId then
+				return id
+			end
+		end
+	end
+	return nil
+end
+
+local function panView(userId: number, d: any): { [string]: any }
+	local pets = {}
+	local inPen = 0
+	for _, p in (d.pets or {}) :: { any } do
+		if p.eq and not p.frozen then
+			inPen += 1
+			local def = PetDefs.get(p.key)
+			if def then
+				table.insert(pets, { key = p.key, mut = p.mut, sz = p.sz, income = PetDefs.income(def, p.pose, p.mut, p.sz) })
+			end
+		end
+	end
+	table.sort(pets, function(a, b)
+		return a.income > b.income
+	end)
+	while #pets > V.maxPets do
+		table.remove(pets)
+	end
+	local tier = Config.tiers[if d.rarest then d.rarest.rank else 0]
+	local skin = Config.raySkin(if d.extra and typeof(d.extra.skin) == "string" then d.extra.skin else "default")
+	return {
+		userId = userId, name = displayName(userId), pets = pets, inPen = inPen, owned = #(d.pets or {}),
+		rebirths = d.rebirths or 0, frozen = if d.stats then d.stats.frozen else 0,
+		best = if tier then tier.name else nil, skin = if skin then skin.id else nil, skinName = if skin then skin.name else nil,
+	}
+end
+
+local function visit(player: Player, userId: any)
+	if typeof(userId) ~= "number" or userId ~= userId or userId < 1 or userId ~= math.floor(userId) then
+		return
+	end
+	local now = os.clock()
+	if now - (lastVisit[player] or -math.huge) < V.cooldown then
+		return
+	end
+	local board = boardOfUser(userId)
+	if not board then
+		return -- only the top 100 can be visited
+	end
+	lastVisit[player] = now
+	local online = Players:GetPlayerByUserId(userId) ~= nil
+	local hit = visitCache[userId]
+	local view = if not online and hit and now - hit.at < V.cacheSeconds then hit.view else nil
+	if not view then
+		local d = DataService.peek(userId)
+		if d then
+			view = panView(userId, d)
+			if not online then
+				visitCache[userId] = { at = now, view = view }
+			end
+		end
+	end
+	if not player.Parent then
+		return
+	end
+	if not view then
+		Remotes.fire(player, "Notify", "panVisit", { userId = userId, name = displayName(userId), failed = true })
+		return
+	end
+	AnalyticsSvc.event(player, "pan_visit", { board = board })
+	Remotes.fire(player, "Notify", "panVisit", view)
+end
+
 local function makeLeaderstats(player: Player)
 	local folder = Instance.new("Folder")
 	folder.Name = "leaderstats"
@@ -503,7 +586,9 @@ function LeaderboardService.Start()
 			end
 		end
 	end)
+	Remotes.on("VisitPan", visit)
 	Players.PlayerRemoving:Connect(function(player)
+		lastVisit[player] = nil
 		writeScores(player) -- DataService saves after this (deferred), so the data is still there
 		lastWrite[player] = nil
 	end)

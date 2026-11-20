@@ -1,0 +1,11 @@
+{"parts": [
+  ["GemGlow", "z > 0.72 and abs(x) < 0.2 and y < 0.0 and 12 < h < 45 and s > 0.55 and v > 0.7"],
+  ["PlateGlow", "z > 0.25 and 12 < h < 45 and s > 0.55 and v > 0.7"],
+  ["EarL", "x > 0.19 and z > 0.76"],
+  ["EarR", "x < -0.19 and z > 0.76"],
+  ["Head", "(z > 0.48 and y < 0.1) or z > 0.6"],
+  ["Tail", "y > 0.38 and z > 0.25"],
+  ["LegFL", "z < 0.22 and y < 0.02 and x > 0"],
+  ["LegFR", "z < 0.22 and y < 0.02"],
+  ["LegBL", "z < 0.22 and x > 0"],
+  ["LegBR", "z < 0.22"]]}

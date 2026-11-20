@@ -38,6 +38,17 @@ end
 
 local autoAdvance: (Player) -> ()
 
+-- true while a new player is on the first island lesson (zap .. carry home): their cube never melts or wakes up
+-- and Night doesn't send them home (QA PT-02 / PT-03, 2026-11-19: the tutorial pet melted away when a 7-year-old
+-- stopped to look around, and Night pulled them home ~90 s in)
+function TutorialService.learning(player: Player): boolean
+	local d = DataService.get(player)
+	if not d or not d.tutorial or d.tutorial.done then
+		return false
+	end
+	return (d.tutorial.step or 1) <= (indexOf("carry") or 0)
+end
+
 -- why: "did" (an action), "next", "skip", "replay"
 local function setStep(player: Player, step: number, done: boolean, why: string)
 	step = math.clamp(step, 1, #T.steps)
@@ -90,6 +101,10 @@ local function setStep(player: Player, step: number, done: boolean, why: string)
 	if why == "did" or why == "next" then
 		local st = T.steps[step]
 		AnalyticsSvc.tutorialStep(player, step, if done then "done" elseif st then st.id else "?")
+		-- funnel step 11 (QA 2026-11-19: it was never sent): the Cold Power lesson starts at the "peek" step
+		if st and st.id == "peek" then
+			AnalyticsSvc.funnel(player, "lesson2_start")
+		end
 	elseif why == "skip" then
 		local st = T.steps[step]
 		AnalyticsSvc.tutorialStep(player, #T.steps + 1, "skipped_at_" .. (if st then st.id else "?"))

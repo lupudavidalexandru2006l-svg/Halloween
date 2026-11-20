@@ -587,7 +587,7 @@ local function tally(data: any)
 		end
 		task.wait(EffectsController.time(T.fly + T.finale))
 	end
-	SoundController.play("bank")
+	SoundController.play("made_it_home") -- ElevenLabs fanfare (2026-11-18), was the "bank" chime
 	EffectsController.burst(at, Theme.ice)
 	EffectsController.burst(at, Theme.coin)
 	-- Epic and up get an extra burst in the tier's colour (owner 2026-11-13: no light pillar any more)
