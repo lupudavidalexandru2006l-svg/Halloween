@@ -275,6 +275,7 @@ end
 local function offerButton(root: BasePart): BillboardGui
 	local g = Instance.new("BillboardGui")
 	g.Name = "SuperFreeze"
+	g.ResetOnSpawn = false -- a respawn would delete it while the pet is still dazed, and it never came back
 	g.Size = UDim2.fromScale(5, 1.4)
 	-- beside the dazed pet and pulled toward the camera (Z), not AlwaysOnTop: in this place an AlwaysOnTop
 	-- BillboardGui never draws (Lessons 2026-11-12). Sibling so the block's face dressing sits on its face

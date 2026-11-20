@@ -3373,12 +3373,13 @@ Config.antiCheat = { kickFlags = 10, windowSeconds = 60, kickText = "Something w
 
 -- Achievement badges (game page). id 0 = not made yet (skipped). Made through Open Cloud only on free slots
 -- (owner 2026-11-19: never spend Robux on badges); the rest wait with their icons ready.
--- made 2026-11-19 (5 free slots): first_freeze, first_rebirth, first_secret, island_5, streak_50. The rest: icons ready in
--- icons/products/out3, run tools/rbx_create_v3.py ... badges on another day (it only ever uses free slots)
+-- made 2026-11-19 (5 free slots): first_freeze, first_rebirth, first_secret, island_5, streak_50.
+-- made 2026-11-20 (5 free slots): island_10, login_7, weekly_all, first_trade, skins_5. Still to make: frozen_legend
+-- (icon ready in icons/products/out3, run tools/rbx_create_v3.py ... badges on another day; it only ever uses free slots)
 Config.badges = {
-	first_freeze = 419793865033169, first_rebirth = 2266898956288048, island_5 = 2608545254805347, island_10 = 0,
+	first_freeze = 419793865033169, first_rebirth = 2266898956288048, island_5 = 2608545254805347, island_10 = 4103198764178876,
 	first_secret = 97364668863295, streak_50 = 2204459788686243,
-	login_7 = 0, first_trade = 0, skins_5 = 0, weekly_all = 0,
+	login_7 = 3865039095393129, first_trade = 2692748755201959, skins_5 = 4359869702126043, weekly_all = 1830409809798799,
 	frozen_legend = 0, -- the Secret badge: bring home a Secret pet while on a 100+ Freeze Streak
 }
 

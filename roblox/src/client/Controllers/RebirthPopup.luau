@@ -260,7 +260,8 @@ function RebirthPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
 	-- your coins toward the price, as a gold bar with the coin in front
 	local pr = h.row(fl, 1, 0.36)
 	Ui.image(pr, I.coin, UDim2.fromScale(0.07, 1), UDim2.fromScale(0, 0))
-	local label = `{Ui.price(math.min(v.coins, cost))} / {Ui.price(cost)}`
+	-- what you have rounds down, the price up: 29,960 of 30K read "30K / 30K" beside "Need 40 more" (QA 2026-11-20)
+	local label = `{Ui.short(math.min(v.coins, cost))} / {Ui.price(cost)}`
 	if h.bar then
 		h.bar(pr, 0.08, 0.1, 0.92, 0.8, v.coins / math.max(1, cost), label, Theme.coin)
 	else

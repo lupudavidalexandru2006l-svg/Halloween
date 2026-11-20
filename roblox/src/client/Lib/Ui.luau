@@ -338,18 +338,17 @@ function Ui.fitPill(g: BillboardGui, b: Block, text: string, spec: { textPx: num
 	g.Size = UDim2.fromOffset(w + spec.padPx * 2, spec.heightPx)
 end
 
--- 12,400 / 1.2K / 3.4M: short numbers for small spaces
+-- 12,400 / 1.2K / 3.4M: short numbers for small spaces, for amounts you have or gain, so they round DOWN
+-- (QA 2026-11-20: rounding to the nearest read 999,960 as "1000K" and a daily at 2,460,000 of 2.5M as
+-- "2.5M / 2.5M" while it wasn't done). Prices and "need more" use Ui.price, which rounds up.
 function Ui.short(n: number): string
 	n = math.floor(n)
 	if n < 10000 then
 		return Ui.commas(n)
 	end
-	local units: { { size: number, suffix: string } } = {
-		{ size = 1e12, suffix = "T" }, { size = 1e9, suffix = "B" }, { size = 1e6, suffix = "M" }, { size = 1e3, suffix = "K" },
-	}
-	for _, u in units do
+	for _, u in Config.coinUnits do
 		if n >= u.size then
-			local text = string.format("%.1f", n / u.size):gsub("%.0$", "")
+			local text = string.format("%.1f", math.floor(n / u.size * 10 + 1e-9) / 10):gsub("%.0$", "")
 			return text .. u.suffix
 		end
 	end

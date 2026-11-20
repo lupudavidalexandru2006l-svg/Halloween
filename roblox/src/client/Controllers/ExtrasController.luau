@@ -778,14 +778,14 @@ local function checkNudges(v: any)
 	local at = Config.nudge.at
 	for i, c in (if v.daily then v.daily.list else {}) do
 		if not c.done and c.goal > 0 and c.have / c.goal >= at then
-			nudge(`d{i}{c.text}{c.goal}`, `{Ui.short(c.goal - c.have)} more for your daily: ` .. (string.gsub(c.text, "{n}", Ui.short(c.goal))))
+			nudge(`d{i}{c.text}{c.goal}`, `{Ui.price(c.goal - c.have)} more for your daily: ` .. (string.gsub(c.text, "{n}", Ui.short(c.goal))))
 		end
 	end
 	local e = v.extras
 	if e then
 		for i, c in e.weekly.list do
 			if not c.done and c.goal > 0 and c.have / c.goal >= at then
-				nudge(`w{i}{c.text}{c.goal}`, `{Ui.short(c.goal - c.have)} more for a weekly quest`)
+				nudge(`w{i}{c.text}{c.goal}`, `{Ui.price(c.goal - c.have)} more for a weekly quest`)
 			end
 		end
 		if e.chest and e.chest.index and e.chest.progress >= at and e.chest.progress < 1 then

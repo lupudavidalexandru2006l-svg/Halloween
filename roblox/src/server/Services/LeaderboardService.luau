@@ -138,7 +138,9 @@ local function scoreText(board: Board, score: number): string
 		local t = Config.tiers[score]
 		return if t then t.name else "-"
 	elseif board.id == "coins_week" then
-		return Config.coinText(score) -- weekly coins run into the trillions: 1.2T, never 1,200,000,000,000
+		-- weekly coins run into the trillions: 1.2T, never 1,200,000,000,000. Coins someone HAS round down
+		-- (powerText; coinText rounds up, so 1,595,000,000 read 1.6B)
+		return Config.powerText(score)
 	end
 	local s = tostring(math.floor(score))
 	return (s:reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", ""))

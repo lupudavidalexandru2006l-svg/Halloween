@@ -15,17 +15,32 @@ local SignsController = {}
 -- owner 2026-11-17 ("improve these small details from the pan"): was a thermometer drawn from plain UI
 -- shapes; now an ice-trimmed panel with the painted Power icon, the number big, and a bar filled by how
 -- far it is toward the next island's need.
-type Gauge = { label: TextLabel, fill: Frame, flashing: boolean }
+type Gauge = { gui: SurfaceGui, label: TextLabel, fill: Frame, flashing: boolean }
 local gauges: { [number]: Gauge } = {}
+
+-- QA 2026-11-20: a respawn deleted these (ResetOnSpawn) and a part that streamed out and back in left them on a
+-- dead part, so the door gauges and stand coins went blank for good. A gui still drawing on this part is kept.
+local function stillOn(g: SurfaceGui?, part: BasePart): boolean
+	return g ~= nil and g.Parent ~= nil and g.Adornee == part
+end
+
 local function buildGauge(i: number)
 	local map = workspace:FindFirstChild("Map")
 	local plot = map and map:FindFirstChild("Plot" .. i)
 	local part = plot and plot:FindFirstChild("PanGauge")
-	if not part or not part:IsA("BasePart") or gauges[i] then
+	if not part or not part:IsA("BasePart") then
 		return
+	end
+	local old = gauges[i]
+	if old and stillOn(old.gui, part) then
+		return
+	end
+	if old then
+		old.gui:Destroy()
 	end
 	local g = Instance.new("SurfaceGui")
 	g.Name = "Gauge"
+	g.ResetOnSpawn = false
 	g.Face = Enum.NormalId.Front
 	g.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
 	g.PixelsPerStud = 40
@@ -61,23 +76,27 @@ local function buildGauge(i: number)
 	fill.BackgroundColor3 = HA.gaugeFill
 	Ui.corner(fill, 1)
 	fill.Parent = tube
-	gauges[i] = { label = label, fill = fill, flashing = false }
+	gauges[i] = { gui = g, label = label, fill = fill, flashing = false }
 	g.Parent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
 end
 
 -- the Pan Upgrades stand's front (owner 2026-11-17): a painted coin on the plain green box, so it reads as
 -- "spend coins here". PanUpgrade is the stand's invisible collider, built without a turn: +Z (Back) faces the plaza.
-local stands: { [number]: boolean } = {}
+local stands: { [number]: SurfaceGui } = {}
 local function buildStand(i: number)
 	local map = workspace:FindFirstChild("Map")
 	local plot = map and map:FindFirstChild("Plot" .. i)
 	local part = plot and plot:FindFirstChild("PanUpgrade")
-	if not part or not part:IsA("BasePart") or stands[i] then
+	if not part or not part:IsA("BasePart") or stillOn(stands[i], part) then
 		return
 	end
-	stands[i] = true
+	if stands[i] then
+		stands[i]:Destroy()
+	end
 	local g = Instance.new("SurfaceGui")
+	stands[i] = g
 	g.Name = "StandFront"
+	g.ResetOnSpawn = false
 	g.Face = Enum.NormalId.Back
 	g.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
 	g.PixelsPerStud = 50
@@ -108,7 +127,10 @@ local function drawGauges()
 		buildStand(i)
 		local gauge = gauges[i]
 		if gauge and not gauge.flashing then
-			local power = powerOf(i)
+			-- your own pan shows your exact Cold Power, the same number as the HUD (the map's PanPower is cut to
+			-- 2 digits for everyone, so your gauge read 1,100 beside a HUD of 1,175)
+			local v = State.view
+			local power = if v and v.plot == i then (v.coldPower or 0) else powerOf(i)
 			setGauge(gauge, power / Config.nextNeed(power), Theme.training.power, Config.powerText(power))
 		end
 	end
@@ -131,9 +153,11 @@ function SignsController.Init() end
 function SignsController.Start()
 	watchGauges()
 	SettingsController.Changed:Connect(drawGauges)
-	-- the pans are in the hub, which streams in first; look again a few times in case it's late
+	State.Changed:Connect(drawGauges)
+	-- the pans are in the hub, which streams in first; keep looking, so a gauge whose part streamed out on a far
+	-- island and back in is drawn again (a kept gauge just gets its text set again)
 	task.spawn(function()
-		for _ = 1, 10 do
+		while true do
 			drawGauges()
 			task.wait(2)
 		end
