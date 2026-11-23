@@ -15,6 +15,10 @@
 -- 2026-11-13: walking over the pad snapped you in, which was annoying) snaps you to its stand spot facing
 -- the target and holds you there ("TrainLocked"; PlayerTracker drops your walk speed to 0) until you
 -- jump ("Train" "stop"; the client hops you off the pad). Walking over the pad does nothing.
+-- Magma Trainer (owner 2026-11-22, Config.training.robux): ONE shared trainer in the hub, right of the leaderboards
+-- (TrainingArt.magma), station id robux.id. It is the shop window only (owner 2026-11-23: "after you buy the 499
+-- robux trainer you cannot train on that, thats just for show, you only train at your pan"): without the pass, E
+-- opens Roblox's pass prompt; with it, the hub one has no prompt and your pan's trainer becomes the Magma Trainer.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -30,12 +34,15 @@ local WorldService = require(script.Parent.WorldService)
 local TrainingArt = require(script.Parent.TrainingArt)
 local TutorialService = require(script.Parent.TutorialService)
 local EventService = require(script.Parent.EventService)
+local MonetizationService = require(script.Parent.MonetizationService)
 
 local TrainingService = {}
 local T = Config.training
+local MR = T.robux
 
 type State = {
-	station: number, -- the pan whose trainer they stand on (0 = none; only ever their own)
+	station: number, -- the trainer they stand on: their pan, or the Magma Trainer (robux.id); 0 = none
+	slot: number, -- their stand slot on the Magma Trainer (robux.slots), 0 = none / a pan's trainer
 	ready: boolean, -- they can train there now (hands free, gun out)
 	wantGun: boolean, -- they just stepped on: put the gun in their hand once (never again if they put it away)
 	hits: number, -- shots toward the next shatter (kept while they step off)
@@ -47,7 +54,8 @@ type State = {
 }
 local states: { [Player]: State } = {}
 local folder: Folder
-local built: { [number]: { tier: number, f: Folder, admin: number } } = {}
+local built: { [number]: { tier: number, f: Folder, admin: number, magma: boolean } } = {}
+local magmaF: Folder? = nil -- the hub's Magma Trainer
 
 local function hasPass(player: Player, id: string): boolean
 	return player:GetAttribute("Pass_" .. id) == true -- set by MonetizationService
@@ -62,7 +70,7 @@ end
 local function stateOf(player: Player): State
 	local s = states[player]
 	if not s then
-		s = { station = 0, ready = false, wantGun = false, hits = 0, autoAt = 0, clicks = {}, gained = 0, shots = 0, locked = false }
+		s = { station = 0, slot = 0, ready = false, wantGun = false, hits = 0, autoAt = 0, clicks = {}, gained = 0, shots = 0, locked = false }
 		states[player] = s
 	end
 	return s
@@ -73,11 +81,30 @@ local function tierOf(player: Player): number
 	return if d then math.clamp(d.pan.trainer, 1, #T.stations) else 1
 end
 
--- where you stand on pan i's trainer (standZ from its middle), facing its target, at height y
-local function standFrame(i: number, y: number): CFrame
-	local p = (Config.trainerFrame(i) * CFrame.new(0, 0, T.standZ)).Position
+-- where you stand on trainer i (standZ from its middle; on the Magma Trainer, in stand slot `slot`), facing
+-- its target, at height y
+local function standFrame(i: number, y: number, slot: number?): CFrame
+	local x = if Config.isRobuxStation(i) and slot then (MR.slots[slot] or 0) else 0
+	local p = (Config.trainerFrame(i) * CFrame.new(x, 0, T.standZ)).Position
 	local at = Config.trainerTarget(i)
 	return CFrame.lookAt(Vector3.new(p.X, y, p.Z), Vector3.new(at.X, y, at.Z))
+end
+
+-- the first Magma Trainer stand slot nobody is locked into (nil = all taken)
+local function freeSlot(): number?
+	for k in MR.slots do
+		local taken = false
+		for _, o in states do
+			if o.locked and o.station == MR.id and o.slot == k then
+				taken = true
+				break
+			end
+		end
+		if not taken then
+			return k
+		end
+	end
+	return nil
 end
 
 local function setLocked(player: Player, s: State, on: boolean)
@@ -103,7 +130,13 @@ end
 -- E on your own trainer: the server checks it's your pan, you're at it and your hands are free, then
 -- snaps you to the stand spot and locks you in (the client shows the prompt only at your own pan)
 local function onPrompt(player: Player, i: number)
-	if WorldService.plotOf(player) ~= i or not DataService.isLoaded(player) then
+	local magma = Config.isRobuxStation(i)
+	if not DataService.isLoaded(player) then
+		return
+	end
+	if magma then
+		return -- the hub's Magma Trainer is for show: nobody trains on it (owners train at their own pan)
+	elseif WorldService.plotOf(player) ~= i then
 		return
 	end
 	local s = stateOf(player)
@@ -123,18 +156,70 @@ local function onPrompt(player: Player, i: number)
 		end
 		return
 	end
+	local slot = 0
+	if magma then
+		slot = freeSlot() or 0
+		if slot == 0 then
+			Remotes.fire(player, "Notify", "notYet", { reason = "The Magma Trainer is full, try again in a moment" })
+			return
+		end
+	end
 	s.station = i
+	s.slot = slot
 	s.autoAt = os.clock() + T.autoEvery * 0.5 -- the first shot comes quickly
 	s.wantGun = true
 	setLocked(player, s, true)
 	-- from the ground beside the pad: up onto it, never into it
 	local y = if Config.trainerAt(pos) == i then pos.Y else pos.Y + T.padHeight
-	PlayerTracker.teleport(player, standFrame(i, y))
+	PlayerTracker.teleport(player, standFrame(i, y, slot))
 	AnalyticsSvc.funnel(player, "first_train")
 	TutorialService.did(player, "trainStart") -- Lesson 2: on the pad
 end
 
--- the "Train" E prompt over a trainer's stand spot (drawn by the client's PromptController)
+-- AFK rejoin (owner 2026-11-22): a player who was training when AfkService moved them to a new server is put
+-- straight back on their own trainer there, as if they'd pressed E on it. Waits for their save, pan and body.
+-- Returns true once they're on it.
+function TrainingService.resume(player: Player): boolean
+	local deadline = os.clock() + 30
+	local i, root, hum
+	while os.clock() < deadline and player.Parent do
+		i = WorldService.plotOf(player)
+		local ch = player.Character
+		root = ch and ch:FindFirstChild("HumanoidRootPart") :: BasePart?
+		hum = ch and ch:FindFirstChildOfClass("Humanoid")
+		if i and root and hum and hum.Health > 0 and DataService.isLoaded(player) then
+			break
+		end
+		task.wait(0.5)
+	end
+	-- a fresh body is still being placed at the spawn for a moment: let it land, then move it (play test
+	-- 2026-11-22: moved at once, it was put back at the spawn and training let go)
+	task.wait(2)
+	local ch = player.Character
+	root = ch and ch:FindFirstChild("HumanoidRootPart") :: BasePart?
+	hum = ch and ch:FindFirstChildOfClass("Humanoid")
+	if not (i and root and hum and hum.Health > 0 and player.Parent) or blocker(player) then
+		return false
+	end
+	local s = stateOf(player)
+	-- the pad's top under the stand spot: drop a ray from above it (the character never counts)
+	local spot = standFrame(i, 0).Position
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { player.Character :: Model }
+	local hit = workspace:Raycast(Vector3.new(spot.X, spot.Y + 200, spot.Z), Vector3.new(0, -400, 0), params)
+	local y = (if hit then hit.Position.Y else (Config.trainerFrame(i).Position.Y + T.padHeight)) + hum.HipHeight + root.Size.Y / 2
+	s.station = i
+	s.slot = 0
+	s.autoAt = os.clock() + T.autoEvery * 0.5
+	s.wantGun = true
+	setLocked(player, s, true)
+	PlayerTracker.teleport(player, standFrame(i, y))
+	return true
+end
+
+-- the "Train" E prompt over a trainer's stand spot (drawn by the client's PromptController). `i` is a station:
+-- a pan, or the Magma Trainer, which sells the pass to anyone without it (PromptController says "Unlock" to them)
 local function addPrompt(f: Folder, i: number)
 	local a = Instance.new("Attachment")
 	a.Name = "TrainPromptSpot"
@@ -145,41 +230,72 @@ local function addPrompt(f: Folder, i: number)
 	end)
 	local pp = Instance.new("ProximityPrompt")
 	pp.Name = "TrainPrompt"
+	local magma = Config.isRobuxStation(i)
 	pp.ActionText = "Train"
-	pp.ObjectText = "Cold Power"
+	pp.ObjectText = if magma then "Magma Trainer" else "Cold Power"
 	pp.HoldDuration = 0
 	pp.MaxActivationDistance = T.prompt.range
 	pp.RequiresLineOfSight = false
 	pp.Style = Enum.ProximityPromptStyle.Custom
-	pp:SetAttribute("Trainer", i)
+	if not magma then
+		pp:SetAttribute("Trainer", i) -- the client shows it only at its own pan (the Magma Trainer's to everyone)
+	end
+	pp:SetAttribute("Station", i)
 	pp.Parent = a
 	pp.Triggered:Connect(function(player: Player)
-		local ok, err = pcall(onPrompt, player, i)
+		local ok, err = pcall(function()
+			if magma then
+				if not hasPass(player, MR.item) then
+					AnalyticsSvc.event(player, "offer_shown", { offer = MR.item })
+					MonetizationService.buy(player, MR.item) -- Roblox's own pass prompt
+				end
+				return -- owners don't train here: their pan's trainer is the Magma Trainer
+			end
+			onPrompt(player, i)
+		end)
 		if not ok then
 			warn("[TrainingService] prompt:", err)
 		end
 	end)
 end
 
--- each pan's trainer at its owner's level (PanTrainer<i>, PanService); a free pan shows level 1
+-- pan i's owner has the Magma Trainer pass: their pan's trainer is the Magma Trainer (Config.panMagmaMult)
+local function panMagma(i: number): boolean
+	local owner = WorldService.plotOwner(i)
+	return owner ~= nil and hasPass(owner, MR.item)
+end
+
+-- each pan's trainer at its owner's level (PanTrainer<i>, PanService); a free pan shows level 1. A pass owner's
+-- pan shows the Magma Trainer instead, published as PanMagma<i> so every client aims and frosts it as one
 local function syncTrainers()
 	local map = workspace:FindFirstChild("Map")
 	local admin = EventService.adminMult("trainer") -- the ADMIN TRAINER (AdminService): 1 = none
 	for i in Config.world.plots do
 		local want = map and map:GetAttribute("PanTrainer" .. i)
 		local tier = if typeof(want) == "number" and T.stations[want] then want else 1
+		local magma = panMagma(i)
+		if map then
+			setAttr(map, "PanMagma" .. i, if magma then true else nil)
+		end
 		local b = built[i]
-		if not b or b.tier ~= tier or b.admin ~= admin or not b.f.Parent then
+		if not b or b.tier ~= tier or b.admin ~= admin or b.magma ~= magma or not b.f.Parent then
 			if b then
 				b.f:Destroy()
 			end
-			local f = TrainingArt.build(folder, i, tier)
+			local f = if magma then TrainingArt.magma(folder, i, tier) else TrainingArt.build(folder, i, tier)
 			if admin > 1 then
 				TrainingArt.adminDress(f, i, admin)
 			end
 			addPrompt(f, i)
-			built[i] = { tier = tier, f = f, admin = admin }
+			built[i] = { tier = tier, f = f, admin = admin, magma = magma }
 		end
+	end
+	-- the hub's Magma Trainer, built once
+	local mf = magmaF
+	if not mf or not mf.Parent then
+		local f = TrainingArt.magma(folder)
+		addPrompt(f, MR.id)
+		magmaF = f
 	end
 end
 
@@ -191,7 +307,17 @@ local function shoot(player: Player, s: State, click: boolean)
 	end
 	local tier = tierOf(player)
 	-- the ADMIN TRAINER (owner 2026-11-18): xN on top of your own best trainer while an admin runs it
-	local gain = math.min(Config.coldPower.max, Config.trainGain(tier, GunService.equipped(player), d.rebirths, hasPass(player, "doublePower"))
+	-- the Magma Trainer (pass owners only): a trainer of level robux.mult, whatever your pan's trainer is
+	-- and a pass owner's own pan trainer, which is the Magma Trainer too: the better of the two (Config.panMagmaMult)
+	local magma = nil
+	if hasPass(player, MR.item) then
+		if Config.isRobuxStation(s.station) then
+			magma = MR.mult
+		elseif s.station == WorldService.plotOf(player) then
+			magma = Config.panMagmaMult(tier)
+		end
+	end
+	local gain = math.min(Config.coldPower.max, Config.trainGain(tier, GunService.equipped(player), d.rebirths, hasPass(player, "doublePower"), magma)
 		* EventService.adminMult("trainer"))
 	s.hits += 1
 	local bonus = 0
@@ -219,9 +345,11 @@ local function leave(player: Player, s: State)
 	setLocked(player, s, false)
 	if s.station ~= 0 and s.gained > 0 then
 		local d = DataService.get(player)
-		AnalyticsSvc.event(player, "train_session", { gain = s.gained, station = T.stations[tierOf(player)].id, level = tostring(Config.powerLevel(if d then d.coldPower else 0)) })
+		local id = if Config.isRobuxStation(s.station) or hasPass(player, MR.item) then MR.station.id else T.stations[tierOf(player)].id
+		AnalyticsSvc.event(player, "train_session", { gain = s.gained, station = id, level = tostring(Config.powerLevel(if d then d.coldPower else 0)) })
 	end
 	s.station = 0
+	s.slot = 0
 	s.ready = false
 	s.gained = 0
 end
@@ -234,9 +362,10 @@ local function tickPlayer(player: Player, now: number)
 	local mine = WorldService.plotOf(player)
 	if s.locked then
 		-- held at the stand spot; dying, losing the pan or being pulled away (a teleport, a fling) lets go
-		local spot = standFrame(s.station, 0).Position
+		local spot = standFrame(s.station, 0, s.slot).Position
 		local away = if pos then Vector3.new(pos.X - spot.X, 0, pos.Z - spot.Z).Magnitude else math.huge
-		if not alive or s.station ~= mine or away > T.lock.breakStuds then
+		local lost = not Config.isRobuxStation(s.station) and s.station ~= mine -- the hub's Magma Trainer has no pan
+		if not alive or lost or away > T.lock.breakStuds then
 			setLocked(player, s, false)
 		end
 	end

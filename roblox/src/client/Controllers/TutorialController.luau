@@ -33,6 +33,7 @@ local CameraController = require(script.Parent.CameraController)
 local SettingsController = require(script.Parent.SettingsController)
 local TweenService = game:GetService("TweenService")
 local PetDefs = require(ReplicatedStorage.Shared.PetDefs)
+local Spotlight = require(script.Parent.Parent.Lib.Spotlight)
 
 local TutorialController = {}
 local T = Config.tutorial
@@ -238,6 +239,7 @@ local function showStep(i: number, done: Step?)
 	if not s then
 		return
 	end
+	TutorialGoal.skipVisible(s.id ~= "done") -- QA PT-08: nothing left to skip on "Tutorial complete!"
 	GuideController.pointPets = s.focus == "pet"
 	GuideController.tutorial = true
 	GuideController.focus = s.focus -- nil on a talk step: no arrow while the peek or the end plays
@@ -392,26 +394,36 @@ local function frame()
 	local popup = PopupController.isOpen()
 	bindKeys(active and TutorialGoal.visible() and not popup and not TutorialComplete.isOpen())
 	if not active then
+		Spotlight.show(nil)
 		return
 	end
 	local p = myPos()
 	local v = State.view
 	local s = current()
 	if not p or not v or not s then
+		Spotlight.show(nil)
 		return
 	end
+	-- the gear step (owner 2026-11-21): no walk to the booth. The screen dims round the EQUIPMENT top button,
+	-- then, with the booth open, round Frost Boots' Buy button
+	local spot: GuiObject? = nil
+	local boothOpen = PopupController.openName() == "equipment"
+	if s.focus == "booth" and not TutorialComplete.isOpen() then
+		local pg = me:FindFirstChildOfClass("PlayerGui")
+		if pg then
+			local name = if PopupController.openName() == "equipment" then "Buy_frost_boots"
+				elseif not popup then "Top_equipment" else nil
+			local f = if name then pg:FindFirstChild(name, true) else nil
+			spot = if f and f:IsA("GuiObject") then f else nil
+		end
+	end
+	-- the booth open: the game shows again, only the ring on Buy (owner 2026-11-22)
+	Spotlight.show(spot, boothOpen)
 	-- the arrow doesn't know the Pan Upgrades stand, your trainer while you're off it, or the next gate
 	local extra: GuideController.Target? = nil
 	if v.plot then
 		if s.focus == "stand" then
 			extra = { kind = "stand", pos = standOf(v.plot) }
-		elseif s.focus == "booth" then
-			-- the gear step (2026-11-18): the arrow to the Equipment Booth
-			for _, b in Config.world.booths do
-				if b.id == "equipment" then
-					extra = { kind = "booth", pos = Vector3.new(b.pos.X, 0, b.pos.Z) }
-				end
-			end
 		elseif s.focus == "train" and (me:GetAttribute("TrainStation") or 0) == 0 then
 			extra = { kind = "train", pos = trainSpotOf(v.plot) }
 		elseif s.focus == "gate" then

@@ -15,6 +15,7 @@ local Ui = require(script.Parent.Parent.Lib.Ui)
 local State = require(script.Parent.State)
 local SoundController = require(script.Parent.SoundController)
 local SettingsController = require(script.Parent.SettingsController)
+local Screen = require(script.Parent.Screen)
 
 local ExtrasController = {}
 local me = Players.LocalPlayer
@@ -156,6 +157,7 @@ local function closePanel()
 	openPanel, openName = nil, nil
 	if not wasVisit then -- a visit opens over the leaderboard popup, which is still open underneath
 		State.send("SetMenuOpen", false)
+		Screen.setPopupOpen(false) -- the top buttons and goal pill come back
 	end
 end
 
@@ -167,7 +169,10 @@ local function panel(name: string, title: string, color: Color3): Frame
 	shade.AutoButtonColor = false
 	shade.BackgroundColor3 = Color3.new(0, 0, 0)
 	shade.BackgroundTransparency = 0.45
-	shade.Size = UDim2.fromScale(1, 1)
+	-- this gui keeps the top-bar inset, so the shade reaches up over it too (QA 2026-11-23 PT-05b)
+	local inset = game:GetService("GuiService"):GetGuiInset().Y
+	shade.Position = UDim2.fromOffset(0, -inset)
+	shade.Size = UDim2.new(1, 0, 1, inset)
 	shade.ZIndex = 20
 	shade.Parent = gui
 	shade.Activated:Connect(closePanel)
@@ -176,7 +181,9 @@ local function panel(name: string, title: string, color: Color3): Frame
 	p.AnchorPoint = Vector2.new(0.5, 0.5)
 	p.Position = UDim2.fromScale(0.5, 0.53)
 	p.Size = UDim2.fromScale(0.92, 0.82)
-	p.BackgroundColor3 = Theme.panel
+	-- QA PT-05: the same frame as every other popup: a pale tint of the menu colour, the title on a
+	-- full-width ribbon inside the top, the X on the ribbon's right
+	p.BackgroundColor3 = color:Lerp(Theme.white, Config.ui.panelTint)
 	p.ZIndex = 21
 	Ui.corner(p)
 	Ui.stroke(p)
@@ -191,15 +198,20 @@ local function panel(name: string, title: string, color: Color3): Frame
 	sink.ZIndex = 21
 	sink.Parent = p
 	local head = Ui.block(p, "Header", color, title)
-	head.root.Position = UDim2.fromScale(0.2, -0.06)
-	head.root.Size = UDim2.fromScale(0.6, 0.12)
+	local hh = Config.ui.headerHeight
+	head.root.Position = UDim2.fromScale(0.02, 0.025)
+	head.root.Size = UDim2.fromScale(0.96, hh)
 	textSize(head.text, 34)
 	local x = Ui.block(p, "Close", Theme.no, "X", function()
 		SoundController.play("click")
 		closePanel()
 	end)
-	x.root.Position = UDim2.fromScale(0.91, -0.04)
-	x.root.Size = UDim2.fromScale(0.08, 0.115)
+	x.root.AnchorPoint = Vector2.new(1, 0)
+	x.root.Position = UDim2.fromScale(0.975, 0.035)
+	x.root.Size = UDim2.fromScale(0.2, hh * 0.8)
+	local xa = Instance.new("UIAspectRatioConstraint")
+	xa.AspectRatio = 1.15
+	xa.Parent = x.root
 	textSize(x.text, 30)
 	-- phone: the X face is ~30 px at 844x390, so an invisible tap area keeps it at minTouchPx (like PopupController's X; QA 2026-11-20)
 	local hit = Instance.new("TextButton")
@@ -224,8 +236,8 @@ local function panel(name: string, title: string, color: Color3): Frame
 	local body = Instance.new("Frame")
 	body.Name = "Body"
 	body.BackgroundTransparency = 1
-	body.Position = UDim2.fromScale(0.03, 0.09)
-	body.Size = UDim2.fromScale(0.94, 0.88)
+	body.Position = UDim2.fromScale(0.03, 0.05 + hh)
+	body.Size = UDim2.fromScale(0.94, 0.93 - hh)
 	body.ZIndex = 22
 	body.Parent = p
 	for _, d in p:GetDescendants() do
@@ -242,6 +254,7 @@ local function panel(name: string, title: string, color: Color3): Frame
 	openPanel = shade :: any
 	openName = name
 	State.send("SetMenuOpen", true)
+	Screen.setPopupOpen(true) -- QA PT-05: the top buttons hide like they do for every other popup
 	return body
 end
 
@@ -718,7 +731,8 @@ local function refreshHud()
 		return
 	end
 	-- the chest
-	local c = e.chest
+	-- owner 2026-11-21: "remove the ice chest": the milestone chest is off (button and nudges)
+	local c = if Config.milestoneChestOn then e.chest else nil
 	if c and c.index then
 		-- the chest waits until the tutorial is over (the first minutes stay calm)
 		chestBtn.holder.Visible = not ((State.view :: any).tutorial and not (State.view :: any).tutorial.done)
@@ -788,12 +802,12 @@ local function checkNudges(v: any)
 				nudge(`w{i}{c.text}{c.goal}`, `{Ui.price(c.goal - c.have)} more for a weekly quest`)
 			end
 		end
-		if e.chest and e.chest.index and e.chest.progress >= at and e.chest.progress < 1 then
+		if Config.milestoneChestOn and e.chest and e.chest.index and e.chest.progress >= at and e.chest.progress < 1 then
 			nudge(`c{e.chest.index}{v.rebirths}`, `Your {e.chest.name} is {math.floor(e.chest.progress * 100)}% full`)
 		end
 	end
 	local cost = Config.rebirthCost((v.rebirths or 0) + 1)
-	if cost > 0 and v.coins / cost >= at and v.coins < cost then
+	if (v.rebirths or 0) < Config.rebirth.max and cost > 0 and v.coins / cost >= at and v.coins < cost then
 		nudge(`r{v.rebirths}`, "You can almost Rebirth!")
 	end
 end
@@ -808,7 +822,8 @@ local function onNotify(kind: string, data: any)
 		bigPop(data.name, if tier then tier.color else Theme.info, `x{data.n} streak: +{math.round(data.bonus * 100)}% coins`)
 		SoundController.play("reveal_rare")
 	elseif kind == "streakLost" then
-		toast(`Your cube melted: x{data.n} streak lost!`, Theme.no, 3)
+		local lead = if data.why == "melt" or data.why == nil then "Your cube melted" else "You lost your pet"
+		toast(`{lead}: x{data.n} streak lost!`, Theme.no, 3)
 	elseif kind == "skinUnlocked" then
 		local s = Config.raySkin(data.id)
 		if s then

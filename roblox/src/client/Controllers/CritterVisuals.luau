@@ -12,12 +12,15 @@ local Theme = require(ReplicatedStorage.Shared.Theme)
 local PetVisuals = require(script.Parent.PetVisuals)
 local PetDefs = require(ReplicatedStorage.Shared.PetDefs)
 local SettingsController = require(script.Parent.SettingsController)
+local CarryRush = require(script.Parent.CarryRush)
+local Players = game:GetService("Players")
 
 local CritterVisuals = {}
 local C = Config.chasers
 -- drive: walks the model like a wild pet (PetVisuals.driver); without it the model just glides and bounces
+-- rush: the red outline while it chases you and you carry a cube (CarryRush); warm: its own orange tint, off meanwhile
 type Look = { model: PVInstance, img: ImageLabel?, steam: ParticleEmitter, ice: Part, phase: number, at: CFrame, alert: BillboardGui, shown: boolean,
-	drive: ((dt: number, speed: number, lift: number) -> ())? }
+	drive: ((dt: number, speed: number, lift: number) -> ())?, rush: Highlight?, warm: Highlight? }
 -- owner 2026-11-18 ("the game is so laggy"): with chasers on all 10 islands, every client drew and moved all ~49 of
 -- them every frame, each with a light and a highlight. Now only the ones within DRAW studs of the camera are in the
 -- world and animated (a chaser further off can't reach you anyway), and none carries a light.
@@ -43,6 +46,7 @@ local function add(root: Instance)
 	if not model then
 		return
 	end
+	local warm: Highlight? = nil
 	model.Parent = folder
 	-- warm it up: a model gets an orange Highlight, a sprite an orange tint
 	if img then
@@ -59,6 +63,7 @@ local function add(root: Instance)
 		h.OutlineTransparency = 1
 		h.DepthMode = Enum.HighlightDepthMode.Occluded
 		h.Parent = model
+		warm = h
 	end
 	local core = part(Vector3.one * 0.2, Theme.round5.critter)
 	core.Transparency = 1
@@ -102,7 +107,9 @@ local function add(root: Instance)
 		local tag = Instance.new("BillboardGui")
 		tag.Name = "ChaserName"
 		tag.Size = UDim2.fromOffset(150, 30)
-		tag.StudsOffset = Vector3.new(0, C.size * 0.62, 0)
+		-- pulled toward the camera (Z) so a pet's plate or a rock in front doesn't cover it (QA 2026-11-23 PT-15;
+		-- AlwaysOnTop never draws in this place, Lessons 2026-11-12)
+		tag.StudsOffset = Vector3.new(0, C.size * 0.62, 4)
 		tag.LightInfluence = 0
 		tag.MaxDistance = 70
 		tag.Adornee = core
@@ -143,7 +150,7 @@ local function add(root: Instance)
 	ice.Transparency = 1
 	ice.Name = "CritterIce"
 	looks[root] = { model = model, img = img, steam = steam, ice = ice, phase = math.random() * 6, at = root.CFrame, alert = alert, shown = true,
-		drive = PetVisuals.driver(if typeof(key) == "string" then key else C.look.pet, root, model, img, C.size) }
+		drive = PetVisuals.driver(if typeof(key) == "string" then key else C.look.pet, root, model, img, C.size), warm = warm }
 end
 
 local function remove(root: Instance)
@@ -161,6 +168,11 @@ local function step(dt: number)
 	local amp = if reduced then 0.35 else 1
 	local cam = workspace.CurrentCamera
 	local camPos = if cam then cam.CFrame.Position else Vector3.zero
+	-- while I carry a cube, a chaser after me wears CarryRush's red outline (the challenge reads at a glance)
+	local char = Players.LocalPlayer.Character
+	local me = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local hunted = CarryRush.active() and me ~= nil
+	local range = Config.carry.rush.outline.chaserRange
 	for root, l in looks do
 		if not root.Parent then
 			remove(root)
@@ -175,6 +187,10 @@ local function step(dt: number)
 			l.at = root.CFrame
 		end
 		if not near then
+			local aim = root:FindFirstChild("Aim")
+			if aim and aim:IsA("Attachment") then
+				aim.Position = Vector3.zero -- not drawn: aim at the server's spot
+			end
 			continue
 		end
 		local state = root:GetAttribute("State")
@@ -193,6 +209,19 @@ local function step(dt: number)
 			hop += math.sin(sinceLunge / C.lunge.seconds * math.pi) * 1.4 * amp
 		end
 		l.alert.Enabled = state == "chase"
+		local hunting = hunted and state == "chase" and me ~= nil and (root.Position - me.Position).Magnitude <= range
+		if hunting and not l.rush then
+			l.rush = CarryRush.outline(l.model, Config.carry.rush.outline.chaserFill, l.model)
+			if l.warm then
+				l.warm.Enabled = false
+			end
+		elseif not hunting and l.rush then
+			(l.rush :: Highlight):Destroy()
+			l.rush = nil
+			if l.warm then
+				l.warm.Enabled = true
+			end
+		end
 		if l.drive then
 			l.drive(dt, if frozen then 0 else 1 - 0.7 * meter, hop) -- slows as the ice climbs, still when frozen
 		else
@@ -200,17 +229,25 @@ local function step(dt: number)
 			l.model:PivotTo(l.at + Vector3.new(0, hop, 0))
 		end
 		l.steam.Rate = if frozen then 0 elseif state == "chase" then 14 else 4
-		-- the ice: a block while frozen (it clears as it thaws), creeping up while being shot
+		-- the ice: a block while frozen (it clears as it thaws), creeping up while being shot. It sits on the drawn
+		-- chaser, which runs a moment behind the server's spot (PetVisuals follow), never on that spot
+		local drawnAt = if l.drive then l.model:GetPivot().Position else root.Position
+		local base = Vector3.new(drawnAt.X, root.Position.Y, drawnAt.Z)
+		-- the ray aims at (and a tap picks) the drawn chaser too, like a wild pet (RayController seenAt); this client only
+		local aim = root:FindFirstChild("Aim") or root:FindFirstChild("AimLocal")
+		if aim and aim:IsA("Attachment") then
+			aim.Position = root.CFrame:PointToObjectSpace(base)
+		end
 		if frozen then
 			local untilT = root:GetAttribute("FrozenUntil")
 			local left = if typeof(untilT) == "number" then math.max(0, untilT - workspace:GetServerTimeNow()) else 0
 			l.ice.Size = Vector3.one * C.size * 1.25
-			l.ice.CFrame = CFrame.new(root.Position)
+			l.ice.CFrame = CFrame.new(base)
 			l.ice.Transparency = 0.3 + 0.4 * (1 - math.min(1, left / 3))
 		elseif meter > 0 then
 			local h = C.size * 1.1 * meter
 			l.ice.Size = Vector3.new(C.size * 1.25, math.max(0.05, h), C.size * 1.25)
-			l.ice.CFrame = CFrame.new(root.Position - Vector3.new(0, C.size / 2 - h / 2, 0))
+			l.ice.CFrame = CFrame.new(base - Vector3.new(0, C.size / 2 - h / 2, 0))
 			l.ice.Transparency = 0.5
 		else
 			l.ice.Transparency = 1

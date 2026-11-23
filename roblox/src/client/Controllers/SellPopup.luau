@@ -138,7 +138,21 @@ local function line(h: EquipmentPopup.Helpers, l: GuiObject, order: number, s: s
 	return t
 end
 
-local function card(h: EquipmentPopup.Helpers, holder: Frame, g: Group, o: any)
+-- QA DR-01: would this sale leave no pets at all? (SellService asks for a yes then too)
+local function lastPets(v: State.View, ids: { string }): boolean
+	local selling: { [string]: boolean } = {}
+	for _, id in ids do
+		selling[id] = true
+	end
+	for _, p in v.pets do
+		if not selling[p.id] and not p.thawM then
+			return false
+		end
+	end
+	return true
+end
+
+local function card(h: EquipmentPopup.Helpers, holder: Frame, g: Group, o: any, v: State.View)
 	local l = h.list(holder, false)
 	-- lined up with the left side (owner 2026-11-18: "make sure the buttons are positioned good"): the rows sit
 	-- at the bottom so the last button is level with the Sell all Storage bar, and the window grows to fill the
@@ -193,16 +207,17 @@ local function card(h: EquipmentPopup.Helpers, holder: Frame, g: Group, o: any)
 	local ask = o.data.ask
 	if ask then
 		-- Epic and up: say yes first, seeing exactly what you get
-		line(h, l, 4, if ask.all then `Sell all {ask.n} for {Ui.commas(ask.total)} coins?` else `Sell {ask.n} for {Ui.commas(ask.n * g.value)} coins?`, Theme.no, "body")
+		line(h, l, 4, if ask.last then (if ask.n > 1 then `Your last pets! Sell all {ask.n} for {Ui.commas(ask.n * g.value)} coins?` else `Your last pet! Sell it for {Ui.commas(g.value)} coins?`) elseif ask.all then `Sell all {ask.n} for {Ui.commas(ask.total)} coins?` else `Sell {ask.n} for {Ui.commas(ask.n * g.value)} coins?`, Theme.no, "body")
 		-- the same height as the sell buttons, edge to edge like them, the last one level with the Storage bar
 		local r = h.row(l, 5, S.buttonHeight)
-		local yes = h.button(r, Theme.go, "Yes, sell", 0, 0.48, function()
+		-- Keep is the green one: the safe answer (QA 2026-11-23 DR-07)
+		local yes = h.button(r, Theme.coin, "Yes, sell", 0, 0.48, function()
 			State.send("SellPets", ask.ids, true)
 			o.data.ask = nil
 			h.refresh()
 		end)
 		yes.root.Name = "Yes"
-		local keep = h.button(r, Theme.no, "Keep", 0.52, 0.48, function()
+		local keep = h.button(r, Theme.go, "Keep", 0.52, 0.48, function()
 			o.data.ask = nil
 			h.refresh()
 		end)
@@ -211,8 +226,9 @@ local function card(h: EquipmentPopup.Helpers, holder: Frame, g: Group, o: any)
 		return
 	end
 	local function sell(ids: { string })
-		if g.rank >= S.confirmFromRank then
-			o.data.ask = { ids = ids, n = #ids }
+		local last = lastPets(v, ids)
+		if g.rank >= S.confirmFromRank or last then
+			o.data.ask = { ids = ids, n = #ids, last = last }
 			h.refresh()
 		else
 			State.send("SellPets", ids)
@@ -315,7 +331,7 @@ function SellPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
 	right.Position = UDim2.fromScale(0.59, 0)
 	right.Size = UDim2.fromScale(0.41, 1)
 	right.Parent = o.body
-	card(h, right, picked :: Group, o)
+	card(h, right, picked :: Group, o, v)
 end
 
 function SellPopup.Init() end

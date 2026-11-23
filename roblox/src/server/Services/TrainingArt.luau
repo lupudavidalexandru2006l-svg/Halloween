@@ -472,7 +472,7 @@ local function frostArch(f: Instance, at: CFrame, i: number)
 		pine(f, at * CFrame.new(s * FLANK.x, 0, FLANK.z + 0.3), 8.5, P)
 	end
 
-	-- the Snowman Dummy: a wooden stand, three snowballs, a bullseye on its chest, X eyes, a carrot,
+	-- the Snowman Dummy: a wooden stand, three snowballs, a bullseye on its chest, round coal eyes (QA DR-02: X eyes read as knocked out), a carrot,
 	-- a red bucket hat with a gold band, a blue scarf and stick arms
 	local foot = at * CFrame.new(0, H, tz)
 	local m = target(f, i)
@@ -486,9 +486,7 @@ local function frostArch(f: Instance, at: CFrame, i: number)
 		quiet(rod(0.08, r, foot * CFrame.new(0, my + 0.05, -1.28 - k * 0.05) * face, if k % 2 == 1 then P.ring else P.ringLight, m))
 	end
 	for _, s in { -1, 1 } do
-		for _, a in { -0.78, 0.78 } do
-			quiet(block(Vector3.new(0.13, 0.5, 0.13), foot * CFrame.new(s * 0.38, hy + 0.22, -0.92) * CFrame.Angles(0, 0, a), P.coal, m))
-		end
+		quiet(ball(0.16, (foot * CFrame.new(s * 0.38, hy + 0.22, -0.93)).Position, P.coal, m))
 	end
 	for k = -2, 2 do
 		quiet(ball(0.08, (foot * CFrame.new(k * 0.17, hy - 0.42 + math.abs(k) * 0.06, -0.93)).Position, P.coal, m))
@@ -1514,6 +1512,576 @@ function TrainingArt.adminDress(f: Folder, plot: number, mult: number)
 	end
 	label("ADMIN TRAINER", 0, 0.42, gold)
 	label(`x{mult} POWER!`, 0.42, 0.58, Color3.fromRGB(255, 255, 255))
+end
+
+-- ---------- the Magma Trainer (owner 2026-11-22, Config.training.robux) ----------
+-- From the owner's reference clip: a lava forge on a black stone stage. Oxblood voxel blocks with molten
+-- cracks, a yellow-white energy column out of the forge, fire in two lava basins and on the chimneys, embers
+-- over the pad and violet-white spark bursts at the forge's shoulders, under a big sign with the Robux price.
+-- One shared trainer in the hub, right of the leaderboards. Same pad size and target spot as every trainer, so
+-- the lock, the frost shell and the bolts work unchanged. One PointLight, a handful of emitters (phones).
+local MR = T.robux
+
+-- ---------- the Magma Trainer, Omega look (owner 2026-11-23: "omega style ... much more cooler looking ... add some vfx") ----------
+-- One shared trainer in the hub, right of the leaderboards (Config.training.robux). Same pad, stand slots and
+-- target spot as every trainer, so the lock, the frost shell and the bolts work unchanged. On top:
+--   the Omega gate: a giant obsidian Ω ring behind the golem (molten inner edge, gold outer edge), a lava and
+--     violet portal inside it with a swirling vortex, two rings of gold runes and violet crystals spinning round
+--     it (MapController's motion folders), a gold crown with a floating crystal and a beam into the sky
+--   the Omega Titan: an obsidian golem in gold armour (pauldrons with spikes, gauntlets, crown helm, horns),
+--     violet eyes and a molten core
+--   four obelisks with floating crystals whose lightning (Beams named Zap, crackled by TrainingController)
+--     arcs into the ring; fire in the basins; gold shockwaves from the golem's feet; a spinning rune circle on
+--     the floor; rising embers
+-- Particles use Roblox's own textures (no uploads). Two PointLights; one shared trainer, so it stays light.
+-- Tech look (owner 2026-11-23, a reference clip): dark navy plates, red glow strips, fins, floor tiles, red stars and
+-- black-red tendrils; it replaced the stone "realism" pass. Turned 45 degrees to face the plaza (robux.yaw).
+
+-- Roblox's built-in particle textures
+local TEX = {
+	fire = "rbxasset://textures/particles/fire_main.dds",
+	sparks = "rbxasset://textures/particles/fire_sparks_main.dds",
+	glint = "rbxasset://textures/particles/sparkles_main.dds",
+	shock = "rbxasset://textures/particles/explosion01_shockwave_main.dds",
+	vortex = "rbxasset://textures/particles/forcefield_vortex_main.dds",
+	smoke = "rbxasset://textures/particles/smoke_main.dds",
+}
+
+type Fx = {
+	tex: string?, c0: Color3, c1: Color3, size: { number }, rate: number, life: { number }, speed: { number },
+	spread: number?, accel: Vector3?, rot: number?, flat: boolean?, dir: Enum.NormalId?, alpha: number?,
+}
+
+-- an invisible box that emits particles
+local function fxBox(f: Instance, size: Vector3, cf: CFrame): BasePart
+	local p = quiet(block(size, cf, Theme.white, f))
+	p.Name = "Fx"
+	p.Transparency = 1
+	p.CanQuery = false
+	return p
+end
+
+-- flat = lying flat to its direction (a shockwave on the floor); size = { start, end }
+local function emit(p: BasePart, o: Fx): ParticleEmitter
+	local e = Instance.new("ParticleEmitter")
+	if o.tex then
+		e.Texture = o.tex
+	end
+	e.Shape = Enum.ParticleEmitterShape.Box
+	e.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
+	e.EmissionDirection = o.dir or Enum.NormalId.Top
+	e.Color = ColorSequence.new(o.c0, o.c1)
+	e.LightEmission = 1
+	e.LightInfluence = 0
+	e.Size = NumberSequence.new(o.size[1], o.size[2] or o.size[1] * 0.2)
+	local a = o.alpha or 0.1
+	e.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, a), NumberSequenceKeypoint.new(0.7, math.min(1, a + 0.3)), NumberSequenceKeypoint.new(1, 1) })
+	e.Lifetime = NumberRange.new(o.life[1], o.life[2])
+	e.Rate = o.rate
+	e.Speed = NumberRange.new(o.speed[1], o.speed[2])
+	e.SpreadAngle = Vector2.new(o.spread or 0, o.spread or 0)
+	e.Acceleration = o.accel or Vector3.zero
+	local r = o.rot or 0
+	e.RotSpeed = NumberRange.new(-r, r)
+	e.Rotation = NumberRange.new(0, 360)
+	if o.flat then
+		e.Orientation = Enum.ParticleOrientation.VelocityPerpendicular
+	end
+	e.Parent = p
+	return e
+end
+
+-- real fire with sparks falling out of it (basins)
+local function flames(f: Instance, cf: CFrame, w: number, P: Palette, rate: number)
+	local p = fxBox(f, Vector3.new(w, 0.2, w), cf)
+	emit(p, { tex = TEX.fire, c0 = P.lavaHot, c1 = P.crimson, size = { w * 1.4, w * 0.3 }, rate = rate, life = { 0.5, 0.9 },
+		speed = { 2.5, 4.5 }, spread = 10, accel = Vector3.new(0, 4, 0), rot = 60, alpha = 0.15 })
+	emit(p, { tex = TEX.sparks, c0 = P.goldHi, c1 = P.lava, size = { 0.5, 0.1 }, rate = rate * 0.6, life = { 0.6, 1.2 },
+		speed = { 4, 7 }, spread = 25, accel = Vector3.new(0, -6, 0) })
+	-- dark smoke curling up out of it (realism pass)
+	local sm = emit(p, { tex = TEX.smoke, c0 = P.smoke, c1 = P.basalt, size = { w * 1.2, w * 4 }, rate = rate * 0.2, life = { 3, 4.5 },
+		speed = { 1.5, 2.5 }, spread = 12, accel = Vector3.new(0.4, 0.6, 0), rot = 25, alpha = 0.55 })
+	sm.LightEmission = 0
+	sm.LightInfluence = 1
+end
+
+-- one block of the golem that frosts over as you shoot (the client cools parts named Heat)
+local function heatBlock(m: Instance, size: Vector3, cf: CFrame, color: Color3): BasePart
+	return named(block(size, cf, color, m), "Heat")
+end
+
+-- a thin molten crack on a face (cf = its middle, already turned)
+local function crack(m: Instance, len: number, cf: CFrame, color: Color3)
+	quiet(glow(block(Vector3.new(0.14, len, 0.06), cf, color, m)))
+end
+
+-- a pointed ridge, `h` tall on cf (two wedges back to back across cf's Z)
+local function spike(f: Instance, cf: CFrame, w: number, h: number, d: number, color: Color3)
+	wedge(Vector3.new(w, h, d / 2), cf * CFrame.new(0, h / 2, d / 4) * CFrame.Angles(0, math.pi, 0), color, f)
+	wedge(Vector3.new(w, h, d / 2), cf * CFrame.new(0, h / 2, -d / 4), color, f)
+end
+
+-- a violet crystal floating and bobbing at cf; returns the crystal (lightning leaves from it)
+local function crystal(f: Instance, cf: CFrame, size: Vector3, P: Palette, phase: number): BasePart
+	local c = quiet(glow(shape("Octa", size, cf, P.violetHi, bobber(f, cf, 0.3, 0.45, phase)), 0.05))
+	c.Name = "Crystal"
+	return c
+end
+
+-- lightning from a to b: off until TrainingController crackles it (new bend each flicker)
+local function zap(from: Attachment, to: Attachment, P: Palette)
+	local bm = Instance.new("Beam")
+	bm.Name = "Zap"
+	bm.Attachment0, bm.Attachment1 = from, to
+	bm.Color = ColorSequence.new(P.violetHi, P.violet) -- white-to-violet vanished against the daytime sky
+	bm.LightEmission = 1
+	bm.LightInfluence = 0
+	bm.Width0, bm.Width1 = 0.5, 0.25
+	bm.Segments = 14
+	bm.FaceCamera = true
+	bm.Enabled = false
+	bm.Parent = from.Parent
+end
+
+local function attach(p: BasePart, at: Vector3?): Attachment
+	local a = Instance.new("Attachment")
+	if at then
+		a.WorldPosition = at
+	end
+	a.Parent = p
+	if at then
+		a.WorldPosition = at
+	end
+	return a
+end
+
+-- the Omega Titan, sharp (owner 2026-11-23: "make the guy in the middle more sharp, not a squared character"):
+-- built from triangles and blades, not boxes. A V torso to a narrow waist, an inverted-triangle chest plate with a
+-- molten diamond core, blade legs to pointed feet with knee spikes, angled shoulder blades with spikes, blade arms,
+-- a diamond helm with a crest, swept horns and slanted eye slits. Faces the stand spot (local -Z), foot at `foot`.
+-- Everything solid is named Heat so it frosts over as you shoot (TrainingController). Its outline (shoulders,
+-- horns, crest) is dark so it stands out against the red portal behind it; red only inside and on the edges.
+local function omegaTitan(f: Instance, station: number, foot: CFrame, P: Palette)
+	local m = target(f, station)
+	local function at(x: number, y: number, z: number): CFrame
+		return foot * CFrame.new(x, y, z)
+	end
+	local DOWN = CFrame.Angles(0, 0, math.pi) -- an isoTri pointing down
+	local FLAT = CFrame.Angles(-math.pi / 2, 0, 0) -- a triangle lying on the floor, its apex forward
+	local function hot(parts: { BasePart }): { BasePart }
+		return heat(parts)
+	end
+	-- the V torso, the waist and the chest plate
+	hot(isoTri(m, at(0, 6.5, 0) * DOWN, 2.1, 3.1, 2.0, P.obsidian))
+	hot(isoTri(m, at(0, 3.7, 0) * DOWN, 1.3, 1.0, 1.7, P.obsidianHi))
+	hot(isoTri(m, at(0, 6.3, -1.08) * DOWN, 1.55, 2.3, 0.3, P.crimson))
+	heatBlock(m, Vector3.new(3.6, 0.35, 2.05), at(0, 6.35, 0), P.obsidianHi) -- the collar
+	local core = quiet(glow(block(Vector3.new(0.9, 0.9, 0.22), at(0, 5.3, -1.3) * CFrame.Angles(0, 0, math.pi / 4), P.core, m)))
+	quiet(glow(block(Vector3.new(1.35, 1.35, 0.1), at(0, 5.3, -1.24) * CFrame.Angles(0, 0, math.pi / 4), P.lavaHot, m), 0.35))
+	light(core, P.lava, 11, 1.6)
+	for _, s in { -1, 1 } do
+		-- molten lines down the V
+		crack(m, 2.2, at(s * 0.95, 5.0, -1.1) * CFrame.Angles(0, 0, s * 0.62), P.lava)
+		-- legs: a thigh, a blade shin pointing down, a knee spike forward, a pointed foot
+		heatBlock(m, Vector3.new(1.0, 1.5, 1.3), at(s * 1.0, 3.0, 0) * CFrame.Angles(0, 0, s * 0.12), P.obsidianHi)
+		hot(isoTri(m, at(s * 1.1, 2.45, 0) * DOWN, 0.75, 1.95, 1.3, P.obsidian))
+		local knee = at(s * 1.1, 2.3, -0.62) * CFrame.Angles(-math.pi / 2, 0, 0)
+		spike(m, knee, 0.45, 0.9, 0.5, P.crimson)
+		hot(isoTri(m, at(s * 1.1, 0.42, 0.5) * FLAT, 0.75, 1.9, 0.45, P.obsidianHi))
+		crack(m, 1.4, at(s * 1.1, 1.6, -0.68), P.lava)
+		-- shoulders: an angled blade with a spike sweeping up and out
+		hot({ tri(m, at(s * 1.5, 5.75, 0), s, 1.9, 1.5, 2.1, P.obsidianHi) })
+		crack(m, 2.2, at(s * 2.45, 6.5, -1.08) * CFrame.Angles(0, 0, s * 0.9), P.lava) -- the blade's molten edge
+		spike(m, at(s * 2.7, 6.3, 0) * CFrame.Angles(0, 0, -s * 0.75), 0.4, 1.7, 0.9, P.obsidianHi)
+		-- arms: a short upper arm, a blade forearm pointing down, a molten edge
+		heatBlock(m, Vector3.new(0.85, 1.3, 1.0), at(s * 2.75, 5.1, 0) * CFrame.Angles(0, 0, s * 0.15), P.obsidian)
+		hot(isoTri(m, at(s * 2.9, 4.45, 0) * DOWN, 0.6, 2.7, 0.9, P.obsidianHi))
+		crack(m, 2.0, at(s * 2.9 + s * 0.28, 3.4, -0.47) * CFrame.Angles(0, 0, -s * 0.2), P.lava)
+		-- horns sweeping back and out, red-tipped; slanted eye slits
+		local horn = at(s * 0.55, 8.1, 0.1) * CFrame.Angles(0, 0, -s * 0.85)
+		spike(m, horn, 0.35, 1.6, 0.5, P.obsidianHi)
+		quiet(glow(block(Vector3.new(0.14, 0.5, 0.2), horn * CFrame.new(0, 1.25, 0), P.lava, m))) -- red tip
+		quiet(glow(block(Vector3.new(0.6, 0.12, 0.1), at(s * 0.36, 7.5, -0.78) * CFrame.Angles(0, 0, s * 0.38), P.eye, m)))
+	end
+	-- the helm: a diamond (a point up, a point down), a crest on top
+	hot(isoTri(m, at(0, 7.3, 0) * DOWN, 0.85, 0.85, 1.5, P.obsidian))
+	hot(isoTri(m, at(0, 7.3, 0), 0.85, 1.45, 1.5, P.obsidian))
+	hot(isoTri(m, at(0, 7.45, -0.76), 0.55, 0.9, 0.08, P.crimson)) -- a face plate
+	spike(m, at(0, 8.5, 0), 0.3, 1.0, 1.2, P.obsidianHi)
+	quiet(glow(block(Vector3.new(0.12, 0.6, 1.25), at(0, 8.8, 0), P.lava, m))) -- the crest's red blade
+	sealTarget(m, foot)
+	targetBlock(f, foot * CFrame.new(0, 4.6, 0), Vector3.new(4.2, 8.4, 2.6))
+end
+
+-- the Omega gate behind the golem; returns the lightning's landing points on the ring
+local function omegaGate(f: Instance, at: CFrame, P: Palette): { [string]: Attachment }
+	local z, cy, R = 7.0, 12, 8 -- R 8 (was 6.8): a landmark beside the 24-stud boards
+	local C = at * CFrame.new(0, cy, z) -- the ring's middle (local X right, Y up)
+	local a0, a1, n = math.rad(-50), math.rad(230), 20
+	local step = (a1 - a0) / n
+	local chord = 2 * R * math.sin(step / 2)
+	for k = 0, n - 1 do
+		local cf = C * CFrame.Angles(0, 0, a0 + (k + 0.5) * step) * CFrame.new(R, 0, 0) -- X out from the middle
+		block(Vector3.new(1.5, chord + 0.25, 1.6), cf, if k % 2 == 0 then P.obsidian else P.obsidianHi, f, true)
+		quiet(glow(block(Vector3.new(0.18, chord + 0.05, 1.7), cf * CFrame.new(-0.8, 0, 0), P.lava, f))) -- molten inner edge
+		quiet(glow(block(Vector3.new(0.22, chord + 0.05, 1.7), cf * CFrame.new(0.8, 0, 0), P.gold, f))) -- gold outer edge
+		-- angular fins breaking out of the ring's rim, longer toward the top, each with a red blade core (tech look)
+		if k % 2 == 1 then
+			local up = math.max(0, math.sin(a0 + (k + 0.5) * step))
+			local len = 1.4 + up * 1.8
+			local fin = cf * CFrame.new(0.85, 0, 0) * CFrame.Angles(0, 0, -math.pi / 2) -- its Y points out of the ring
+			spike(f, fin, 0.5, len, 1.3, P.obsidianHi)
+			quiet(glow(block(Vector3.new(0.12, len * 0.6, 1.35), fin * CFrame.new(0, len * 0.3, 0), P.lava, f)))
+		end
+	end
+	-- the Ω's legs down to the ground and its feet stepping out
+	local ex, ey = R * math.cos(a0), R * math.sin(a0)
+	local legH = cy + ey
+	for _, s in { -1, 1 } do
+		local x = s * ex
+		block(Vector3.new(1.5, legH, 1.6), at * CFrame.new(x, legH / 2, z), P.obsidian, f, true)
+		quiet(glow(block(Vector3.new(0.18, legH, 1.7), at * CFrame.new(x - s * 0.8, legH / 2, z), P.lava, f)))
+		quiet(glow(block(Vector3.new(0.22, legH, 1.7), at * CFrame.new(x + s * 0.8, legH / 2, z), P.gold, f)))
+		block(Vector3.new(3.4, 1.1, 2.2), at * CFrame.new(x + s * 1.2, 0.55, z), P.brass, f, true)
+		quiet(block(Vector3.new(3.6, 0.3, 2.4), at * CFrame.new(x + s * 1.2, 1.25, z), P.obsidianHi, f))
+	end
+	-- the portal: crimson at its edge to a white-hot core (one fire, no pink: violet over orange read as pink), a
+	-- swirling vortex, the main light
+	local disc = quiet(glow(rod(0.2, R - 0.75, C * CFrame.Angles(0, math.pi / 2, 0), P.crimson, f), 0.3))
+	disc.CanQuery = false
+	light(disc, P.lavaHot, 24, 2.2)
+	-- tech look: red and near-black rings like a reactor (one flat red disc didn't match the reference's dark-with-red)
+	for k, d in { { R - 2.4, P.panel, 0.1 }, { R - 3.2, P.lava, 0.3 }, { R - 4.6, P.panel, 0.1 }, { 1.4, P.core, 0.2 } } do
+		local p = quiet(glow(rod(0.12, d[1], C * CFrame.new(0, 0, -0.18 * k) * CFrame.Angles(0, math.pi / 2, 0), d[2], f), d[3]))
+		p.CanQuery = false
+	end
+	local vb = fxBox(f, Vector3.new(1, 1, 0.2), C * CFrame.new(0, 0, -0.5))
+	emit(vb, { tex = TEX.vortex, c0 = P.goldHi, c1 = P.lava, size = { 9, 12 }, rate = 2.5, life = { 2, 2.6 }, speed = { 0, 0 }, rot = 90, alpha = 0.3 })
+	-- two rings spinning round it: gold runes one way, violet crystals the other
+	local ring1 = spinner(f, C, Vector3.new(0, 0, 1), 0.45)
+	for k = 0, 15 do
+		quiet(glow(block(Vector3.new(1.1, 0.4, 0.4), C * CFrame.Angles(0, 0, k * math.pi / 8) * CFrame.new(R + 1.9, 0, 0),
+			if k % 4 == 0 then P.violetHi else P.gold, ring1)))
+	end
+	local ring2 = spinner(f, C, Vector3.new(0, 0, 1), -0.25)
+	for k = 0, 7 do
+		quiet(glow(shape("Octa", Vector3.new(0.9, 1.8, 0.9), C * CFrame.Angles(0, 0, k * math.pi / 4 + 0.2) * CFrame.new(R + 3.2, 0, 0), P.violet, ring2), 0.05))
+	end
+	-- the crown: three gold spikes, a floating crystal, the beam into the sky
+	local top = C * CFrame.new(0, R + 0.7, 0)
+	for _, x in { -1.1, 0, 1.1 } do
+		spike(f, top * CFrame.new(x, 0, 0), 0.5, if x == 0 then 2.4 else 1.5, 1.2, P.gold)
+	end
+	local crys = top * CFrame.new(0, 4.2, 0)
+	crystal(f, crys, Vector3.new(1.6, 3, 1.6), P, 0)
+	-- the beam into the sky (owner 2026-11-23: "make this light beam go up to the sky, it looks cheap like this"):
+	-- Beams instead of a 40-stud cylinder that stopped in mid-air, so it reaches robux.skyBeam.height and fades out.
+	-- A wide red glow round a white-hot core; sparks race up it.
+	local baseY = (crys.Position - at.Position).Y + 1.8
+	local root = quiet(block(Vector3.one * 0.2, at * CFrame.new(0, baseY, z), P.lava, f))
+	root.Name = "SkyBeamRoot"
+	root.Transparency = 1
+	root.CanQuery = false
+	local b0, b1 = Instance.new("Attachment"), Instance.new("Attachment")
+	b1.Position = Vector3.new(0, MR.skyBeam.height, 0)
+	b0.Parent, b1.Parent = root, root
+	-- { width, colour, transparency at the bottom, light emission }: the glow is barely additive so it stays red
+	-- against the bright daytime sky (fully additive it washed out to white-lavender in the play test)
+	for _, l in { { MR.skyBeam.halo, P.lava, 0.2, 0.15 }, { MR.skyBeam.core, P.core, 0, 1 } } do
+		local bm = Instance.new("Beam")
+		bm.Name = "SkyBeam"
+		bm.Attachment0, bm.Attachment1 = b0, b1
+		bm.Width0, bm.Width1 = l[1], l[1] * 1.6
+		bm.Color = ColorSequence.new(l[2])
+		bm.LightEmission = l[4]
+		bm.LightInfluence = 0
+		bm.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, l[3]), NumberSequenceKeypoint.new(0.55, math.min(1, l[3] + 0.3)),
+			NumberSequenceKeypoint.new(1, 1) })
+		bm.FaceCamera = true
+		bm.Segments = 1
+		bm.Parent = root
+	end
+	local cs = fxBox(f, Vector3.new(1, 2, 1), at * CFrame.new(0, baseY + 1, z))
+	emit(cs, { tex = TEX.glint, c0 = P.goldHi, c1 = P.violetHi, size = { 0.9, 0.2 }, rate = 18, life = { 3, 5 }, speed = { 30, 45 }, spread = 3 })
+	-- where the lightning lands: four points on the ring
+	local anchor = quiet(block(Vector3.one * 0.2, C, P.gold, f))
+	anchor.Name = "ZapAnchor"
+	anchor.Transparency = 1
+	anchor.CanQuery = false
+	local pts = {}
+	for key, deg in { lowL = 205, lowR = -25, highL = 155, highR = 25 } do
+		local a = math.rad(deg)
+		pts[key] = attach(anchor, (C * CFrame.new(R * math.cos(a), R * math.sin(a), -0.9)).Position)
+	end
+	return pts
+end
+
+-- an obelisk on the plinth: obsidian, gold bands, a gold point, a crystal floating over it
+local function obelisk(f: Instance, base: CFrame, P: Palette, phase: number): BasePart
+	block(Vector3.new(1.8, 0.8, 1.8), base * CFrame.new(0, 0.4, 0), P.obsidianHi, f, true)
+	block(Vector3.new(1.2, 4.2, 1.2), base * CFrame.new(0, 2.9, 0), P.obsidian, f, true)
+	for _, y in { 1.6, 4.2 } do
+		quiet(glow(block(Vector3.new(1.32, 0.24, 1.32), base * CFrame.new(0, y, 0), P.gold, f)))
+	end
+	for _, s in { -1, 1 } do
+		quiet(glow(block(Vector3.new(0.14, 2.2, 0.14), base * CFrame.new(s * 0.6, 2.9, -0.6), P.lava, f)))
+	end
+	spike(f, base * CFrame.new(0, 5.0, 0), 1.2, 1.4, 1.2, P.brass)
+	return crystal(f, base * CFrame.new(0, 7.4, 0), Vector3.new(0.9, 1.7, 0.9), P, phase)
+end
+
+-- the price sign over the gate (Child Safety: every Robux price shows Roblox's Robux mark, world offers too)
+local function magmaSign(f: Instance, at: CFrame, P: Palette)
+	local anchor = quiet(block(Vector3.one * 0.2, at * CFrame.new(0, H + MR.signLift, T.targetZ), P.lava, f))
+	anchor.Name = "MagmaSignAnchor"
+	anchor.Transparency = 1
+	anchor.CanQuery = false
+	local bb = Instance.new("BillboardGui")
+	bb.Name = "MagmaSign"
+	bb.Size = UDim2.fromScale(15, 6.4)
+	bb.MaxDistance = MR.signMaxDistance
+	bb.LightInfluence = 0
+	bb.AlwaysOnTop = false
+	bb.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	bb.Parent = anchor
+	-- a dark plate with a gold rim behind the words (Chunky Pop: chunky outline, rounded)
+	local plate = Instance.new("Frame")
+	plate.Name = "Plate"
+	plate.Size = UDim2.fromScale(1, 1)
+	plate.BackgroundColor3 = P.obsidian
+	plate.BackgroundTransparency = 0.15
+	plate.Parent = bb
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0.22, 0)
+	corner.Parent = plate
+	local rim = Instance.new("UIStroke")
+	rim.Thickness = 4
+	rim.Color = P.gold
+	rim.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	rim.Parent = plate
+	local pg = Instance.new("UIGradient")
+	pg.Color = ColorSequence.new(P.obsidianHi, P.obsidian)
+	pg.Rotation = 90
+	pg.Parent = plate
+	local function text(parent: Instance, s: string, size: UDim2, pos: UDim2, color: Color3, stroke: number, grad: Color3?): TextLabel
+		local t = Instance.new("TextLabel")
+		t.BackgroundTransparency = 1
+		t.Size = size
+		t.Position = pos
+		t.Font = Theme.font
+		t.TextScaled = true
+		t.Text = s
+		t.TextColor3 = color
+		t.ZIndex = 2
+		local st = Instance.new("UIStroke")
+		st.Thickness = stroke
+		st.Color = P.signInk
+		st.LineJoinMode = Enum.LineJoinMode.Round
+		st.Parent = t
+		if grad then
+			local g = Instance.new("UIGradient")
+			g.Color = ColorSequence.new(color, grad)
+			g.Rotation = 90
+			g.Parent = t
+			t.TextColor3 = Theme.white
+		end
+		t.Parent = parent
+		return t
+	end
+	text(plate, "MAGMA TRAINER", UDim2.fromScale(0.86, 0.2), UDim2.fromScale(0.07, 0.07), P.violetHi, 3, P.violet)
+	text(plate, `x{MR.mult} COLD POWER`, UDim2.fromScale(0.9, 0.38), UDim2.fromScale(0.05, 0.27), P.goldHi, 4, P.lava)
+	local row = Instance.new("Frame")
+	row.Name = "Price"
+	row.BackgroundTransparency = 1
+	row.Size = UDim2.fromScale(1, 0.28)
+	row.Position = UDim2.fromScale(0, 0.66)
+	row.Parent = plate
+	local list = Instance.new("UIListLayout")
+	list.FillDirection = Enum.FillDirection.Horizontal
+	list.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	list.VerticalAlignment = Enum.VerticalAlignment.Center
+	list.Padding = UDim.new(0.02, 0)
+	list.SortOrder = Enum.SortOrder.LayoutOrder
+	list.Parent = row
+	-- Roblox's Robux mark, white with an ink contour (eight ink copies round a white one, as on the Shop's buttons)
+	local mark = Instance.new("Frame")
+	mark.Name = "RobuxMark"
+	mark.BackgroundTransparency = 1
+	-- a square by the sign's own shape (15 x 6.4 studs, the row 28% of it): no aspect constraint (play test
+	-- 2026-11-23: inside the plate it collapsed to zero width and the price showed without its mark)
+	mark.Size = UDim2.fromScale(0.9 * 0.28 * 6.4 / 15, 0.9)
+	mark.LayoutOrder = 1
+	for k = 0, 8 do
+		local ang = k * math.pi / 4
+		local img = Instance.new("ImageLabel")
+		img.BackgroundTransparency = 1
+		img.Image = Config.images.icons.robux
+		img.ScaleType = Enum.ScaleType.Fit
+		img.ImageColor3 = if k == 8 then Theme.white else P.signInk
+		img.AnchorPoint = Vector2.new(0.5, 0.5)
+		img.Position = if k == 8 then UDim2.fromScale(0.5, 0.5) else UDim2.fromScale(0.5 + math.cos(ang) * 0.06, 0.5 + math.sin(ang) * 0.06)
+		img.Size = UDim2.fromScale(1, 1)
+		img.ZIndex = if k == 8 then 3 else 2
+		img.Parent = mark
+	end
+	mark.Parent = row
+	local item = Config.robuxItem(MR.item)
+	local price = text(row, tostring(item and item.robux or 0), UDim2.fromScale(0.3, 1), UDim2.fromScale(0, 0), Theme.white, 4)
+	price.TextXAlignment = Enum.TextXAlignment.Left
+	price.LayoutOrder = 2
+end
+
+-- ---------- tech look (owner 2026-11-23, reference: "try matching this style") ----------
+-- A dark navy machine with thick glowing red panel strips, red star sparkles and black-red thorny energy. The
+-- palette does most of it (Theme.training.stations.magma); these add the reference's details.
+
+-- groove lines across the stage floor, so it reads as heavy tiles
+local function floorTiles(f: Instance, at: CFrame, P: Palette)
+	local y = H + 0.05
+	for k = -3, 3 do
+		quiet(block(Vector3.new(0.08, 0.02, D - 1.2), at * CFrame.new(k * 1.45, y, 0), P.panel, f))
+	end
+	for k = -3, 4 do
+		quiet(block(Vector3.new(W - 1.2, 0.02, 0.08), at * CFrame.new(0, y, k * 1.45 - 0.7), P.panel, f))
+	end
+end
+
+-- black-red thorny energy crawling out from the golem's feet: Beams named Zap, so TrainingController crackles them
+-- with the lightning (a new bend every flicker). Returns how many.
+local function tendrils(f: Instance, foot: CFrame, P: Palette): number
+	local hub = quiet(block(Vector3.one * 0.2, foot * CFrame.new(0, 0.3, 0), P.lava, f))
+	hub.Name = "TendrilHub"
+	hub.Transparency = 1
+	hub.CanQuery = false
+	local from = attach(hub)
+	local n = 6
+	for k = 0, n - 1 do
+		local tip = attach(hub, (foot * CFrame.Angles(0, k * math.pi * 2 / n + 0.3, 0) * CFrame.new(0, 0.15, 4.2)).Position)
+		local bm = Instance.new("Beam")
+		bm.Name = "Zap"
+		bm.Attachment0, bm.Attachment1 = from, tip
+		bm.Color = ColorSequence.new(P.violet, P.panel) -- deep red into black
+		bm.LightEmission = 0.4
+		bm.LightInfluence = 0
+		bm.Width0, bm.Width1 = 0.6, 0.05
+		bm.Segments = 16
+		bm.FaceCamera = true
+		bm.Enabled = false
+		bm.Parent = hub
+	end
+	return n
+end
+
+-- the hub's Magma Trainer (Omega look) as one folder in `parent`. With `plot`: the same trainer standing in pan
+-- `plot`'s trainer spot instead (its owner bought the pass, Config.panMagmaMult), named like a pan's trainer and
+-- tagged with that pan's level `tier` (Show.trainerTrip puts back the folder whose Tier the map says), no price sign
+function TrainingArt.magma(parent: Instance, plot: number?, tier: number?): Folder
+	meshes = ReplicatedStorage:FindFirstChild("SceneryMeshes")
+	local P = TT.stations.magma
+	local station = plot or MR.id
+	local at = Config.trainerFrame(station)
+	local f = Instance.new("Folder")
+	if plot then
+		f.Name = "Trainer" .. plot
+		f:SetAttribute("Plot", plot)
+		f:SetAttribute("Magma", true)
+		f:SetAttribute("Tier", tier or 1)
+	else
+		f.Name = "MagmaTrainer"
+		f:SetAttribute("Tier", 0)
+	end
+	-- a wide obsidian plinth with a gold edge, then the stage in obsidian with molten edges
+	local PW, PD, PZ = W + 4, D + 3, 0.5
+	block(Vector3.new(PW, 0.5, PD), at * CFrame.new(0, 0.25, PZ), P.obsidian, f, true)
+	for _, s in { -1, 1 } do
+		quiet(glow(block(Vector3.new(0.2, 0.2, PD), at * CFrame.new(s * PW / 2, 0.5, PZ), P.gold, f)))
+		quiet(glow(block(Vector3.new(PW, 0.2, 0.2), at * CFrame.new(0, 0.5, PZ + s * PD / 2), P.gold, f)))
+	end
+	local SP = table.clone(P)
+	SP.floor, SP.bodyDark, SP.neon, SP.accent = P.obsidianHi, P.obsidian, P.lava, P.gold
+	stage(f, at, SP)
+	-- a low obsidian rim down both long sides, gold caps on the tall blocks
+	for _, s in { -1, 1 } do
+		for k = 0, 9 do
+			local zz = -D / 2 + 0.6 + k * 1.2
+			local tall = if k % 2 == 0 then 1.0 else 0.65
+			block(Vector3.new(0.9, tall, 1.2), at * CFrame.new(s * (W / 2 - 0.45), H + tall / 2, zz), if k % 2 == 0 then P.obsidian else P.obsidianHi, f, true)
+			if k % 2 == 0 then
+				quiet(block(Vector3.new(0.95, 0.12, 1.25), at * CFrame.new(s * (W / 2 - 0.45), H + tall, zz), P.brass, f))
+			end
+		end
+		-- a lava basin each side of the way in, on fire (clear of the side stand slots, robux.slots)
+		local bx, bz = s * 4.0, -5.0
+		cyl(1.05, 0.7, at * CFrame.new(bx, H + 0.35, bz), P.obsidianHi, f, true)
+		quiet(glow(cyl(1.12, 0.12, at * CFrame.new(bx, H + 0.7, bz), P.gold, f)))
+		quiet(glow(cyl(0.8, 0.06, at * CFrame.new(bx, H + 0.74, bz), P.lava, f)))
+		flames(f, at * CFrame.new(bx, H + 0.9, bz), 1.2, P, 16)
+		-- molten cracks across the floor
+		local y = H + 0.06
+		line(f, (at * CFrame.new(s * 1.9, y, -1.6)).Position, (at * CFrame.new(s * 3.0, y, -0.4)).Position, P.lava)
+		line(f, (at * CFrame.new(s * 3.0, y, -0.4)).Position, (at * CFrame.new(s * 2.4, y, 1.2)).Position, P.lava)
+		line(f, (at * CFrame.new(s * 2.4, y, 1.2)).Position, (at * CFrame.new(s * 4.0, y, 2.6)).Position, P.lavaHot)
+	end
+	-- the way in: dark obsidian with molten edges up to the ring
+	local z0, z1 = -D / 2, T.targetZ - 2.6
+	quiet(block(Vector3.new(3, 0.06, z1 - z0), at * CFrame.new(0, H + 0.05, (z0 + z1) / 2), P.obsidian, f))
+	for _, s in { -1, 1 } do
+		quiet(glow(block(Vector3.new(LINE, 0.08, z1 - z0), at * CFrame.new(s * 1.5, H + 0.06, (z0 + z1) / 2), P.lava, f)))
+	end
+	-- the ring under the golem and a rune circle spinning round it
+	local foot = at * CFrame.new(0, H, T.targetZ)
+	targetRing(f, at, SP, 2.8)
+	local runes = spinner(f, foot, Vector3.new(0, 1, 0), 0.35)
+	for k = 0, 11 do
+		quiet(glow(block(Vector3.new(0.9, 0.06, 0.18), foot * CFrame.Angles(0, k * math.pi / 6, 0) * CFrame.new(0, 0.12, 3.4),
+			if k % 3 == 0 then P.violetHi else P.gold, runes)))
+	end
+	local pts = omegaGate(f, at, P)
+	omegaTitan(f, station, foot, P)
+	-- the four obelisks, their crystals arcing lightning into the ring
+	local ox = PW / 2 - 1.2
+	for _, o in { { -1, -PD / 2 + PZ + 1.3, "lowL" }, { 1, -PD / 2 + PZ + 1.3, "lowR" }, { -1, 4.0, "highL" }, { 1, 4.0, "highR" } } do
+		local cr = obelisk(f, at * CFrame.new(o[1] * ox, 0.5, o[2]), P, (o[1] + 1) * 0.25 + (if o[2] > 0 then 0.5 else 0))
+		zap(attach(cr), pts[o[3]], P)
+	end
+	-- vfx: gold shockwaves out of the golem's feet, fire round them, embers over the whole pad
+	local sw = fxBox(f, Vector3.new(0.2, 0.2, 0.2), foot * CFrame.new(0, 0.15, 0))
+	emit(sw, { tex = TEX.shock, c0 = P.goldHi, c1 = P.lava, size = { 1, 13 }, rate = 0.7, life = { 1.3, 1.3 }, speed = { 0.01, 0.01 }, flat = true, alpha = 0.2 })
+	local aura = fxBox(f, Vector3.new(4.5, 0.3, 3), foot * CFrame.new(0, 0.3, 0))
+	emit(aura, { tex = TEX.fire, c0 = P.lava, c1 = P.crimson, size = { 1.6, 0.3 }, rate = 10, life = { 0.5, 0.8 }, speed = { 1.5, 3 },
+		spread = 15, accel = Vector3.new(0, 3, 0), rot = 40, alpha = 0.35 })
+	local em = fxBox(f, Vector3.new(PW - 1, 0.4, PD - 1), at * CFrame.new(0, H + 0.4, PZ))
+	emit(em, { tex = TEX.glint, c0 = P.goldHi, c1 = P.lava, size = { 0.35, 0.05 }, rate = 14, life = { 2, 3.2 }, speed = { 1.2, 3 },
+		spread = 25, accel = Vector3.new(0, 0.8, 0), rot = 120 })
+	-- smoke off the crown, drifting (realism pass)
+	local crownSmoke = fxBox(f, Vector3.new(2, 0.4, 1.2), at * CFrame.new(0, 21.5, 7))
+	local cs = emit(crownSmoke, { tex = TEX.smoke, c0 = P.smoke, c1 = P.basalt, size = { 2.5, 7 }, rate = 1.5, life = { 4, 6 },
+		speed = { 1.5, 2.5 }, spread = 15, accel = Vector3.new(0.5, 0.4, 0), rot = 20, alpha = 0.6 })
+	cs.LightEmission = 0
+	cs.LightInfluence = 1
+	floorTiles(f, at, P)
+	-- red strips along the plinth's sides (the reference's glowing panel insets)
+	for _, s in { -1, 1 } do
+		quiet(glow(block(Vector3.new(0.1, 0.14, PD - 2), at * CFrame.new(s * (PW / 2 + 0.03), 0.25, PZ), P.lava, f)))
+		quiet(glow(block(Vector3.new(PW - 2, 0.14, 0.1), at * CFrame.new(0, 0.25, PZ + s * (PD / 2 + 0.03)), P.lava, f)))
+	end
+	local zaps = 4 + tendrils(f, foot, P) -- the obelisks' lightning + the thorny energy
+	f:SetAttribute("ZapCount", zaps) -- TrainingController looks for its beams until it has them all
+	-- red star sparkles round the golem
+	local stars = fxBox(f, Vector3.new(6, 6, 4), foot * CFrame.new(0, 4.5, 0))
+	emit(stars, { tex = TEX.glint, c0 = P.goldHi, c1 = P.lava, size = { 0.6, 0.1 }, rate = 14, life = { 0.6, 1.1 }, speed = { 1, 3 }, spread = 180, rot = 180 })
+	if not plot then
+		magmaSign(f, at, P) -- the price sign is the hub's (at a pan it's already owned)
+	end
+	MapArt.solidify(f) -- solid like the rest of the map ...
+	for _, d in f:GetDescendants() do
+		if d:IsA("BasePart") and d.Parent and d.Parent.Name == "Motion" then
+			d.CanCollide = false -- ... except what spins and floats (the client moves it)
+			d.CanQuery = false
+		end
+	end
+	f.Parent = parent
+	return f
 end
 
 return TrainingArt

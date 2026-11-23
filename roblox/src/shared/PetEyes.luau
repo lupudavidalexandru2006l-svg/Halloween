@@ -227,6 +227,10 @@ local PetEyes: { [string]: Spec } = {
 	ironhorn_beetle = { part = "Head", lid = Color3.fromRGB(83, 65, 46), eyes = {
 		eye(0.1744, -0.1082, -0.3785, 0.292, 0.179, -0.939, 0.0625),
 		eye(-0.1730, -0.1085, -0.3736, -0.530, -0.106, -0.841, 0.0626) } },
+	-- Pyrolamb 2026-11-21 (this PC): eyes measured on the rig grid (the eye finder caught a cheek)
+	pyrolamb = { part = "Head", lid = Color3.fromRGB(40, 36, 38), eyes = {
+		eye(0.146, 0.150, -0.470, 0.25, 0.05, -0.97, 0.042),
+		eye(-0.146, 0.150, -0.470, -0.25, 0.05, -0.97, 0.042) } },
 	thermowl = { part = "Head", lid = Color3.fromRGB(123, 183, 205), eyes = {
 		eye(0.1305, 0.1298, -0.2707, 0.107, 0.101, -0.989, 0.0608),
 		eye(-0.1358, 0.1262, -0.2748, -0.044, 0.116, -0.992, 0.0606) } },

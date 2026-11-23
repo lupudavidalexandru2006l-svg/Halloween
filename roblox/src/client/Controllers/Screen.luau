@@ -440,15 +440,35 @@ function Screen.setMenuHidden(hidden: boolean)
 	menuHiddenEvent:Fire(hidden)
 end
 
--- shows hide the HUD and any popup while they play (Animation Rules 3) and show them again in their cleanup
-function Screen.setHidden(hidden: boolean)
+-- shows hide the HUD and any popup while they play (Animation Rules 3) and show them again in their cleanup.
+-- Carrying a cube hides them too (CarryRush, setCarryHidden). Both ask here, so a show that ends mid-carry
+-- doesn't bring the HUD back, and the end of a carry doesn't bring it back mid-show.
+local carryHidden = false
+local function applyHidden()
+	local hide = Screen.showHidden or carryHidden
 	for _, g in { Screen.hud, Screen.popups, Screen.topbar, Screen.alerts } do
 		if g then
-			g.Enabled = not hidden
+			g.Enabled = not hide
 		end
 	end
-	if Screen.showHidden ~= hidden then
-		Screen.showHidden = hidden
+end
+
+-- CarryRush, every frame: a cube is in your hands. Not while the tutorial's goal pill shows (a new player needs
+-- it to find the way home). The world prompts stay (they only step aside for shows).
+function Screen.setCarryHidden(hidden: boolean)
+	local goal = items.goal
+	local want = hidden and not (goal ~= nil and goal.Visible)
+	if want ~= carryHidden then
+		carryHidden = want
+		applyHidden()
+	end
+end
+
+function Screen.setHidden(hidden: boolean)
+	local changed = Screen.showHidden ~= hidden
+	Screen.showHidden = hidden
+	applyHidden()
+	if changed then
 		showHiddenEvent:Fire(hidden)
 	end
 end

@@ -14,6 +14,7 @@ local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Theme = require(ReplicatedStorage.Shared.Theme)
+local WorldRules = require(ReplicatedStorage.Shared.WorldRules)
 local Ui = require(script.Parent.Parent.Lib.Ui)
 local State = require(script.Parent.State)
 local SoundController = require(script.Parent.SoundController)
@@ -23,21 +24,41 @@ local M = Config.monetization
 local me = Players.LocalPlayer
 local gui: ScreenGui
 
--- a Robux button: words on the left, Roblox's mark and the price on the right
-local function robuxButton(parent: Instance, name: string, color: Color3, words: string, item: Config.RobuxItem?): Ui.Block
+-- a Robux button: an icon, the words, and a dark price chip on the right with Roblox's mark and the price side by
+-- side. Owner 2026-11-21: the mark used to sit on top of the number ("the robux coin was overlapping"), so the
+-- mark and the number now each get their own half of the chip.
+local function robuxButton(parent: Instance, name: string, color: Color3, words: string, item: Config.RobuxItem?, icon: string?): Ui.Block
 	local b = Ui.block(parent, name, color, words, function()
 		SoundController.play("click")
 		if item then
 			State.send("BuyRobux", item.id)
 		end
 	end)
-	b.text.Size = UDim2.fromScale(0.64, 0.8)
-	b.text.Position = UDim2.fromScale(0.04, 0.1)
-	local mark = Ui.image(b.face, Config.images.icons.robux, UDim2.fromScale(0.12, 0.6), UDim2.fromScale(0.71, 0.2))
-	mark.ZIndex = 2
-	local price = Ui.label(b.face, if item then tostring(item.robux) else "", UDim2.fromScale(0.2, 0.7), UDim2.fromScale(0.78, 0.15))
+	local left = 0.05
+	if icon and Config.images.icons[icon] then
+		local ic = Ui.image(b.face, Config.images.icons[icon], UDim2.fromScale(0.13, 0.86), UDim2.fromScale(0.02, 0.07))
+		ic.ZIndex = 2
+		left = 0.15
+	end
+	b.text.Size = UDim2.fromScale(0.68 - left, 0.56)
+	b.text.Position = UDim2.fromScale(left, 0.2)
+	b.text.TextXAlignment = Enum.TextXAlignment.Left
+	local chip = Instance.new("Frame")
+	chip.Name = "Price"
+	chip.BackgroundColor3 = Theme.ink
+	chip.BackgroundTransparency = 0.35
+	chip.BorderSizePixel = 0
+	chip.AnchorPoint = Vector2.new(1, 0.5)
+	chip.Position = UDim2.fromScale(0.96, 0.5)
+	chip.Size = UDim2.fromScale(0.27, 0.72)
+	chip.ZIndex = 2
+	Ui.corner(chip, 0.5)
+	chip.Parent = b.face
+	local mark = Ui.image(chip, Config.images.icons.robux, UDim2.fromScale(0.34, 0.7), UDim2.fromScale(0.07, 0.15))
+	mark.ZIndex = 3
+	local price = Ui.label(chip, if item then tostring(item.robux) else "", UDim2.fromScale(0.5, 0.72), UDim2.fromScale(0.43, 0.14))
 	price.TextXAlignment = Enum.TextXAlignment.Left
-	price.ZIndex = 2
+	price.ZIndex = 3
 	return b
 end
 
@@ -54,6 +75,12 @@ local keepTween: Tween? = nil
 local function myLowCube(): boolean
 	local f = workspace:FindFirstChild("Cubes", true)
 	if not f then
+		return false
+	end
+	-- owner 2026-11-22: not in the safe hub, where the ice doesn't melt (nothing to keep frozen)
+	local char = me.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if root and WorldRules.inHub(root.Position) then
 		return false
 	end
 	for _, c in f:GetChildren() do
@@ -211,11 +238,15 @@ function OfferController.Start()
 	gui.ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets
 	gui.Parent = me:WaitForChild("PlayerGui")
 	-- Keep It Frozen, over the hotbar
-	keepB = robuxButton(gui, "KeepFrozen", Theme.iceDeep, "Keep it frozen!", Config.robuxItem("keepFrozen"))
+	keepB = robuxButton(gui, "KeepFrozen", Theme.iceDeep, "Keep it frozen!", Config.robuxItem("keepFrozen"), "ray")
 	keepB.root.AnchorPoint = Vector2.new(0.5, 1)
 	keepB.root.Position = UDim2.fromScale(0.5, 0.82)
-	keepB.root.Size = UDim2.fromScale(0.3, 0.09)
-	aspect(keepB.root, 4.2)
+	keepB.root.Size = UDim2.fromScale(0.36, 0.09)
+	aspect(keepB.root, 5.6) -- wide enough for "Keep it frozen!" on one line
+	Ui.roundBlock(keepB, 0.5)
+	-- what it does, small, over the button: the ice stops melting
+	local keepSub = Ui.label(keepB.root, "Your cube is melting!", UDim2.fromScale(0.8, 0.4), UDim2.fromScale(0.1, -0.46))
+	keepSub.TextColor3 = Theme.coin
 	Instance.new("UIScale").Parent = keepB.root
 	keepB.root.Visible = false
 	-- the boost timers, bottom right over the clock
@@ -240,23 +271,29 @@ function OfferController.Start()
 	card.BackgroundColor3 = Theme.panel
 	card.BorderSizePixel = 0
 	card.AnchorPoint = Vector2.new(1, 0.5)
-	card.Position = UDim2.fromScale(0.925, 0.5) -- left of the Chest / Skins / Players column (2026-11-19)
+	card.Position = UDim2.fromScale(0.925, 0.5) -- left of the Skins / Players column (2026-11-19)
 	card.Size = UDim2.fromScale(0.24, 0.2)
 	aspect(card, 2.2)
-	Ui.corner(card)
+	Ui.corner(card, 0.18)
 	Ui.stroke(card, 3)
 	card.Visible = false
 	card.Parent = gui
-	local title = Ui.inkLabel(card, "Short on coins?", UDim2.fromScale(0.74, 0.34), UDim2.fromScale(0.05, 0.06))
+	-- owner 2026-11-21 ("make it better"): a coin pile, the title, and the X as a small round badge on the corner
+	local pile = Ui.image(card, Config.images.icons.coin, UDim2.fromScale(0.16, 0.36), UDim2.fromScale(0.04, 0.06))
+	pile.ZIndex = 2
+	local title = Ui.inkLabel(card, "Short on coins?", UDim2.fromScale(0.72, 0.3), UDim2.fromScale(0.21, 0.09))
 	title.TextXAlignment = Enum.TextXAlignment.Left
 	local x = Ui.block(card, "Close", Theme.no, "X", function()
 		card.Visible = false
 	end)
-	x.root.Position = UDim2.fromScale(0.8, 0.06)
-	x.root.Size = UDim2.fromScale(0.16, 0.34)
+	x.root.AnchorPoint = Vector2.new(0.5, 0.5)
+	x.root.Position = UDim2.fromScale(0.97, 0.06)
+	x.root.Size = UDim2.fromScale(0.15, 0.34)
+	aspect(x.root, 1)
+	Ui.roundBlock(x, 0.5)
 	local bag = Config.robuxItem("coinsSmall")
-	local buy = robuxButton(card, "CoinBag", Theme.coin, "Coin Bag", bag)
-	buy.root.Position = UDim2.fromScale(0.05, 0.48)
+	local buy = robuxButton(card, "CoinBag", Theme.coin, "Coin Bag", bag, "bag")
+	buy.root.Position = UDim2.fromScale(0.05, 0.46)
 	buy.root.Size = UDim2.fromScale(0.9, 0.44)
 	State.Notify:Connect(function(kind: string, data: any)
 		if kind == "notYet" and typeof(data) == "table" and typeof(data.reason) == "string"

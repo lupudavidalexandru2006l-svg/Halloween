@@ -463,6 +463,11 @@ local function processReceipt(receipt: { [string]: any }): Enum.ProductPurchaseD
 		-- first try may have failed to save, and "granted" would then end Roblox's retries with nothing stored)
 		return if DataService.saveNow(player) then Enum.ProductPurchaseDecision.PurchaseGranted else Enum.ProductPurchaseDecision.NotProcessedYet
 	end
+	-- the limited egg's products (EggService, 2026-11-22): rolled and saved with the receipt id there
+	local egg = require(script.Parent.EggService).receipt(player, receipt)
+	if egg then
+		return egg
+	end
 	local all = Config.thaw.skip.all
 	if all.productId ~= 0 and receipt.ProductId == all.productId then
 		local result = "kept"
@@ -506,13 +511,17 @@ local function processReceipt(receipt: { [string]: any }): Enum.ProductPurchaseD
 	local item = productItem(receipt.ProductId)
 	if item then
 		local note = grantItem(player, item)
+		-- QA 2026-11-23: nothing granted = no receipt id, or Roblox's retry would hit "already granted" above
+		if not note then
+			return Enum.ProductPurchaseDecision.NotProcessedYet
+		end
 		DataService.mutate(player, function(x)
 			table.insert(x.receipts, purchaseId)
 			while #x.receipts > Config.data.receiptsKept do
 				table.remove(x.receipts, 1)
 			end
 		end)
-		if not note or not DataService.saveNow(player) then
+		if not DataService.saveNow(player) then
 			return Enum.ProductPurchaseDecision.NotProcessedYet -- not saved: Roblox asks again, the receipt id stops a double grant
 		end
 		Remotes.fire(player, "Notify", "robuxBought", note)
@@ -539,7 +548,8 @@ end
 -- QA Rules 6b (2026-11-19): the Robux price check, printed in Studio on every server start. Flags anything a new or
 -- changed product could slip past: an id not made yet, a price off the known points, a random kind with no odds,
 -- and the kinds Game Design Rules 8/11 ask the owner to look at (pay-to-protect, paid skip of a wait).
-local PRICE_POINTS = { [15] = true, [19] = true, [25] = true, [39] = true, [49] = true, [59] = true, [99] = true, [149] = true, [199] = true }
+-- 499: the Magma Trainer, the owner's price (2026-11-22: "place the magma trainer ... for 499")
+local PRICE_POINTS = { [15] = true, [19] = true, [25] = true, [39] = true, [49] = true, [59] = true, [99] = true, [149] = true, [199] = true, [499] = true }
 local RANDOM_KINDS = { luck = true, serverLuck = true, deal = true }
 local OWNER_LOOK = { shield = "pay-to-protect (Game Design Rules 11)" }
 local function robuxCheck()
@@ -569,6 +579,9 @@ local function robuxCheck()
 		warn("[RobuxCheck] " .. p)
 	end
 end
+
+-- a world offer's buy (the Magma Trainer's pad, TrainingService): the same checks and prompt as the Shop's card
+MonetizationService.buy = buyRobux
 
 function MonetizationService.Init() end
 

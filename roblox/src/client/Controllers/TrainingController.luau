@@ -74,7 +74,17 @@ local function tierAt(i: number): number
 	return if typeof(t) == "number" and T.stations[t] then t else 1
 end
 
+-- pan i's owner has the Magma Trainer pass: their pan's trainer is the Magma Trainer (TrainingService, PanMagma<i>)
+local function panMagma(i: number): boolean
+	local map = workspace:FindFirstChild("Map")
+	return map ~= nil and map:GetAttribute("PanMagma" .. i) == true
+end
+
+-- station i's look: a pan's trainer at its level, or the Magma Trainer (the hub's, or a pass owner's pan's)
 local function stationOf(i: number): Config.TrainStation
+	if Config.isRobuxStation(i) or panMagma(i) then
+		return T.robux.station
+	end
 	return T.stations[tierAt(i)]
 end
 
@@ -82,10 +92,10 @@ local function aimAt(i: number): Vector3
 	return Config.trainerTarget(i) + Vector3.new(0, T.padHeight + stationOf(i).aimY, 0)
 end
 
--- the pan whose trainer I stand on (only ever my own; 0 = none)
+-- the trainer I stand on (my own pan's, or the hub's Magma Trainer; 0 = none)
 local function myStation(): number
 	local i = me:GetAttribute("TrainStation")
-	return if typeof(i) == "number" and Config.world.plots[i] then i else 0
+	return if Config.validStation(i) then i else 0
 end
 
 -- the server holds me at my trainer until I jump off
@@ -519,7 +529,8 @@ end
 -- shot gives me right now (the server's own Config.trainGain), in my trainer level's colour. It shows only
 -- while my character stands within signShowStuds of the trainer.
 local tiers: { [number]: number } = {}
-type Sign = { gui: BillboardGui, title: TextLabel, grad: UIGradient, anchor: Part, plot: number, tier: number, text: string }
+local magmas: { [number]: boolean } = {} -- pans whose trainer is the Magma Trainer (panMagma)
+type Sign = { gui: BillboardGui, title: TextLabel, grad: UIGradient, anchor: Part, plot: number, tier: number, magma: boolean, text: string }
 local sign: Sign? = nil
 
 local function buildSign()
@@ -541,11 +552,12 @@ local function buildSign()
 	grad.Rotation = 90
 	grad.Parent = title
 	g.Parent = me:WaitForChild("PlayerGui")
-	sign = { gui = g, title = title, grad = grad, anchor = anchor, plot = 0, tier = 0, text = "" }
+	sign = { gui = g, title = title, grad = grad, anchor = anchor, plot = 0, tier = 0, magma = false, text = "" }
 end
 
--- the Cold Power one of my shots gives on a trainer of this level (what TrainingService pays)
-local function myGain(tier: number): number
+-- the Cold Power one of my shots gives on a trainer of this level (what TrainingService pays); mult = the
+-- Magma Trainer's own level instead
+local function myGain(tier: number, mult: number?): number
 	local v = State.view
 	if not v then
 		return 0
@@ -553,13 +565,26 @@ local function myGain(tier: number): number
 	local gun = me:GetAttribute("GunTier")
 	-- only upgrades move it: trainer level, gun, rebirths, the 2x pass (owner 2026-11-17)
 	return Config.trainGain(tier, if typeof(gun) == "number" then gun else 1, v.rebirths or 0,
-		me:GetAttribute("Pass_doublePower") == true)
+		me:GetAttribute("Pass_doublePower") == true, mult)
 end
 
 local function refreshTrainers()
 	for i in Config.world.plots do
 		local tier = tierAt(i)
 		local was = tiers[i]
+		local mg = panMagma(i)
+		if mg ~= (magmas[i] or false) then -- the pass bought (or its owner left): aim at the new target
+			magmas[i] = mg
+			local a = aims[i]
+			if a then
+				a.CFrame = CFrame.new(aimAt(i))
+			end
+			if mg then
+				local MP = TT.stations.magma
+				EffectsController.burst(aimAt(i) - Vector3.new(0, 2, 0), MP.lava, 30)
+				EffectsController.burst(aimAt(i), MP.gold, 18)
+			end
+		end
 		if tier ~= was then
 			tiers[i] = tier
 			local a = aims[i]
@@ -583,6 +608,11 @@ local function refreshTrainers()
 	end
 	local v = State.view
 	local i = if v and v.plot and Config.world.plots[v.plot] then v.plot else 0
+	-- on the Magma Trainer the sign floats over its golem and counts its level (Config.training.robux)
+	local magma = Config.isRobuxStation(myStation())
+	if magma then
+		i = myStation()
+	end
 	local root = me.Character and me.Character:FindFirstChild("HumanoidRootPart")
 	local near = false
 	if i ~= 0 and root and root:IsA("BasePart") then
@@ -593,16 +623,17 @@ local function refreshTrainers()
 	if not near then
 		return
 	end
-	local tier = tiers[i] or 1
-	if i ~= s.plot or tier ~= s.tier then
-		s.plot, s.tier = i, tier
-		local st = T.stations[tier]
+	local tier = if magma then 1 else (tiers[i] or 1)
+	local panMg = not magma and i ~= 0 and panMagma(i) -- my own pan's trainer is the Magma Trainer
+	if i ~= s.plot or tier ~= s.tier or panMg ~= s.magma then
+		s.plot, s.tier, s.magma = i, tier, panMg
+		local st = if magma or panMg then T.robux.station else T.stations[tier]
 		local col = TT.stations[st.kind] and TT.stations[st.kind].title or TT.power
 		s.grad.Color = ColorSequence.new(col:Lerp(Theme.white, 0.35), col)
 		-- signGap studs over this level's target
 		s.anchor.CFrame = CFrame.new(Config.trainerTarget(i) + Vector3.new(0, T.padHeight + st.shell.bottom + st.shell.height + U.signGap, 0))
 	end
-	local text = `+{Config.powerText(myGain(tier))}/shot`
+	local text = `+{Config.powerText(myGain(tier, if magma then T.robux.mult elseif panMg then Config.panMagmaMult(tier) else nil))}/shot`
 	if text ~= s.text then
 		s.text = text
 		s.title.Text = text
@@ -627,6 +658,16 @@ local function shatter(i: number, bonus: number)
 		wobble(i, true)
 		EffectsController.burst(to - Vector3.new(0, 2, 0), TT.frost, 26)
 		EffectsController.burst(to - Vector3.new(0, 2, 0), Theme.white, 10)
+		if Config.isRobuxStation(i) or panMagma(i) then
+			-- the Omega Titan erupts: lava, gold and violet on top of the frost (owner 2026-11-23: "add some vfx")
+			local MP = TT.stations.magma
+			EffectsController.burst(to, MP.lava, 30)
+			EffectsController.burst(to + Vector3.new(0, 1.5, 0), MP.gold, 18)
+			EffectsController.burst(to, MP.violet, 12)
+			if not lowGfx() then
+				EffectsController.rays(to, MP.goldHi, 10, 0.55)
+			end
+		end
 		if not lowGfx() then
 			EffectsController.rays(to, TT.frostGlow, 8, 0.45)
 		end
@@ -641,7 +682,7 @@ local function shatter(i: number, bonus: number)
 end
 
 local function onTrain(data: any)
-	if typeof(data) ~= "table" or typeof(data.station) ~= "number" or not Config.world.plots[data.station] then
+	if typeof(data) ~= "table" or not Config.validStation(data.station) then
 		return
 	end
 	local i = data.station :: number
@@ -726,14 +767,16 @@ end
 -- way is blocked: past the pad's edge by hop.clear, pushed further out while the spot is taken
 local function landingFor(i: number, p: Vector3, dir: Vector3, standH: number, padTop: number, c: Instance): Vector3?
 	local H = T.lock.hop
-	local centre = Config.trainerCentre(i)
+	-- measured in the pad's own frame: the Magma Trainer stands turned (Config.training.robux.yaw)
+	local frame = Config.trainerFrame(i)
+	local lp, ld = frame:PointToObjectSpace(p), frame:VectorToObjectSpace(dir)
 	local hx, hz = T.padSize[1] / 2 + 0.4, T.padSize[2] / 2 + 0.4 -- the pad and its rim
 	local exit = math.huge
-	if math.abs(dir.X) > 1e-3 then
-		exit = math.min(exit, ((centre.X + math.sign(dir.X) * hx) - p.X) / dir.X)
+	if math.abs(ld.X) > 1e-3 then
+		exit = math.min(exit, (math.sign(ld.X) * hx - lp.X) / ld.X)
 	end
-	if math.abs(dir.Z) > 1e-3 then
-		exit = math.min(exit, ((centre.Z + math.sign(dir.Z) * hz) - p.Z) / dir.Z)
+	if math.abs(ld.Z) > 1e-3 then
+		exit = math.min(exit, (math.sign(ld.Z) * hz - lp.Z) / ld.Z)
 	end
 	if exit == math.huge then
 		return nil
@@ -915,7 +958,7 @@ local function watchOther(p: Player)
 	end
 	p:GetAttributeChangedSignal("TrainShots"):Connect(function()
 		local i = p:GetAttribute("TrainStation")
-		if typeof(i) == "number" and Config.world.plots[i] then
+		if Config.validStation(i) then
 			drawShot(p, i, false, false, nil)
 		end
 	end)
@@ -927,7 +970,62 @@ function TrainingController.Init()
 	folder.Parent = workspace
 end
 
+-- the Magma Trainer's lightning (TrainingArt.magma's Beams named Zap): within zapDistance, each one flickers on
+-- and off with a new bend every zapEvery seconds, so it crackles; off for low graphics or reduced motion
+local function crackle()
+	local MR = T.robux
+	local rng = Random.new()
+	-- every Magma Trainer: the hub's and any pass owner's pan's (each folder with a ZapCount)
+	local zaps: { [Instance]: { Beam } } = {}
+	local tick = 0
+	while true do
+		task.wait(MR.zapEvery)
+		tick += 1
+		local tr = workspace:FindFirstChild("Trainers")
+		for m in zaps do
+			if m.Parent ~= tr then
+				zaps[m] = nil -- rebuilt or gone
+			end
+		end
+		local root = me.Character and me.Character:FindFirstChild("HumanoidRootPart")
+		local can = root ~= nil and root:IsA("BasePart") and not lowGfx() and not reduced()
+		for _, m in (if tr then tr:GetChildren() else {}) do
+			local want = m:GetAttribute("ZapCount")
+			if typeof(want) ~= "number" then
+				continue
+			end
+			-- new, or its parts still streaming in (play test 2026-11-23: the folder came first, its beams later):
+			-- look for its beams again, every 30 flickers until all of them (its ZapCount) are here
+			local list = zaps[m]
+			if not list or (#list < want and tick % 30 == 0) then
+				list = {}
+				for _, d in m:GetDescendants() do
+					if d:IsA("Beam") and d.Name == "Zap" then
+						table.insert(list, d)
+					end
+				end
+				zaps[m] = list
+			end
+			local plot = m:GetAttribute("Plot")
+			local station = if typeof(plot) == "number" then plot else MR.id
+			local on = can and ((root :: BasePart).Position - Config.trainerCentre(station)).Magnitude <= MR.zapDistance
+			for _, b in list :: { Beam } do
+				if b.Parent then
+					local lit = on and rng:NextNumber() < 0.7
+					b.Enabled = lit
+					if lit then
+						b.CurveSize0 = rng:NextNumber(-4, 4)
+						b.CurveSize1 = rng:NextNumber(-4, 4)
+						b.Width0 = rng:NextNumber(0.35, 0.7)
+					end
+				end
+			end
+		end
+	end
+end
+
 function TrainingController.Start()
+	task.spawn(crackle)
 	local shell = Instance.new("Part")
 	shell.Name = "FrostShell"
 	shell.Shape = Enum.PartType.Cylinder

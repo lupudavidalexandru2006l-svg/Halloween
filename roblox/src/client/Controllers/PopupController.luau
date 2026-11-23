@@ -23,6 +23,7 @@ local PanPopup = require(script.Parent.PanPopup)
 local SellPopup = require(script.Parent.SellPopup)
 local MailPopup = require(script.Parent.MailPopup)
 local RebirthPopup = require(script.Parent.RebirthPopup)
+local ClientHooks = require(script.Parent.Parent.Lib.ClientHooks) -- the limited egg's banner and Index page (EggController)
 
 local PopupController = {}
 
@@ -122,7 +123,7 @@ local HEADER: { [string]: Color3 } = {
 	mail = Theme.info, mailThanks = Theme.go,
 }
 local SMALL = { welcome = true, gift = true, pageDone = true, mailThanks = true } -- short messages get a smaller panel
-local FIT = { thaw = true } -- list popups that shrink to their rows (QA 2026-11-20, PT-04)
+local FIT = { thaw = true, pets = true } -- list popups that shrink to their rows (QA 2026-11-20 PT-04, 2026-11-22 PT-06)
 local HEADER_ICONS: { [string]: string } = {
 	pets = Config.ui.tileIcons.pets, shop = Config.ui.tileIcons.shop, index = Config.ui.tileIcons.index,
 	settings = Config.ui.tileIcons.settings, welcome = Config.images.icons.coin, gift = Config.images.icons.gift, freeGift = Config.images.icons.gift,
@@ -894,8 +895,9 @@ local function stickers(c: Ui.Block, bonus: number, best: boolean, wide: boolean
 		s.BorderSizePixel = 0
 		s.AnchorPoint = Vector2.new(0.5, 0.5)
 		-- inside the card's right edge, so the list's scroll bar strip never cuts it (round 3)
-		s.Position = UDim2.fromScale(if wide then 0.93 else 0.84, if wide then 0.08 else 0.05)
-		s.Size = UDim2.fromScale(if wide then 0.42 else 0.36, if wide then 0.42 else 0.36)
+		-- QA PT-04: smaller and up on the corner, clear of the title's last word
+		s.Position = UDim2.fromScale(if wide then 0.955 else 0.84, if wide then 0.02 else 0.05)
+		s.Size = UDim2.fromScale(if wide then 0.36 else 0.36, if wide then 0.36 else 0.36)
 		s.SizeConstraint = if wide then Enum.SizeConstraint.RelativeYY else Enum.SizeConstraint.RelativeXY
 		s.Rotation = 12
 		s.ZIndex = 5
@@ -918,8 +920,8 @@ local function stickers(c: Ui.Block, bonus: number, best: boolean, wide: boolean
 			r.Position = UDim2.fromScale(0.04, -0.13) -- clear of the title under it
 			r.Size = UDim2.fromScale(0.34, 0.15)
 		else
-			r.Position = UDim2.fromScale(0.06, -0.045)
-			r.Size = UDim2.fromScale(0.56, 0.085) -- ends before the "+% MORE" sticker
+			r.Position = UDim2.fromScale(0.04, -0.045)
+			r.Size = UDim2.fromScale(0.5, 0.085) -- ends well before the "+% MORE" sticker (QA 2026-11-23 PT-14)
 		end
 		r.ZIndex = 5
 		Ui.corner(r)
@@ -1172,9 +1174,6 @@ local function shopTile(o: Open, v: State.View, parent: Instance, item: Config.R
 	title.ZIndex = 2
 	sized(title, "title")
 	place(title, L.title)
-	if Config.oddsKind[item.kind] and not wide then -- leave the top-left corner to the Odds button
-		box(title, 0.23, L.title[2], 0.74, L.title[4])
-	end
 	if bonus > 0 then -- leave the top-right corner to the "+% MORE" sticker
 		title.Size = UDim2.fromScale(L.title[3] - Config.ui.shop.stickerRoom, L.title[4])
 	end
@@ -1210,7 +1209,8 @@ local function shopTile(o: Open, v: State.View, parent: Instance, item: Config.R
 	end
 	shopMotion(table.find(Config.monetization.shop, item) or 1, sun, front, if owned then nil else b)
 	stickers(c, bonus, best, true)
-	oddsButton(o, c.face, item, if wide then { 0.015, 0.06, 0.12, 0.3 } else { 0.025, 0.05, 0.19, 0.22 })
+	-- QA PT-03: on a tile the Odds button sits on the picture's bottom-left, so the title keeps its row
+	oddsButton(o, c.face, item, if wide then { 0.015, 0.06, 0.12, 0.3 } else { 0.025, 0.74, 0.17, 0.2 })
 	return c, b
 end
 
@@ -1325,6 +1325,9 @@ local function shop(o: Open, v: State.View)
 	local starterBuy: Ui.Block? = nil
 	local bestBuy: Ui.Block? = nil
 	local firstBuy: Ui.Block? = nil
+	if ClientHooks.shopTop then
+		order = ClientHooks.shopTop(sf, order) -- the limited egg on top (EggController, 2026-11-22)
+	end
 	for _, tab in tabs do
 		local colour = Theme.shopCards[tab.colour] or Theme.info
 		order += 1
@@ -2214,6 +2217,10 @@ local function index(o: Open, v: State.View)
 				sized(b.text, "title")
 			end
 		end
+	end
+	if ClientHooks.indexExtra then
+		-- the Limited page (EggController, 2026-11-22): its own page, no Claim, no +10%
+		ClientHooks.indexExtra(l, #v.pages + 1, v, { card = card, row = row, bar = bar, sized = sized })
 	end
 	-- every pet in the game, the Secrets too, as one bar; the trophies you've claimed on the right
 	local total = Ui.block(o.body, "Total", Theme.info, "", nil)
@@ -3484,7 +3491,8 @@ local function fill(o: Open)
 	elseif o.name == "mailThanks" then
 		message(o, { "Thank you!", "We read every message." }, "OK", function() end)
 	elseif o.name == "gift" then
-		reward(o, o.data.coins, `and +{Ui.commas(o.data.power or 0)} Cold Power. Thank you!`, "Yay", function() end)
+		local gd = o.data or {} -- opened without data (Studio DevOpen) it errored (QA 2026-11-23 CA-04)
+		reward(o, gd.coins or 0, `and +{Ui.commas(gd.power or 0)} Cold Power. Thank you!`, "Yay", function() end)
 	elseif o.name == "pageDone" then
 		local zone = Config.zone(o.data.zone)
 		-- a full page: claim its +10% right here (or later in the Index)
@@ -3536,6 +3544,14 @@ end
 
 function PopupController.refresh()
 	local o = current
+	if o and FIT[o.name] and not o.closed then
+		-- a popup that fits its rows is measured when it opens: draw it again for the new rows
+		o.closed = true
+		o.frame:Destroy()
+		current = nil
+		PopupController.open(o.name, o.data, true)
+		return
+	end
 	if o then
 		local scroll = o.body:FindFirstChildWhichIsA("ScrollingFrame", true)
 		local at = if scroll then scroll.CanvasPosition else nil
@@ -3795,7 +3811,7 @@ function PopupController.open(name: string, data: any?, rebuilt: boolean?)
 	-- (width / aspect), not their AbsoluteSize, because the open animation starts them scaled down.
 	if FIT[name] then
 		local H = frame.AbsoluteSize.Y
-		local lst = body:FindFirstChild("List") :: GuiObject?
+		local lst = body:FindFirstChild("List", true) :: GuiObject? -- Pets keeps it in a holder under its head row
 		local layout = lst and lst:FindFirstChildOfClass("UIListLayout")
 		if lst and layout and H > 0 then
 			local pad = lst:FindFirstChildOfClass("UIPadding")
@@ -3804,7 +3820,9 @@ function PopupController.open(name: string, data: any?, rebuilt: boolean?)
 			local padX = if pad then (pad.PaddingLeft.Scale + pad.PaddingRight.Scale) * lst.AbsoluteSize.X else 0
 			local w = lst.AbsoluteSize.X - padX - (if lst:IsA("ScrollingFrame") then lst.ScrollBarThickness else 0)
 			local gap = layout.Padding.Scale * lst.AbsoluteSize.Y + layout.Padding.Offset
-			local contentH, n = padT + padB, 0
+			-- whatever sits above the list (Pets' head row) keeps its height
+			local above = math.max(0, (lst :: GuiObject).AbsolutePosition.Y - body.AbsolutePosition.Y)
+			local contentH, n = padT + padB + above, 0
 			for _, r in lst:GetChildren() do
 				if r:IsA("GuiObject") and r.Visible then
 					local a = r:FindFirstChildOfClass("UIAspectRatioConstraint")
@@ -3821,6 +3839,18 @@ function PopupController.open(name: string, data: any?, rebuilt: boolean?)
 				closeB.root.Position = UDim2.new(0.975, 0, 0, 0.035 * H)
 				closeB.root.Size = UDim2.new(0.2, 0, 0, hh * 0.8 * H)
 				body.Position = UDim2.new(0.04, 0, 0, top)
+				-- the body's own rows go to pixels so they keep their size; the one holding the list fills the rest
+				for _, c in body:GetChildren() do
+					if c:IsA("GuiObject") and c ~= lst and not c:IsAncestorOf(lst :: GuiObject) then
+						local y = c.AbsolutePosition.Y - body.AbsolutePosition.Y
+						c.Position = UDim2.new(c.Position.X.Scale, c.Position.X.Offset, 0, y)
+						c.Size = UDim2.new(c.Size.X.Scale, c.Size.X.Offset, 0, c.AbsoluteSize.Y)
+					elseif c:IsA("GuiObject") and c ~= lst then
+						local y = c.AbsolutePosition.Y - body.AbsolutePosition.Y
+						c.Position = UDim2.new(c.Position.X.Scale, c.Position.X.Offset, 0, y)
+						c.Size = UDim2.new(c.Size.X.Scale, c.Size.X.Offset, 1, -y)
+					end
+				end
 				body.Size = UDim2.new(0.92, 0, 0, newH - top - 0.02 * H)
 				-- a shape lock on the frame would narrow it too: give it the new, wider shape
 				local lock = frame:FindFirstChildOfClass("UIAspectRatioConstraint")

@@ -31,7 +31,9 @@ local NAMES = {
 	"SendFeedback", -- the Feedback mailbox: a mood and a short message (FeedbackService, owner 2026-11-17 night)
 	"Extras", -- login calendar, weekly quests, chests, ray skins, mute (ExtrasService, 2026-11-19)
 	"Trade", -- trading (TradeService, 2026-11-19)
+	"AfkRejoin", -- idle long enough that Roblox would kick: move to another server instead (AfkService, owner 2026-11-22)
 	"VisitPan", -- look at a top-100 player's pan, read-only (LeaderboardService answers with Notify "panVisit", 2026-11-20)
+	"Egg", -- the limited Robux egg: buy a pack, the hub stand's pet, or ask for the odds (EggService, 2026-11-22)
 	-- server -> client (what happened)
 	"Data", "Notify", "BoardRank", "BoardRows",
 }

@@ -287,7 +287,12 @@ local function refreshWorldPrompts(v: State.View)
 	for _, a in workspace.Terrain:GetChildren() do
 		if a.Name == "TrainPromptSpot" then
 			local tp = a:FindFirstChildWhichIsA("ProximityPrompt")
-			if tp then
+			if tp and Config.isRobuxStation(tp:GetAttribute("Station") or 0) then
+				-- the hub's Magma Trainer (Config.training.robux) is the shop window: "Unlock" sells the pass; once owned
+				-- it has no prompt, you train at your own pan (owner 2026-11-23: "thats just for show")
+				tp.Enabled = not training and Players.LocalPlayer:GetAttribute("Pass_" .. Config.training.robux.item) ~= true
+				tp.ActionText = "Unlock"
+			elseif tp then
 				tp.Enabled = v.plot ~= nil and v.plot == tp:GetAttribute("Trainer") and not training
 			end
 		end
@@ -370,6 +375,7 @@ function PromptController.Start()
 		end
 	end
 	Players.LocalPlayer:GetAttributeChangedSignal("TrainLocked"):Connect(refreshNow)
+	Players.LocalPlayer:GetAttributeChangedSignal("Pass_" .. Config.training.robux.item):Connect(refreshNow) -- Unlock -> Train
 	workspace.Terrain.ChildAdded:Connect(function(c)
 		if c.Name == "TrainPromptSpot" then
 			task.defer(refreshNow) -- its prompt arrives with it; one beat later to be safe
@@ -409,9 +415,20 @@ function PromptController.Start()
 			action = "mail" -- the Feedback mailbox (owner 2026-11-17 night)
 		end
 		if action == "shop" or action == "equipment" or action == "pan" or action == "sell" or action == "rebirth" or action == "thaw" or action == "mail" then
-			PopupController.open(action, if action == "thaw" then { machine = prompt:GetAttribute("Machine") or 1 } else nil)
-			-- a booth's buttons only work at the booth (the server checks its own range), so its popup
-			-- closes when you walk away (final QA 2026-11-03: Buy far away did nothing, with no answer)
+			PromptController.openBooth(booth, action, prompt)
+		else
+			State.local_("comingSoon", { label = prompt.ObjectText })
+		end
+	end)
+end
+
+-- opens a booth's popup; it closes again when you walk away from the booth (final QA 2026-11-03: a booth's
+-- buttons only work at the booth, Buy far away did nothing). Also used by the EQUIPMENT top button
+-- (owner 2026-11-22: after its teleport the booth opens by itself, no E press needed)
+function PromptController.openBooth(booth: string, action: string, prompt: ProximityPrompt?)
+	do
+		do
+			PopupController.open(action, if action == "thaw" and prompt then { machine = prompt:GetAttribute("Machine") or 1 } else nil)
 			local range = ({ equipment = Config.guns.boothRange, sell = Config.sell.boothRange, rebirth = Config.rebirth.boothRange, pan = Config.pan.standRange, thaw = Config.thaw.useRange, mail = Config.feedback.range } :: { [string]: number })[action]
 			local at: Vector3? = nil
 			for _, b in Config.world.booths do
@@ -419,7 +436,7 @@ function PromptController.Start()
 					at = b.pos
 				end
 			end
-			local parent = prompt.Parent
+			local parent = prompt and prompt.Parent
 			if not at and parent then
 				at = if parent:IsA("Attachment") then parent.WorldPosition elseif parent:IsA("BasePart") then parent.Position else nil
 			end
@@ -437,10 +454,8 @@ function PromptController.Start()
 					end
 				end)
 			end
-		else
-			State.local_("comingSoon", { label = prompt.ObjectText })
 		end
-	end)
+	end
 end
 
 return PromptController

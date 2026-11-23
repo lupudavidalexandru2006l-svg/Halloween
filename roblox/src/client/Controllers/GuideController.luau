@@ -126,8 +126,11 @@ local function freezable(r: Instance, v: State.View?): boolean
 	if typeof(zone) == "number" and zone > ((v and v.reach) or 1) then
 		return false -- behind a gate you haven't opened yet
 	end
-	return r:GetAttribute("State") ~= "dazed" or r:GetAttribute("OfferUserId") == me.UserId
+	return r:GetAttribute("State") ~= "dazed" or r:GetAttribute("OfferUserId") == me.UserId or r:GetAttribute("KnockedFor") == me.UserId
 end
+
+-- (owner 2026-11-23: "after a heat critter or anything takes your pet remove the lines that show you to take
+-- you back, the message is enough": the arrow to a pet knocked out of your hands is gone)
 
 local function nearestPet(from: Vector3, minDist: number, maxDist: number, zone: number?): BasePart?
 	local wild = workspace:FindFirstChild("WildPets")
@@ -297,6 +300,9 @@ local function step()
 		local top = goal.Y + (G.targetTop[kind] or 4)
 		if inst and inst:IsA("BasePart") then
 			top = inst.Position.Y + inst.Size.Y / 2
+		end
+		if kind == "pet" then
+			top += G.targetPetLift or 0 -- QA PT-07: up over the pet's name plate, not on it
 		end
 		local bob = if still then 0 else math.abs(math.sin(t * G.targetBobSpeed)) * G.targetBob
 		local at = Vector3.new(goal.X, top + G.targetY + bob, goal.Z)

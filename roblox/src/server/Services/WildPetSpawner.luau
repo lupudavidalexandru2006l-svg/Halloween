@@ -53,6 +53,8 @@ export type WildPet = {
 	swerve: number,
 	swerveAt: number,
 	bornAt: number, -- os.clock() at spawn
+	home: Vector3, -- where it spawned: it roams only within `roam` studs of here (Config.spawner.roamRadius)
+	roam: number,
 	knocked: boolean?, -- knocked out of its carrier's hands: theirs (any tier)
 	tutorial: boolean?, -- a new player's first pet: the Night Reset leaves it alone
 }
@@ -81,14 +83,85 @@ local function pickTier(): string
 	return "Common"
 end
 
-local function randomSpot(zone: number, near: boolean, rare: boolean): Vector3?
+-- how far a pet of this kind roams from its home (restless tiers dart over their dartRadius)
+local function roamOf(def: PetDefs.PetDef): number
+	local m = Config.spawner.motion[def.tier]
+	return if m then m.dartRadius else Config.spawner.roamRadius
+end
+
+-- the room a spot has for a pet whose roam circle (body included) is myR: the gap to the nearest other pet's
+-- roam circle, or to the wall, whichever is closer. Bigger = more room.
+local function clearance(at: Vector3, myR: number, half: number): number
+	local best = half - math.abs(at.X) - myR
+	for _, p in pets do
+		local h = p.home
+		local gap = math.sqrt((at.X - h.X) ^ 2 + (at.Z - h.Z) ^ 2) - myR - (p.roam + p.root.Size.X / 2)
+		if gap < best then
+			best = gap
+		end
+	end
+	return best
+end
+
+-- the room round a slot: the gap to the nearest other pet's roam circle on this island (walls left out, so the
+-- outer columns aren't passed over)
+local function slotRoom(at: Vector3, myR: number, zone: number): number
+	local best = math.huge
+	for _, p in pets do
+		if p.zone == zone then
+			local h = p.home
+			local gap = math.sqrt((at.X - h.X) ^ 2 + (at.Z - h.Z) ^ 2) - myR - (p.roam + p.root.Size.X / 2)
+			if gap < best then
+				best = gap
+			end
+		end
+	end
+	return best
+end
+
+-- owner 2026-11-23 ("organized, about equal distance"): a home from the island's slot grid
+-- (WorldRules.islandLayout). near: the free slot nearest the island's start inside its near band; otherwise the
+-- slot (from farZMin on, Rare and up in the far half) farthest from every other pet. nil = no slot in that band.
+local function slotSpot(zone: number, near: boolean, rare: boolean, roam: number, body: number): Vector3?
+	local z = Config.zone(zone)
+	if not z then
+		return nil
+	end
+	local sp = Config.spawner
+	local myR = roam + body / 2
+	local zMin = if rare then math.max(sp.farZMin[zone], (z.zMin + z.zMax) / 2) else sp.farZMin[zone]
+	local best: Vector3? = nil
+	local bestScore = -math.huge
+	for _, at in WorldRules.islandLayout(zone).pets do
+		local room = slotRoom(at, myR, zone)
+		if near then
+			local band = sp.near[zone]
+			-- a slot nobody's roam reaches, the earliest one in the band
+			if at.Z >= band[1] and at.Z <= band[2] + sp.slots.rowGap and room > 0 and -at.Z > bestScore then
+				best, bestScore = at, -at.Z
+			end
+		elseif at.Z >= zMin and room > bestScore then
+			best, bestScore = at, room
+		end
+	end
+	return best
+end
+
+-- a home for a new wild pet: of Config.spawner.spreadTries random spots in the right part of the island, the one
+-- with the most room around it, so an island's pets spread out evenly instead of piling up in one place
+local function randomSpot(zone: number, near: boolean, rare: boolean, roam: number, body: number): Vector3?
 	local z = Config.zone(zone)
 	if not z then
 		return nil
 	end
 	local sp = Config.spawner
 	local half = Config.world.tunnel.width / 2 - sp.wallMargin
-	for _ = 1, 30 do
+	local xHalf = math.max(4, half - roam) -- its whole roam circle stays inside the walls
+	local myR = roam + body / 2
+	local best: Vector3? = nil
+	local bestRoom = -math.huge
+	local found = 0
+	for _ = 1, sp.spreadTries * 3 do
 		local x, zz
 		if near then
 			local band = sp.near[zone]
@@ -97,13 +170,31 @@ local function randomSpot(zone: number, near: boolean, rare: boolean): Vector3?
 		else
 			-- Rare and up only in the far half, so the pets worth most have the longest run home
 			local zMin = if rare then math.max(sp.farZMin[zone], (z.zMin + z.zMax) / 2) else sp.farZMin[zone]
-			x = -half + rng:NextNumber() * half * 2
+			x = -xHalf + rng:NextNumber() * xHalf * 2
 			zz = zMin + rng:NextNumber() * (z.zMax - 10 - zMin)
 		end
 		local at = Vector3.new(x, 0, zz)
 		if WorldRules.zoneAt(at) == zone and WorldRules.inTunnel(at, sp.wallMargin) then
-			return at
+			local room = clearance(at, myR, half)
+			if room > bestRoom then
+				best, bestRoom = at, room
+			end
+			found += 1
+			if found >= sp.spreadTries then
+				break
+			end
 		end
+	end
+	return best
+end
+
+-- a spot to wander to: anywhere in its roam circle around home, inside the walls and on its own island
+local function roamTarget(pet: WildPet): Vector3?
+	local a = rng:NextNumber() * math.pi * 2
+	local r = pet.roam * math.sqrt(rng:NextNumber())
+	local t = pet.home + Vector3.new(math.cos(a) * r, 0, math.sin(a) * r)
+	if WorldRules.zoneAt(t) == WorldRules.zoneAt(pet.home) and WorldRules.inTunnel(t, Config.spawner.wallMargin) then
+		return t
 	end
 	return nil
 end
@@ -163,13 +254,15 @@ function WildPetSpawner.spawn(zone: number, at: Vector3?, key: string, near: boo
 	if not def then
 		return nil
 	end
-	local pos = at or randomSpot(zone, near == true, Config.tier(def.tier).rank >= 3)
+	local sz = if forced then forced.sz else rollSize()
+	local roam = roamOf(def)
+	local rare, body = Config.tier(def.tier).rank >= 3, PetDefs.height(def, sz)
+	local pos = at or slotSpot(zone, near == true, rare, roam, body) or randomSpot(zone, near == true, rare, roam, body)
 	if not pos then
 		return nil
 	end
 	local id = "p" .. nextId
 	nextId += 1
-	local sz = if forced then forced.sz else rollSize()
 	local root = makeRoot(def, pos, sz)
 	root:SetAttribute("PetId", id)
 	root:SetAttribute("PetKey", def.key)
@@ -185,7 +278,7 @@ function WildPetSpawner.spawn(zone: number, at: Vector3?, key: string, near: boo
 		loopIdx = rng:NextInteger(1, #Config.poseLoop), action = "idle", actionEnd = 0,
 		wanderTo = nil, dazedUntil = 0, pose = nil, mut = mut, sz = sz, offerFor = nil, dazedOwner = nil, superUsed = false,
 		offered = false, meter = 0, fleeFrom = nil, shownMeter = 0, owner = owner,
-		dartAt = 0, swerve = 0, swerveAt = 0, bornAt = os.clock(),
+		dartAt = 0, swerve = 0, swerveAt = 0, bornAt = os.clock(), home = Vector3.new(pos.X, 0, pos.Z), roam = roam,
 	}
 	setAction(pet, Config.poseLoop[pet.loopIdx])
 	pet.actionEnd = os.clock() + rng:NextNumber() * Config.poses[pet.action].seconds
@@ -208,7 +301,11 @@ function WildPetSpawner.spawnDazed(info: { key: string, zone: number, pose: stri
 	end
 	pet.state = "dazed"
 	pet.knocked = knocked
-	pet.dazedUntil = os.clock() + Config.dazedSeconds
+	-- owner 2026-11-21 ("the pet I had despawned"): a pet a Heat Critter knocked out of your hands stays dazed
+	-- longer (8 s went by while you were still running from the others, then it woke up and walked off), and
+	-- "KnockedFor": your client lets you zap it back (GuideController.freezable; no arrow to it since 2026-11-23)
+	pet.dazedUntil = os.clock() + (if knocked then Config.chasers.knockDazedSeconds else Config.dazedSeconds)
+	pet.root:SetAttribute("KnockedFor", if knocked then owner.UserId else nil)
 	pet.pose = info.pose
 	pet.mut = info.mut
 	if pet.sz ~= info.sz and pet.def then
@@ -355,6 +452,7 @@ local function tick(dt: number)
 			if not pet.offerFor and now >= pet.dazedUntil then
 				pet.state = "wild"
 				pet.dazedOwner = nil
+				pet.root:SetAttribute("KnockedFor", nil)
 				WildPetSpawner.clearOffer(pet)
 				pet.root:SetAttribute("State", "wild")
 			end
@@ -372,22 +470,16 @@ local function tick(dt: number)
 				nextAction = Config.poseLoop[pet.loopIdx]
 			end
 			setAction(pet, nextAction)
-			if nextAction == "idle" and rng:NextNumber() < 0.5 then
-				local t = pet.root.Position + Vector3.new((rng:NextNumber() - 0.5) * 10, 0, (rng:NextNumber() - 0.5) * 10)
-				if WorldRules.zoneAt(t) == WorldRules.zoneAt(pet.root.Position) and WorldRules.inTunnel(t, Config.spawner.wallMargin) then
-					pet.wanderTo = t
-				end
+			-- it strolls inside its own roam circle; one that ran off (fled the ray) always heads back home
+			local away = Vector3.new(pet.root.Position.X - pet.home.X, 0, pet.root.Position.Z - pet.home.Z).Magnitude
+			if nextAction == "idle" and (away > pet.roam or rng:NextNumber() < 0.5) then
+				pet.wanderTo = roamTarget(pet)
 			end
 		end
-		-- restless: darts to a new random spot every so often, whatever its pose
+		-- restless: darts to a new random spot in its roam circle every so often, whatever its pose
 		if m and now >= pet.dartAt then
 			pet.dartAt = now + m.dart[1] + rng:NextNumber() * (m.dart[2] - m.dart[1])
-			local a = rng:NextNumber() * math.pi * 2
-			local r = m.dartRadius * (0.4 + 0.6 * rng:NextNumber())
-			local t = pet.root.Position + Vector3.new(math.cos(a) * r, 0, math.sin(a) * r)
-			if WorldRules.zoneAt(t) == WorldRules.zoneAt(pet.root.Position) and WorldRules.inTunnel(t, Config.spawner.wallMargin) then
-				pet.wanderTo = t
-			end
+			pet.wanderTo = roamTarget(pet) or pet.wanderTo
 		end
 		if pet.wanderTo and (pet.action == "idle" or m ~= nil) then
 			local from = pet.root.Position

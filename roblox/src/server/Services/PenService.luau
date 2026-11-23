@@ -192,7 +192,7 @@ end
 
 local function earn(p: PetEntry): number
 	local def = PetDefs.get(p.key)
-	return if def then PetDefs.income(def, p.pose, p.mut, p.sz) else 0
+	return if def then PetDefs.income(def, p.pose, p.mut, p.sz, p.inc) else 0
 end
 
 function PenService.slots(d: Data): number
@@ -998,6 +998,7 @@ local function view(player: Player, d: Data): { [string]: any }
 	return {
 		coins = math.floor(d.coins),
 		income = PenService.incomePerSecond(d),
+		coinEvent = EventService.mult("coins"), -- QA 2026-11-23 (PT-10): Coin Rush shows on the HUD rate
 		incomeMult = PenService.incomeMult(d), -- each pet's coin pop shows its own income times this
 		friends = friends[d] or 0, -- Roblox friends in the server (each +Config.friends.perFriend coins)
 		daily = ChallengeService.view(d),
@@ -1036,6 +1037,7 @@ local function numbersView(d: Data): { [string]: any }
 		partial = true,
 		coins = math.floor(d.coins),
 		income = PenService.incomePerSecond(d),
+		coinEvent = EventService.mult("coins"),
 		coldPower = d.coldPower,
 		stats = d.stats,
 		daily = ChallengeService.view(d),

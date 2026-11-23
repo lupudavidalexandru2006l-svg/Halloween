@@ -76,6 +76,54 @@ function WorldRules.inTunnel(pos: Vector3, margin: number?): boolean
 	return math.abs(pos.X) <= half and pos.Z >= Config.world.hubZMax and pos.Z <= Config.world.tunnelEnd
 end
 
+-- where an island's chasers live and where its wild pets may have their homes (owner 2026-11-23: organized, about
+-- equal distance apart). chasers: one home each, evenly spaced along the island, sides alternating
+-- (Config.chasers.homeX ...). pets: a staggered grid of slots (Config.spawner.slots), minus those too near a chaser.
+-- Worked out once per island; never changes while playing.
+export type Layout = { chasers: { Vector3 }, pets: { Vector3 } }
+local layouts: { [number]: Layout } = {}
+function WorldRules.islandLayout(zoneId: number): Layout
+	local cached = layouts[zoneId]
+	if cached then
+		return cached
+	end
+	local zone = Config.zone(zoneId)
+	local out: Layout = { chasers = {}, pets = {} }
+	if not zone then
+		return out
+	end
+	local C = Config.chasers
+	local t = C.byIsland[zoneId]
+	local n = if t then t.n else C.perIsland
+	local c0, c1 = zone.zMin + C.homeFrom, zone.zMax - C.homeTo
+	local startSide = if zoneId % 2 == 0 then -1 else 1
+	for i = 1, n do
+		local side = if i % 2 == 1 then startSide else -startSide
+		table.insert(out.chasers, Vector3.new(side * C.homeX, 0, c0 + (i - 0.5) / n * (c1 - c0)))
+	end
+	local S = Config.spawner.slots
+	local p0, p1 = zone.zMin + S.edge, zone.zMax - S.edge
+	local rows = math.max(2, math.floor((p1 - p0) / S.rowGap) + 1)
+	for r = 0, rows - 1 do
+		local z = p0 + r * (p1 - p0) / (rows - 1)
+		for _, x in (if r % 2 == 0 then S.columns else S.midColumns) do
+			local at = Vector3.new(x, 0, z)
+			local clear = true
+			for _, h in out.chasers do
+				if (h - at).Magnitude < S.chaserClear then
+					clear = false
+					break
+				end
+			end
+			if clear then
+				table.insert(out.pets, at)
+			end
+		end
+	end
+	layouts[zoneId] = out
+	return out
+end
+
 function WorldRules.heatAt(pos: Vector3): number
 	local id = WorldRules.zoneAt(pos)
 	if id == 0 then

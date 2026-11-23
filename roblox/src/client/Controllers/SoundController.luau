@@ -170,8 +170,10 @@ end
 local NOTIFY_SOUNDS: { [string]: string } = {
 	frozen = "freeze", melted = "melt", pickedUp = "snag",
 	-- PvP (2026-11-19): ElevenLabs batch 1
-	tagged = "player_frozen", bombFrozen = "player_frozen", tagHit = "ice_tap", bombHit = "ice_tap", thawed = "ice_free",
-	bombPlaced = "bomb_arm", gotBack = "got_back", -- banked: EffectsController's tally plays "bank" at its finale notYet = "no", upgraded = "buy",
+	-- thawed: handled in Start (a PvP break-free only; a Thaw Machine's thaw plays thaw_done in ThawMachines)
+	tagged = "player_frozen", bombFrozen = "player_frozen", tagHit = "ice_tap", bombHit = "ice_tap",
+	-- banked: EffectsController's tally plays "bank" at its finale
+	bombPlaced = "bomb_arm", gotBack = "got_back", notYet = "no", upgraded = "buy",
 	giftClaimed = "gift", welcomeCollected = "coin", zoneUnlocked = "unlock", bridge = "bridge",
 	chillStart = "chill", bigWin = "reveal_rare", pageDone = "reveal_rare", gunBought = "buy", gunEquipped = "click",
 	friendJoined = "friend", challengeDone = "challenge", challengeClaimed = "coin",
@@ -190,6 +192,14 @@ function SoundController.Start()
 			local root = c and c:FindFirstChild("HumanoidRootPart") :: BasePart?
 			if root and typeof(data) == "table" and typeof(data.at) == "Vector3" and (root.Position - data.at).Magnitude < S.popHearStuds then
 				SoundController.play("bomb_pop")
+			end
+			return
+		end
+		if kind == "thawed" then
+			-- QA 2026-11-23: this mapped to "ice_free", renamed thaw_done in Config, so breaking out of PvP ice was silent.
+			-- TagService sends {} on a break-free; PenService's machine thaw carries a key and plays its own sound.
+			if typeof(data) == "table" and data.key == nil then
+				SoundController.play("thaw_done")
 			end
 			return
 		end

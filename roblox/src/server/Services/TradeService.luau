@@ -59,7 +59,7 @@ end
 local function petView(p: any): { [string]: any }
 	local def = PetDefs.get(p.key)
 	return { id = p.id, key = p.key, pose = p.pose, mut = p.mut, sz = p.sz, frozen = p.frozen == true,
-		income = if def then PetDefs.income(def, p.pose, p.mut, p.sz) else 0 }
+		income = if def then PetDefs.income(def, p.pose, p.mut, p.sz, p.inc) else 0 }
 end
 
 local function sideValue(d: any, ids: { string }): number
@@ -68,7 +68,7 @@ local function sideValue(d: any, ids: { string }): number
 		local p = petOf(d, id)
 		local def = p and PetDefs.get(p.key)
 		if p and def then
-			sum += PetDefs.income(def, p.pose, p.mut, p.sz)
+			sum += PetDefs.income(def, p.pose, p.mut, p.sz, p.inc)
 		end
 	end
 	return sum
@@ -278,7 +278,7 @@ local function execute(t: Trade)
 		DataService.mutate(player, function(x)
 			for _, p in pets do
 				local entry = { id = "q" .. x.nextPetId, key = p.key, pose = p.pose, mut = p.mut, sz = p.sz, at = os.time(), eq = false,
-					frozen = if p.frozen then true else nil }
+					frozen = if p.frozen then true else nil, inc = p.inc } -- inc: a limited pet keeps its income (2026-11-22)
 				x.nextPetId += 1
 				table.insert(x.pets, entry)
 				if not x.found[p.key] then

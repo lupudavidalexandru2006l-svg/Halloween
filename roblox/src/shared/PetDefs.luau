@@ -166,8 +166,20 @@ for _, c in {
 	byKey[c[1]] = pet(c[1], c[2], c[3], "Common", "Quadruped", "L", c[4])
 end
 
+-- the limited egg's pets (LimitedEgg, owner 2026-11-22): in byKey and M.limited, NOT in the list, so they
+-- never spawn on an island or count on the island Index pages; they have their own Limited page (zone 0)
+local LimitedEgg = require(script.Parent.LimitedEgg)
+local limited: { PetDef } = {}
+for _, e in LimitedEgg.pets do
+	local d = pet(e.key, e.name, 1, e.tier, e.rig, e.size, e.hex, e.glow)
+	d.zone = 0
+	byKey[e.key] = d
+	table.insert(limited, d)
+end
+
 local M = {
 	list = PetDefs,
+	limited = limited,
 	byKey = byKey,
 	sizeHeight = { S = 2.2 * Config.petScale, M = 3 * Config.petScale, L = 4 * Config.petScale } :: { [string]: number },
 	cubeSize = { S = 3.0 * Config.petScale, M = 3.8 * Config.petScale, L = 4.8 * Config.petScale } :: { [string]: number }, -- grows with the pets, so they still fit
@@ -175,6 +187,12 @@ local M = {
 
 function M.get(key: string): PetDef?
 	return byKey[key]
+end
+
+-- a limited egg pet (never wild, own Index page)
+function M.isLimited(key: string): boolean
+	local d = byKey[key]
+	return d ~= nil and d.zone == 0
 end
 
 -- the pets of a zone that can be met in the game: nothing for an island whose pets aren't approved
@@ -194,7 +212,11 @@ function M.inZone(zone: number, tier: string?): { PetDef }
 end
 
 -- sz = the pet's size (Config.sizes: Big ... Cosmic, nil = normal)
-function M.income(def: PetDef, pose: string, mutation: string?, sz: string?): number
+-- inc = a limited pet's own income, fixed when it hatched (PetEntry.inc): it wins over the def's
+function M.income(def: PetDef, pose: string, mutation: string?, sz: string?, inc: number?): number
+	if inc then
+		return inc
+	end
 	local p = Config.poses[pose]
 	local m = if mutation then Config.mutations[mutation] else nil
 	local s = Config.size(sz)

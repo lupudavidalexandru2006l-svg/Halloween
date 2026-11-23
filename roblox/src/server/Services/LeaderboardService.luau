@@ -471,7 +471,7 @@ local function panView(userId: number, d: any): { [string]: any }
 			inPen += 1
 			local def = PetDefs.get(p.key)
 			if def then
-				table.insert(pets, { key = p.key, mut = p.mut, sz = p.sz, income = PetDefs.income(def, p.pose, p.mut, p.sz) })
+				table.insert(pets, { key = p.key, mut = p.mut, sz = p.sz, income = PetDefs.income(def, p.pose, p.mut, p.sz, p.inc) })
 			end
 		end
 	end

@@ -143,6 +143,7 @@ local function tagOf(player: Player): BillboardGui?
 	b.MaxDistance = 90
 	b.LightInfluence = 0
 	b.ResetOnSpawn = false
+	b.PlayerToHideFrom = player -- others see it; your own tag sat over the pet you aim at (QA 2026-11-23 PT-11)
 	local function line(name: string, y: number, h: number): TextLabel
 		local t = Instance.new("TextLabel")
 		t.Name = name
@@ -552,14 +553,15 @@ local function onBanked(player: Player, pets: { { key: string, tier: string, ran
 	checkBadges(player, d)
 end
 
-local function breakStreak(player: Player)
+-- why: nil = a melt (Hooks.Melted), else Hooks.lost's reason ("night", "critter", "dropped", "gone")
+local function breakStreak(player: Player, why: string?)
 	local n = streak[player] or 0
 	if n == 0 then
 		return
 	end
 	streak[player] = 0
 	if n >= Config.streak.showFrom then
-		Remotes.fire(player, "Notify", "streakLost", { n = n })
+		Remotes.fire(player, "Notify", "streakLost", { n = n, why = why or "melt" })
 	end
 	push(player)
 end

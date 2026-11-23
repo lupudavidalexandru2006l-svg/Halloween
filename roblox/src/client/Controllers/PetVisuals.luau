@@ -21,10 +21,14 @@ local State = require(script.Parent.State)
 local InputController = require(script.Parent.InputController)
 local SettingsController = require(script.Parent.SettingsController)
 local CameraController = require(script.Parent.CameraController)
+local CarryRush = require(script.Parent.CarryRush)
 local RayController = require(script.Parent.RayController)
 local SoundController = require(script.Parent.SoundController)
 local CoinPops = require(script.Parent.CoinPops)
 local WorldRules = require(ReplicatedStorage.Shared.WorldRules)
+-- skinned pets (one closed mesh + bones, 2026-11-21): keyframe clips checked in Blender, played on the bones
+local PetClips = require(ReplicatedStorage.Shared.PetClips)
+local PetRig = require(script.Parent.Parent.Lib.PetRig)
 local TweenService = game:GetService("TweenService")
 
 local PetVisuals = {}
@@ -41,7 +45,19 @@ type Anim = { key: string, start: any, t: number, clock: number, from: Pose?, bl
 	own: { [string]: any }?, ownN: number, sparks: { ParticleEmitter }, lights: { { light: PointLight, base: number } }, -- own: Config.petAnim.ownIdle entry; ownN: which beat last burst
 	-- smooth movement (2026-11-20): snaps = the root's last CFrames as they arrived (os.clock), replayed a moment late
 	-- so the drawn pet walks at an even speed; speed / turnRate / accel = smoothed, for leaning into turns and starts
-	snaps: { { t: number, cf: CFrame } }, lastRoot: CFrame, speed: number, turnRate: number, accel: number, run: number }
+	snaps: { { t: number, cf: CFrame } }, lastRoot: CFrame, speed: number, turnRate: number, accel: number, run: number,
+	gap: number, arrived: number, -- the smoothed time between the root's steps arriving, and when the last one came
+	-- skinned pets: the rig, this frame's clip mix and bone values, the pose it crossfades from, the run cycle,
+	-- and the scale it pops up to
+	rig: PetRig.Rig?, mix: PetRig.Mix, vals: PetRig.Values, mixed: PetRig.Values, lastVals: PetRig.Values,
+	fromVals: PetRig.Values?, rest: PetRig.Values, runPhase: number, baseScale: number, popped: boolean,
+	fe: { [string]: { x: number, v: number } }, -- follow-through (2026-11-23): one spring per channel (Config.petAnim.feel)
+	fol: Follow?, slide: number } -- an island chaser's path follower (follow), and how far its feet would slide at its stride cap (0-1)
+-- an island chaser's path (follow): the server's steps still ahead of the drawn spot (pts), the distance walked
+-- by the steps (total) and when each came (hist, for the average speed), the drawn spot (at), its speed (v), the
+-- way it's heading (dir), the root's last CFrame and when it came
+type Follow = { pts: { Vector3 }, hist: { { t: number, d: number } }, total: number, at: Vector3, v: number, dir: Vector3,
+	last: CFrame, arrived: number }
 type Banked = { edges: SelectionBox, coin: BillboardGui, coinImg: ImageLabel, phase: number, ready: BillboardGui? } -- ready: the READY! sign over a finished thaw
 type Fleck = { part: BasePart, round: number, angle: number, y: number, reach: number }
 type FreezeLook = { bands: { { part: BasePart, jitter: number, turn: number } }, highlight: Highlight?, crystals: { BasePart }, cracks: { { part: BasePart, face: number, u: number, v: number, turn: number } }, nextChip: number, style: string, cracked: number,
@@ -50,7 +66,7 @@ type FreezeLook = { bands: { { part: BasePart, jitter: number, turn: number } },
 	patch: BasePart?, fingers: { { part: BasePart, angle: number, len: number } },
 	ferns: { { parts: { BasePart }, face: number, u: number, v: number, tilt: number } }, glintBox: BasePart?, glintFx: ParticleEmitter? }
 type Drawn = { model: PVInstance, height: number, offer: BillboardGui?, img: ImageLabel?, born: number, fx: Fx, banked: Banked?,
-	clock: number, freeze: FreezeLook?, zzz: BillboardGui, anim: Anim, box: Folder?, shown: boolean? } -- box: a wild pet's own folder (hidden off your island) -- clock: the pet's own animation time (it slows while held and freezing)
+	clock: number, freeze: FreezeLook?, zzz: BillboardGui, anim: Anim, box: Folder?, shown: boolean?, chaser: boolean? } -- box: a wild pet's own folder (hidden off your island) -- clock: the pet's own animation time (it slows while held and freezing)
 -- onGround: frozen, waiting for E. ice / line / drips: the drawn ice that melts from the top down
 -- (Config.petFx.melt); shown = its drawn height share; lastFrac / meltAt: when LifeFrac last went down
 type CubeLook = { model: PVInstance, edges: SelectionBox, cracks: { { part: BasePart, offset: CFrame } }, onGround: boolean,
@@ -68,7 +84,8 @@ local meshes: Instance? = nil
 local FZ = Config.show.freeze
 local clearFreeze: (d: Drawn) -> ()
 -- Round 5: a thawed pan pet strolls round its pan, drawn on this client only (its root stays put on the server)
-local strolls: { [BasePart]: { pos: Vector3, to: Vector3?, pauseUntil: number } } = setmetatable({}, { __mode = "k" }) :: any
+type Stroll = { pos: Vector3, to: Vector3?, pauseUntil: number, speed: number, yaw: number }
+local strolls: { [BasePart]: Stroll } = setmetatable({}, { __mode = "k" }) :: any
 
 local function fxPart(size: Vector3, color: Color3, parent: Instance, mesh: string?): BasePart
 	local template = mesh and meshes and meshes:FindFirstChild(mesh)
@@ -109,7 +126,9 @@ local function lidPart(parent: Instance, size: Vector3, cf: CFrame, color: Color
 	p.CanQuery = false
 	p.CanTouch = false
 	p.CastShadow = false
-	p.LocalTransparencyModifier = if shut then 0 else 1
+	-- hidden with Transparency, never LocalTransparencyModifier: a part hidden by the modifier still blocks the
+	-- light, so a Titanic pet's 9-stud lids turned the whole pet black (2026-11-23)
+	p.Transparency = if shut then 0 else 1
 	local mesh = Instance.new("SpecialMesh") -- an ellipsoid that follows the part's size (it squashes with the pet)
 	mesh.MeshType = Enum.MeshType.Sphere
 	mesh.Parent = p
@@ -158,17 +177,23 @@ local function addLids(def: PetDefs.PetDef, model: Model, size: number, shut: bo
 end
 
 -- shut: draw it with its eyes closed from the start (a pet frozen asleep in a carried cube)
-local function standIn(def: PetDefs.PetDef, size: number, shut: boolean?): (PVInstance, ImageLabel?)
+-- inPan: a pet in a pan casts no shadow at any size (owner 2026-11-23: "remove shadows but only when an animal is in the pan")
+local function standIn(def: PetDefs.PetDef, size: number, shut: boolean?, inPan: boolean?): (PVInstance, ImageLabel?)
 	local models = ReplicatedStorage:FindFirstChild("PetModels")
 	local m = models and models:FindFirstChild(def.model)
 	if m and m:IsA("Model") then
 		local clone = m:Clone()
 		clone:ScaleTo(size / math.max(0.1, clone:GetExtentsSize().Y))
+		-- a big pet's own shadow turned it black (Config.petShadowMaxHeight)
+		local noShadow = inPan == true or size >= Config.petShadowMaxHeight
 		for _, d in clone:GetDescendants() do
 			if d:IsA("BasePart") then
 				d.Anchored = true
 				d.CanCollide = false
 				d.CanQuery = false
+				if noShadow then
+					d.CastShadow = false
+				end
 				if table.find(def.glowParts, d.Name) then
 					d.Material = Enum.Material.Neon
 				end
@@ -398,118 +423,31 @@ local function wrap(a: number): number
 	return (a + math.pi) % (2 * math.pi) - math.pi
 end
 
-local function mix(a: Pose, b: Pose, f: number): Pose
-	local function m(x: number, y: number): number
-		return x + (y - x) * f
+-- a damped spring pulled toward target (c.hz, c.damp = damping ratio: under 1 it overshoots once and rests).
+-- Stepped in 1/60 s slices so a slow frame can't blow it up (Studio play-tests ran at 15 fps)
+local function spring(s: { x: number, v: number }, target: number, c: { hz: number, damp: number }, dt: number): number
+	local w = 2 * math.pi * c.hz
+	local n = math.clamp(math.ceil(dt * 60), 1, 8)
+	local h = math.min(dt, 0.25) / n
+	local x, v = s.x, s.v
+	for _ = 1, n do
+		v += (w * w * (target - x) - 2 * c.damp * w * v) * h
+		x += v * h
 	end
-	return { x = m(a.x, b.x), y = m(a.y, b.y), z = m(a.z, b.z), pitch = m(a.pitch, b.pitch), yaw = m(a.yaw, b.yaw),
-		roll = m(a.roll, b.roll), sx = m(a.sx, b.sx), sy = m(a.sy, b.sy) }
+	s.x, s.v = x, v
+	return x
+end
+
+local function newFeel(): { [string]: { x: number, v: number } }
+	local fe = {}
+	for _, name in { "lean", "surge", "bank", "head", "ears", "tail", "tailTip" } do
+		fe[name] = { x = 0, v = 0 }
+	end
+	return fe
 end
 
 -- the action's pose t seconds in (clock = the pet's own ever-running time for loops);
 -- k = 1, or Config.petAnim.reducedAmp with reduced motion. Pitch > 0 = nose up.
-local function actionPose(key: string, t: number, clock: number, h: number, g: Gait, k: number): Pose
-	local p = table.clone(REST)
-	if key == "dazed" then -- dizzy after a melt: wobbles round in a circle and slowly turns
-		local D = A.dazed
-		local a = clock * D.wobble
-		p.pitch, p.roll = D.tilt * k * math.sin(a), D.tilt * k * math.cos(a)
-		p.x, p.z = D.sway * h * k * math.cos(a), D.sway * h * k * math.sin(a)
-		p.yaw = wrap(clock * D.spin * k)
-	elseif key == "sleep" then -- lying on its side, slow deep breaths
-		local S = A.sleep
-		local b = math.sin(clock * 2 * math.pi / S.breathePeriod) * k
-		p.roll = P.sleepTilt
-		p.y = -S.sink * h
-		p.sy = 1 - S.flatten + S.breathe * b
-		p.sx = 1 + S.flatten * 0.5 - S.breathe * 0.4 * b
-	elseif key == "yawn" then -- a big slow stretch up and back, hold it, then sag and settle
-		local Y = A.yawn
-		local u = t / Config.poses.yawn.seconds
-		local open = easeOut(seg(u, 0, Y.rise)) * (1 - smooth(seg(u, Y.settle, 1)))
-		local sag = math.sin(math.pi * seg(u, Y.settle, 1))
-		p.sy = 1 + (Y.stretch * open - Y.sag * sag) * k
-		p.sx = 1 + (Y.sag * 0.6 * sag - Y.stretch * 0.45 * open) * k
-		p.pitch = Y.lean * open * k
-		p.roll = Y.roll * open * k
-	elseif key == "jump" then -- crouch, spring up stretched, tip over the top, land in a squash and wobble back
-		local J = A.jump
-		local u = t / Config.poses.jump.seconds
-		if u < J.crouch then
-			local c = easeOut(u / J.crouch)
-			p.sy, p.sx = 1 - J.squash * c * k, 1 + J.squash * 0.6 * c * k
-		elseif u < J.land then
-			local air = seg(u, J.crouch, J.land)
-			local stretch = J.squash * math.max(0, 1 - 2 * air)
-			p.y = J.height * h * 4 * air * (1 - air) * k
-			p.sy, p.sx = 1 + stretch * k, 1 - stretch * 0.5 * k
-			p.pitch = J.tuck * math.sin(2 * math.pi * air) * k
-		else
-			local s = settle(seg(u, J.land, 1))
-			p.sy, p.sx = 1 - J.squash * s * k, 1 + J.squash * 0.6 * s * k
-		end
-	elseif key == "dance" then -- side-to-side hops on the beat, and a twirl on the last one
-		local D = A.dance
-		local u = math.min(t / Config.poses.dance.seconds, 0.9999)
-		local beat = math.floor(u * D.beats)
-		local b = u * D.beats - beat
-		local arc = math.sin(math.pi * b)
-		local side = if beat % 2 == 0 then 1 else -1
-		local twirl = beat == D.beats - 1 and k >= 1
-		p.y = D.hop * h * arc * k * (if twirl then D.twirlHop else 1)
-		p.sy = 1 + D.squash * (arc - 0.6) * k
-		p.sx = 1 - D.squash * 0.5 * (arc - 0.6) * k
-		if twirl then
-			p.yaw = 2 * math.pi * smooth(b)
-		else
-			p.roll = D.roll * side * arc * k
-			p.yaw = D.sway * side * arc * k
-			p.x = D.step * h * side * arc * k
-		end
-	elseif key == "sneeze" then -- "ah... ah..." leaning back in two breaths, then CHOO: snaps forward, jolts back
-		local S = A.sneeze
-		local u = t / Config.poses.sneeze.seconds
-		if u < S.build then
-			local v = u / S.build
-			local inhale = 0.6 * smooth(seg(v, 0, 0.45)) + 0.4 * smooth(seg(v, 0.55, 1))
-			p.sy, p.sx = 1 + S.stretch * inhale * k, 1 - S.stretch * 0.4 * inhale * k
-			p.pitch = S.lean * inhale * k
-		else
-			local choo = if u < S.snap then easeOut(seg(u, S.build, S.snap)) else 1
-			local rest = if u < S.snap then 1 else settle(seg(u, S.snap, 1))
-			local stretch = S.stretch * (1 - choo) - S.squash * choo
-			p.pitch = (S.lean * (1 - choo) - S.snapLean * choo) * rest * k
-			p.sy, p.sx = 1 + stretch * rest * k, 1 - stretch * 0.5 * rest * k
-			p.z = S.recoil * h * choo * rest * k
-		end
-	else -- idle: slow breathing, a look round now and then, and the rig's own bob (flyers hover)
-		local I = A.idle
-		local b = math.sin(clock * 2 * math.pi / I.breathePeriod)
-		p.sy = 1 + I.breathe * b * k
-		p.sx = 1 - I.breathe * 0.5 * b * k
-		p.yaw = I.lookYaw * math.clamp(1.6 * math.sin(clock * 2 * math.pi / I.lookPeriod), -1, 1) * k
-		p.y = g.bob * h * (0.5 + 0.5 * math.sin(clock * 2 * math.pi * g.bobHz)) * k
-	end
-	return p
-end
-
--- the walk on top, w = how much it's walking (0-1): a bounce per step, rocking, waddling and leaning in
-local function addWalk(p: Pose, w: number, phase: number, h: number, g: Gait, k: number)
-	local s = phase % 1
-	-- hoppers bounce off the ground (a sharp kick at each landing); walkers and trotters roll smoothly over
-	-- each step, with no kink at the footfall
-	local arc = if g.smooth then 0.5 - 0.5 * math.cos(2 * math.pi * s) else math.sin(math.pi * s)
-	local side = math.sin(math.pi * phase) -- swaps sides every step
-	local wk = w * k
-	p.y += g.hop * h * arc * wk
-	p.sy += g.squash * (arc - 0.5) * wk
-	p.sx -= g.squash * 0.5 * (arc - 0.5) * wk
-	p.pitch += (g.pitch * math.sin(2 * math.pi * s) - g.lean) * wk
-	p.roll += g.roll * side * wk
-	p.yaw += g.yaw * side * wk
-end
-
--- a little snowy puff out of the nose on the CHOO
 local function puffAt(at: CFrame, h: number, k: number)
 	local e = puffPart and puffPart:FindFirstChildOfClass("ParticleEmitter")
 	if puffPart and e then
@@ -575,7 +513,28 @@ local function newAnim(def: PetDefs.PetDef, model: PVInstance, img: ImageLabel?,
 		base = root.CFrame, walk = 0, phase = 0, gait = gaits[A.gaitFor[def.key] or def.rig] or gaits.Custom, parts = parts,
 		sneezed = false, culled = false, seed = seed, scratchy = scratchy, hasArms = hasArms, headPivot = headPivot,
 		lids = lids, shut = false, awake = 1, own = A.ownIdle[def.key], ownN = -1, sparks = sparks, lights = lights,
-		snaps = { { t = os.clock(), cf = root.CFrame } }, lastRoot = root.CFrame, speed = 0, turnRate = 0, accel = 0, run = 0 }
+		snaps = { { t = os.clock(), cf = root.CFrame } }, lastRoot = root.CFrame, speed = 0, turnRate = 0, accel = 0, run = 0,
+		gap = A.move.step, arrived = os.clock(),
+		rig = PetRig.new(model), mix = {}, vals = {}, mixed = {}, lastVals = {}, fromVals = nil, rest = {}, runPhase = 0,
+		baseScale = if model:IsA("Model") then model:GetScale() else 1, popped = false,
+		fe = newFeel(), fol = nil, slide = 0 }
+end
+
+-- copies bone values into reused tables (the pose a crossfade starts from)
+local function copyVals(src: PetRig.Values, dst: PetRig.Values): PetRig.Values
+	for name, v in src do
+		local o = dst[name]
+		if o then
+			table.clear(o)
+		else
+			o = {}
+			dst[name] = o
+		end
+		for ch, x in v do
+			o[ch] = x
+		end
+	end
+	return dst
 end
 
 -- closes or opens a 3D pet's eyes (its lids show only while shut)
@@ -583,7 +542,7 @@ local function shutEyes(a: Anim, shut: boolean)
 	if a.shut ~= shut then
 		a.shut = shut
 		for _, p in a.lids do
-			p.LocalTransparencyModifier = if shut then 0 else 1
+			p.Transparency = if shut then 0 else 1 -- not the modifier: hidden that way they still block the light
 		end
 	end
 end
@@ -605,7 +564,8 @@ end
 -- where the drawn pet stands this frame. The server moves a wild pet in 10 Hz steps; chasing each step made the
 -- drawn pet lunge and brake ten times a second (and its walk cycle flicker). Instead the root's CFrames are kept
 -- as they arrive and replayed Config.petAnim.move.delay seconds late, in straight lines between them, so it walks
--- at an even speed. Owner 2026-11-20: "make the movement animation much more better and fluid".
+-- at an even speed. Owner 2026-11-20: "make the movement animation much more better and fluid"; 2026-11-23: steps
+-- timed by the smoothed gap between arrivals (network bunching made the speed swing).
 local function replay(a: Anim, root: BasePart, clock: number): CFrame
 	local M = A.move
 	local snaps = a.snaps
@@ -614,27 +574,298 @@ local function replay(a: Anim, root: BasePart, clock: number): CFrame
 		if (cf.Position - a.lastRoot.Position).Magnitude > A.snapDistance then
 			table.clear(snaps) -- a jump (respawn, sent home): it's simply there
 			table.insert(snaps, { t = clock - M.delay, cf = cf })
+			a.gap = M.step
 		else
-			if clock - snaps[#snaps].t > M.step * 1.5 then
+			local last = snaps[#snaps]
+			local t = clock
+			if clock - a.arrived > M.step * 1.5 then
 				-- it stood still a while: the walk starts one step ago, not back when it stopped
 				table.insert(snaps, { t = clock - M.step, cf = a.lastRoot })
+				a.gap = M.step
+			else
+				-- the steps arrive bunched up (0.067 / 0.133 s apart for 0.11 s steps): time each one by the smoothed
+				-- gap, drifting a little toward when it really came, so the pet keeps an even pace (owner 2026-11-23)
+				a.gap += (clock - a.arrived - a.gap) * M.gapSmooth
+				local even = last.t + a.gap
+				t = math.max(last.t + a.gap * 0.5, even + (clock - even) * M.clockPull)
 			end
-			table.insert(snaps, { t = clock, cf = cf })
+			table.insert(snaps, { t = t, cf = cf })
 			if #snaps > 8 then
 				table.remove(snaps, 1)
 			end
 		end
 		a.lastRoot = cf
+		a.arrived = clock
 	end
 	local at = clock - M.delay
-	while #snaps >= 2 and snaps[2].t <= at do
-		table.remove(snaps, 1)
+	local n = #snaps
+	local i = 1
+	while i < n and snaps[i + 1].t <= at do
+		i += 1
 	end
-	local s0, s1 = snaps[1], snaps[2]
+	while i > 2 do -- drop what's long past, keeping one step before this segment for its curve
+		table.remove(snaps, 1)
+		i -= 1
+	end
+	local s0, s1 = snaps[i], snaps[i + 1]
 	if not s1 or at <= s0.t then
 		return s0.cf
 	end
+	-- straight lines between steps: a Catmull-Rom curve was tried (2026-11-23) and stepped backwards for a frame
+	-- on fast zig-zags, so the corners are left to the smooth turn in animate()
 	return s0.cf:Lerp(s1.cf, (at - s0.t) / (s1.t - s0.t))
+end
+
+-- where an island chaser stands this frame (owner 2026-11-23: "run to you smoother"). A chaser runs 20-48 studs/s
+-- in 3-5 stud steps, so replay()'s timing of each step showed every late or bunched update as a stumble (its
+-- speed swung 20-40 studs/s at a steady 30). Instead it walks the path of the steps at the server's average speed
+-- over a short window, eased toward staying Config.chasers.motion.follow.delay seconds behind the newest step, and
+-- brakes into the last one when the steps stop. Measured on recorded and simulated steps: speed wobble 0.14-0.16
+-- -> 0.04-0.08 of its speed, no stalls, never a step backwards.
+local function follow(a: Anim, root: BasePart, clock: number, dt: number): CFrame
+	local F = Config.chasers.motion.follow
+	local cf = root.CFrame
+	local p = cf.Position
+	local f = a.fol
+	if not f or (p - f.last.Position).Magnitude > F.snap or #f.pts > 40 then
+		-- first frame, or a jump (sent home): it's simply there
+		a.fol = { pts = { p }, hist = { { t = clock, d = 0 } }, total = 0, at = p, v = 0, dir = cf.LookVector, last = cf, arrived = clock }
+		return cf
+	end
+	local fol = f :: Follow
+	if cf ~= fol.last then
+		if clock - fol.arrived > F.step * 2.5 then
+			-- it stood still a while: its speed counts from one step ago, not from back when it stopped
+			fol.hist = { { t = clock - F.step, d = fol.total } }
+		end
+		fol.total += (p - fol.last.Position).Magnitude
+		fol.last, fol.arrived = cf, clock
+		table.insert(fol.pts, p)
+		table.insert(fol.hist, { t = clock, d = fol.total })
+		while #fol.hist > 2 and clock - fol.hist[2].t > F.window do
+			table.remove(fol.hist, 1)
+		end
+	end
+	-- the server's speed over the window (the quiet time since the last step counts, so it eases off as they stop)
+	local h0, h1 = fol.hist[1], fol.hist[#fol.hist]
+	local vs = (h1.d - h0.d) / math.max(clock - h0.t, F.step)
+	local lag = 0 -- how far behind the newest step it is, along the path
+	local from = fol.at
+	for _, q in fol.pts do
+		lag += (q - from).Magnitude
+		from = q
+	end
+	local v = math.clamp(vs + (lag - vs * F.delay) * F.pull, 0, math.max(vs * F.max, 4))
+	v = math.min(v, math.sqrt(2 * F.brake * lag))
+	fol.v += (v - fol.v) * (1 - math.exp(-F.ease * dt))
+	local move = fol.v * dt
+	while move > 0 do
+		local q = fol.pts[1]
+		local d = (q - fol.at).Magnitude
+		if d > 1e-3 then
+			fol.dir = (q - fol.at) / d
+		end
+		if d <= move then
+			fol.at = q
+			move -= d
+			if #fol.pts > 1 then
+				table.remove(fol.pts, 1)
+			else
+				break
+			end
+		else
+			fol.at += fol.dir * move
+			move = 0
+		end
+	end
+	-- it faces the way it's running along the path; standing, the way the server turned it
+	local flat = Vector3.new(fol.dir.X, 0, fol.dir.Z)
+	if fol.v > 0.5 and flat.Magnitude > 0.1 then
+		return CFrame.lookAt(fol.at, fol.at + flat)
+	end
+	return CFrame.new(fol.at) * cf.Rotation
+end
+
+-- A skinned pet (one closed mesh + bones): its clips (Shared.PetClips) mixed by what it's doing: the action
+-- (or a chaser's bite) from its start, the walk and run cycles keyed to the distance walked (so the feet don't
+-- slide), and its own signature move on its beat while it stands idle. On top: it leans into turns and starts,
+-- looks where it's turning and its tail trails; it crossfades between actions; reduced motion makes every move
+-- smaller with no full turns. Far away or off-screen it just stands. Returns its height off the ground (0-1).
+-- level of detail for skinned pets (studs past the pet's own height): every frame / every 2nd / every 3rd.
+-- Low graphics (manual, or switched on by itself on a slow phone): a smaller full-rate ring and the far pets
+-- every 4th frame, so the pets' cost about halves (phone pass 2026-11-21)
+local LOD_NEAR, LOD_MID = 20, 45
+local EAR_BONES = { "EarL1", "EarR1", "Ears1" } -- the ears' base bones (the tips ride on them)
+local LOW_NEAR, LOW_MID, LOW_FAR_EVERY = 10, 25, 4
+
+local function animateSkinned(d: Drawn, dt: number, now: number, cam: Camera, wiggle: number, lift: number?,
+	key: string, stepped: number): number
+	local a = d.anim
+	local rig = a.rig :: PetRig.Rig
+	local h = d.height
+	local M = A.move
+	-- pop up on arrival (the whole skinned model scales, so the rig is rebuilt while it grows)
+	if not a.popped then
+		local pop = math.max(0.05, backOut(math.min(1, (now - d.born) / P.popSeconds)))
+		local m = d.model :: Model
+		-- the size it pops up to comes from its height (absolute), never from the model's scale at that moment:
+		-- a pet re-drawn mid-pop once read its tiny pop scale and grew ~17x (Big Waddles in the pan, 2026-11-21)
+		local rh = m:GetAttribute("RigHeight")
+		if typeof(rh) == "number" and rh > 0 then
+			a.baseScale = d.height / rh
+		end
+		m:ScaleTo(a.baseScale * pop)
+		a.rig = PetRig.new(m)
+		rig = a.rig :: PetRig.Rig
+		a.popped = now - d.born >= P.popSeconds
+	end
+	local walkClip = (PetClips.get(rig.plan, "walk") :: any) :: PetClips.Clip
+	local runClip = (PetClips.get(rig.plan, "run") :: any) :: PetClips.Clip
+	local fallback = a.gait.stride * h * 2
+	-- steps per second are capped: short legs at a fast flee would otherwise flicker; past the cap the
+	-- stride just gets longer (a cute scamper, not a blur). An island chaser gallops a little faster, and past its
+	-- cap it bounds higher instead (below), so its feet are in the air while it covers the ground
+	local runCap = if d.chaser then Config.chasers.motion.gallop.cap else 3.2
+	local runCycle = PetRig.cycleLength(rig, runClip, fallback * 1.6)
+	a.phase += math.min(stepped / PetRig.cycleLength(rig, walkClip, fallback), dt * 2.4)
+	a.runPhase += math.min(stepped / runCycle, dt * runCap)
+	a.slide = math.clamp(1 - runCap * runCycle / math.max(a.speed, 0.01), 0, 1)
+	-- on screen if any of its body is: a giant (Big ... Cosmic) fills the view while its centre is off-screen
+	local centre = a.base.Position -- the pivot sits mid-body
+	local dist = (cam.CFrame.Position - centre).Magnitude
+	local _, onScreen = cam:WorldToViewportPoint(centre)
+	if not onScreen and dist < h * 2 then
+		local look = cam.CFrame.LookVector
+		onScreen = look:Dot((centre - cam.CFrame.Position).Unit) > 0.2 or dist < h
+	end
+	local near = onScreen and dist - h < A.farDistance
+	local vals: PetRig.Values = a.rest
+	local up = 0
+	-- level of detail (phones): further pets re-pose every 2nd / 3rd frame and hold their last pose between;
+	-- they still glide along every frame. Never during a crossfade, so blends stay smooth.
+	local lowG = SettingsController.get("lowGraphics") == true
+	local gap = dist - h
+	local every = if lowG
+		then (if gap < LOW_NEAR then 1 elseif gap < LOW_MID then 2 else LOW_FAR_EVERY)
+		else (if gap < LOD_NEAR then 1 elseif gap < LOD_MID then 2 else 3)
+	a.lodN = (a.lodN or 0) + 1
+	local fresh = every == 1 or a.lodN % every == 0 or a.culled or (a.fromVals ~= nil and a.blend < a.blendLen)
+	local holdBones = false
+	if near and not fresh then
+		vals = a.lastVals
+		up = (vals.Root and vals.Root.up) or 0
+		holdBones = true
+	elseif near then
+		local k = if SettingsController.get("reducedMotion") == true then A.reducedAmp else 1
+		if a.culled then
+			a.fromVals, a.blend, a.blendLen = {}, 0, A.blendSeconds
+		end
+		local mix = a.mix
+		table.clear(mix)
+		local act = (PetClips.get(rig.plan, key) or PetClips.get(rig.plan, "idle")) :: PetClips.Clip
+		local pose = Config.poses[key]
+		local len = if pose then pose.seconds else act.s
+		local w = if key == "sleep" then 0 else a.walk
+		-- its own idle (Config.petAnim.ownIdle): standing idle, every `every` seconds on its own beat
+		local sigW, sigClip, sigU = 0, nil :: PetClips.Clip?, 0
+		local own = a.own
+		if own and key == "idle" and a.walk < 0.2 then
+			local tt = a.clock + (a.seed % 89) / 89 * own.every
+			local cyc = tt % own.every
+			if cyc < own.seconds then
+				sigClip = PetClips.get(rig.plan, "sig_" .. own.kind)
+				sigU = cyc / own.seconds
+				sigW = smooth(seg(sigU, 0, 0.1)) * (1 - smooth(seg(sigU, 0.9, 1)))
+				local beat = math.floor(tt / own.every)
+				if beat ~= a.ownN then
+					a.ownN = beat
+					for _, e in a.sparks do
+						e:Emit(math.max(1, math.round(own.spark * k)))
+					end
+				end
+			end
+			for _, l in a.lights do
+				l.light.Brightness = l.base * (1 + own.flash * sigW)
+			end
+		end
+		table.insert(mix, { clip = act, t = a.t / len, w = (1 - w) * (1 - sigW), name = key })
+		if sigClip and own and sigW > 0 then
+			table.insert(mix, { clip = sigClip, t = sigU, w = (1 - w) * sigW, name = "sig_" .. own.kind })
+		end
+		if w > 0.001 then
+			table.insert(mix, { clip = walkClip, t = a.phase, w = w * (1 - a.run), name = "walk" })
+			table.insert(mix, { clip = runClip, t = a.runPhase, w = w * a.run, name = "run" })
+		end
+		vals = PetRig.sample(rig, mix, a.vals)
+		local rv = vals.Root
+		if d.chaser and w > 0.001 then
+			-- an island chaser's gallop: the run's bound and nose-up / nose-down rock grow with the gallop, and more
+			-- while its stride can't keep up with its speed (a powerful bounding run, feet off the ground)
+			local G = Config.chasers.motion.gallop
+			local grow = (G.bound + G.slide * a.slide) * w * a.run
+			rv.up = (rv.up or 0) * (1 + grow)
+			rv.px = (rv.px or 0) * (1 + grow * G.rock) -- the rock grows less: a deep nose-down dug the front feet in
+		end
+		-- follow-through (springs worked out in animate(), Config.petAnim.feel): the body leans into turns, rocks on
+		-- starts and stops and slides forward as it brakes; the head stays level and leads the turn; the ears flick
+		-- and flop; the tail trails a turn with its tip a beat behind (degrees; surge in pet heights)
+		local fe, F = a.fe, A.feel
+		rv.rl = (rv.rl or 0) + fe.bank.x
+		rv.px = (rv.px or 0) + fe.lean.x
+		rv.fwd = (rv.fwd or 0) + fe.surge.x
+		local headV = vals.Head
+		if headV then
+			headV.yw = (headV.yw or 0) + fe.head.x
+			headV.px = (headV.px or 0) - fe.lean.x * F.head.level
+			headV.rl = (headV.rl or 0) - fe.bank.x * F.head.level
+		end
+		for _, ear in EAR_BONES do
+			local ev = vals[ear]
+			if ev then
+				ev.px = (ev.px or 0) + fe.ears.x
+			end
+		end
+		local tailV = vals.Tail1 or vals.Tail
+		if tailV then
+			tailV.yw = (tailV.yw or 0) + fe.tail.x
+		end
+		local tipV = vals.Tail2
+		if tipV then
+			tipV.yw = (tipV.yw or 0) + fe.tailTip.x
+		end
+		if wiggle ~= 0 then
+			rv.rl = (rv.rl or 0) + math.deg(wiggle) -- the freeze struggle
+		end
+		if lift and lift ~= 0 then
+			rv.up = (rv.up or 0) + lift / math.max(0.1, rig.height) -- a chaser's lunge
+		end
+		-- reduced motion: every move smaller, no full turns
+		if k < 1 then
+			for _, v in vals do
+				for ch, x in v do
+					if ch ~= "sink" then
+						v[ch] = x * k
+					end
+				end
+			end
+			if act.spin or (sigClip and sigClip.spin) then
+				rv.yw = 0
+			end
+		end
+		if a.fromVals and a.blend < a.blendLen then
+			vals = PetRig.blend(a.fromVals, vals, smooth(a.blend / a.blendLen), a.mixed)
+		end
+		copyVals(vals, a.lastVals)
+		up = (vals.Root and vals.Root.up) or 0
+		if key == "sneeze" and not a.sneezed and a.t >= A.sneeze.build * Config.poses.sneeze.seconds then
+			a.sneezed = true
+			puffAt(a.base * CFrame.new(0, h * 0.15, -h * 0.55), h, k)
+		end
+	end
+	a.culled = not near
+	local cf = PetRig.apply(rig, vals, a.base, moveParts, moveCFs, holdBones)
+	;(d.model :: Model).WorldPivot = cf -- the name tag follows the pet
+	return math.clamp(up, 0, 1)
 end
 
 -- lift: extra height on top of the pose (a chaser's lunge); legs tuck in while it's up
@@ -645,10 +876,12 @@ local function animate(root: BasePart, d: Drawn, dt: number, now: number, cam: C
 	local M = A.move
 	-- the drawn pet walks the replayed path at an even speed and turns smoothly toward the way it's going
 	local prev = a.base
-	local target = replay(a, root, os.clock())
+	local target = if d.chaser then follow(a, root, os.clock(), dt) else replay(a, root, os.clock())
 	if (target.Position - prev.Position).Magnitude > A.snapDistance then
 		a.base = target
 	else
+		-- (2026-11-23: a critically damped glide on top of this path was tried and dropped: replayed at 60 fps on
+		-- recorded steps it didn't lower the jolts, 3.6% -> 4.0% of frames)
 		a.base = prev.Rotation:Lerp(target.Rotation, 1 - math.exp(-A.turn * dt)) + target.Position
 	end
 	local step = math.max(dt, 1e-3)
@@ -665,17 +898,34 @@ local function animate(root: BasePart, d: Drawn, dt: number, now: number, cam: C
 	local walking = math.clamp(a.speed / (wander * A.walkAt), 0, 1)
 	a.walk += (walking - a.walk) * (1 - math.exp(-A.walkFade * dt))
 	a.run = math.clamp((a.speed - wander) / math.max(0.1, Config.aim.fleeSpeed - wander), 0, 1) -- scared: a bouncier run
+	if d.chaser then
+		-- a chaser strolls at its own wander speed and gallops when it chases or heads home
+		local G = Config.chasers.motion.gallop
+		a.run = math.clamp((a.speed - G.runFrom) / (G.runAt - G.runFrom), 0, 1)
+	end
 	-- running takes longer strides (a gallop), so fast feet don't blur; past a run they lengthen with speed
 	local over = math.max(1, a.speed / math.max(0.1, Config.aim.fleeSpeed))
-	a.phase += stepped / (a.gait.stride * h * (1 + M.runStride * a.run) * math.sqrt(over))
+	if not a.rig then -- a skinned pet keeps its own walk and run cycles (animateSkinned)
+		a.phase += stepped / (a.gait.stride * h * (1 + M.runStride * a.run) * math.sqrt(over))
+	end
 
 	local action = root:GetAttribute("Action")
 	local start = root:GetAttribute("ActionStart")
+	-- an island chaser's bite: CritterService stamps "Bite" when it catches you
+	local biteAt = root:GetAttribute("Bite")
+	local biting = typeof(biteAt) == "number" and workspace:GetServerTimeNow() - biteAt < Config.chasers.biteSeconds
 	local key = if root:GetAttribute("State") == "dazed" then "dazed"
+		elseif biting then "bite"
 		elseif typeof(action) == "string" and Config.poses[action] then action
 		else "idle"
+	if biting then
+		start = biteAt
+	end
 	if key ~= a.key or start ~= a.start then
 		a.from, a.blend = a.last, 0
+		if a.rig then
+			a.fromVals = copyVals(a.lastVals, {})
+		end
 		a.blendLen = if key == "sleep" or a.key == "sleep" then A.sleepBlendSeconds else A.blendSeconds
 		a.t = if typeof(start) == "number" and key ~= "dazed" then math.max(0, workspace:GetServerTimeNow() - start) else 0
 		a.key, a.start, a.sneezed = key, start, false
@@ -690,291 +940,33 @@ local function animate(root: BasePart, d: Drawn, dt: number, now: number, cam: C
 	end
 	a.awake += ((if asleep then 0 else 1) - a.awake) * (1 - math.exp(-4 * dt))
 	shutEyes(a, asleep and a.blend >= a.blendLen * A.lids.shutAt)
-
-	-- far away or off-screen it just stands (no pose maths), so a phone only animates what you see
-	local _, onScreen = cam:WorldToViewportPoint(a.base.Position)
-	local near = onScreen and (cam.CFrame.Position - a.base.Position).Magnitude < A.farDistance
-	local pose = REST
-	local legSwing, legTuck = 0, 0 -- rigged legs: the diagonal swing, and the reach / kick in the air
-	local scratch, scratchSide, rub = 0, 1, 0 -- the scratch: how far in (0-1), which side, the rubbing wave
-	local headRot, earTwitch, earWhich, earFlop, tailYaw = CFrame.identity, 0, 0, 0, 0
-	-- its own idle on the parts: extra wing flap, arms out, front legs pawing, head nod, tail beat (radians)
-	local ownWing, ownArms, ownFront, ownNod, ownTail = 0, 0, 0, 0, 0
-	if near then
-		local k = if SettingsController.get("reducedMotion") == true then A.reducedAmp else 1
-		pose = actionPose(key, a.t, a.clock, h, a.gait, k)
-		local stride = a.walk * (1 + M.runBoost * a.run) -- running: bigger bounces and steps
-		if a.walk > 0.01 then
-			addWalk(pose, stride, a.phase, h, a.gait, k)
-			-- banks into a turn (a left turn tips it left) and leans forward setting off, back pulling up
-			pose.roll += math.clamp(a.turnRate * M.bank, -M.bankMax, M.bankMax) * a.walk * k
-		end
-		if key ~= "sleep" then
-			pose.pitch -= M.accelLean * math.clamp(a.accel / M.accelRef, -1, 1) * k
-		end
-		-- the legs step with the walk cycle (one step per phase unit, like addWalk's side swap), tap
-		-- along to the dance's beats, and tuck in while the pet is off the ground. cos, not sin: the feet
-		-- are furthest apart as a foot lands (the low point of each step) and pass under the body at its
-		-- high point, while the body leans onto the leg that's on the ground (owner 2026-11-04: with sin
-		-- the penguin's legs moved reversed)
-		local L = A.limbs
-		-- never past L.walk, even running: the split pets were tear-checked at that swing (Pet Rules), and a
-		-- wider one opens see-through gaps at the hips
-		legSwing = L.walk * a.walk * math.cos(math.pi * a.phase) * k
-		if key == "dance" then
-			legSwing += L.dance * math.sin(math.pi * A.dance.beats * a.t / Config.poses.dance.seconds) * k
-		end
-		-- a scratch: some idles, standing still, picked from the pet's id and this idle's start. A pet with its own
-		-- idle does that instead (a scratch in the middle of a roll or a spin would fight it)
-		local S = A.scratch
-		if key == "idle" and a.scratchy and not a.own and a.walk < 0.2 and typeof(a.start) == "number" then
-			local r = Random.new(a.seed + math.floor(a.start * 10))
-			if r:NextNumber() < S.chance then
-				scratchSide = if r:NextNumber() < 0.5 then -1 else 1
-				local u = a.t - S.start
-				scratch = math.clamp(math.min(u, S.seconds - u) / S.ramp, 0, 1) * k
-				rub = math.sin(a.clock * 2 * math.pi * S.rubHz)
-			end
-		end
-		if scratch > 0 then
-			pose = table.clone(pose)
-			pose.roll -= S.lean * scratch * scratchSide -- leans into the scratch
-		end
-		-- its own idle (Config.petAnim.ownIdle): standing idle, every `every` seconds on its own beat.
-		-- sig: how far in (0-1, eased in and out), su: how far through (0-1)
-		local own = a.own
-		local ownSig = 0
-		if own and key == "idle" and a.walk < 0.2 then
-			local tt = a.clock + (a.seed % 89) / 89 * own.every
-			local cyc = tt % own.every
-			if cyc < own.seconds then
-				local su = cyc / own.seconds
-				local sig = smooth(seg(su, 0, 0.15)) * (1 - smooth(seg(su, 0.85, 1))) * k
-				local full = k >= 1 -- reduced motion: no full turns
-				local beat = math.floor(tt / own.every)
-				if beat ~= a.ownN then
-					a.ownN = beat
-					for _, e in a.sparks do
-						e:Emit(math.max(1, math.round(own.spark * k)))
-					end
-				end
-				local wave = function(hz: number): number
-					return math.sin(2 * math.pi * hz * cyc)
-				end
-				pose = table.clone(pose)
-				local kind = own.kind
-				if kind == "flap" then
-					pose.y += own.hop * h * math.sin(math.pi * su) * k
-					pose.pitch += 0.1 * sig
-					ownWing = own.flap * sig * wave(own.flapHz)
-				elseif kind == "rear" then
-					pose.pitch += own.rear * sig -- nose up, lifted so the back feet stay down
-					pose.y += own.rear * sig * h * 0.25
-					ownFront = own.paw * sig * (0.6 + 0.4 * wave(own.pawHz))
-					ownNod = own.nod * sig
-				elseif kind == "soar" then
-					pose.y += own.rise * h * math.sin(math.pi * su) ^ 0.7 * k
-					pose.pitch -= 0.08 * sig
-					ownWing = own.flap * sig * wave(own.flapHz)
-				elseif kind == "balance" then
-					pose.roll += own.sway * sig * wave(own.swayHz)
-					ownArms = own.arms * sig * (0.85 + 0.15 * wave(own.swayHz * 2))
-				elseif kind == "puff" then
-					pose.sx += own.puff * sig
-					pose.sy += own.puff * 0.8 * sig
-					pose.roll += own.shake * sig * wave(own.shakeHz) * smooth(seg(su, 0.4, 0.6))
-					ownWing = own.flap * sig * wave(own.flapHz)
-				elseif kind == "roll" then
-					-- a forward roll round the middle of the pet (the pose turns round its feet, so shift it back)
-					local th = if full then -2 * math.pi * smooth(seg(su, 0.15, 0.85)) else -0.3 * sig * math.sin(math.pi * su)
-					local c = h / 2
-					pose.pitch += th
-					pose.y += c * (1 - math.cos(th))
-					pose.z -= c * math.sin(th)
-					pose.sy -= own.squash * sig
-					pose.sx += own.squash * 0.5 * sig
-				elseif kind == "leap" then
-					local u = seg(su, 0.1, 0.9)
-					pose.y += own.height * h * math.sin(math.pi * u) * k
-					pose.pitch += own.tilt * math.cos(math.pi * u) * sig -- nose up going up, down coming down
-					ownTail = own.wag * sig * wave(own.wagHz)
-					ownWing = 0.5 * own.wag * sig * wave(own.wagHz)
-				elseif kind == "bloop" then
-					local s = math.sin(math.pi * su)
-					pose.sy += own.stretch * s * k
-					pose.sx -= own.stretch * 0.5 * s * k
-					pose.y += own.float * h * s * k
-					if full then
-						pose.yaw += own.spin * 2 * math.pi * smooth(su)
-					end
-				end
-				ownSig = sig
-			end
-		end
-		if own then
-			for _, l in a.lights do
-				l.light.Brightness = l.base * (1 + own.flash * ownSig)
-			end
-		end
-		legTuck = L.tuck * math.clamp(pose.y / (h * L.tuckHeight), 0, 1)
-		-- head, ears and tail
-		local PA = A.parts
-		local still = (1 - 0.6 * a.walk) * a.awake -- asleep: the head stops looking round
-		local lead = math.clamp(a.turnRate * M.headLead, -M.headLeadMax, M.headLeadMax) * k -- looks where it's turning
-		local hYaw = PA.headLook * math.sin(a.clock * 2 * math.pi / PA.headLookPeriod) * still * k + lead
-		local hPitch = PA.headNod * a.walk * math.sin(2 * math.pi * a.phase) * k - S.headPitch * scratch + ownNod
-		local hRoll = -scratchSide * S.headRoll * scratch + 0.04 * scratch * rub
-		headRot = CFrame.Angles(hPitch, hYaw, hRoll)
-		-- one ear at a time flicks now and then (each pet on its own beat)
-		local every = PA.earTwitchEvery
-		local tt = a.clock + (a.seed % 97) / 97 * every
-		local cyc = tt % every
-		earTwitch = if cyc < PA.earTwitchSeconds then math.sin(math.pi * cyc / PA.earTwitchSeconds) * k * a.awake else 0
-		earWhich = if math.floor(tt / every) % 2 == 0 then -1 else 1
-		earFlop = PA.earFlop * (a.walk * math.sin(2 * math.pi * a.phase) + math.clamp(pose.y / h, 0, 1)) * k
-		local dancing = key == "dance"
-		tailYaw = (if dancing then PA.tailDanceWag else PA.tailWag)
-			* math.sin(a.clock * 2 * math.pi * (if dancing then PA.tailDanceHz else PA.tailHz)) * k * a.awake + ownTail
-			- math.clamp(a.turnRate * M.tailDrag, -M.tailDragMax, M.tailDragMax) * k -- the tail trails behind a turn
-		if a.culled then
-			a.from, a.blend, a.blendLen = REST, 0, A.blendSeconds
-		end
-		if a.from and a.blend < a.blendLen then
-			pose = mix(a.from, pose, smooth(a.blend / a.blendLen))
-		end
-		pose.yaw = wrap(pose.yaw)
-		if key == "sneeze" and not a.sneezed and a.t >= A.sneeze.build * Config.poses.sneeze.seconds then
-			a.sneezed = true
-			puffAt(a.base * CFrame.new(0, h * 0.15, -h * 0.55), h, k)
-		end
-	end
-	if wiggle ~= 0 then
-		pose = table.clone(pose)
-		pose.roll += wiggle
-	end
-	if lift and lift ~= 0 then
-		pose = table.clone(pose)
-		pose.y += lift
-	end
-	a.culled = not near
-	a.last = pose
-
-	-- a hat pops off on a jump (Toddle's signature: the cap bounces off and back on), timed from the jump's
-	-- start like every other beat: off at take-off, over the head, back on just after the landing, a tiny
-	-- re-hop, then a wobble that settles on a damped spring
-	local PA = A.parts
-	local hatLift, hatRoll = 0, 0
-	if near and key == "jump" then
-		local len = Config.poses.jump.seconds
-		local u = a.t / len
-		local side = if a.seed % 2 == 0 then 1 else -1
-		local reduce = if SettingsController.get("reducedMotion") == true then A.reducedAmp else 1
-		if u > PA.hatOff and u < PA.hatOn then
-			local s = (u - PA.hatOff) / (PA.hatOn - PA.hatOff)
-			local arc = math.sin(math.pi * s ^ 0.8) -- peaks a little after the middle, like it's still rising
-			hatLift = PA.hatLift * h * arc
-			hatRoll = PA.hatTilt * arc * side
-		elseif u >= PA.hatOn then
-			local x = (u - PA.hatOn) * len -- seconds since it landed
-			if x < PA.hatHopSeconds then
-				hatLift = PA.hatHop * h * math.sin(math.pi * x / PA.hatHopSeconds)
-			end
-			local w = x / PA.hatSettle
-			if w < 1 then
-				hatRoll = -PA.hatTilt * math.exp(-4 * w) * math.cos(1.5 * math.pi * w) * side
-			end
-		end
-		hatLift *= reduce
-		hatRoll *= reduce
+	-- follow-through springs (Config.petAnim.feel), every frame so they stay smooth between LOD re-poses
+	local F, fe = A.feel, a.fe
+	local acc = if asleep then 0 else math.clamp(a.accel / M.accelRef, -1, 1)
+	spring(fe.lean, -F.lean.deg * acc, F.lean, dt)
+	spring(fe.surge, -F.surge.amount * acc, F.surge, dt)
+	spring(fe.bank, math.deg(math.clamp(a.turnRate * M.bank, -M.bankMax, M.bankMax)) * a.walk, F.bank, dt)
+	spring(fe.head, if asleep then 0 else math.deg(math.clamp(a.turnRate * M.headLead, -M.headLeadMax, M.headLeadMax)), F.head, dt)
+	spring(fe.ears, if asleep then 0 else F.ears.accel * acc + F.ears.run * a.run, F.ears, dt)
+	spring(fe.tail, if asleep then 0 else -math.deg(math.clamp(a.turnRate * M.tailDrag, -M.tailDragMax, M.tailDragMax)), F.tail, dt)
+	spring(fe.tailTip, fe.tail.x * F.tailTip.carry, F.tailTip, dt)
+	if a.rig then
+		return animateSkinned(d, dt, now, cam, wiggle, lift, key, stepped)
 	end
 
-	local pop = math.max(0.05, backOut(math.min(1, (now - d.born) / P.popSeconds)))
-	local sx, sy = pose.sx * pop, pose.sy * pop
-	if d.img then
-		-- a sprite always faces the camera: it moves, squashes and tilts; a turn shows as a paper flip
-		d.model:PivotTo(CFrame.new((a.base * CFrame.new(pose.x, pose.y, pose.z)).Position))
-		d.img.Size = UDim2.fromScale(sx * math.max(0.2, math.abs(math.cos(pose.yaw))), sy)
-		d.img.Rotation = math.deg(pose.roll + pose.pitch * 0.5)
-	else
-		-- lean and turn round the feet, then squash each part about the feet too
-		local cf = a.base * CFrame.new(pose.x, feet + pose.y, pose.z) * CFrame.Angles(0, pose.yaw, 0)
-			* CFrame.Angles(pose.pitch, 0, pose.roll) * CFrame.new(0, -feet, 0)
-		-- the head turns round its neck (squashed with the rest); ears ride on it
-		local headTurn = CFrame.identity
-		if a.headPivot then
-			local np = a.headPivot
-			local neck = CFrame.new(np.X * sx, feet + (np.Y - feet) * sy, np.Z * sx)
-			headTurn = neck * headRot * neck:Inverse()
-		end
-		for _, part in a.parts do
-			local rp = part.rel.Position
-			local place = CFrame.new(rp.X * sx, feet + (rp.Y - feet) * sy, rp.Z * sx) * part.rel.Rotation
-			local hp = part.hip
-			local role = part.role
-			if hp then
-				-- turning round X moves the foot forward (-Z) for a positive angle
-				local hipAt = CFrame.new(hp.X * sx, feet + (hp.Y - feet) * sy, hp.Z * sx)
-				local angle = part.swing * legSwing + (if part.front then legTuck else -legTuck)
-				local out = 0
-				if role == "arm" then
-					out = part.side * ownArms -- its own idle: arms out to the sides (Hoodoo Golem's balance)
-				elseif role == "leg" and part.front then
-					angle += ownFront -- its own idle: the front feet paw the air (Jade Qilin rearing)
-				end
-				if scratch > 0 and part.side == scratchSide then
-					local S = A.scratch
-					if role == "arm" then
-						angle += scratch * (S.arm + S.rub * rub) -- the hand comes up to the head
-					elseif role == "leg" and not part.front and not a.hasArms then -- a pet with arms scratches with a hand
-						angle += scratch * (S.leg + S.rub * rub) -- the back foot comes forward and up
-						out = part.side * S.out * scratch -- and out to the side, toward the ear
-					end
-				end
-				place = hipAt * CFrame.Angles(angle, 0, out) * hipAt:Inverse() * place
-			elseif role == "head" then
-				place = headTurn * place
-			elseif role == "hat" then
-				-- rides on the head, lifted by the hat's own bounce and tipped a little round its rim
-				local pv = part.pivot or rp
-				local base = CFrame.new(pv.X * sx, feet + (pv.Y - feet) * sy, pv.Z * sx)
-				place = CFrame.new(0, hatLift, 0) * headTurn * base * CFrame.Angles(hatLift / h * 0.12, 0, hatRoll)
-					* base:Inverse() * place
-				if part.liftedOnly then
-					-- e.g. the cap's underside: inside the head at rest, only shown while the hat is off
-					part.part.LocalTransparencyModifier = if hatLift > A.parts.hatShowAt * h then 0 else 1
-				end
-			elseif (role == "ear" or role == "wing") and part.pivot then
-				-- twitch outward (an upright ear tips out with -side, a hanging one with +side), flop with the steps,
-				-- and flap on the side being scratched; ears ride on the head. Wings flap the same way, both at
-				-- once, and stay on the body when the head turns.
-				local pv = part.pivot
-				local base = CFrame.new(pv.X * sx, feet + (pv.Y - feet) * sy, pv.Z * sx)
-				local outward = if part.hang then part.side else -part.side
-				local twitch = if part.side == 0 or part.side == earWhich or role == "wing" then earTwitch else 0
-				local flap = if part.side == scratchSide then A.scratch.earFlap * scratch * (0.5 + 0.5 * rub) else 0
-				local roll = outward * (A.parts.earTwitch * twitch + flap + (if role == "wing" then ownWing else 0))
-				local pitch = if part.hang then earFlop else earFlop * 0.3
-				place = (if role == "wing" then CFrame.identity else headTurn) * base * CFrame.Angles(pitch, 0, roll)
-					* base:Inverse() * place
-			elseif role == "tail" and part.pivot then
-				local pv = part.pivot
-				local base = CFrame.new(pv.X * sx, feet + (pv.Y - feet) * sy, pv.Z * sx)
-				place = base * CFrame.Angles(0, tailYaw, 0) * base:Inverse() * place
-			end
-			table.insert(moveParts, part.part) -- moved together at the end of the frame (flushMoves)
-			table.insert(moveCFs, cf * place)
-			local s = part.rel:VectorToObjectSpace(Vector3.new(sx, sy, sx))
-			local size = part.size * Vector3.new(math.abs(s.X), math.abs(s.Y), math.abs(s.Z))
-			if size ~= part.part.Size then
-				part.part.Size = size
-			end
-		end
-		local m = d.model
-		if m:IsA("Model") then
-			m.WorldPivot = cf -- the name tag follows the pet
-		end
+	-- no skinned rig (only the coloured-ball stand-in, when a model is missing): it just stands there.
+	-- The old split-part motion (actionPose / addWalk / per-part swings) is gone: every pet and chaser is
+	-- one skinned mesh now (2026-11-21), animated by animateSkinned with the checked clips in PetClips.
+	local cf = a.base
+	for _, part in a.parts do
+		table.insert(moveParts, part.part)
+		table.insert(moveCFs, cf * part.rel)
 	end
-	return math.clamp(pose.y / h, 0, 1)
+	local m = d.model
+	if m:IsA("Model") then
+		m.WorldPivot = cf
+	end
+	return 0
 end
 
 local function addPet(root: Instance)
@@ -1008,7 +1000,7 @@ local function addPet(root: Instance)
 		;(box :: Folder).Parent = folder
 		home = box :: Folder
 	end
-	local model, img = standIn(def, h)
+	local model, img = standIn(def, h, nil, penPet)
 	model.Parent = home
 	if not banked and not penPet then
 		nameTag(model, def, h, root:GetAttribute("Mut"), root:GetAttribute("Size"))
@@ -1020,7 +1012,7 @@ local function addPet(root: Instance)
 	core.Transparency = 1
 	local shadow = fxPart(Vector3.new(0.1, h * P.shadowScale, h * P.shadowScale), Theme.fx.shadow, home)
 	shadow.Shape = Enum.PartType.Cylinder
-	shadow.Transparency = 0.7
+	shadow.Transparency = if penPet then 1 else 0.7 -- no soft ground shadow in the pan either
 	local ringSize = Vector3.new(h * P.ringScale, 0.15, h * P.ringScale)
 	local ring = if wild then fxPart(ringSize, color, home, "Ring") else nil
 	local ringFx: ParticleEmitter? = nil
@@ -1512,7 +1504,9 @@ local function drawFreeze(root: BasePart, d: Drawn, fz: RayController.Freeze, t:
 	local p = fz.p
 	local h = d.height
 	local w = h * FZ.shellPad
-	local ground = root.Position - Vector3.new(0, root.Size.Y / 2, 0)
+	-- the ice grows round the drawn pet (it walks a moment behind the root), so it never forms beside a fleeing pet
+	local body = d.anim.base
+	local ground = body.Position - Vector3.new(0, root.Size.Y / 2, 0)
 	-- the front climbs fast, then slows near the top; the frost colour (from p) trails behind it
 	local front = easeOut(math.clamp(p, 0, 1))
 	local iceH = math.max(0.05, front * h * 1.05)
@@ -1533,7 +1527,7 @@ local function drawFreeze(root: BasePart, d: Drawn, fz: RayController.Freeze, t:
 		local pop = 0.86 + 0.14 * backOut(math.min(1, k / B.pop))
 		local bw = w * (1 + b.jitter + B.baseThick * (1 - (i - 1) / math.max(1, nb - 1))) * pop
 		b.part.Size = Vector3.new(bw, filled, bw)
-		b.part.CFrame = CFrame.new(ground + Vector3.new(0, lo + filled / 2, 0)) * root.CFrame.Rotation * CFrame.Angles(0, b.turn, 0)
+		b.part.CFrame = CFrame.new(ground + Vector3.new(0, lo + filled / 2, 0)) * body.Rotation * CFrame.Angles(0, b.turn, 0)
 		local age = seg(front, i / nb, i / nb + 0.35)
 		b.part.Transparency = B.clear[1] + (B.clear[2] - B.clear[1]) * age
 		b.part.Color = Theme.ice:Lerp(Theme.white, B.cloud * age)
@@ -1558,7 +1552,7 @@ local function drawFreeze(root: BasePart, d: Drawn, fz: RayController.Freeze, t:
 	for _, fern in f.ferns do
 		local g = math.clamp((front - fern.v) * 4, 0, 1)
 		local stem = FZ.ferns.size * h * g
-		local face = CFrame.new(ground) * root.CFrame.Rotation * CFrame.Angles(0, fern.face * math.pi / 2, 0)
+		local face = CFrame.new(ground) * body.Rotation * CFrame.Angles(0, fern.face * math.pi / 2, 0)
 			* CFrame.new(fern.u * outer, fern.v * h, -outer / 2 - 0.03) * CFrame.Angles(0, 0, fern.tilt)
 		local function place(part: BasePart, x0: number, y0: number, x1: number, y1: number)
 			local dx, dy = x1 - x0, y1 - y0
@@ -1575,7 +1569,7 @@ local function drawFreeze(root: BasePart, d: Drawn, fz: RayController.Freeze, t:
 	-- glints twinkle on the ice's surface
 	if f.glintBox and f.glintFx then
 		f.glintBox.Size = Vector3.new(outer, iceH, outer)
-		f.glintBox.CFrame = CFrame.new(ground + Vector3.new(0, iceH / 2, 0)) * root.CFrame.Rotation
+		f.glintBox.CFrame = CFrame.new(ground + Vector3.new(0, iceH / 2, 0)) * body.Rotation
 		f.glintFx.Rate = FZ.iceGlints.rate * p * (if SettingsController.get("lowGraphics") == true then 0.5 else 1)
 	end
 	if f.highlight then
@@ -1598,7 +1592,7 @@ local function drawFreeze(root: BasePart, d: Drawn, fz: RayController.Freeze, t:
 	-- the rim rides the top of the ice and fades as it reaches the top
 	local open = front > 0.02 and front < 0.97
 	local rimClear = if open then FZ.rim.transparency + (1 - FZ.rim.transparency) * seg(front, 0.8, 0.97) else 1
-	local top = CFrame.new(ground + Vector3.new(0, iceH, 0)) * root.CFrame.Rotation
+	local top = CFrame.new(ground + Vector3.new(0, iceH, 0)) * body.Rotation
 	for i, bar in f.rim do
 		bar.Transparency = rimClear
 		bar.Size = Vector3.new(w + FZ.rim.thick, FZ.rim.thick, FZ.rim.thick)
@@ -1640,7 +1634,7 @@ local function drawFreeze(root: BasePart, d: Drawn, fz: RayController.Freeze, t:
 		k.part.Transparency = if show then 0.1 else 1
 		if show then
 			local side = CFrame.Angles(0, k.face * math.pi / 2, 0)
-			k.part.CFrame = CFrame.new(ground) * root.CFrame.Rotation * side * CFrame.new(k.u * w, k.v * h, -outer / 2 - 0.02) * CFrame.Angles(0, 0, k.turn) * CFrame.Angles(math.pi / 2, 0, 0)
+			k.part.CFrame = CFrame.new(ground) * body.Rotation * side * CFrame.new(k.u * w, k.v * h, -outer / 2 - 0.02) * CFrame.Angles(0, 0, k.turn) * CFrame.Angles(math.pi / 2, 0, 0)
 			if i > f.cracked then
 				f.cracked = i
 				SoundController.play("crack")
@@ -1713,7 +1707,7 @@ function PetVisuals.driver(key: string, root: BasePart, model: PVInstance, img: 
 	if not def then
 		return nil
 	end
-	local d = { model = model, height = size, img = img, born = os.clock(), anim = newAnim(def, model, img, root) } :: any
+	local d = { model = model, height = size, img = img, born = os.clock(), anim = newAnim(def, model, img, root), chaser = true } :: any
 	return function(dt: number, speed: number, lift: number)
 		local cam = workspace.CurrentCamera
 		if cam then
@@ -1737,12 +1731,26 @@ local function stroll(root: BasePart, d: Drawn, dt: number, t: number)
 	local s = strolls[root]
 	if not s then
 		local y = root.Position.Y - root.Size.Y / 2 + d.height / 2
-		s = { pos = Vector3.new(root.Position.X, y, root.Position.Z), to = nil, pauseUntil = t + math.random() * W.pause[2] }
+		local _, yaw = root.CFrame:ToOrientation()
+		s = { pos = Vector3.new(root.Position.X, y, root.Position.Z), to = nil, pauseUntil = t + math.random() * W.pause[2],
+			speed = 0, yaw = yaw }
 		strolls[root] = s
 	end
-	local st = s :: { pos: Vector3, to: Vector3?, pauseUntil: number }
-	if root:GetAttribute("Action") == "sleep" then
-		root.CFrame = CFrame.new(st.pos) * root.CFrame.Rotation -- asleep: it stays where it lay down
+	local st = s :: Stroll
+	-- a giant pet (owner 2026-11-21) walks straight to the back strip first, then strolls only there
+	local giant = d.height >= W.bigHeight
+	local outOfStrip = false
+	if giant then
+		local plotN = root:GetAttribute("Plot")
+		local len = if typeof(plotN) == "number" then Config.plotLength(plotN) else P.length
+		outOfStrip = st.pos.Z > P.frontZ - len + W.backDepth + 0.5
+		if outOfStrip and not st.to then
+			st.pauseUntil = t -- out of its strip (just thawed, or a save from before): head back now
+		end
+	end
+	if root:GetAttribute("Action") == "sleep" and not outOfStrip then
+		st.speed = 0
+		root.CFrame = CFrame.new(st.pos) * CFrame.Angles(0, st.yaw, 0) -- asleep: it stays where it lay down
 		return
 	end
 	if not st.to and t >= st.pauseUntil then
@@ -1750,23 +1758,36 @@ local function stroll(root: BasePart, d: Drawn, dt: number, t: number)
 		local plotN = root:GetAttribute("Plot")
 		local len = if typeof(plotN) == "number" then Config.plotLength(plotN) else P.length -- the pan grows with its Slots
 		local back, front = P.frontZ - len + Config.thaw.machine.z + 4, P.frontZ - W.margin
+		if giant then
+			back, front = P.frontZ - len, P.frontZ - len + W.backDepth
+		end
 		st.to = Vector3.new(spot.x + (math.random() * 2 - 1) * halfW, st.pos.Y, back + math.random() * (front - back))
 	end
 	local to = st.to
 	if to then
-		local flat = to - st.pos
-		local step = W.speed * dt
-		if flat.Magnitude <= step then
-			st.pos = to
+		-- owner 2026-11-23 (smoother, more appealing): it used to set off at full speed sideways and stop dead.
+		-- Now it turns toward the spot first, walks faster the more it faces it, and eases to a stop right on it
+		-- (the walk curves a little as it turns, like a real animal)
+		local flat = (to - st.pos) * Vector3.new(1, 0, 1)
+		local dist = flat.Magnitude
+		if dist <= W.arrive then
+			st.pos = Vector3.new(to.X, st.pos.Y, to.Z)
 			st.to = nil
+			st.speed = 0
 			st.pauseUntil = t + W.pause[1] + math.random() * (W.pause[2] - W.pause[1])
 		else
-			st.pos += flat.Unit * step
-			root.CFrame = CFrame.lookAt(st.pos, st.pos + flat.Unit)
+			local err = wrap(math.atan2(-flat.X, -flat.Z) - st.yaw)
+			st.yaw += math.clamp(err * W.turnGain, -W.turn, W.turn) * dt
+			local facing = math.max(0, math.cos(err))
+			local top = math.min(W.speed * facing * facing, math.sqrt(2 * W.brake * dist))
+			st.speed = if st.speed < top then math.min(top, st.speed + W.accel * dt) else math.max(top, st.speed - W.brake * dt)
+			local fwd = Vector3.new(-math.sin(st.yaw), 0, -math.cos(st.yaw))
+			st.pos += fwd * math.min(st.speed * dt, dist)
+			root.CFrame = CFrame.new(st.pos) * CFrame.Angles(0, st.yaw, 0)
 			return
 		end
 	end
-	root.CFrame = CFrame.new(st.pos) * root.CFrame.Rotation
+	root.CFrame = CFrame.new(st.pos) * CFrame.Angles(0, st.yaw, 0)
 end
 
 local function nearestOffer(): BasePart?
@@ -1778,9 +1799,14 @@ local function nearestOffer(): BasePart?
 	return nil
 end
 
+-- the frozen pet drawn in each cube in my hands this frame (CarryRush outlines it red; a Highlight skips the
+-- see-through ice itself, so the pet inside glows instead)
+local myIce: { Instance } = {}
+
 local function step(dt: number)
 	local t = os.clock()
 	local mine = 0
+	table.clear(myIce)
 	local lowest = 1 -- the least ice on a cube you carry (the chase music and melt tick)
 	local cam = workspace.CurrentCamera
 	local reduced = SettingsController.get("reducedMotion") == true
@@ -1900,8 +1926,16 @@ local function step(dt: number)
 		elseif d.freeze then
 			clearFreeze(d)
 		end
-		local ground = root.Position - Vector3.new(0, root.Size.Y / 2, 0)
-		d.fx.core.Position = root.Position
+		-- everything round the pet (tier ring, dazed stars, sparkles, z's, where the beam lands) follows the DRAWN
+		-- pet, which walks the replayed path a moment behind the root: on the root, a fleeing pet ran up to 2 studs
+		-- off its own ring (owner 2026-11-23, Shimmerfrog screenshot)
+		local at = d.anim.base.Position
+		local ground = at - Vector3.new(0, root.Size.Y / 2, 0)
+		d.fx.core.Position = at
+		local aim = root:FindFirstChild("Aim") or root:FindFirstChild("AimLocal")
+		if aim and aim:IsA("Attachment") then
+			aim.Position = root.CFrame:PointToObjectSpace(at) -- this client only; the server's aim point is unchanged
+		end
 		-- the shadow stays under the drawn pet and shrinks while it's up in the air
 		local shadowSize = d.height * P.shadowScale * (1 - 0.4 * lift)
 		d.fx.shadow.Size = Vector3.new(0.1, shadowSize, shadowSize)
@@ -1930,7 +1964,7 @@ local function step(dt: number)
 		for i, s in d.fx.stars do
 			local a = t * P.starSpin + i * (math.pi * 2 / #d.fx.stars)
 			s.Transparency = if dazed then 0 else 1
-			s.CFrame = CFrame.new(root.Position + Vector3.new(math.cos(a) * P.starRadius, d.height * (P.starHeight - 0.5), math.sin(a) * P.starRadius)) * CFrame.Angles(0, a, 0)
+			s.CFrame = CFrame.new(at + Vector3.new(math.cos(a) * P.starRadius, d.height * (P.starHeight - 0.5), math.sin(a) * P.starRadius)) * CFrame.Angles(0, a, 0)
 		end
 		local asleep = root:GetAttribute("Action") == "sleep" and not dazed
 		d.zzz.Enabled = asleep
@@ -1995,6 +2029,7 @@ local function step(dt: number)
 		local life = if typeof(frac) == "number" and not superFrozen and not safe then math.clamp(frac, 0, 1) else 1
 		if part:GetAttribute("OwnerUserId") == me.UserId and not c.onGround then
 			lowest = math.min(lowest, life)
+			table.insert(myIce, c.model)
 		end
 		if life < c.lastFrac - 1e-4 then
 			c.meltAt = t -- it's melting right now (in the hub or a Big Chill it stops)
@@ -2050,6 +2085,7 @@ local function step(dt: number)
 	end
 	CameraController.setCarrying(mine > 0)
 	SoundController.setCarry(mine, lowest)
+	CarryRush.set(mine, lowest, myIce)
 end
 
 local function watch(name: string, add: (Instance) -> (), remove: (Instance) -> ())
@@ -2075,6 +2111,16 @@ function PetVisuals.Init()
 end
 
 function PetVisuals.Start()
+	-- skinned pets draw nothing until their texture has loaded: fetch every pet's mesh and texture up front, in
+	-- the background, so a wild pet never pops in late (2026-11-21)
+	task.spawn(function()
+		local models = ReplicatedStorage:FindFirstChild("PetModels")
+		if models then
+			pcall(function()
+				game:GetService("ContentProvider"):PreloadAsync(models:GetChildren())
+			end)
+		end
+	end)
 	meshes = ReplicatedStorage:FindFirstChild("SceneryMeshes")
 	-- one shared emitter for every sneeze puff (moved to the sneezing nose, then Emit)
 	local pp = fxPart(Vector3.one * 0.2, Theme.white, folder)

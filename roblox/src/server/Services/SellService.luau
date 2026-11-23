@@ -38,7 +38,7 @@ end
 -- counts on sales too (Round 4 prompt 1); SellPopup works it out the same way, per pet.
 function SellService.value(p: DataService.PetEntry, mult: number): number?
 	local def = PetDefs.get(p.key)
-	return if def then Config.sellValue(PetDefs.income(def, p.pose, p.mut, p.sz), mult) else nil
+	return if def then Config.sellValue(PetDefs.income(def, p.pose, p.mut, p.sz, p.inc), mult) else nil
 end
 
 local function sell(player: Player, ids: any, confirmed: any)
@@ -67,7 +67,8 @@ local function sell(player: Player, ids: any, confirmed: any)
 		local here: { [string]: boolean } = {}
 		local total = 0
 		for _, p in x.pets do
-			if want[p.id] and not p.thawM then -- a pet in a Thaw Machine can't be sold until it's out
+			-- a pet in a Thaw Machine can't be sold until it's out; a limited egg pet (paid for) never sells (2026-11-22)
+			if want[p.id] and not p.thawM and not PetDefs.isLimited(p.key) then
 				local def = PetDefs.get(p.key)
 				local v = SellService.value(p, x.tester.mult)
 				if def and v then
@@ -82,6 +83,20 @@ local function sell(player: Player, ids: any, confirmed: any)
 		end
 		if next(here) == nil then
 			return
+		end
+		-- QA DR-01: selling your very last pet needs a yes too (the same count as SellPopup.lastPets: every pet
+		-- you'd still have, pets in a Thaw Machine not counted)
+		if confirmed ~= true then
+			local left = 0
+			for _, p in x.pets do
+				if not here[p.id] and not p.thawM then
+					left += 1
+				end
+			end
+			if left == 0 then
+				needsYes = true
+				return
+			end
 		end
 		for _, p in PenService.removePets(x, here) do
 			table.insert(sold, p.key)

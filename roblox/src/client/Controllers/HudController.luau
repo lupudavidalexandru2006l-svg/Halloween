@@ -508,7 +508,10 @@ local function render(v: State.View)
 	local friendsText = if f > 0
 		then `  <font color="#{Theme.tiles.daily:ToHex()}">+{math.round(f * Config.friends.perFriend * 100)}% friends</font>`
 		else ""
-	coinsRate.Text = if v.income > 0 then `+{Ui.short(v.income)}/s{friendsText}` else ""
+	-- Coin Rush and other coin events pay more than v.income: show what you really get (QA 2026-11-23 PT-10)
+	local ev = (v :: any).coinEvent or 1
+	local eventText = if ev > 1 then `  <font color="#{Theme.coin:ToHex()}">x{ev}</font>` else ""
+	coinsRate.Text = if v.income > 0 then `+{Ui.short(v.income * ev)}/s{eventText}{friendsText}` else ""
 	coinsRate.Visible = v.income > 0
 	-- Cold Power: the number, a "+N" beside it and a small bounce when it goes up (not on the first sync)
 	local power = v.coldPower or 0
@@ -772,6 +775,11 @@ local function watchIsland()
 		return
 	end
 	lastZone = id
+	-- owner 2026-11-21: no island banner (name, degrees, Recommended gun) during the tutorial, it looked weird
+	local tu = State.view and (State.view :: any).tutorial
+	if tu and not tu.done then
+		return
+	end
 	local zone = if id > 0 then Config.zone(id) else nil
 	local reach = if State.view then State.view.reach or 1 else 1
 	if not zone or not zone.ready or id > reach then
@@ -796,7 +804,7 @@ function HudController.Start()
 		while true do
 			task.wait(0.5)
 			local v = State.view
-			if v then
+			if v and not (v.tutorial and not v.tutorial.done) then -- QA 2026-11-23 (PT-13): the tutorial claims it for you
 				local now = workspace:GetServerTimeNow()
 				local fresh: { string } = {}
 				for _, p in v.pets do
@@ -1125,7 +1133,10 @@ function HudController.Start()
 			-- the Night Reset (Config.night), the closed islands (Config.nightClose) and the night thaw boost
 			-- owner 2026-11-20: "stop saying this alert" (the night clock already shows it); no banner
 		elseif kind == "nightEnd" then
-			HudController.banner("Good morning! New pets are here", Theme.go)
+			local tv = State.view -- QA 2026-11-23 (PT-12): not over the tutorial pill
+			if not (tv and tv.tutorial and not tv.tutorial.done) then
+				HudController.banner("Good morning! New pets are here", Theme.go)
+			end
 		elseif kind == "bigWin" then
 			-- only other players' big wins (owner 2026-11-13: no alert for your own Epic and up)
 			local def = PetDefs.get(data.key)

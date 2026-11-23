@@ -28,6 +28,7 @@ local C = Config.chasers
 type Critter = {
 	id: string, zone: number, root: Part, state: string, meter: number, pushedAt: number,
 	untilT: number, wanderTo: Vector3?, target: Player?, lungeUntil: number, lungeReady: number,
+	home: Vector3, slot: number, -- its own spot on the island (WorldRules.islandLayout), owner 2026-11-23
 }
 
 -- this island's critters (Config.chasers.byIsland, owner 2026-11-18): how many, chase speed (studs/s), aggro
@@ -79,17 +80,77 @@ local function spotIn(zone: number): Vector3?
 		return nil
 	end
 	local half = Config.world.tunnel.width / 2 - Config.spawner.wallMargin
+	-- QA DR-04: 3-4 chasers stood on the path in one view. Prefer a spot off the middle path and away from
+	-- the island's other chasers; with no such spot, any spot on the island will do
+	local fallback: Vector3? = nil
 	for _ = 1, 20 do
 		local at = Vector3.new(-half + rng:NextNumber() * half * 2, 0, z.zMin + 25 + rng:NextNumber() * math.max(1, z.zMax - z.zMin - 35))
 		if WorldRules.zoneAt(at) == zone and WorldRules.inTunnel(at, Config.spawner.wallMargin) then
-			return at
+			fallback = fallback or at
+			local ok = math.abs(at.X) >= (C.pathClear or 0)
+			if ok then
+				for _, c in critters do
+					if c.zone == zone and c.root.Parent then
+						local p = c.root.Position
+						if (Vector3.new(p.X, 0, p.Z) - at).Magnitude < (C.spread or 0) then
+							ok = false
+							break
+						end
+					end
+				end
+			end
+			if ok then
+				return at
+			end
 		end
+	end
+	return fallback
+end
+
+-- a spot to stroll to: within homeRoam studs of its home, on its island and inside the walls
+local function roamSpot(c: Critter): Vector3?
+	local a = rng:NextNumber() * math.pi * 2
+	local r = C.homeRoam * math.sqrt(rng:NextNumber())
+	local t = c.home + Vector3.new(math.cos(a) * r, 0, math.sin(a) * r)
+	if WorldRules.zoneAt(t) == c.zone and WorldRules.inTunnel(t, Config.spawner.wallMargin) then
+		return t
 	end
 	return nil
 end
 
+-- while chasing: a push away from this island's other chasers closer than chaseGap, so they fan out round you
+local function apart(c: Critter): Vector3
+	local me = c.root.Position
+	local push = Vector3.zero
+	for _, o in critters do
+		if o ~= c and o.zone == c.zone then
+			local d = Vector3.new(me.X - o.root.Position.X, 0, me.Z - o.root.Position.Z)
+			local m = d.Magnitude
+			if m < C.chaseGap then
+				push += (if m > 0.05 then d.Unit else Vector3.new(rng:NextNumber() - 0.5, 0, rng:NextNumber() - 0.5).Unit) * (1 - m / C.chaseGap)
+			end
+		end
+	end
+	return push
+end
+
 local function spawnOne(zone: number): Critter?
-	local at = spotIn(zone)
+	-- its own home: the first of the island's chaser homes nobody has
+	local taken: { [number]: boolean } = {}
+	for _, o in critters do
+		if o.zone == zone then
+			taken[o.slot] = true
+		end
+	end
+	local homes = WorldRules.islandLayout(zone).chasers
+	local slot = 0
+	for i = 1, #homes do
+		if not taken[i] then
+			slot = i
+			break
+		end
+	end
+	local at = if slot > 0 then homes[slot] else spotIn(zone)
 	if not at then
 		return nil
 	end
@@ -112,7 +173,7 @@ local function spawnOne(zone: number): Critter?
 	root:SetAttribute("State", "wander")
 	root.Parent = folder
 	local c: Critter = { id = id, zone = zone, root = root, state = "wander", meter = 0, pushedAt = 0, untilT = 0, wanderTo = nil, target = nil,
-		lungeUntil = 0, lungeReady = 0 }
+		lungeUntil = 0, lungeReady = 0, home = at, slot = slot }
 	critters[id] = c
 	return c
 end
@@ -189,7 +250,12 @@ local function tick(dt: number)
 			if now < c.lungeUntil then
 				speed *= C.lunge.mult
 			end
-			stepToward(c, pos, speed * slow, dt)
+			-- aim a little to the side when another chaser is right there, so they surround you instead of stacking
+			local push = apart(c)
+			local aim = if push.Magnitude > 0.01 then pos + push * C.chaseGap else pos
+			if not stepToward(c, aim, speed * slow, dt) and aim ~= pos then
+				stepToward(c, pos, speed * slow, dt)
+			end
 			local d = (Vector3.new(pos.X, 0, pos.Z) - Vector3.new(c.root.Position.X, 0, c.root.Position.Z)).Magnitude
 			if d <= C.catchRange then
 				-- a Critter Shield (bought, 2026-11-18) takes the catch: the critter still gets its happy cool-down
@@ -200,14 +266,22 @@ local function tick(dt: number)
 						Remotes.fire(p, "Notify", "critterCaught", { key = key })
 					end
 				end
+				c.root:SetAttribute("Bite", workspace:GetServerTimeNow()) -- clients play the bite (visual only)
 				setState(c, "happy")
 				c.untilT = now + C.afterCatch
 			end
 			continue
 		end
 		setState(c, "wander")
-		if not c.wanderTo or not stepToward(c, c.wanderTo, C.wanderSpeed * slow, dt) then
-			c.wanderTo = if rng:NextNumber() < 0.03 then spotIn(c.zone) else nil
+		-- off its patch (after a chase): straight back home; on it: a slow stroll round its home
+		local here = c.root.Position
+		if (Vector3.new(here.X, 0, here.Z) - c.home).Magnitude > C.homeRoam + 2 then
+			if not stepToward(c, c.home, C.returnSpeed * slow, dt) then
+				c.root.CFrame = CFrame.new(c.home + Vector3.new(0, C.size / 2, 0)) -- boxed in by the edge: back on its spot
+			end
+			c.wanderTo = nil
+		elseif not c.wanderTo or not stepToward(c, c.wanderTo, C.wanderSpeed * slow, dt) then
+			c.wanderTo = if rng:NextNumber() < 0.03 then roamSpot(c) else nil
 		end
 	end
 	-- keep each critter island topped up (counted in one pass, not once per island)

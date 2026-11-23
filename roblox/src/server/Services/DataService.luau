@@ -15,7 +15,8 @@ local PetDefs = require(ReplicatedStorage.Shared.PetDefs)
 -- waits in your Pets until you put it in a Thaw Machine; thawM / thawEnd (os.time) / thawTotal = the
 -- machine it's in and when it comes out. A frozen pet is never eq and earns nothing.
 export type PetEntry = { id: string, key: string, pose: string, mut: string?, sz: string?, at: number, eq: boolean,
-	frozen: boolean?, thawM: number?, thawEnd: number?, thawTotal: number? }
+	frozen: boolean?, thawM: number?, thawEnd: number?, thawTotal: number?,
+	inc: number? } -- inc: a limited egg pet's own income, fixed when it hatched (EggService, 2026-11-22)
 export type Settings = { music: boolean, sound: boolean, reducedMotion: boolean, lowGraphics: boolean, unit: string, skipShows: boolean? }
 -- tester switches, saved per tester; reset to these defaults on load for everyone else
 export type TesterSettings = { mult: number, walk: number, instantFreeze: boolean, noMelt: boolean }
@@ -63,6 +64,9 @@ export type Data = {
 	createdAt: number,
 	lock: { job: string, t: number }?,
 	extra: Extra, -- the 2026-11-19 "every score to 10" pass (ExtrasService)
+	-- the limited Robux eggs (EggService, 2026-11-22): dry = eggs opened since the last Legendary or better (soft
+	-- pity), opened = all eggs opened, got = how many of each limited pet you ever hatched
+	egg: { dry: number, opened: number, got: { [string]: number } },
 }
 -- starter: Starter Pack bought; playSeconds: total play time; login: the calendar (day claimed last, days done this
 -- cycle, cycles done); weekly: this week's quests; runFrom: stats.coinsEarned at the last rebirth; chests: milestone
@@ -149,6 +153,7 @@ local function defaults(): Data
 		createdAt = os.time(),
 		lock = nil,
 		extra = extraDefaults(),
+		egg = { dry = 0, opened = 0, got = {} },
 	}
 end
 
@@ -213,6 +218,9 @@ local function migrate(old: any): Data
 				inPen += 1
 			end
 			local entry: PetEntry = { id = id :: string, key = p.key, pose = knownPose(p.pose), mut = knownMut(p.mut), sz = knownSize(p.sz), at = num(p.at, 0, 1e12), eq = eq }
+			if PetDefs.isLimited(p.key) then
+				entry.inc = num(p.inc, 0, 1e15, 0) -- a limited pet keeps the income it hatched with
+			end
 			if frozen then
 				entry.frozen = true
 				-- every machine a pan can have (was 2: a pet in Thaw Machine 3 moved into machine 2 on every rejoin)
@@ -235,10 +243,20 @@ local function migrate(old: any): Data
 		end
 		table.sort(sorted, function(a, b)
 			local da, db = PetDefs.get(a.key), PetDefs.get(b.key)
-			return PetDefs.income(da :: any, a.pose, a.mut, a.sz) > PetDefs.income(db :: any, b.pose, b.mut, b.sz)
+			return PetDefs.income(da :: any, a.pose, a.mut, a.sz, a.inc) > PetDefs.income(db :: any, b.pose, b.mut, b.sz, b.inc)
 		end)
 		for i, p in sorted do
 			p.eq = i <= slots
+		end
+	end
+	do -- the limited eggs (2026-11-22)
+		local e = tbl(old.egg)
+		d.egg.dry = int(e.dry, 0, 1e6, 0)
+		d.egg.opened = int(e.opened, 0, 1e7, 0)
+		for k, n in tbl(e.got) do
+			if typeof(k) == "string" and PetDefs.isLimited(k) then
+				d.egg.got[k] = int(n, 0, 1e7, 0)
+			end
 		end
 	end
 	for k, v in tbl(old.found) do

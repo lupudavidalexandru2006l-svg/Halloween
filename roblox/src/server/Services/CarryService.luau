@@ -23,6 +23,7 @@ local WorldService = require(script.Parent.WorldService)
 local WildPetSpawner = require(script.Parent.WildPetSpawner)
 local EventService = require(script.Parent.EventService)
 local GearService = require(script.Parent.GearService)
+local Hooks = require(script.Parent.Hooks) -- the Freeze Streak breaks on every lost pet (ExtrasService)
 
 -- personal: frozen from a pet only its freezer could see and catch (the tutorial pet, a Lucky Ray pet, a melted
 -- Rare): its ground cube never opens to anyone else (2026-11-19 bug check: others could grab it after openAfter)
@@ -172,10 +173,13 @@ local function makePart(player: Player, c: Cube): Part
 	return p
 end
 
-local function newCube(def: PetDefs.PetDef, data: any, info: CubeInfo, graceSeconds: number?): Cube
+-- at: where it was frozen (owner 2026-11-23: the ice is worked out from that spot, so a straight run home uses ~80% of it)
+local function newCube(def: PetDefs.PetDef, data: any, info: CubeInfo, graceSeconds: number?, at: Vector3?): Cube
 	-- worked out from the trip home (Config.cubeLife, owner 2026-11-12), so every island is a fair run
 	local pack = data.gear and data.gear.frost_pack
-	local lifeMax = Config.cubeLife(def.tier, def.zone) * (1 + Config.upgrades.ray.lifeBonus * (data.upgrades.ray - 1))
+	local boots = data.gear and data.gear.frost_boots -- the trip is timed at your real walk speed (owner 2026-11-23)
+	local walk = Config.gearAt("frost_boots", if typeof(boots) == "number" then boots else 0)
+	local lifeMax = Config.cubeLife(def.tier, def.zone, if at then at.Z else nil, walk) * (1 + Config.upgrades.ray.lifeBonus * (data.upgrades.ray - 1))
 		* Config.gearAt("frost_pack", if typeof(pack) == "number" then pack else 0) -- Frost Pack (2026-11-17)
 	local c: Cube = {
 		key = info.key, zone = info.zone, pose = info.pose, mut = info.mut, sz = info.sz, superFrozen = info.superFrozen, superUsed = info.superUsed, offered = info.offered,
@@ -223,7 +227,7 @@ function CarryService.dropCube(player: Player, info: CubeInfo, petAt: Vector3, g
 	if not def or not data then
 		return nil
 	end
-	local c = newCube(def, data, info, graceSeconds)
+	local c = newCube(def, data, info, graceSeconds, petAt)
 	local p = makePart(player, c)
 	local s = p.Size.Y
 	-- the same spot the client's snap draws it at (EffectsController.cubeAt)
@@ -355,7 +359,7 @@ function CarryService.claim(who: Player, owner: Player, uid: string)
 	end
 	-- a fresh cube for the new carrier: its life comes from their own ray upgrade
 	local cube = newCube(def, data, { key = old.key, zone = old.zone, pose = old.pose, mut = old.mut, sz = old.sz,
-		superFrozen = false, superUsed = old.superUsed, offered = old.offered })
+		superFrozen = false, superUsed = old.superUsed, offered = old.offered }, nil, at)
 	cube.life = cube.lifeMax * left
 	cube.shownFrac = left
 	cube.part = makePart(who, cube)
@@ -383,6 +387,7 @@ local function thawOnGround(player: Player, c: Cube)
 	if c.part then
 		c.part:Destroy()
 	end
+	Hooks.lost(player, "gone")
 	if Config.carry.groundVanish then
 		Remotes.fire(player, "Notify", "cubeGone", { key = c.key, at = at })
 		changed(player)
@@ -456,6 +461,7 @@ function CarryService.loseCarried(player: Player): number
 	if lost > 0 then
 		carrying[player] = kept
 		changed(player)
+		Hooks.lost(player, "night")
 	end
 	return lost
 end
@@ -486,7 +492,7 @@ local function melt(player: Player, c: Cube)
 		d.stats.melts += 1
 	end)
 	AnalyticsSvc.melted(player) -- a leave right after this reads "left_after_melt" (session_end)
-	require(script.Parent.Hooks).melted(player) -- the Freeze Streak goes back to 0 (ExtrasService)
+	Hooks.melted(player) -- the Freeze Streak goes back to 0 (ExtrasService)
 	local plot = WorldService.plotOf(player)
 	local home = if plot then WorldRules.plotCenter(plot) else Config.world.spawn
 	AnalyticsSvc.event(player, "cube_melted", {
@@ -539,6 +545,7 @@ function CarryService.knockOff(player: Player, open: boolean): string?
 	local z = math.clamp(pos.Z + math.sin(angle) * 4, Config.world.hubZMax + 2, Config.world.tunnelEnd - 2) -- never in the safe hub
 	local at = Vector3.new(math.clamp(pos.X + math.cos(angle) * 4, -half, half), 0, z)
 	WildPetSpawner.spawnDazed({ key = cube.key, zone = cube.zone, pose = cube.pose, mut = cube.mut, sz = cube.sz, superUsed = cube.superUsed, offered = true }, at, player, false, open, not open)
+	Hooks.lost(player, "critter")
 	return cube.key
 end
 
@@ -566,6 +573,7 @@ function CarryService.dropOpen(player: Player): string?
 		cube.part:Destroy()
 	end
 	changed(player)
+	Hooks.lost(player, "dropped")
 	local def = PetDefs.get(cube.key)
 	local pos = PlayerTracker.position(player)
 	if not def or not pos then

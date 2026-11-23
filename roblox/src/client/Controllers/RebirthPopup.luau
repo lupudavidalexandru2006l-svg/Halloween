@@ -197,6 +197,21 @@ end
 
 function RebirthPopup.fill(o: any, v: State.View, h: EquipmentPopup.Helpers)
 	o.data = if typeof(o.data) == "table" then o.data else {}
+	-- the last rebirth done (Config.rebirth.max, owner 2026-11-21): a trophy line instead of the next one
+	if v.rebirths >= Config.rebirth.max then
+		local fl = h.list(o.body, false)
+		local top = h.text(h.row(fl, 1, 0.3), "MAX REBIRTH!", 0, 1, Theme.coin)
+		top.TextXAlignment = Enum.TextXAlignment.Center
+		if h.sized then
+			h.sized(top, "title")
+		end
+		local sub = h.text(h.row(fl, 2, 0.25), `You did all {Config.rebirth.max} rebirths. Now fill your Index!`, 0, 1)
+		sub.TextXAlignment = Enum.TextXAlignment.Center
+		if h.sized then
+			h.sized(sub, "body")
+		end
+		return
+	end
 	local n = v.rebirths + 1
 	local cost = Config.rebirthCost(n)
 	local R = ui()

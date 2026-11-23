@@ -50,6 +50,9 @@ end
 
 -- what stops this player rebirthing right now (nil = they can)
 function RebirthService.blocker(d: any): string?
+	if d.rebirths >= Config.rebirth.max then
+		return `Max Rebirth! You did all {Config.rebirth.max}`
+	end
 	local cost = Config.rebirthCost(d.rebirths + 1)
 	if d.coins < cost then
 		return `Need {Config.coinText(cost - d.coins)} more`
@@ -60,7 +63,11 @@ end
 -- yes = the player said yes on the popup's "Sure?" (without it, it only answers what's missing)
 local function rebirth(player: Player, yes: any)
 	local d = DataService.get(player)
-	if not d or not atBooth(player) then
+	if not d then
+		return
+	end
+	if not atBooth(player) then
+		Remotes.notYet(player, "Go back to the Rebirth Booth", "rebirth") -- QA 2026-11-23 (CA-05): never a silent no
 		return
 	end
 	local now = os.clock()

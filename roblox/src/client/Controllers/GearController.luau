@@ -22,12 +22,14 @@ local Screen = require(script.Parent.Screen)
 local InputController = require(script.Parent.InputController)
 local SoundController = require(script.Parent.SoundController)
 local EffectsController = require(script.Parent.EffectsController)
+local RayController = require(script.Parent.RayController)
+local SettingsController = require(script.Parent.SettingsController)
 
 local GearController = {}
 local H = Config.hotbar
 local me = Players.LocalPlayer
 local bar: Frame
-local slots: { [string]: { block: Ui.Block, key: TextLabel, cool: Frame } } = {}
+local slots: { [string]: { block: Ui.Block, key: TextLabel, cool: Frame, coolFill: UIGradient } } = {}
 local shieldPill: Frame
 local shieldText: TextLabel
 local coolUntil = 0
@@ -98,19 +100,23 @@ local function makeSlot(s: { id: string, label: string, key: Enum.KeyCode })
 	Ui.image(b.face, ICONS[s.id], UDim2.fromScale(0.72, 0.66), UDim2.fromScale(0.14, 0.05))
 	local key = Ui.label(b.face, tostring(table.find(H.slots, s) or ""), UDim2.fromScale(0.26, 0.26), UDim2.fromScale(0.04, 0.03))
 	key.Name = "Key"
-	-- the gel's cooldown: a dark sheet that drains from the top
+	-- the cooldown: a dark sheet that drains from the top. It always covers the whole face with the face's own
+	-- corners, and a hard-edged gradient shows only the bottom part: a shrinking box got rounded corners of its
+	-- own at the cut and didn't follow the tile's shape (owner 2026-11-23)
 	local cool = Instance.new("Frame")
 	cool.Name = "Cooldown"
 	cool.BackgroundColor3 = Theme.ink
 	cool.BackgroundTransparency = 0.45
 	cool.BorderSizePixel = 0
-	cool.AnchorPoint = Vector2.new(0, 1)
-	cool.Position = UDim2.fromScale(0, 1)
-	cool.Size = UDim2.fromScale(1, 0)
+	cool.Size = UDim2.fromScale(1, 1)
 	cool.ZIndex = 5
+	cool.Visible = false
 	Ui.corner(cool)
+	local fill = Instance.new("UIGradient")
+	fill.Rotation = 90 -- top to bottom
+	fill.Parent = cool
 	cool.Parent = b.face
-	slots[s.id] = { block = b, key = key, cool = cool }
+	slots[s.id] = { block = b, key = key, cool = cool, coolFill = fill }
 end
 
 local function step()
@@ -120,7 +126,15 @@ local function step()
 	local bomb = slots.bomb
 	if bomb then
 		local c = math.clamp((coolUntil - os.clock()) / Config.bombs.cooldown, 0, 1)
-		bomb.cool.Size = UDim2.fromScale(1, c)
+		bomb.cool.Visible = c > 0
+		if c > 0 then
+			-- clear above the edge, dark below it (the frame's own transparency sets how dark)
+			local edge = math.clamp(1 - c, 0.001, 0.998)
+			bomb.coolFill.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(edge, 1),
+				NumberSequenceKeypoint.new(edge + 0.001, 0), NumberSequenceKeypoint.new(1, 0),
+			})
+		end
 	end
 end
 
@@ -131,6 +145,119 @@ local function placeBomb()
 	end
 	coolUntil = os.clock() + Config.bombs.cooldown
 	State.send("PlaceBomb")
+end
+
+-- a placed Frost Bomb is tossed from its owner's hand onto its spot (owner 2026-11-23: "they just appear, it looks
+-- cheap"). Client-only look over the server's spot (Animation Rules: client-only looks over server truth): it
+-- leaves the hand at the hand's size, flies on an arc with a spin that unwinds as it lands, lands with a squash and
+-- a little hop that settles (the damped spring), and only then does the ring spread out and the glow come on, with
+-- a puff of snow. Every client sees it, from that player's hand. Timings: Config.bombs.place.
+local function backOut(x: number): number
+	return 1 + 2.70158 * (x - 1) ^ 3 + 1.70158 * (x - 1) ^ 2
+end
+local function settle(x: number): number
+	return math.exp(-4 * x) * math.cos(math.pi * 1.5 * x)
+end
+local function tossBomb(core: BasePart)
+	local P = Config.bombs.place
+	local cam = workspace.CurrentCamera
+	if not core:IsA("BasePart") or (cam and (cam.CFrame.Position - core.Position).Magnitude > P.farDistance) then
+		return -- far away: it's simply there
+	end
+	local reduced = SettingsController.get("reducedMotion") == true
+	local ts = if reduced then 0.5 else 1
+	local final = core.CFrame
+	local ring = core:FindFirstChild("Ring") :: BasePart?
+	local light = core:FindFirstChildOfClass("PointLight")
+	-- every part's place and size relative to the orb (the ring stays on the ground and grows by itself)
+	local parts: { { p: BasePart, off: CFrame, size: Vector3 } } = { { p = core, off = CFrame.identity, size = core.Size } }
+	for _, d in core:GetDescendants() do
+		if d:IsA("BasePart") and d ~= ring then
+			table.insert(parts, { p = d, off = final:ToObjectSpace(d.CFrame), size = d.Size })
+		end
+	end
+	local ringSize = if ring then ring.Size else Vector3.zero
+	local ringTr = if ring then ring.Transparency else 0
+	local lightOn = if light then light.Brightness else 0
+	-- where it leaves from: the bomb in its owner's hand, else the hand, else a little above the spot
+	local owner = Players:GetPlayerByUserId(core:GetAttribute("OwnerUserId") :: number? or 0)
+	local char = owner and owner.Character
+	local held = char and char:FindFirstChild("FrostBombHeld")
+	local heldCore = held and held:IsA("Model") and held.PrimaryPart
+	local hand = char and char:FindFirstChild("RightHand")
+	local from = if heldCore then heldCore.Position
+		elseif hand and hand:IsA("BasePart") then hand.Position
+		else final.Position + Vector3.new(0, 3, 0)
+	if (from - final.Position).Magnitude > 12 then
+		from = final.Position + Vector3.new(0, 3, 0) -- a stale hand far away: drop it in from just above instead
+	end
+	if char then
+		RayController.bombTossed(char)
+	end
+	local startScale = Config.bombs.held.size / Config.bombs.size
+	local axis = (final.Position - from) * Vector3.new(1, 0, 1)
+	axis = if axis.Magnitude > 0.01 then axis.Unit:Cross(Vector3.yAxis) else Vector3.xAxis
+	local r = core.Size.Y / 2
+	local function draw(pos: Vector3, rot: CFrame, s: number)
+		local root = CFrame.new(pos) * rot * final.Rotation
+		for _, e in parts do
+			e.p.Size = e.size * s
+			e.p.CFrame = root * (e.off - e.off.Position + e.off.Position * s)
+		end
+	end
+	local function setRing(x: number)
+		if ring then
+			local g = P.ringFrom + (1 - P.ringFrom) * backOut(x)
+			ring.Size = Vector3.new(ringSize.X, ringSize.Y * g, ringSize.Z * g)
+			ring.Transparency = ringTr + (1 - ringTr) * (1 - math.clamp(x * 2, 0, 1))
+		end
+		if light then
+			light.Brightness = lightOn * math.clamp(x, 0, 1)
+		end
+	end
+	setRing(0)
+	if ring then
+		ring.Transparency = 1
+	end
+	draw(from, CFrame.identity, startScale)
+	local toss, land, ringT = P.toss * ts, P.land * ts, P.ring * ts
+	local t0 = os.clock()
+	local landed = false
+	local conn: RBXScriptConnection
+	conn = RunService.RenderStepped:Connect(function()
+		if not core.Parent then
+			conn:Disconnect()
+			return
+		end
+		local t = os.clock() - t0
+		if t < toss then
+			local u = t / toss
+			local pos = from:Lerp(final.Position, u) + Vector3.new(0, P.arc * 4 * u * (1 - u), 0)
+			local spin = if reduced then CFrame.identity else CFrame.fromAxisAngle(axis, P.spin * (1 - u))
+			draw(pos, spin, startScale + (1 - startScale) * u)
+			return
+		end
+		if not landed then
+			landed = true
+			if ring then
+				EffectsController.burst(ring.Position, Theme.ice, P.puff)
+			end
+		end
+		local x = math.clamp((t - toss) / land, 0, 1)
+		-- a little hop off the snow, then a squash-pulse that overshoots once and rests
+		local hop = if x < 0.45 then P.hop * math.sin(math.pi * x / 0.45) else 0
+		local s = 1 + P.squash * settle(x) * (if reduced then 0.35 else 1)
+		draw(final.Position + Vector3.new(0, hop + r * (s - 1), 0), CFrame.identity, s)
+		setRing(math.clamp((t - toss) / ringT, 0, 1))
+		if x >= 1 and t - toss >= ringT then
+			draw(final.Position, CFrame.identity, 1)
+			setRing(1)
+			if ring then
+				ring.Size, ring.Transparency = ringSize, ringTr
+			end
+			conn:Disconnect()
+		end
+	end)
 end
 
 -- frozen by a bomb: the TAP card and its countdown
@@ -326,6 +453,17 @@ function GearController.Start()
 			placeBomb()
 		elseif held() == "gel" then
 			throwAt(positions[1])
+		end
+	end)
+	-- every bomb placed from now on is tossed in (the ones already out when you join are just there)
+	task.spawn(function()
+		local folder = workspace:WaitForChild("FrostBombs", 30)
+		if folder then
+			folder.ChildAdded:Connect(function(child: Instance)
+				if child:IsA("BasePart") then
+					tossBomb(child)
+				end
+			end)
 		end
 	end)
 	State.Notify:Connect(function(kind: string, data: any)

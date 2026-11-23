@@ -100,7 +100,10 @@ local function setStep(player: Player, step: number, done: boolean, why: string)
 	AnalyticsSvc.coinsIn(player, gift + reward, "tutorial")
 	if why == "did" or why == "next" then
 		local st = T.steps[step]
-		AnalyticsSvc.tutorialStep(player, step, if done then "done" elseif st then st.id else "?")
+		-- QA CA-01: the last step was logged as you reached it; closing it (done) doesn't send it again
+		if not done then
+			AnalyticsSvc.tutorialStep(player, step, if st then st.id else "?")
+		end
 		-- funnel step 11 (QA 2026-11-19: it was never sent): the Cold Power lesson starts at the "peek" step
 		if st and st.id == "peek" then
 			AnalyticsSvc.funnel(player, "lesson2_start")

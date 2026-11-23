@@ -11,6 +11,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local WorldRules = require(ReplicatedStorage.Shared.WorldRules)
+local FrostBombModel = require(ReplicatedStorage.Shared.FrostBombModel)
 local Remotes = require(script.Parent.Remotes)
 local DataService = require(script.Parent.DataService)
 local PlayerTracker = require(script.Parent.PlayerTracker)
@@ -45,57 +46,11 @@ local function pop(b: Bomb, loud: boolean)
 	end
 end
 
-local function piece(name: string, shape: Enum.PartType, size: Vector3, cf: CFrame, color: Color3, mat: Enum.Material, tr: number, parent: Instance?): Part
-	local x = Instance.new("Part")
-	x.Name = name
-	x.Shape = shape
-	x.Size = size
-	x.CFrame = cf
-	x.Color = color
-	x.Material = mat
-	x.Transparency = tr
-	x.Anchored, x.CanCollide, x.CanQuery, x.CanTouch, x.CastShadow = true, false, false, false, false
-	x.Parent = parent
-	return x
-end
-
--- the model matches its painted icon (owner 2026-11-19, icons/gear_frost_bombs.png): a deep-blue glass orb with a
--- swirling glow and ice shards inside, a dark slate band with diamond gems and silver studs round the middle, a
--- snowflake on top. ~22 parts, all anchored, no collisions. The ring on the ground shows the trigger radius
--- (World Rules: hazards you can see). The orb (root) is the ray's target, so it stays a BasePart.
+-- the model is shared with the bomb held in your hand (ReplicatedStorage.Shared.FrostBombModel). The ring on the
+-- ground shows the trigger radius (World Rules: hazards you can see). The orb (root) is the ray's target, so it
+-- stays a BasePart.
 local function build(id: string, at: Vector3, owner: Player): BasePart
-	local S, r = B.size, B.size / 2
-	local c = CFrame.new(at + Vector3.new(0, r + 0.1, 0))
-	local Ball, Block, Cyl = Enum.PartType.Ball, Enum.PartType.Block, Enum.PartType.Cylinder
-	-- deep blue like the icon (a lighter glass read white on snow in the play test)
-	local core = piece("FrostBomb", Ball, Vector3.one * S, c, Color3.fromRGB(40, 110, 235), Enum.Material.Glass, 0.35)
-	piece("Glow", Ball, Vector3.one * S * 0.82, c, Color3.fromRGB(15, 75, 210), Enum.Material.Neon, 0.1, core)
-	piece("Swirl", Ball, Vector3.new(S * 0.45, S * 0.86, S * 0.86), c * CFrame.Angles(0, 0.6, 0.5), Color3.fromRGB(90, 200, 255), Enum.Material.Neon, 0.5, core)
-	for k, v in { Vector3.new(0.45, 0.4, -0.3), Vector3.new(0.3, -0.5, -0.45), Vector3.new(-0.5, 0.15, 0.4) } do
-		piece("Shard", Block, Vector3.new(0.12, 0.34, 0.12), c * CFrame.new(v * r) * CFrame.Angles(0.4 * k, k, 0.7), Color3.fromRGB(220, 245, 255), Enum.Material.Neon, 0.1, core)
-	end
-	-- the band, its 4 gems and 4 studs
-	local band = c * CFrame.new(0, -0.06, 0)
-	piece("Band", Cyl, Vector3.new(S * 0.2, S * 1.05, S * 1.05), band * CFrame.Angles(0, 0, math.pi / 2), Color3.fromRGB(50, 56, 84), Enum.Material.SmoothPlastic, 0, core)
-	local rr = S * 0.525
-	for i = 0, 3 do
-		local out = band * CFrame.Angles(0, i * math.pi / 2, 0) * CFrame.new(0, 0, -rr)
-		piece("GemFrame", Block, Vector3.new(0.52, 0.52, 0.14), out * CFrame.Angles(0, 0, math.pi / 4), Color3.fromRGB(28, 32, 58), Enum.Material.SmoothPlastic, 0, core)
-		piece("Gem", Block, Vector3.new(0.32, 0.32, 0.12), out * CFrame.new(0, 0, -0.06) * CFrame.Angles(0, 0, math.pi / 4), Color3.fromRGB(80, 190, 255), Enum.Material.Neon, 0, core)
-		local mid = band * CFrame.Angles(0, (i + 0.5) * math.pi / 2, 0) * CFrame.new(0, 0, -rr)
-		piece("Stud", Block, Vector3.new(0.26, 0.26, 0.12), mid * CFrame.Angles(0, 0, math.pi / 4), Color3.fromRGB(225, 232, 245), Enum.Material.Metal, 0, core)
-	end
-	-- the snowflake on top: 3 crossed arms with diamond tips
-	local dir = Vector3.new(-0.45, 0.8, -0.4).Unit
-	local top = CFrame.lookAt(c.Position + dir * (r + 0.02), c.Position + dir * (r + 1))
-	local white = Color3.fromRGB(235, 250, 255)
-	for k = 0, 2 do
-		local arm = top * CFrame.Angles(0, 0, k * math.pi / 3)
-		piece("Flake", Block, Vector3.new(0.12, 1, 0.05), arm, white, Enum.Material.SmoothPlastic, 0, core) -- not Neon: it bloomed into a blob
-		for _, e in { 0.5, -0.5 } do
-			piece("FlakeTip", Block, Vector3.new(0.2, 0.2, 0.05), arm * CFrame.new(0, e, 0) * CFrame.Angles(0, 0, math.pi / 4), white, Enum.Material.SmoothPlastic, 0, core)
-		end
-	end
+	local core = FrostBombModel.build(CFrame.new(at + Vector3.new(0, B.size / 2 + 0.1, 0)), B.size)
 	core:SetAttribute("BombId", id)
 	core:SetAttribute("OwnerUserId", owner.UserId)
 	local ring = Instance.new("Part")

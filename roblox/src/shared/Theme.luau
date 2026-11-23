@@ -316,6 +316,25 @@ local Theme = {
 				gold = Color3.fromHex("ffc933"), goldLight = Color3.fromHex("fff0a0"), tree = Color3.fromHex("1d3a9e"), cloud = Color3.fromHex("ffffff"),
 				coal = Color3.fromHex("1b1433"), cheek = Color3.fromHex("ff8fb0"),
 			},
+			-- the Magma Trainer (owner 2026-11-22, Robux pass; Config.training.robux): the reference clip's lava forge.
+			-- Black stone stage, oxblood voxel blocks, molten orange cracks, a yellow-white energy core, violet sparks.
+			magma = {
+				-- Tech look (owner 2026-11-23, reference: a dark navy machine with thick glowing red panel strips, red
+				-- stars and black-red thorny energy; "try matching this style"). The names are the roles the art uses:
+				-- obsidian / obsidianHi = the dark plates, crimson = dark red armour, brass = steel trim, gold = the
+				-- red glow trims, lava / lavaHot / core = red heat to white-hot, violet / violetHi = deep / bright red
+				-- energy (crystals, runes, lightning), panel = near-black grooves.
+				title = Color3.fromHex("ff2a3a"),
+				body = Color3.fromHex("1d2232"), bodyDark = Color3.fromHex("141824"), bodyLight = Color3.fromHex("2a3146"),
+				floor = Color3.fromHex("1d2232"), floorInner = Color3.fromHex("232a3c"),
+				neon = Color3.fromHex("ff1a2e"), accent = Color3.fromHex("ff4f5f"), snow = Color3.fromHex("ffe0e3"), panel = Color3.fromHex("0e1018"),
+				stone = Color3.fromHex("2a3044"), stoneDark = Color3.fromHex("141824"), trim = Color3.fromHex("3a4258"),
+				lava = Color3.fromHex("ff1a2e"), lavaHot = Color3.fromHex("ff4f5f"), core = Color3.fromHex("ffe0e3"), spark = Color3.fromHex("ff2e45"),
+				eye = Color3.fromHex("ff1a2e"), signInk = Color3.fromHex("2a0008"),
+				obsidian = Color3.fromHex("161a28"), obsidianHi = Color3.fromHex("262c40"), gold = Color3.fromHex("ff1f35"), goldHi = Color3.fromHex("ff8a95"),
+				crimson = Color3.fromHex("8e0a18"), violet = Color3.fromHex("a3001a"), violetHi = Color3.fromHex("ff3a4f"),
+				brass = Color3.fromHex("3a4258"), smoke = Color3.fromHex("1a0d12"), basalt = Color3.fromHex("120a0e"),
+			},
 		} :: { [string]: { [string]: Color3 } },
 	},
 
@@ -348,6 +367,8 @@ local Theme = {
 		frostTint = Color3.fromHex("a9dcff"), -- a freezing pet's colour cools to this
 		crystal = Color3.fromHex("d9f6ff"), crack = Color3.fromHex("ffffff"), flash = Color3.new(1, 1, 1),
 		aurora = { Color3.fromHex("5dffb0"), Color3.fromHex("7fd0ff"), Color3.fromHex("c88bff") },
+		-- the run home (CarryRush): the red edge, outlines and glitter; glint = the glitter's hot white-pink start
+		rush = Color3.fromHex("ff2a3d"), rushGlint = Color3.fromHex("ffd3d8"),
 	},
 
 	-- mutations: a tint over the whole pet + sparkles in this colour (PetVisuals)

@@ -25,6 +25,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Theme = require(ReplicatedStorage.Shared.Theme)
 local PetDefs = require(ReplicatedStorage.Shared.PetDefs)
+local FrostBombModel = require(ReplicatedStorage.Shared.FrostBombModel)
 local State = require(script.Parent.State)
 local InputController = require(script.Parent.InputController)
 local CameraController = require(script.Parent.CameraController)
@@ -35,7 +36,8 @@ local RayController = {}
 local R = Config.ray
 local A = Config.aim
 local me = Players.LocalPlayer
-local guns: { [Model]: { model: Model, tier: number, skin: any } } = {}
+-- what's in each character's right hand: the gun, or a Frost Bomb while the bombs are held (kind "bomb")
+local guns: { [Model]: { model: Model, tier: number, skin: any, kind: string } } = {}
 export type Freeze = {
 	root: BasePart, style: string, gun: number,
 	u: number, -- the server's meter (0-1)
@@ -196,20 +198,52 @@ function RayController.buildGun(tier: number, skin: { core: Color3, glow: Color3
 	return m
 end
 
+-- a Frost Bomb in the hand (owner 2026-11-23: with the bombs held, the gun stayed in the hand). The same model as
+-- the bombs on the ground, smaller, resting at the end of the hand.
+local function holdBomb(hand: BasePart): Model
+	local HB = Config.bombs.held
+	local base = CFrame.new(0, -hand.Size.Y / 2 - HB.size * 0.3, -HB.size * 0.15)
+	local m = Instance.new("Model")
+	m.Name = "FrostBombHeld"
+	local core = FrostBombModel.build(hand.CFrame * base, HB.size)
+	core.Parent = m
+	m.PrimaryPart = core
+	for _, d in core:GetDescendants() do
+		if d:IsA("BasePart") then
+			local w = Instance.new("WeldConstraint")
+			w.Part0 = core
+			w.Part1 = d
+			w.Parent = d
+		end
+	end
+	for _, d in m:GetDescendants() do
+		if d:IsA("BasePart") then
+			d.Anchored = false
+			d.Massless = true
+		end
+	end
+	weld(hand, core, base)
+	return m
+end
+
 -- the held gun, pointing along the hand's forward direction
 local function giveGun(character: Model)
 	local p = Players:GetPlayerFromCharacter(character)
 	local tier = gunTierOf(p)
 	local skinId = p and p:GetAttribute("RaySkin")
+	local kind = if p and p:GetAttribute("Held") == "bomb" then "bomb" else "gun"
+	local function same(h: { tier: number, skin: any, kind: string }): boolean
+		return h.kind == kind and (kind == "bomb" or (h.tier == tier and h.skin == skinId))
+	end
 	local had = guns[character]
-	if not showsGun(p) then -- everything is put away (hotbar): no gun in the hand
+	if not showsGun(p) then -- everything is put away (hotbar): nothing in the hand
 		if had then
 			had.model:Destroy()
 			guns[character] = nil
 		end
 		return
 	end
-	if had and had.tier == tier and had.skin == skinId then
+	if had and same(had) then
 		return
 	end
 	local hand = character:WaitForChild("RightHand", 5) or character:FindFirstChild("Right Arm")
@@ -218,11 +252,20 @@ local function giveGun(character: Model)
 	end
 	had = guns[character]
 	if had then
-		if had.tier == tier and had.skin == skinId then
+		if same(had) then
 			return
 		end
 		had.model:Destroy()
 		guns[character] = nil
+	end
+	if kind == "bomb" then
+		local bomb = holdBomb(hand)
+		bomb.Parent = character
+		guns[character] = { model = bomb, tier = tier, skin = skinId, kind = "bomb" }
+		character.Destroying:Once(function()
+			guns[character] = nil
+		end)
+		return
 	end
 	local m = RayController.buildGun(tier, if skinId then skinLook(p, tier) else nil)
 	local body = m.PrimaryPart :: BasePart
@@ -246,7 +289,7 @@ local function giveGun(character: Model)
 	m:PivotTo(hand.CFrame * base * c1:Inverse() * body.PivotOffset) -- the weld holds it there from now on
 	weld(hand, body, base).C1 = c1
 	m.Parent = character
-	guns[character] = { model = m, tier = tier, skin = skinId }
+	guns[character] = { model = m, tier = tier, skin = skinId, kind = "gun" }
 	character.Destroying:Once(function()
 		guns[character] = nil
 	end)
@@ -326,6 +369,14 @@ end
 -- InputObject.Position, which starts under Roblox's top bar, so targets are placed with WorldToScreenPoint
 -- (same space), never WorldToViewportPoint: that was 58 px off, more than a phone's whole pick radius, so a
 -- finger right on a pet never picked it (owner 2026-11-19: "couldn't freeze animals on the phone")
+-- where a target is drawn on this screen: a wild pet is drawn a moment behind its root (PetVisuals replays its
+-- path), and PetVisuals keeps its Aim attachment on the drawn pet, so a finger on the pet picks it even while it
+-- runs (owner 2026-11-23: the root ran up to 3 studs ahead of a fleeing pet)
+local function seenAt(part: BasePart): Vector3
+	local aim = part:FindFirstChild("Aim")
+	return if aim and aim:IsA("Attachment") then aim.WorldPosition else part.Position
+end
+
 local function pickAt(screen: Vector2): Target?
 	local cam = workspace.CurrentCamera
 	local root = myRoot()
@@ -336,7 +387,7 @@ local function pickAt(screen: Vector2): Target?
 	local best, bestD = nil, A.pickRadius * short
 	for _, t in candidates() do
 		if inReach(t, root.Position) then
-			local v, onScreen = cam:WorldToScreenPoint(t.part.Position)
+			local v, onScreen = cam:WorldToScreenPoint(seenAt(t.part))
 			local d = (Vector2.new(v.X, v.Y) - screen).Magnitude
 			if onScreen and d < bestD then
 				best, bestD = t, d
@@ -895,6 +946,56 @@ function RayController.recoil(character: Model, scale: number?)
 	recoils[character] = { t0 = os.clock(), scale = (scale or 1) * (if reduced() then 0.5 else 1) }
 end
 
+-- a Frost Bomb left this character's hand (GearController tosses it to the ground): the arm swings down and the
+-- body dips forward (the recoil run backwards), the hand is empty for a moment, then the next bomb pops into it
+local regrowing: { [Model]: number } = setmetatable({}, { __mode = "k" }) :: any
+function RayController.bombTossed(character: Model)
+	local held = guns[character]
+	if not held or held.kind ~= "bomb" then
+		return
+	end
+	local HB = Config.bombs.held
+	RayController.recoil(character, Config.bombs.place.throwKick)
+	local m = held.model
+	for _, d in m:GetDescendants() do
+		if d:IsA("BasePart") then
+			d.LocalTransparencyModifier = 1
+		end
+	end
+	local t0 = os.clock()
+	regrowing[character] = t0
+	task.delay(HB.regrowDelay * timeScale(), function()
+		if regrowing[character] ~= t0 or not m.Parent then
+			return
+		end
+		m:ScaleTo(0.05)
+		for _, d in m:GetDescendants() do
+			if d:IsA("BasePart") then
+				d.LocalTransparencyModifier = 0
+			end
+		end
+		-- pop: 0 -> a little past full -> full (Animation Rules 2, Back Out)
+		local start = os.clock()
+		local secs = HB.regrow * timeScale()
+		local conn: RBXScriptConnection
+		conn = RunService.RenderStepped:Connect(function()
+			local x = math.clamp((os.clock() - start) / secs, 0, 1)
+			if regrowing[character] ~= t0 or not m.Parent then
+				conn:Disconnect()
+				return
+			end
+			local c1, c3 = 1.70158, 2.70158
+			local back = 1 + c3 * (x - 1) ^ 3 + c1 * (x - 1) ^ 2
+			m:ScaleTo(math.max(0.05, back))
+			if x >= 1 then
+				m:ScaleTo(1)
+				regrowing[character] = nil
+				conn:Disconnect()
+			end
+		end)
+	end)
+end
+
 local function playCue(c: Model, s: Shot, cue: Config.RayCue)
 	if cue.sound and s.mine then
 		SoundController.play(cue.sound, 0.95 + 0.1 * math.random()) -- a little variety (Sound Rules 3)
@@ -1433,6 +1534,8 @@ local function poseArms()
 		end
 		local carrying = carriers[p.UserId] == true
 		local holding = guns[character] ~= nil -- the gun arm stays up while the gun is in the hand, not only while shooting
+		-- a bomb is held lower than the gun, ready to toss
+		local raise = if holding and guns[character].kind == "bomb" then Config.bombs.held.armRaise else R.armRaise
 		-- the shot's body motion plays on while you carry (the cube lands in your hands as the lock starts);
 		-- only the gun arm's part of it gives way to the carry pose
 		local pose = bodyPose[character]
@@ -1453,7 +1556,7 @@ local function poseArms()
 		for _, side in { "Right", "Left" } do
 			local joint = character:FindFirstChild(side .. "Shoulder", true)
 			local shot = if pose then pose.arm else 0
-			local angle = if carrying then Config.carry.armRaise elseif side == "Right" and holding then R.armRaise + shot else 0
+			local angle = if carrying then Config.carry.armRaise elseif side == "Right" and holding then raise + shot else 0
 			local turn = CFrame.Angles(math.rad(angle), 0, 0)
 			if joint and joint:IsA("Motor6D") then
 				local base = baseC0[joint]
@@ -1544,7 +1647,7 @@ local function pickAny(screen: Vector2?): Target?
 			local d = to.Magnitude
 			local ok = false
 			if screen then
-				local v, onScreen = cam:WorldToScreenPoint(t.part.Position)
+				local v, onScreen = cam:WorldToScreenPoint(seenAt(t.part))
 				d = (Vector2.new(v.X, v.Y) - screen).Magnitude
 				ok = onScreen and d < A.pickRadius * short
 			else

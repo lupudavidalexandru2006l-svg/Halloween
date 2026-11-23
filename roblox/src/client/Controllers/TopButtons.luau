@@ -16,6 +16,8 @@ local Ui = require(script.Parent.Parent.Lib.Ui)
 local State = require(script.Parent.State)
 local Screen = require(script.Parent.Screen)
 local SoundController = require(script.Parent.SoundController)
+local PromptController = require(script.Parent.PromptController)
+local TutorialGoal = require(script.Parent.TutorialGoal)
 
 local TopButtons = {}
 local TB = Config.ui.topButtons
@@ -47,9 +49,19 @@ local function syncTextSize()
 		end
 		size = math.min(size, box.Y, box.X / w * 100)
 	end
+	-- owner 2026-11-22: "the equipment button says only EQUIPM". A fixed TextSize measured a beat too big
+	-- wrapped the one long word mid-word and cut its end off. Now the shared size is only a ceiling: never
+	-- wrapped, and TextScaled shrinks a word that still wouldn't fit
 	for _, l in labels do
-		l.TextScaled = false
-		l.TextSize = math.floor(size)
+		l.TextWrapped = false
+		l.TextScaled = true
+		local c = l:FindFirstChild("SharedSize") :: UITextSizeConstraint?
+		if not c then
+			c = Instance.new("UITextSizeConstraint")
+			;(c :: UITextSizeConstraint).Name = "SharedSize"
+			;(c :: UITextSizeConstraint).Parent = l
+		end
+		;(c :: UITextSizeConstraint).MaxTextSize = math.max(1, math.floor(size))
 	end
 end
 
@@ -88,6 +100,12 @@ local function update()
 	-- the island bar only while you train (owner 2026-11-18: "this should only appear when you are in the trainer")
 	if islandFill then
 		local training = me:GetAttribute("TrainLocked") == true or (me:GetAttribute("TrainStation") or 0) ~= 0
+		-- QA 2026-11-22: the bar sat on the tutorial pill's words ("Click fast to fill..."); the pill has its own
+		-- power bar, so the island bar waits while the tutorial pill shows
+		local okPill, pillUp = pcall(TutorialGoal.visible)
+		if okPill and pillUp then
+			training = false
+		end
 		local bar = islandFill.Parent :: Frame
 		if bar.Visible ~= training then
 			bar.Visible = training
@@ -193,6 +211,22 @@ local function makeButton(i: number, b: { id: string, label: string, icon: strin
 			State.send("BuyRobux", product) -- Roblox's own prompt; the server checks and grants
 		else
 			State.send("Teleport", b.id)
+			-- owner 2026-11-22: EQUIPMENT opens the booth by itself once you land there (no E press, and the
+			-- tutorial's dark screen moves straight on to the Buy button)
+			if b.id == "equipment" then
+				task.spawn(function()
+					local at = TB.equipment.at
+					local t0 = os.clock()
+					while os.clock() - t0 < 2 do
+						task.wait(0.1)
+						local root = me.Character and me.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+						if root and Vector2.new(root.Position.X - at.X, root.Position.Z - at.Z).Magnitude < 8 then
+							PromptController.openBooth("equipment", "equipment")
+							return
+						end
+					end
+				end)
+			end
 		end
 	end)
 	-- each button's share of the row, the gap between them a share of the same short-side units

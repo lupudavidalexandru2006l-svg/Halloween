@@ -157,11 +157,13 @@ local function dressGateSign(s: BasePart, id: number)
 		flag.CastShadow = false
 		flag.Parent = m
 	end
-	-- round crest on top with the island's picture
+	-- round crest on top with the island's picture. Each layer's face sits at least 0.3 studs in front of the
+	-- one behind it (owner 2026-11-23: "the round things behind island titles are twitching"): the discs were
+	-- 0.1 apart and shared a back face, so from afar the gold and navy flickered through each other (z-fighting)
 	local cy = H / 2 + 3.9
-	signPiece(m, Enum.PartType.Cylinder, Vector3.new(1.2, 8.6, 8.6), cf * CFrame.new(0, cy, 0.45) * CFrame.Angles(0, math.pi / 2, 0), SIGN_GOLD)
-	signPiece(m, Enum.PartType.Cylinder, Vector3.new(1.3, 7.6, 7.6), cf * CFrame.new(0, cy, 0.4) * CFrame.Angles(0, math.pi / 2, 0), SIGN_NAVY)
-	local face = signPiece(m, nil, Vector3.new(6.6, 6.6, 0.1), cf * CFrame.new(0, cy, -0.32), SIGN_NAVY)
+	signPiece(m, Enum.PartType.Cylinder, Vector3.new(1, 8.6, 8.6), cf * CFrame.new(0, cy, 0.35) * CFrame.Angles(0, math.pi / 2, 0), SIGN_GOLD)
+	signPiece(m, Enum.PartType.Cylinder, Vector3.new(1, 7.6, 7.6), cf * CFrame.new(0, cy, 0) * CFrame.Angles(0, math.pi / 2, 0), SIGN_NAVY)
+	local face = signPiece(m, nil, Vector3.new(6.6, 6.6, 0.1), cf * CFrame.new(0, cy, -0.8), SIGN_NAVY)
 	face.Name = "CrestFace"
 	face.Transparency = 1
 	local g = Instance.new("SurfaceGui")

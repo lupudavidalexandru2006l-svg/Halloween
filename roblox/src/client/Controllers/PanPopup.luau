@@ -63,9 +63,9 @@ local function values(kind: string, level: number, rebirths: number, canBuy: boo
 	if kind == "thaw" then -- how long a thaw takes, against the start
 		local f = Config.thaw.upgradeFactor
 		local function pct(l: number): string
-			return `-{math.round((1 - f ^ (l - 1)) * 100)}%`
+			return `{math.round((1 - f ^ (l - 1)) * 100)}%` -- QA DR-03: "10% faster", no minus numbers for kids
 		end
-		return if level <= 1 then "0%" else pct(level), if canBuy then pct(level + 1) else nil, "wait"
+		return if level <= 1 then "0%" else pct(level), if canBuy then pct(level + 1) else nil, "faster"
 	end
 	if kind == "trainer" then -- the Cold Power trainer in front of your pan: its xN
 		local cur, nxt = Config.training.stations[level], Config.training.stations[level + 1]

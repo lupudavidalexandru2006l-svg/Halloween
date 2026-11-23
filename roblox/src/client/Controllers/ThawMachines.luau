@@ -562,7 +562,11 @@ local function updateScreen(mc: Machine, active: boolean, p: number, left: numbe
 		if tt.Text ~= txt then
 			tt.Text = txt
 		end
-		put(tf, "Size", UDim2.fromScale(math.clamp(p, 0.08, 1), 1))
+		-- owner 2026-11-23: a thin fill stuck out of the pill's round left end. It now starts as a circle the
+		-- pill's height (sits exactly in that round end) and grows from there to the full width
+		local TS = Config.thaw.timerSign
+		local minW = TS.size[2] / TS.size[1]
+		put(tf, "Size", UDim2.fromScale(minW + (1 - minW) * math.clamp(p, 0, 1), 1))
 		put(tf, "BackgroundColor3", lit)
 	end
 	local s = mc.screen
